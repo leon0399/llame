@@ -3,7 +3,7 @@
  * Space, and one installed skill package. Each port adapts its own trusted
  * source to the engine's `GrepWalkPort`, and each keeps its own link rule —
  * the host and Knowledge never follow a link, and a skill package follows one
- * exactly as agent-skills does. Only the host port honors `.gitignore`.
+ * exactly as agent-skills does. Only the host port honors ignore files.
  */
 
 import { type Dirent } from 'node:fs';
@@ -12,9 +12,12 @@ import { type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  ignoreAbovePath,
+  ignoreAncestorDirectories,
   openFileStream,
   openFlags,
   type GrepEntry,
+  type GrepIgnoreFile,
   type GrepWalkPort,
 } from '@workspace/native-file-tools';
 
@@ -86,8 +89,11 @@ export async function readBoundedFileBytes(
   return Buffer.concat(chunks, Math.min(totalBytes, maxBytes + 1));
 }
 
-/** The largest `.gitignore` the walk reads; a larger one applies no rules. */
+/** The largest ignore file the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
+
+/** The two ignore files one directory can hold, the deeper one second. */
+const IGNORE_FILE_NAMES = ['.gitignore', '.ignore'] as const;
 
 /**
  * One host path as the process sees it: a symbolic link is never one of the
@@ -110,7 +116,8 @@ export async function probeHostPath(
 /**
  * The host tree as the operating system reports it. A link is reported as a
  * link and never entered, hidden entries stay visible, and each directory's
- * `.gitignore` becomes walk policy; the engine prunes `.git` itself.
+ * `.gitignore` and `.ignore` become walk policy; the engine prunes `.git`
+ * itself.
  */
 export function createHostWalkPort(
   root: string,
@@ -120,7 +127,8 @@ export function createHostWalkPort(
     followsLinks: false,
     list: (rel) => listHostDirectory(root, rel, signal),
     open: (rel) => openFileStream(hostPath(root, rel), false, signal),
-    ignoreFile: (rel) => readIgnoreFile(root, rel, signal),
+    ignoreFiles: (rel) => readIgnoreFiles(root, rel, signal),
+    ignoreAncestors: () => readAncestorIgnoreFiles(root, signal),
   };
 }
 
@@ -180,13 +188,80 @@ function hostPath(root: string, rel: string): string {
   return rel.length === 0 ? root : path.join(root, rel);
 }
 
-/** One directory's ignore text, when it is a bounded regular file. */
-async function readIgnoreFile(
+/** One directory's ignore texts, `.gitignore` before `.ignore`. */
+async function readIgnoreFiles(
   root: string,
   rel: string,
   signal: AbortSignal | undefined,
+): Promise<ReadonlyArray<string>> {
+  const directory = hostPath(root, rel);
+  const texts: Array<string> = [];
+  for (const name of IGNORE_FILE_NAMES) {
+    const text = await readIgnoreText(directory, name, signal);
+    if (text !== undefined) texts.push(text);
+  }
+  return texts;
+}
+
+/**
+ * The ignore files above the prefix, from `/` down to its parent: `.ignore`
+ * everywhere, and `.gitignore` only at or below the nearest repository
+ * directory. A prefix with no repository above it takes no `.gitignore` there.
+ */
+async function readAncestorIgnoreFiles(
+  root: string,
+  signal: AbortSignal | undefined,
+): Promise<ReadonlyArray<GrepIgnoreFile>> {
+  const repository = await repositoryDirectory(root);
+  const files: Array<GrepIgnoreFile> = [];
+  for (const directory of ignoreAncestorDirectories(root, '/')) {
+    signal?.throwIfAborted();
+    const above = ignoreAbovePath(directory, root);
+    if (repository !== undefined && isAtOrBelow(directory, repository)) {
+      const gitignore = await readIgnoreText(directory, '.gitignore', signal);
+      if (gitignore !== undefined) files.push({ above, text: gitignore });
+    }
+    const ignore = await readIgnoreText(directory, '.ignore', signal);
+    if (ignore !== undefined) files.push({ above, text: ignore });
+  }
+  return files;
+}
+
+/** The nearest directory at or above `root` that holds a `.git` entry. */
+async function repositoryDirectory(root: string): Promise<string | undefined> {
+  let current = root;
+  for (;;) {
+    if (await holdsGitEntry(current)) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+async function holdsGitEntry(directory: string): Promise<boolean> {
+  try {
+    const stats = await stat(path.join(directory, '.git'));
+    return stats.isDirectory() || stats.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `directory` is `ancestor` or below it. */
+function isAtOrBelow(directory: string, ancestor: string): boolean {
+  return (
+    directory === ancestor ||
+    directory.startsWith(ancestor === '/' ? '/' : `${ancestor}/`)
+  );
+}
+
+/** One ignore file's text, when it is a bounded regular file. */
+async function readIgnoreText(
+  directory: string,
+  name: string,
+  signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
-  const file = path.join(hostPath(root, rel), '.gitignore');
+  const file = path.join(directory, name);
   let handle: FileHandle | undefined;
   try {
     // Policy comes from a real file only, opened by the walk's own rule: a

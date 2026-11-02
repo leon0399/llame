@@ -74,10 +74,14 @@ type ProducerState = {
   started: number;
   /** The streams those reads still hold, which a stop releases. */
   readonly streams: Set<GrepFileStream>;
+  /** Directories excluded by ignore rules, counted across every scope. */
+  ignored: number;
   readonly record: {
     entries: number;
     links: number;
     reached: string | undefined;
+    readonly ignored: Array<string>;
+    ignoredAtLeast: boolean;
   };
 };
 
@@ -97,8 +101,15 @@ export function startGrepWalk(input: GrepWalkInput): GrepWalkRun {
     nextHead: 0,
     entries: 0,
     started: 0,
+    ignored: 0,
     streams: new Set(),
-    record: { entries: 0, links: 0, reached: undefined },
+    record: {
+      entries: 0,
+      links: 0,
+      reached: undefined,
+      ignored: [],
+      ignoredAtLeast: false,
+    },
   };
   const done = produceWalk(state)
     .catch((error: unknown) => {
@@ -183,6 +194,7 @@ async function walkScope(
       onReach: (reached) => {
         state.record.reached = reached;
       },
+      onIgnored: (rel) => recordIgnored(state, scope, rel),
     })) {
       if (state.queue.closed) return true;
       // The cursor's file is exhausted: its twentieth passage hides the rest.
@@ -200,6 +212,23 @@ async function walkScope(
   // the skip counts and the reach the cursor resumes at belong to this scope.
   await flushRecord(state);
   return false;
+}
+
+/**
+ * Record one excluded directory, up to the call's cap. The producer keeps the
+ * count for every scope, so a later scope's exclusions still set `atLeast`.
+ */
+function recordIgnored(
+  state: ProducerState,
+  scope: GrepScope,
+  rel: string,
+): void {
+  if (state.ignored >= GREP_LIMITS.ignoredReported) {
+    state.record.ignoredAtLeast = true;
+    return;
+  }
+  state.ignored += 1;
+  state.record.ignored.push(scope.locatorFor(rel));
 }
 
 /** Count one listed entry, or end the walk at the entry bound. */
@@ -362,7 +391,9 @@ async function flushRecord(state: ProducerState): Promise<boolean> {
   if (
     record.entries === 0 &&
     record.links === 0 &&
-    record.reached === undefined
+    record.reached === undefined &&
+    record.ignored.length === 0 &&
+    !record.ignoredAtLeast
   )
     return !state.queue.closed;
   const event: GrepWalkEvent = {
@@ -370,9 +401,13 @@ async function flushRecord(state: ProducerState): Promise<boolean> {
     entries: record.entries,
     links: record.links,
     reached: record.reached,
+    ignored: [...record.ignored],
+    ignoredAtLeast: record.ignoredAtLeast,
   };
   record.entries = 0;
   record.links = 0;
   record.reached = undefined;
+  record.ignored.length = 0;
+  record.ignoredAtLeast = false;
   return state.queue.push(event);
 }

@@ -156,9 +156,9 @@ describe('createHostWalkPort', () => {
   function ignoreReader(root: string) {
     const port = createHostWalkPort(root, undefined);
     return (rel: string) => {
-      if (port.ignoreFile === undefined)
-        throw new Error('a host port reads .gitignore');
-      return port.ignoreFile(rel);
+      if (port.ignoreFiles === undefined)
+        throw new Error('a host port reads ignore files');
+      return port.ignoreFiles(rel);
     };
   }
 
@@ -385,8 +385,8 @@ describe('createHostWalkPort', () => {
       await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
       const policy = ignoreReader(root);
 
-      await expect(policy('')).resolves.toBe('node_modules/\n');
-      await expect(policy('absent')).resolves.toBeUndefined();
+      await expect(policy('')).resolves.toEqual(['node_modules/\n']);
+      await expect(policy('absent')).resolves.toEqual([]);
     });
   });
 
@@ -397,14 +397,14 @@ describe('createHostWalkPort', () => {
         path.join(root, 'rules.txt'),
         path.join(root, '.gitignore'),
       );
-      await expect(ignoreReader(root)('')).resolves.toBeUndefined();
+      await expect(ignoreReader(root)('')).resolves.toEqual([]);
     });
     await withTree(async (root) => {
       await writeFile(
         path.join(root, '.gitignore'),
         `node_modules/\n${'#'.repeat(257 * 1024)}`,
       );
-      await expect(ignoreReader(root)('')).resolves.toBeUndefined();
+      await expect(ignoreReader(root)('')).resolves.toEqual([]);
     });
   });
 
@@ -415,10 +415,43 @@ describe('createHostWalkPort', () => {
         // Node cannot create a FIFO, so the host's own `mkfifo` does; the
         // guard keeps the case off platforms that have neither.
         await promisify(execFile)('mkfifo', [path.join(root, '.gitignore')]);
-        await expect(ignoreReader(root)('')).resolves.toBeUndefined();
+        await expect(ignoreReader(root)('')).resolves.toEqual([]);
       });
     },
   );
+
+  it('reads .ignore after .gitignore in one directory', async () => {
+    await withTree(async (root) => {
+      await writeFile(path.join(root, '.gitignore'), 'build/\n');
+      await writeFile(path.join(root, '.ignore'), '!build/\n');
+      await expect(ignoreReader(root)('')).resolves.toEqual([
+        'build/\n',
+        '!build/\n',
+      ]);
+    });
+  });
+
+  it('collects ancestor ignore files with the repository limit', async () => {
+    await withTree(async (root) => {
+      await mkdir(path.join(root, 'repo/.git'), { recursive: true });
+      await writeFile(path.join(root, '.gitignore'), '*.md\n');
+      await writeFile(path.join(root, '.ignore'), '.cache/\n');
+      await writeFile(path.join(root, 'repo/.gitignore'), 'dist/\n');
+      await writeFile(path.join(root, 'repo/.ignore'), 'cache/\n');
+      const port = createHostWalkPort(path.join(root, 'repo/sub'), undefined);
+      if (port.ignoreAncestors === undefined)
+        throw new Error('a host port reads ancestor ignore files');
+      const files = await port.ignoreAncestors();
+
+      // The repository's own pair, `.gitignore` first.
+      expect(
+        files.filter((file) => file.above === 'sub/').map((file) => file.text),
+      ).toEqual(['dist/\n', 'cache/\n']);
+      // A `.gitignore` above the repository applies nowhere, a `.ignore` does.
+      expect(files.some((file) => file.text === '*.md\n')).toBe(false);
+      expect(files.some((file) => file.text === '.cache/\n')).toBe(true);
+    });
+  });
 
   it('reads a .gitignore that is exactly at the size bound', async () => {
     await withTree(async (root) => {
@@ -427,8 +460,9 @@ describe('createHostWalkPort', () => {
         `node_modules/\n${'#'.repeat(256 * 1024 - 14)}`,
       );
       const policy = await ignoreReader(root)('');
+      const [text] = policy;
 
-      expect(policy).toHaveLength(256 * 1024);
+      expect(text).toHaveLength(256 * 1024);
     });
   });
 });

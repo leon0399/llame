@@ -279,6 +279,13 @@ export type FsGrepConsumed = {
   readonly bytes: number;
 };
 
+/** Directories an ignore rule excluded, relative to the request's prefix. */
+export type FsGrepIgnored = {
+  readonly paths: ReadonlyArray<string>;
+  /** More directories were excluded than the daemon recorded. */
+  readonly atLeast: boolean;
+};
+
 /** One passage named relative to the request's prefix, never by host path. */
 export type FsGrepPassage = {
   /** `'/'-separated`, relative to the prefix; empty when the prefix is the file. */
@@ -317,6 +324,11 @@ export type FsGrepSuccess = {
    * relative to the request's prefix; the next call does not open it again.
    */
   readonly unfinished?: string;
+  /**
+   * The directories an ignore rule excluded, relative to the request's prefix;
+   * the hub spells each as a scope after its own `read` filter.
+   */
+  readonly ignored?: FsGrepIgnored;
 };
 
 export type FsGrepResult = FsGrepSuccess | NativeFailureResult;

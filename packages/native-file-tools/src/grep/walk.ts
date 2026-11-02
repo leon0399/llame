@@ -1,20 +1,22 @@
-import ignore from "ignore";
+import {
+  compileIgnoreRules,
+  decideIgnoreLayer,
+  type CompiledIgnoreRule,
+} from "./ignore";
 
 import type { GrepEntry, GrepScope } from "./types";
 
-/** The subset of the `ignore` manager the walker reads. */
-export interface IgnoreRules {
-  test(pathname: string): {
-    readonly ignored: boolean;
-    readonly unignored: boolean;
-  };
-}
-
-/** One `.gitignore` layer, its rules relative to the directory that owns it. */
+/** One ignore file's rules, and where its paths start. */
 type IgnoreLayer = {
-  readonly base: string;
-  readonly rules: IgnoreRules;
+  /** Directory inside the scope that holds the file; '' for the prefix. */
+  readonly below: string;
+  /** Path from the file's directory to the prefix, for a file above it. */
+  readonly above: string;
+  readonly rules: ReadonlyArray<CompiledIgnoreRule>;
 };
+
+/** The two ignore files a directory scope never searches. */
+const IGNORE_FILE_NAMES = new Set([".gitignore", ".ignore"]);
 
 /** What a resume point names: a file the page ended in, or a reached entry. */
 export type GrepCursorKind = "passage" | "position";
@@ -32,18 +34,15 @@ export interface GrepWalk {
   readonly onLink: () => void;
   /** Record one entry the walk finished handling, for a later position cursor. */
   readonly onReach: (rel: string) => void;
+  /** Record one directory an ignore rule excluded. */
+  readonly onIgnored: (rel: string) => void;
 }
-
-/** No layer's verdict is void below this directory. */
-const NOTHING_VOIDED: ReadonlySet<number> = new Set();
 
 type WalkState = {
   readonly walk: GrepWalk;
   readonly layers: Array<IgnoreLayer>;
   /** Canonical identities of the directories on the current path (skill loops). */
   readonly ancestors: Set<string>;
-  /** Layer indices a re-included directory put aside for its whole subtree. */
-  readonly voided: ReadonlySet<number>;
 };
 
 /** Where an entry sits relative to the resume point. */
@@ -63,9 +62,21 @@ export async function* walkGrepScope(walk: GrepWalk): AsyncGenerator<string> {
     return;
   }
   yield* walkDirectory(
-    { walk, layers: [], ancestors: new Set(), voided: NOTHING_VOIDED },
+    { walk, layers: await ancestorLayers(walk), ancestors: new Set() },
     "",
   );
+}
+
+/** The layers above the prefix, shallowest first, so a deeper one wins. */
+async function ancestorLayers(walk: GrepWalk): Promise<Array<IgnoreLayer>> {
+  const { port } = walk.scope;
+  if (port.ignoreAncestors === undefined) return [];
+  const layers: Array<IgnoreLayer> = [];
+  for (const file of await port.ignoreAncestors()) {
+    const rules = compileIgnoreRules(file.text);
+    if (rules.length > 0) layers.push({ below: "", above: file.above, rules });
+  }
+  return layers;
 }
 
 async function* walkDirectory(
@@ -73,13 +84,19 @@ async function* walkDirectory(
   rel: string,
 ): AsyncGenerator<string> {
   const { scope } = state.walk;
-  // One directory's listing and its ignore file read together: the listing is
+  // One directory's listing and its ignore files read together: the listing is
   // the depth-first order the walk needs whole, so directories never overlap.
-  const [layer, listed] = await Promise.all([
-    loadIgnoreLayer(state, rel),
+  const [texts, listed] = await Promise.all([
+    scope.port.ignoreFiles === undefined
+      ? Promise.resolve([])
+      : scope.port.ignoreFiles(rel),
     scope.port.list(rel),
   ]);
-  if (layer !== undefined) state.layers.push(layer);
+  const depth = state.layers.length;
+  for (const text of texts) {
+    const rules = compileIgnoreRules(text);
+    if (rules.length > 0) state.layers.push({ below: rel, above: "", rules });
+  }
   // Encode each name once; a comparator that encodes allocates per comparison.
   const entries = listed
     .map((entry) => ({ entry, key: Buffer.from(entry.name, "utf8") }))
@@ -102,7 +119,7 @@ async function* walkDirectory(
     if (isCandidate(state, entry, childRel, counted)) yield childRel;
     if (counted) state.walk.onReach(childRel);
   }
-  if (layer !== undefined) state.layers.pop();
+  state.layers.length = depth;
 }
 
 /**
@@ -127,7 +144,7 @@ function isCandidate(
 ): boolean {
   if (entry.kind !== "file" || !counted) return false;
   const { scope } = state.walk;
-  if (scope.port.ignoreFile !== undefined && entry.name === ".gitignore")
+  if (scope.port.ignoreFiles !== undefined && IGNORE_FILE_NAMES.has(entry.name))
     return false;
   if (scope.glob !== undefined && !scope.glob.matchesFile(rel)) return false;
   return !isIgnored(state, rel, false);
@@ -153,6 +170,9 @@ async function* walkDirectoryEntry(
   if (position === "before") return;
   if (isIgnored(state, rel, true)) {
     reach();
+    // An excluded directory at or after the start point is reported; one on
+    // the way to the resume point is before it.
+    if (position !== "ancestor") state.walk.onIgnored(rel);
     return;
   }
   if (scope.glob !== undefined && !scope.glob.mayDescend(rel)) {
@@ -171,75 +191,34 @@ async function* walkDirectoryEntry(
   // A directory counts as reached before it is descended: its own contents
   // overwrite this position as they are handled.
   if (position !== "ancestor") state.walk.onReach(rel);
-  const voided = reIncludedLayers(state, rel);
-  yield* walkDirectory({ ...state, voided }, rel);
+  yield* walkDirectory(state, rel);
   if (identity !== undefined) state.ancestors.delete(identity);
 }
 
-async function loadIgnoreLayer(
-  state: WalkState,
-  rel: string,
-): Promise<IgnoreLayer | undefined> {
-  const { port } = state.walk.scope;
-  if (port.ignoreFile === undefined) return undefined;
-  const text = await port.ignoreFile(rel);
-  if (text === undefined) return undefined;
-  return { base: rel, rules: ignore({ ignorecase: false }).add(text) };
-}
-
 /**
- * A layer's rules see the path relative to that layer's directory. Later
- * layers sit deeper, so their verdict — including a negation — wins. A layer a
- * re-included directory set aside takes no part in its subtree's verdicts.
+ * A rule decides an entry only when its own pattern matches that entry's path;
+ * a deeper layer's deciding rule outranks a shallower one. The walk never tests
+ * the scope directory or a directory above it.
  */
 function isIgnored(state: WalkState, rel: string, directory: boolean): boolean {
   const pathname = directory ? `${rel}/` : rel;
-  let ignored = false;
-  for (const [index, layer] of state.layers.entries()) {
-    if (state.voided.has(index)) continue;
-    const result = layer.rules.test(pathRelativeTo(layer, pathname));
-    if (result.ignored) ignored = true;
-    else if (result.unignored) ignored = false;
-  }
-  return ignored;
-}
-
-/**
- * The layers a re-included directory voids for its subtree. The walker only
- * descends a directory a deeper layer re-included, so a layer that ignored it
- * must not decide the files inside it.
- */
-function reIncludedLayers(state: WalkState, rel: string): ReadonlySet<number> {
-  const pathname = `${rel}/`;
-  let voided: Set<number> | undefined;
-  for (const [index, layer] of state.layers.entries()) {
-    if (state.voided.has(index)) continue;
-    if (!layer.rules.test(pathRelativeTo(layer, pathname)).ignored) continue;
-    if (!reIncludedByDeeperLayer(state.layers, index, pathname)) continue;
-    voided ??= new Set(state.voided);
-    voided.add(index);
-  }
-  return voided ?? state.voided;
-}
-
-/** Whether any layer below `index` re-includes the same directory. */
-function reIncludedByDeeperLayer(
-  layers: ReadonlyArray<IgnoreLayer>,
-  index: number,
-  pathname: string,
-): boolean {
-  for (let below = index + 1; below < layers.length; below += 1) {
-    const layer = layers[below];
-    if (layer.rules.test(pathRelativeTo(layer, pathname)).unignored)
-      return true;
+  for (let index = state.layers.length - 1; index >= 0; index -= 1) {
+    const layer = state.layers[index];
+    const verdict = decideIgnoreLayer(
+      layer.rules,
+      pathRelativeTo(layer, pathname),
+    );
+    if (verdict !== undefined) return verdict;
   }
   return false;
 }
 
+/** The path a layer's rules see: relative to the file's own directory. */
 function pathRelativeTo(layer: IgnoreLayer, pathname: string): string {
-  return layer.base.length === 0
+  if (layer.above.length > 0) return `${layer.above}${pathname}`;
+  return layer.below.length === 0
     ? pathname
-    : pathname.slice(layer.base.length + 1);
+    : pathname.slice(layer.below.length + 1);
 }
 
 /**

@@ -176,6 +176,12 @@ function resultOf(scan: GrepScanResult): FsGrepResult {
     consumed: { ...scan.consumed },
     progressed: scan.progressed,
     ...(scan.unfinished !== undefined && { unfinished: scan.unfinished }),
+    ...(scan.ignored !== undefined && {
+      ignored: {
+        paths: [...scan.ignored.paths],
+        atLeast: scan.ignored.atLeast,
+      },
+    }),
   };
   return scan.cursor === undefined
     ? result

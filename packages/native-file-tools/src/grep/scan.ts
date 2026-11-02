@@ -3,7 +3,12 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
-import { grepUnfinishedUnits, grepWarningsUnits } from "./model-text";
+import { GREP_LIMITS } from "./limits";
+import {
+  grepIgnoredUnits,
+  grepUnfinishedUnits,
+  grepWarningsUnits,
+} from "./model-text";
 import {
   appendGrepFile,
   createGrepPage,
@@ -34,7 +39,9 @@ type ScanState = {
   readonly input: GrepScanInput;
   readonly page: GrepPage;
   /** What the page may render to, and what it keeps for its caller. */
-  readonly limits: GrepPageLimits;
+  limits: GrepPageLimits;
+  /** The caller's own reserve, before the ignored line grows it. */
+  readonly baseReserve: number;
   /** The widest scope ordinal, which a position cursor may name. */
   readonly widestIndex: number;
   readonly warnings: Map<GrepWarningKind, number>;
@@ -44,6 +51,8 @@ type ScanState = {
   readonly startPoint:
     | { readonly scopeIndex: number; readonly rel: string }
     | undefined;
+  /** Directories an ignore rule excluded, capped across the call. */
+  readonly ignored: { readonly paths: Array<string>; atLeast: boolean };
   /** The passages that are their file's twentieth and reached the page. */
   readonly capped: Array<GrepCappedPassage>;
   readRefused: number;
@@ -103,6 +112,7 @@ function createScanState(input: GrepScanInput): ScanState {
       pageUnits: input.budget.pageUnits,
       fixedReserve: input.budget.fixedReserve,
     },
+    baseReserve: input.budget.fixedReserve,
     // A position cursor names the scope its walk stopped in; the widest
     // ordinal reserves the digits every one of them can take.
     widestIndex: input.scopes.reduce(
@@ -113,6 +123,7 @@ function createScanState(input: GrepScanInput): ScanState {
     consumed: { files: 0, entries: 0, bytes: 0 },
     deadlineAt: input.now() + input.budget.deadlineMs,
     startPoint: startPointOf(input),
+    ignored: { paths: [], atLeast: false },
     capped: [],
     readRefused: 0,
     progressed: input.progressed === true,
@@ -169,6 +180,7 @@ function takeRecord(
 ): boolean {
   if (record.links > 0 && !addWarning(state, "link", record.links)) return true;
   state.consumed.entries += record.entries;
+  takeIgnored(state, record);
   const { reached } = record;
   const scopeIndex = state.scopeIndex;
   if (reached === undefined || scopeIndex === undefined) return false;
@@ -181,6 +193,37 @@ function takeRecord(
   );
   if (pastStartPoint(state, reached)) state.progressed = true;
   return false;
+}
+
+/**
+ * Take the excluded directories a record carries, up to the call's cap, and
+ * keep the room the `[ignored …]` line takes on the page.
+ */
+function takeIgnored(
+  state: ScanState,
+  record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
+): void {
+  if (record.ignored.length === 0 && !record.ignoredAtLeast) return;
+  if (record.ignoredAtLeast) state.ignored.atLeast = true;
+  for (const locator of record.ignored) {
+    if (state.ignored.paths.length >= GREP_LIMITS.ignoredReported) {
+      state.ignored.atLeast = true;
+      continue;
+    }
+    state.ignored.paths.push(locator);
+  }
+  // The ignored line renders beside the continuation line, so it adds to the
+  // reserve the page keeps back rather than replacing the cursor's room.
+  state.limits = {
+    ...state.limits,
+    fixedReserve:
+      state.baseReserve +
+      grepIgnoredUnits({
+        count: state.ignored.paths.length,
+        locators: state.ignored.paths,
+        atLeast: state.ignored.atLeast,
+      }),
+  };
 }
 
 /** Whether an entry sorts strictly after the point the call starts at. */
@@ -423,6 +466,12 @@ function buildResult(state: ScanState): GrepScanResult {
     consumed: { ...state.consumed },
     progressed: state.progressed,
     ...(state.unfinished !== undefined && { unfinished: state.unfinished }),
+    ...(state.ignored.paths.length > 0 && {
+      ignored: {
+        paths: [...state.ignored.paths],
+        atLeast: state.ignored.atLeast,
+      },
+    }),
     ...(last !== undefined && { last: { ...last } }),
     ...(position !== undefined && { position: { ...position } }),
     ...(state.capped.length > 0 && {

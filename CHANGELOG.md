@@ -2,6 +2,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
+- `grep` now reads `.ignore` beside `.gitignore` and applies both above the
+  scope: `.ignore` up to `/` on the host or the registered root on a Machine,
+  and `.gitignore` only from the nearest repository directory down. A rule
+  decides an entry only when its own pattern matches that path, the last
+  matching rule in a file wins, and a deeper file outranks a shallower one, so
+  an explicit scope searches an ignored directory and a re-included directory
+  keeps every other rule. Neither ignore file is searched by a directory
+  scope. The result reports up to 1,000 excluded directories in `ignored` as
+  locators that work as scopes, with the admitted count and first five
+  locators, and renders `[ignored …]` after the warnings line. `fs.grep`
+  answers `ignored` relative to its prefix. Host scopes decode the seven
+  literal spellings (`%25`, `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, `%7D`) in the
+  literal prefix, and the admission projection sees the decoded path.
+  Addresses [#1397](https://github.com/leon0399/llame/issues/1397) and the
+  ignore item of [#1392](https://github.com/leon0399/llame/issues/1392). See
+  [grep](docs/product/reference/tools/grep.md).
+
 - **Breaking**: the `fs.grep` request field `budget` is now `bounds`, with
   `files`, `entries`, `bytes`, and `fileBytes` nullable; a `null` field means
   the daemon applies no such bound. A hub and a daemon of different builds

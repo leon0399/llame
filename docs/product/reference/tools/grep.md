@@ -80,7 +80,8 @@ scheme.
 
 A model reads the page as plain text — one `notice: <text>` line first when
 the result carries the Knowledge notice, then each run of consecutive passages of one file under
-one `## <file locator>` line, then one `[warnings: …]` line, then the
+one `## <file locator>` line, then one `[warnings: …]` line, then one
+`[ignored …]` line when the walk excluded directories, then the
 `[not searched to the end: <locator>]` line when the call stopped inside a
 file, then one bracketed continuation line when more passages remain — while
 the owner's UI reads the stored object:
@@ -91,6 +92,7 @@ the owner's UI reads the stored object:
 | `complete`       | whether more passages remain after this page                                         |
 | `cursor`         | the opaque value the continuation line names                                         |
 | `warnings`       | every skip and the bound that stopped the walk, by kind and count                    |
+| `ignored`        | the count and first five locators of the directories an ignore rule excluded         |
 | `unfinishedFile` | the file a bound stopped the walk inside before any progress, as its locator         |
 | `notice`         | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the page |
 
@@ -104,6 +106,19 @@ reaches the rest. A passage cut at the page bound ends with `[passage cut at
 the result bound; continue with the cursor]`, and the cursor continues its
 remaining lines. A bracketed cap notice ends the text when the shared result
 cap cut the page.
+
+`ignored` reports the directories the walk declined to enter, in walk order,
+so the model knows which directory to scope when a search comes back empty or
+partial. It holds the admitted count and the first five locators. A count of
+one renders `directory`, any other count `directories`; a count past the
+1,000-directory cap renders `<count> or more`. The line stays at or below
+2,000 code units, and the remaining locators follow as `(+<rest> more)` or
+`(+<rest> or more)`. A nested excluded directory is never listed, because the
+walk never enters its parent. A resumed page does not repeat an exclusion
+before its cursor. Each locator is written as a scope, so a literal `%`, `*`,
+`?`, `[`, `]`, `{`, or `}` is spelled `%25`, `%2A`, `%3F`, `%5B`, `%5D`,
+`%7B`, or `%7D`. A directory the `read` group refuses is neither counted nor
+named, and these directory decisions are never recorded one by one.
 
 A result with at least one `kb://` passage carries the closed
 untrusted-content `notice`, the same text a `kb://` read and
@@ -121,6 +136,14 @@ argument. In a `kb://` or `skill://` locator, `grep` spells each segment the
 way that scheme's canonical formatter does. A `*` in a returned locator is
 part of the file name for `read`. In a `grep` scope it is a glob operator. To
 search that one file again, write the character as `%2A`.
+
+In a host scope, the seven literal spellings `%25`, `%2A`, `%3F`, `%5B`,
+`%5D`, `%7B`, and `%7D` decode once in the literal prefix, so a reported
+locator such as `app/%5Bid%5D` searches `app/[id]`. No other percent sequence
+decodes, so `100%41` stays that path, and `%252A` names `%2A` rather than `*`.
+A `machine://` scope keeps its full one-layer decode. In both schemes the
+admission projection sees the decoded prefix, so an encoded path cannot hide
+from a reject.
 
 The order is the submitted scope order, then the walk order, then the start
 line. The walk order is depth-first with names in byte order. A bare
@@ -148,6 +171,22 @@ The `read` group then admits every candidate file on its canonical locator.
 A file that `read` refuses contributes no hit, no count, and no name. The
 completion audit records how many files policy hid, on every outcome.
 
+A host or Machine walk applies `.ignore` and `.gitignore`. From the scope
+prefix it reads both files in each directory it enters, and `.ignore` outranks
+`.gitignore` in one directory. Above the prefix it reads `.ignore` files up to
+`/` on the host, and up to the registered root on a Machine. It reads
+`.gitignore` above the prefix only inside the repository: the nearest
+directory at or above the prefix that holds a `.git` entry. A Machine looks for
+that repository only up to its registered root, and without one there, the
+root counts as the repository. Neither file is searched by a directory scope;
+an exact-file scope still searches either file.
+
+A rule decides an entry only when its own pattern matches that entry's path.
+In one file the last matching rule decides, a negation included, and a deeper
+file outranks a shallower one. The walk never applies a rule to the scope
+directory or a directory above it. A re-included directory keeps every other
+rule for its files.
+
 A scope with no glob operator is probed first. When the probe finds one
 regular file, the `read` group admits its exact locator, and a refusal
 returns `not_found`, exactly as for a missing path: the result does not reveal
@@ -163,6 +202,10 @@ refused file.
 | Passages of one file | 20             |
 | Lines of one passage | 2,000          |
 | Line length          | 512 code units |
+| Files of one call    | 5,000          |
+| Directory entries    | 20,000         |
+| Bytes read           | 32 MiB         |
+| Excluded directories | 1,000          |
 | Longest line         | 4 MiB          |
 | Files read at once   | 8              |
 

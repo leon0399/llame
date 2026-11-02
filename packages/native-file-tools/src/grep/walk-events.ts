@@ -51,6 +51,10 @@ export type GrepWalkEvent =
       readonly links: number;
       /** The last entry the walk reached, for a position cursor. */
       readonly reached: string | undefined;
+      /** Directories an ignore rule excluded, in canonical order. */
+      readonly ignored: ReadonlyArray<string>;
+      /** More directories were excluded than could be recorded. */
+      readonly ignoredAtLeast: boolean;
     }
   | { readonly kind: "stop"; readonly reason: GrepWarningKind }
   | GrepCandidateEvent;

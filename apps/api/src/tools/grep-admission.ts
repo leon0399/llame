@@ -13,6 +13,7 @@
  */
 
 import {
+  decodeGrepLiteralSpelling,
   normalizeHostScope,
   parsePathScheme,
   splitGrepScope,
@@ -94,7 +95,12 @@ export function projectGrepScope(
     // A `file:` alias is decoded first, then normalized like any host path, so
     // `..` text it carried cannot be matched by policy as written.
     const normalized = normalizeHostScope(projectNativeFilePath(placed));
-    return { submitted: scope, prefix: prefixOf(normalized) };
+    // The host prefix decodes the seven literal spellings, exactly as the walk
+    // probes it, so a reject written against `app/[id]` sees `app/%5Bid%5D`.
+    return {
+      submitted: scope,
+      prefix: decodeGrepLiteralSpelling(prefixOf(normalized)),
+    };
   }
   const head = placed.slice(0, placed.length - scheme.rest.length);
   const authorityEnd = scheme.rest.indexOf('/');
@@ -153,6 +159,11 @@ export function evaluateGrepPermission(
 export interface GrepReadAdmission {
   /** `true` only when the `read` group allows a read of this canonical locator. */
   admit(locator: string): boolean;
+  /**
+   * Whether the `read` group would admit this locator, judged without a file
+   * record: an excluded directory is counted nowhere and audited nowhere.
+   */
+  allows(locator: string): boolean;
   /** Files the `read` group refused; owner-visible through the audit only. */
   readonly refused: number;
   /**
@@ -163,46 +174,94 @@ export interface GrepReadAdmission {
   recordRefusals(): void;
 }
 
+/** The `read` group's decision for one locator, projected as `read` sees it. */
+function readDecision(
+  context: ToolContext,
+  project: (field: string, value: string) => string,
+  locator: string,
+): PermissionDecision | undefined {
+  return admitPermission(context, (evaluate) =>
+    evaluate({
+      toolId: 'read',
+      args: { path: locator },
+      projectFieldValue: project,
+    }),
+  );
+}
+
+/** What one call accumulated: refused files and the decision it stands for. */
+type ReadAdmissionState = {
+  refused: number;
+  firstRejection: PermissionDecision | undefined;
+};
+
+/** One file's verdict, counted once for the audit when it is refused. */
+function admitFile(
+  state: ReadAdmissionState,
+  verdicts: Map<string, boolean>,
+  judge: (locator: string) => PermissionDecision | undefined,
+  locator: string,
+): boolean {
+  const known = verdicts.get(locator);
+  if (known !== undefined) return known;
+  const decision = judge(locator);
+  const allowed = decision?.decision === 'allow';
+  verdicts.set(locator, allowed);
+  if (allowed) return true;
+  state.refused += 1;
+  state.firstRejection ??= decision;
+  return false;
+}
+
+/**
+ * One directory's verdict, judged without a record. A bypass attempt answers
+ * its synthetic allow without consulting the policy, so no excluded directory
+ * is evaluated.
+ */
+function allowsDirectory(
+  directories: Map<string, boolean>,
+  judge: (locator: string) => PermissionDecision | undefined,
+  locator: string,
+): boolean {
+  const known = directories.get(locator);
+  if (known !== undefined) return known;
+  const allowed = judge(locator)?.decision === 'allow';
+  directories.set(locator, allowed);
+  return allowed;
+}
+
+/** Record the call's refused files as one derived decision carrying the count. */
+function recordRefusal(context: ToolContext, state: ReadAdmissionState): void {
+  // Set exactly when a file was refused.
+  if (state.firstRejection === undefined) return;
+  context.onDerivedDecision?.({
+    kind: 'grep-file',
+    url: '',
+    decision: state.firstRejection,
+    count: state.refused,
+  });
+}
+
 export function createGrepReadAdmission(
   context: ToolContext,
 ): GrepReadAdmission {
-  const root = context.workspaceRoot?.current();
-  const project = nativeFileProjection('read', root);
-  let refused = 0;
-  let firstRejection: PermissionDecision | undefined;
+  const project = nativeFileProjection(
+    'read',
+    context.workspaceRoot?.current(),
+  );
+  const judge = (locator: string) => readDecision(context, project, locator);
   // One verdict per file for the whole call: overlapping scopes and a file a
-  // Machine returns on two pages must count one refused file once.
+  // Machine returns on two pages count one refused file once. Directory
+  // verdicts stay apart: they are never a refused file.
   const verdicts = new Map<string, boolean>();
+  const directories = new Map<string, boolean>();
+  const state: ReadAdmissionState = { refused: 0, firstRejection: undefined };
   return {
-    admit(locator) {
-      const known = verdicts.get(locator);
-      if (known !== undefined) return known;
-      const decision = admitPermission(context, (evaluate) =>
-        evaluate({
-          toolId: 'read',
-          args: { path: locator },
-          projectFieldValue: project,
-        }),
-      );
-      const allowed = decision?.decision === 'allow';
-      verdicts.set(locator, allowed);
-      if (allowed) return true;
-      refused += 1;
-      firstRejection ??= decision;
-      return false;
-    },
+    admit: (locator) => admitFile(state, verdicts, judge, locator),
+    allows: (locator) => allowsDirectory(directories, judge, locator),
     get refused() {
-      return refused;
+      return state.refused;
     },
-    recordRefusals() {
-      // Set exactly when a file was refused.
-      if (firstRejection === undefined) return;
-      context.onDerivedDecision?.({
-        kind: 'grep-file',
-        url: '',
-        decision: firstRejection,
-        count: refused,
-      });
-    },
+    recordRefusals: () => recordRefusal(context, state),
   };
 }

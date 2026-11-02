@@ -9,9 +9,12 @@
 import {
   fsGrepCursorKey,
   type FsGrepParams,
+  type FsGrepSuccess,
+  type FsGrepWarningKind,
 } from '@workspace/machine-protocol';
 import {
   encodeGrepCursor,
+  GREP_LIMITS,
   type DecodedGrepCursor,
   type GrepBudget,
 } from '@workspace/native-file-tools';
@@ -147,4 +150,50 @@ export function unfinishedPosition(
   return rel === ''
     ? { scopeIndex: search.scope.index + 1, rel: '' }
     : { scopeIndex: search.scope.index, rel };
+}
+
+/** The excluded directories one Machine scope's pages report, capped. */
+export type IgnoredAccumulator = {
+  readonly scope: MachineGrepScope;
+  readonly paths: Array<string>;
+  recorded: number;
+  atLeast: boolean;
+};
+
+export function ignoredAccumulator(
+  scope: MachineGrepScope,
+): IgnoredAccumulator {
+  return { scope, paths: [], recorded: 0, atLeast: false };
+}
+
+/**
+ * Fold one daemon page's warnings, budget, and excluded directories into the
+ * scope's totals. The daemon's own cap and this one both count recorded
+ * directories, before the hub's `read` filter.
+ */
+export function mergePage(
+  warnings: Map<FsGrepWarningKind, number>,
+  consumed: { files: number; entries: number; bytes: number },
+  ignored: IgnoredAccumulator,
+  page: FsGrepSuccess,
+): void {
+  for (const warning of page.warnings)
+    warnings.set(
+      warning.kind,
+      (warnings.get(warning.kind) ?? 0) + warning.count,
+    );
+  consumed.files += page.consumed.files;
+  consumed.entries += page.consumed.entries;
+  consumed.bytes += page.consumed.bytes;
+  if (page.ignored === undefined) return;
+  if (page.ignored.atLeast) ignored.atLeast = true;
+  for (const rel of page.ignored.paths) {
+    if (ignored.recorded >= GREP_LIMITS.ignoredReported) {
+      ignored.atLeast = true;
+      break;
+    }
+    ignored.recorded += 1;
+    const locator = machineScopeLocator(ignored.scope, rel);
+    if (locator !== undefined) ignored.paths.push(locator);
+  }
 }

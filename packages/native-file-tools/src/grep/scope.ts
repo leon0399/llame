@@ -62,6 +62,29 @@ export function splitGrepScope(pathPart: string): GrepScopeSplitResult {
   };
 }
 
+/** The seven literal spellings a host scope decodes, each to its character. */
+const LITERAL_SPELLINGS = new Map([
+  ["%25", "%"],
+  ["%2A", "*"],
+  ["%3F", "?"],
+  ["%5B", "["],
+  ["%5D", "]"],
+  ["%7B", "{"],
+  ["%7D", "}"],
+]);
+
+/**
+ * Decode exactly the seven literal spellings of a host scope prefix in one
+ * pass. No other percent sequence is decoded, so an ordinary path that holds
+ * `%41` keeps its meaning, and `%252A` becomes `%2A` rather than `*`.
+ */
+export function decodeGrepLiteralSpelling(text: string): string {
+  return text.replaceAll(
+    /%[0-9A-F]{2}/giu,
+    (sequence) => LITERAL_SPELLINGS.get(sequence.toUpperCase()) ?? sequence,
+  );
+}
+
 /** The kept segments as one locator prefix; a removed segment leaves a '/'. */
 function literalPrefix(kept: ReadonlyArray<string>): string {
   if (kept.length === 0) return "";

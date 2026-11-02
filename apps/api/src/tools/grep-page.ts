@@ -7,8 +7,10 @@
 
 import {
   encodeGrepCursor,
+  GREP_LIMITS,
   grepContinuationUnits,
   grepFileLocator,
+  grepIgnoredUnits,
   grepPassageUnits,
   grepWarningsUnits,
   measureGrepRendering,
@@ -22,9 +24,13 @@ import {
 
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
-import { type DecodedGrepCursor } from '@workspace/native-file-tools';
-
+import { type GrepReadAdmission } from './grep-admission';
+import { type CallBudget } from './grep-machine';
+import { spellGrepScopeLocator } from './grep-scopes';
 import { type ToolResult } from './types';
+
+/** The most excluded-directory locators a result names. */
+const IGNORED_LOCATORS = 5;
 
 /** One passage the call may emit, with the cursor point it ends at. */
 export type SegmentEntry = {
@@ -43,6 +49,11 @@ export type SegmentPage = {
   readonly progressed: boolean;
   /** The file a bound stopped the segment inside before any progress. */
   readonly unfinished?: string;
+  /** The excluded directory locators of the segment, before the `read` filter. */
+  readonly ignored?: {
+    readonly paths: ReadonlyArray<string>;
+    readonly atLeast: boolean;
+  };
   /** The walk's own page end, when every entry of the segment is a kept one. */
   readonly last?: GrepPageEnd;
   /** Where a segment that emitted nothing stopped, for a bound-stop cursor. */
@@ -88,6 +99,15 @@ export type PageState = {
   progressed: boolean;
   /** The file's locator a bound stopped the call inside before any progress. */
   unfinished: string | undefined;
+  /** The excluded directories the `read` group admitted, in canonical order. */
+  readonly ignored: {
+    paths: Array<string>;
+    count: number;
+    recorded: number;
+    atLeast: boolean;
+  };
+  /** Rendered width of the `ignored` line, kept back from later entries. */
+  ignoredUnits: number;
   resume: ResumePoint | undefined;
 };
 
@@ -101,6 +121,8 @@ export function createPageState(): PageState {
     complete: true,
     progressed: false,
     unfinished: undefined,
+    ignored: { paths: [], count: 0, recorded: 0, atLeast: false },
+    ignoredUnits: 0,
     resume: undefined,
   };
 }
@@ -131,15 +153,18 @@ export function remainingBudget(
     maxFileBytes: budget.maxFileBytes,
     deadlineMs: Math.max(0, deadlineAt - Date.now()),
     limit: Math.max(0, budget.limit - state.files.size),
-    // The warnings line the page would end with is kept back from the room the
-    // segment may fill; the segment then grows its own reserve from its counts.
+    // The warnings and ignored lines the page would end with are kept back
+    // from the room the segment may fill; the segment then grows its own
+    // reserve from its counts.
     pageUnits: Math.max(
       0,
       budget.pageUnits -
         state.units -
         separator -
         grepWarningsUnits(state.warnings) -
-        deadlineUnits(state.warnings),
+        grepWarningsUnits(state.warnings) -
+        deadlineUnits(state.warnings) -
+        state.ignoredUnits,
     ),
     fixedReserve: budget.fixedReserve,
   };
@@ -207,13 +232,18 @@ export function appendSegment(
   state: PageState,
   budget: GrepBudget,
   page: SegmentPage,
+  admission: GrepReadAdmission,
 ): void {
+  mergeIgnored(state, page.ignored, admission);
   // A segment can contribute only warning counts. Their line still renders
   // beside the passages already kept, so a page that cannot hold it ends
   // before the segment: the next call reports those counts (design D7).
   const merged = warningsWith(state.warnings, page.warnings);
   const reserve =
-    budget.fixedReserve + grepWarningsUnits(merged) + deadlineUnits(merged);
+    budget.fixedReserve +
+    grepWarningsUnits(merged) +
+    deadlineUnits(merged) +
+    state.ignoredUnits;
   if (!pageHolds(state, budget, reserve)) {
     state.complete = false;
     return;
@@ -282,6 +312,40 @@ function fitsPage(
   );
 }
 
+/**
+ * Take one segment's excluded directories, up to the call's cap, judge each
+ * against the `read` group as written and with a final separator, and keep the
+ * first five admitted locators in their scope spelling.
+ */
+function mergeIgnored(
+  state: PageState,
+  ignored: SegmentPage['ignored'],
+  admission: GrepReadAdmission,
+): void {
+  if (ignored === undefined) return;
+  if (ignored.atLeast) state.ignored.atLeast = true;
+  for (const locator of ignored.paths) {
+    if (state.ignored.recorded >= GREP_LIMITS.ignoredReported) {
+      state.ignored.atLeast = true;
+      break;
+    }
+    state.ignored.recorded += 1;
+    // A literal clause matches text, so a reject written with the separator
+    // must hide the directory written without it.
+    if (!admission.allows(locator) || !admission.allows(`${locator}/`))
+      continue;
+    state.ignored.count += 1;
+    if (state.ignored.paths.length < IGNORED_LOCATORS)
+      state.ignored.paths.push(spellGrepScopeLocator(locator));
+  }
+  if (state.ignored.count === 0) return;
+  state.ignoredUnits = grepIgnoredUnits({
+    count: state.ignored.count,
+    locators: state.ignored.paths,
+    atLeast: state.ignored.atLeast,
+  });
+}
+
 function pushPassage(state: PageState, passage: GrepPassage): void {
   state.units += grepPassageUnits(state.results.at(-1), passage);
   state.results.push(passage);
@@ -312,6 +376,13 @@ export function pageResult(state: PageState, inputHash: string): ToolResult {
     warnings: [...state.warnings].map(([kind, count]) => ({ kind, count })),
     ...(state.unfinished !== undefined && {
       unfinishedFile: state.unfinished,
+    }),
+    ...(state.ignored.count > 0 && {
+      ignored: {
+        count: state.ignored.count,
+        locators: state.ignored.paths,
+        ...(state.ignored.atLeast && { atLeast: true }),
+      },
     }),
     ...(carriesKnowledgePassage(state.results) && {
       notice: KNOWLEDGE_CONTENT_NOTICE,

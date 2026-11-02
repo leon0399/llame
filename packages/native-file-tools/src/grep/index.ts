@@ -1,12 +1,18 @@
 export { GREP_LIMITS } from "./limits";
 export { fileStream, openFileStream } from "./file-stream";
 export { compileGrepPatterns } from "./patterns";
+export { ignoreAbovePath, ignoreAncestorDirectories } from "./ignore-files";
 export type {
   CompiledGrepPatterns,
   GrepPatternCompileResult,
   GrepPatternOptions,
 } from "./patterns";
-export { compileGlob, normalizeHostScope, splitGrepScope } from "./scope";
+export {
+  compileGlob,
+  decodeGrepLiteralSpelling,
+  normalizeHostScope,
+  splitGrepScope,
+} from "./scope";
 export type {
   CompiledGlob,
   GrepScopeSplit,
@@ -30,6 +36,7 @@ export type {
 export { runGrepScan } from "./scan";
 export {
   grepFileLocator,
+  grepIgnoredUnits,
   grepPassageUnits,
   grepWarningsUnits,
   measureGrepRendering,
@@ -40,6 +47,7 @@ export type {
   GrepBudget,
   GrepEntry,
   GrepFileStream,
+  GrepIgnoreFile,
   GrepPageEnd,
   GrepPassage,
   GrepReadRefusal,

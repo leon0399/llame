@@ -103,6 +103,27 @@ describe('projectGrepScope', () => {
       '/repo/v:1/',
     );
   });
+
+  it('decodes the seven literal spellings in a host prefix', () => {
+    expect(projectGrepScope('/home/u/repo/a%2Ab/**', undefined).prefix).toBe(
+      '/home/u/repo/a*b/',
+    );
+    expect(
+      projectGrepScope('/home/u/repo/app/%5Bid%5D/', undefined).prefix,
+    ).toBe('/home/u/repo/app/[id]/');
+  });
+
+  it('decodes another percent sequence in a host prefix as written', () => {
+    expect(projectGrepScope('/home/u/repo/100%41', undefined).prefix).toBe(
+      '/home/u/repo/100%41',
+    );
+  });
+
+  it('decodes a spelled percent once', () => {
+    expect(projectGrepScope('/home/u/repo/a%252A', undefined).prefix).toBe(
+      '/home/u/repo/a%2A',
+    );
+  });
 });
 
 describe('grepScopeStrings', () => {
@@ -233,6 +254,36 @@ describe('evaluateGrepPermission', () => {
     });
   });
 
+  it('refuses an encoded bracket against a reject of the decoded path', () => {
+    const context = contextWith({
+      grep: {
+        allow: true,
+        reject: [{ field: 'scopes', literal: '/home/u/repo/app/[id]' }],
+      },
+    });
+    expect(
+      evaluateGrepPermission(
+        { patterns: ['x'], scopes: ['/home/u/repo/app/%5Bid%5D'] },
+        context,
+      )?.decision,
+    ).toBe('reject');
+  });
+
+  it('matches a Machine reject on the decoded path', () => {
+    const context = contextWith({
+      grep: {
+        allow: true,
+        reject: [{ field: 'scopes', literal: 'machine://build/srv/100A' }],
+      },
+    });
+    expect(
+      evaluateGrepPermission(
+        { patterns: ['x'], scopes: ['machine://build/srv/100%41'] },
+        context,
+      )?.decision,
+    ).toBe('reject');
+  });
+
   it('rejects when no grep group exists', () => {
     const context = contextWith({ read: { allow: true } });
     expect(
@@ -300,6 +351,57 @@ describe('createGrepReadAdmission', () => {
     );
     expect(admission.admit(`kb://${SPACE}/notes/%61.md`)).toBe(false);
     expect(admission.refused).toBe(1);
+  });
+
+  it('judges directory locators without a refused-file record', () => {
+    const derived: Array<DerivedDecision> = [];
+    const admission = createGrepReadAdmission(
+      contextWith(
+        {
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: '/home/u/repo/secrets' }],
+          },
+        },
+        undefined,
+        (decision) => derived.push(decision),
+      ),
+    );
+    let admitted = 0;
+    for (let index = 0; index < 12; index += 1) {
+      const locator =
+        index < 2
+          ? `/home/u/repo/secrets${String(index)}`
+          : `/home/u/repo/dir${String(index)}`;
+      if (admission.allows(locator) && admission.allows(`${locator}/`))
+        admitted += 1;
+    }
+    expect(admitted).toBe(10);
+    expect(admission.refused).toBe(0);
+    admission.recordRefusals();
+    expect(derived).toHaveLength(0);
+  });
+
+  it('judges a directory both as written and with a final separator', () => {
+    const admission = createGrepReadAdmission(
+      contextWith({
+        read: {
+          allow: true,
+          reject: [{ field: 'path', literal: '/home/u/.ssh/' }],
+        },
+      }),
+    );
+    expect(admission.allows('/home/u/.ssh')).toBe(true);
+    expect(admission.allows('/home/u/.ssh/')).toBe(false);
+  });
+
+  it('evaluates no directory against the read group in bypass mode', () => {
+    const context: ToolContext = {
+      ...contextWith({ read: {} }),
+      permissionMode: 'bypass',
+    };
+    const admission = createGrepReadAdmission(context);
+    expect(admission.allows('/home/u/repo/node_modules')).toBe(true);
   });
 
   it('records nothing when no file was refused', () => {
