@@ -181,7 +181,7 @@ export interface GrepReadAdmission {
 }
 
 /** The `read` group's decision for one locator, projected as `read` sees it. */
-function readDecision(
+export function readDecision(
   context: ToolContext,
   project: (field: string, value: string) => string,
   locator: string,

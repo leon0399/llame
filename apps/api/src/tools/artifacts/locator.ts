@@ -55,3 +55,17 @@ export function parseArtifactLocatorText(
   if (!Number.isSafeInteger(seq) || seq > ARTIFACT_SEQ_MAX) return undefined;
   return { toolName: match[1], seq, part: match[3] };
 }
+
+/**
+ * Whether a value is one well-formed `artifact://` locator: the grammar above
+ * in its canonical spelling. Stored jsonb is untrusted on the way back in, so a
+ * replay, a settle, or a projection accepts a locator only through this check.
+ */
+export function isArtifactLocator(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const parsed = parseArtifactLocatorText(value);
+  return (
+    parsed !== undefined &&
+    formatArtifactLocator(parsed.toolName, parsed.seq, parsed.part) === value
+  );
+}

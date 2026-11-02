@@ -377,6 +377,72 @@ describe('toolActivityPart', () => {
     ).not.toContain('permission');
   });
 
+  it('copies a well-formed artifact locator beside the result', () => {
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'grep',
+      input: { pattern: 'q' },
+      result: {
+        status: 'success',
+        content: '## src/a.ts',
+        artifact: 'artifact://grep-7',
+      },
+    });
+
+    expect(part.artifact).toBe('artifact://grep-7');
+  });
+
+  it('copies an artifact locator from an error result', () => {
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'bash',
+      input: { command: 'build' },
+      result: {
+        status: 'error',
+        type: 'command_failed',
+        message: 'exit 1',
+        artifact: 'artifact://bash-4/stderr',
+      },
+    });
+
+    expect(part).toMatchObject({
+      state: 'output-error',
+      errorText: 'exit 1',
+      artifact: 'artifact://bash-4/stderr',
+    });
+  });
+
+  it('copies a well-formed locator and stores none for a malformed one', () => {
+    const wellFormed = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'grep',
+      input: { pattern: 'q' },
+      result: {
+        status: 'success',
+        content: 'answer',
+        artifact: 'artifact://grep-7',
+      },
+    });
+    expect(wellFormed.artifact).toBe('artifact://grep-7');
+
+    const malformed: ToolResult = {
+      status: 'success',
+      content: 'answer',
+      artifact: 'artifact://grep-7:1-20',
+    };
+    expect(
+      Object.hasOwn(
+        toolActivityPart({
+          toolCallId: 'call-1',
+          toolName: 'grep',
+          input: { pattern: 'q' },
+          result: malformed,
+        }),
+        'artifact',
+      ),
+    ).toBe(false);
+  });
+
   it('stores a web search success as its normalized output, not its text', () => {
     const result: ToolResult = {
       status: 'success',
@@ -545,6 +611,75 @@ describe('reconstructDurableAssistant', () => {
       { type: 'data-cap-notice', data: { stepsUsed: 4, maxSteps: 4 } },
     ]);
     expect(result.openToolCalls).toEqual(new Map());
+  });
+
+  it('rebuilds an error part with its artifact locator', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'c1',
+        toolName: 'bash',
+        input: { command: 'build' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'c1',
+        output: {
+          status: 'error',
+          type: 'command_failed',
+          message: 'exit 1',
+          artifact: 'artifact://bash-4/stderr',
+        },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({
+        type: 'tool-bash',
+        toolCallId: 'c1',
+        state: 'output-error',
+        artifact: 'artifact://bash-4/stderr',
+      }),
+    ]);
+  });
+
+  it('rebuilds a success part with its artifact locator', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'c1',
+        toolName: 'grep',
+        input: { pattern: 'needle' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'c1',
+        output: {
+          status: 'success',
+          content: '## src/a.ts',
+          artifact: 'artifact://grep-1',
+        },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({
+        type: 'tool-grep',
+        artifact: 'artifact://grep-1',
+      }),
+    ]);
+  });
+
+  it('drops an artifact value the grammar does not admit', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'c1',
+        toolName: 'grep',
+        input: { pattern: 'needle' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'c1',
+        output: { status: 'success', content: 'x', artifact: 'x' },
+      }),
+    ]);
+
+    expect(result.collector.parts()[0]).not.toHaveProperty('artifact');
   });
 
   it('rebuilds reasoning part boundaries from the persisted adapter part ids', () => {

@@ -1,13 +1,14 @@
 import { citedArtifacts } from './fork-artifacts';
 
 describe('citedArtifacts', () => {
-  it('reads the locator of a success part from its stored result', () => {
+  it('reads the locator a success part stores beside its result', () => {
     expect(
       citedArtifacts([
         {
           type: 'tool-grep',
           state: 'output-available',
-          output: { artifact: 'artifact://grep-1' },
+          output: { content: '1: x' },
+          artifact: 'artifact://grep-1',
         },
       ]),
     ).toEqual([{ toolName: 'grep', seq: 1 }]);
@@ -31,12 +32,11 @@ describe('citedArtifacts', () => {
       citedArtifacts([
         {
           type: 'tool-bash',
-          output: { artifact: 'artifact://bash-2' },
           artifact: 'artifact://bash-2/stdout',
         },
         {
           type: 'tool-bash',
-          output: { artifact: 'artifact://bash-2/stderr' },
+          artifact: 'artifact://bash-2/stderr',
         },
       ]),
     ).toEqual([{ toolName: 'bash', seq: 2 }]);
@@ -66,20 +66,15 @@ describe('citedArtifacts', () => {
   it('ignores a malformed locator and an over-range number', () => {
     expect(
       citedArtifacts([
-        { type: 'tool-grep', output: { artifact: 'artifact://grep' } },
-        {
-          type: 'tool-grep',
-          output: { artifact: 'artifact://grep-2147483648' },
-        },
+        { type: 'tool-grep', artifact: 'artifact://grep' },
+        { type: 'tool-grep', artifact: 'artifact://grep-2147483648' },
       ]),
     ).toEqual([]);
   });
 
   it('accepts the scheme in any case, as the read tool does', () => {
     expect(
-      citedArtifacts([
-        { type: 'tool-grep', output: { artifact: 'ARTIFACT://grep-3' } },
-      ]),
+      citedArtifacts([{ type: 'tool-grep', artifact: 'ARTIFACT://grep-3' }]),
     ).toEqual([{ toolName: 'grep', seq: 3 }]);
   });
 });

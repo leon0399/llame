@@ -56,8 +56,29 @@ and compaction never include its content. An owner fork copies the artifacts
 its copied tool parts name, with the same locators, and continues the source
 Chat's counter; a shared fork copies none.
 
-The stored read is not re-checked against `read` decisions at this stage: the
-part serves the bytes the tool admitted.
+### Finding re-check
+
+A `grep` or `web_search` artifact records what each entry came from: the source
+locators the producer admitted, the rule that admitted them, and the artifact
+lines of the whole entry. Every read evaluates the current `read` group on the
+entries the served lines touch, so a rule added after the artifact was stored
+still applies. A refused entry renders each of its lines as `[withheld]`, and
+every line that is not withheld keeps its number. A withheld heading is not
+named by `:outline`.
+
+Each check follows the rule that admitted the entry. A `grep` file stays
+visible only on an allow; a `web_search` result or answer is withheld when a
+reject clause matches one of its URLs, because a result was stored unless a
+reject clause removed it at fetch time. The check also fails closed when no
+`read` policy exists at all. An answer is withheld whole when any of its
+citations is refused. A `bypass` attempt withholds nothing, and the re-check
+records no permission decision and counts no refused file for the completion
+audit. `bash` parts carry no findings: their content is bounded when the
+command runs.
+
+Host files keep the content as admitted. Only `read` on `artifact://` checks
+findings again, so a command that reads a host file sees what the artifact
+stored.
 
 ## Bounds
 

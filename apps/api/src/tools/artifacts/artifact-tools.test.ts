@@ -43,6 +43,7 @@ describe('artifact locators through the tools', () => {
         contentType: 'text/markdown',
         content: Buffer.from('stored\n'),
         lineCount: 1,
+        findings: null,
       });
 
     const result = await runTool(

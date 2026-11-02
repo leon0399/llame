@@ -20,7 +20,7 @@ export type ArtifactPartInput = {
   readonly name?: string;
   readonly contentType: string;
   readonly content: Buffer;
-  /** The read-time re-check record; the re-check ships with a later layer. */
+  /** The read-time re-check record (`grep` and `web_search` only). */
   readonly findings?: unknown;
 };
 

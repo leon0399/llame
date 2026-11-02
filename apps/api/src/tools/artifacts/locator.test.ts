@@ -1,6 +1,7 @@
 import {
   ARTIFACT_SCHEME,
   formatArtifactLocator,
+  isArtifactLocator,
   parseArtifactLocatorText,
 } from './locator';
 
@@ -73,5 +74,21 @@ describe('artifact locator', () => {
     expect(
       parseArtifactLocatorText(`artifact://${'a'.repeat(65)}-1`),
     ).toBeUndefined();
+  });
+});
+
+describe('isArtifactLocator', () => {
+  it('accepts each canonical locator shape', () => {
+    expect(isArtifactLocator('artifact://grep-7')).toBe(true);
+    expect(isArtifactLocator('artifact://bash-4/stderr')).toBe(true);
+  });
+
+  it('refuses a value the grammar would reformat', () => {
+    // The scheme parses case-insensitively, then formats to the canonical
+    // spelling; the round-trip check is what refuses the submitted text.
+    expect(isArtifactLocator('ARTIFACT://grep-7')).toBe(false);
+    expect(isArtifactLocator('artifact://grep-9007199254740993')).toBe(false);
+    expect(isArtifactLocator('artifact://grep-7:1-2')).toBe(false);
+    expect(isArtifactLocator(7)).toBe(false);
   });
 });

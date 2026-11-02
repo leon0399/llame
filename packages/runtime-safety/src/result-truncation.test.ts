@@ -622,6 +622,119 @@ describe("truncateOversizedResult media results", () => {
   });
 });
 
+describe("truncateOversizedResult artifact results", () => {
+  const ARTIFACT = "artifact://grep-7";
+
+  it("keeps the artifact locator whole while another field shrinks", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      artifact: ARTIFACT,
+      content: "x".repeat(50_000),
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({
+      status: "success",
+      artifact: ARTIFACT,
+      truncated: true,
+    });
+  });
+
+  it("omits other fields before the artifact locator at the floor", () => {
+    const payload = Object.fromEntries(
+      Array.from({ length: 4000 }, (_entry, index) => [
+        `field-number-${index}`,
+        `value ${index}`,
+      ]),
+    );
+    const result = truncateOversizedResult({
+      status: "success",
+      ...payload,
+      artifact: ARTIFACT,
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({ artifact: ARTIFACT, truncated: true });
+  });
+
+  it("keeps the artifact locator ahead of fields the fitting limit drops", () => {
+    const fields = Object.fromEntries(
+      Array.from({ length: 1500 }, (_entry, index) => [
+        `field-${index}`,
+        "y".repeat(40),
+      ]),
+    );
+    const result = truncateOversizedResult({
+      status: "success",
+      artifact: ARTIFACT,
+      ...fields,
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({ artifact: ARTIFACT, truncated: true });
+  });
+
+  it("caps an oversized artifact value that is not a bounded locator", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      artifact: `artifact://grep-${"9".repeat(20_000)}`,
+      content: "x".repeat(50_000),
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).not.toMatchObject({
+      artifact: `artifact://grep-${"9".repeat(20_000)}`,
+    });
+  });
+
+  it("does not pin a media value that is not a locator string", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      kind: "image",
+      media: { data: "x".repeat(50_000) },
+      path: "/work/shot.png",
+    });
+
+    expect(result).toMatchObject({ truncated: true });
+    expect(JSON.stringify(result)).not.toContain("x".repeat(50_000));
+  });
+
+  it("keeps artifact and media locators exact together under a tight limit", () => {
+    const MEDIA = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+    const fields = Object.fromEntries(
+      Array.from({ length: 1500 }, (_entry, index) => [
+        `field-${index}`,
+        "y".repeat(40),
+      ]),
+    );
+    const result = truncateOversizedResult({
+      status: "success",
+      kind: "image",
+      artifact: ARTIFACT,
+      media: MEDIA,
+      ...fields,
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({
+      artifact: ARTIFACT,
+      media: MEDIA,
+      truncated: true,
+    });
+  });
+
+  it("leaves an error result's artifact untouched", () => {
+    const result: ToolResult = {
+      status: "error",
+      type: "command_failed",
+      message: "x".repeat(50_000),
+      artifact: ARTIFACT,
+    };
+
+    expect(truncateOversizedResult(result)).toBe(result);
+  });
+});
+
 describe("truncateOversizedResult display-aware measures", () => {
   /** A measure shaped like an edit's rendering: the header names the line
    *  `display` starts at, so display changes the measured width. */

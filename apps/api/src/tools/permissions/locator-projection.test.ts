@@ -710,6 +710,49 @@ describe('native file permission projection', () => {
   });
 });
 
+describe('artifact locator permission projection', () => {
+  const ARTIFACT = 'artifact://bash-3/stdout:1-50';
+
+  it('matches an artifact locator as its text without the read selector', () => {
+    expect(withoutReadSelector(ARTIFACT)).toBe('artifact://bash-3/stdout');
+    expect(nativeFileProjection('read')('path', ARTIFACT)).toBe(
+      'artifact://bash-3/stdout',
+    );
+    // `projectNativeFilePath` keeps the selector; only the `read` projection
+    // removes it.
+    expect(projectNativeFilePath('artifact://bash-3/stderr:1-50')).toBe(
+      'artifact://bash-3/stderr:1-50',
+    );
+  });
+
+  it('never substitutes a host path for an artifact locator', () => {
+    expect(projectNativeFilePath('artifact://grep-7', '/work/project')).toBe(
+      'artifact://grep-7',
+    );
+  });
+
+  it('refuses a read when a reject matches the artifact locator text', () => {
+    const map: ToolPermissionMap = {
+      read: { reject: [{ field: 'path', regex: '^artifact://bash-' }] },
+    };
+
+    expect(decideNative(map, 'read', { path: ARTIFACT })).toMatchObject({
+      decision: 'reject',
+      reason: 'explicit_reject',
+    });
+  });
+
+  it('allows artifact locators by their own text', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^artifact://' }] },
+    };
+
+    expect(
+      decideNative(map, 'read', { path: 'artifact://grep-3:21-40' }),
+    ).toMatchObject({ decision: 'allow', reason: 'matched_allow' });
+  });
+});
+
 describe('machine locator permission projection', () => {
   it('projects a Machine locator to its canonical text', () => {
     expect(projectNativeFilePath('MACHINE://DEVL/srv/app/README.md')).toBe(

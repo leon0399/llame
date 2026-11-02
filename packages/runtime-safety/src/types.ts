@@ -1,9 +1,18 @@
 import { type UnknownRecord } from "./unknown-record";
 
+/**
+ * The locator of the stored artifact that holds a spilled result's full
+ * content (tool-result-artifacts D4, D6). Present only on a spilled result;
+ * the model reads the rest through `read` or the host files the notice names.
+ */
+type ArtifactLocatorField = {
+  artifact?: string;
+};
+
 /** Structured bounded observation shared by the server and personal runtime. */
 export type ToolResult =
-  | ({ status: "success" } & UnknownRecord)
-  | {
+  | ({ status: "success" } & ArtifactLocatorField & UnknownRecord)
+  | ({
       status: "error";
       type: string;
       message: string;
@@ -21,4 +30,4 @@ export type ToolResult =
        * request was sent.
        */
       leftDirectory?: string;
-    };
+    } & ArtifactLocatorField);

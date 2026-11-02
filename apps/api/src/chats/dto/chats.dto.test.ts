@@ -554,6 +554,15 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
         type: 'data-cap-notice',
         data: { stepsUsed: 8, maxSteps: 8 },
       },
+      {
+        type: 'tool-grep',
+        toolCallId: 'call-grep',
+        state: 'output-available',
+        input: { pattern: 'token' },
+        output: { status: 'success', content: '1: token' },
+        outcome: 'success',
+        artifact: 'artifact://grep-7',
+      },
     ];
     const message: Message = {
       id: 'm-owner',

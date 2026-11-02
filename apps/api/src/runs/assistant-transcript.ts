@@ -32,6 +32,7 @@ import {
   type ToolResult,
 } from '../tools/types';
 import { isRejectedHopUrl } from '../tools/permissions/messages';
+import { isArtifactLocator } from '../tools/artifacts/locator';
 import {
   type PermissionClauseReference,
   type PermissionDecision,
@@ -66,6 +67,12 @@ export type ToolActivityPart = {
   errorText?: string;
   /** Provider-portable structured outcome: success or the ToolResult error type. */
   outcome: string;
+  /**
+   * The artifact locator the call's result names (tool-result-artifacts D6).
+   * The replay renders `Artifact: <locator>` from it after payload clearing
+   * too (D8), and the web UI reads it from the history response.
+   */
+  artifact?: string;
   /**
    * The refused redirect target a `permission_denied` hop rejection named in
    * its live result (web-read design D3), kept beside the stored error.
@@ -377,6 +384,9 @@ export function toolActivityPart(
   }
   const refusedTarget = hopRejectionTarget(call.toolName, call.result);
   if (refusedTarget !== undefined) part.errorRejectedUrl = refusedTarget;
+  const artifact = isRecord(call.result) ? call.result['artifact'] : undefined;
+  if (isString(artifact) && isArtifactLocator(artifact))
+    part.artifact = artifact;
 
   return part;
 }
@@ -607,6 +617,7 @@ function toolResultFromPayload(
     return undefined;
   }
   const rejectedUrl = output['rejectedUrl'];
+  const artifact = output['artifact'];
 
   return {
     status,
@@ -614,6 +625,7 @@ function toolResultFromPayload(
     message,
     ...(isHopRejection(toolName, type) &&
       isRejectedHopUrl(rejectedUrl) && { rejectedUrl }),
+    ...(isString(artifact) && { artifact }),
   };
 }
 

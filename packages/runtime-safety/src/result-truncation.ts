@@ -230,14 +230,9 @@ export function truncateOversizedResult(
     throw new TypeError("Malformed oversized tool result projection.");
   }
   const { status: _status, ...payload } = parsed;
-  // A media result's locator is its only handle on the file, so no pass may
-  // shorten or omit it.
-  const { media, ...rest } = payload;
-  const pinsMedia =
-    (payload.kind === "image" || payload.kind === "pdf") && isString(media);
   const source: TruncationSource = {
-    payload: pinsMedia ? rest : payload,
-    pinned: pinsMedia ? { media } : {},
+    payload,
+    pinned: pinnedFields(payload),
     totalFields: Object.keys(payload).length,
     json,
     measured,
@@ -255,6 +250,42 @@ export function truncateOversizedResult(
   return measure(preserved) <= RESULT_TRUNCATE_CHARS
     ? preserved
     : searchLargestFittingLimit(source, false);
+}
+
+/**
+ * The fields a truncation pass keeps verbatim: a media part's locator and a
+ * spilled result's artifact locator are the only handles on content this
+ * result no longer carries, so the capped copy never replaces them. A value of
+ * the wrong type is not a locator and is capped with everything else.
+ */
+function pinnedFields(payload: UnknownRecord): UnknownRecord {
+  const pinned: UnknownRecord = {};
+  const pinsMedia =
+    (payload.kind === "image" || payload.kind === "pdf") &&
+    isString(payload.media);
+  if (pinsMedia) pinned.media = payload.media;
+  if (isArtifactLocatorValue(payload.artifact)) {
+    pinned.artifact = payload.artifact;
+  }
+  return pinned;
+}
+
+/**
+ * The artifact locator grammar, bounded. This package cannot import the API's
+ * locator parser, so the shared check repeats the one token shape and caps the
+ * length: a result field that merely calls itself `artifact` must not escape
+ * the cap, and a real locator is far below the bound.
+ */
+const ARTIFACT_LOCATOR =
+  /^artifact:\/\/[A-Za-z0-9][A-Za-z0-9_-]*-[1-9]\d*(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?$/u;
+const ARTIFACT_LOCATOR_MAX_LENGTH = 512;
+
+function isArtifactLocatorValue(value: unknown): value is string {
+  return (
+    isString(value) &&
+    value.length <= ARTIFACT_LOCATOR_MAX_LENGTH &&
+    ARTIFACT_LOCATOR.test(value)
+  );
 }
 
 /** The part of a truncation pass that never changes across the binary
@@ -282,7 +313,7 @@ function buildTruncatedResult(
     { limit, lists, keepAllEntries: keepAllFields },
     "",
   );
-  const kept = { ...source.pinned, ...capped };
+  const kept = { ...capped, ...source.pinned };
   const omittedUnits =
     source.measured - source.measure({ status: "success", ...kept });
   return {

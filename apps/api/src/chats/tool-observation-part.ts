@@ -35,6 +35,7 @@ import {
   storedToolPartMediaKey,
 } from '../media/retained-media';
 import { retainedEntry, type RetainedMedia } from '../media/attempt-media';
+import { isArtifactLocator } from '../tools/artifacts/locator';
 
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8000;
@@ -47,14 +48,17 @@ export function renderToolObservationOmission(count: number): string {
 /**
  * The untrusted-output framing rendered around every tool result, packaged as
  * `prompts/tool-output-untrusted.md` and loaded once at module initialization.
- * The whole composition — label, `Outcome:` line, and the optional `Payload:`
- * block — is template text, so no llame-authored label stays behind as
- * concatenation. The block is gated on `hasPayload`, derived from
- * `body !== null` by the producer, because an empty-string body still renders a
- * `Payload:` line while a null body omits it entirely.
+ * The whole composition — label, `Outcome:` line, the optional `Artifact:`
+ * line, and the optional `Payload:` block — is template text, so no
+ * llame-authored label stays behind as concatenation. The payload block is
+ * gated on `hasPayload`, derived from `body !== null` by the producer, because
+ * an empty-string body still renders a `Payload:` line while a null body omits
+ * it entirely; the artifact line is gated on the part naming one, and it
+ * survives payload clearing (D8).
  */
 const renderToolOutputUntrusted = loadPackagedTemplate<{
   outcome: string;
+  artifact: string | null;
   payload: string | null;
   hasPayload: boolean;
 }>(__dirname, 'tool-output-untrusted');
@@ -110,6 +114,13 @@ interface StoredToolPart {
   outcome?: unknown;
   resultProviderMetadata?: unknown;
   /**
+   * The artifact locator the call's result names, copied onto the part when it
+   * settled (tool-result-artifacts D6). It survives payload clearing, so the
+   * replayed pair keeps its `Artifact:` line (D8). A part with no valid
+   * locator replays as its result text alone.
+   */
+  artifact?: unknown;
+  /**
    * The retained bytes of an unstored `read`, stored beside the result and
    * never in model text (`media-attachments`). A part with no valid record is
    * not a media reference, so it replays as its result text.
@@ -145,6 +156,8 @@ interface ObservationPayload {
   partIndex: number;
   input: unknown;
   resultBody: string | null;
+  /** The artifact locator the part names; it survives payload clearing. */
+  artifact: string | undefined;
   clearedOutcome: string;
   /**
    * The image or PDF a `read` result names: its media id, or for an unstored
@@ -274,11 +287,17 @@ function resolveResultBody(
   );
 }
 
-function resultText(outcome: string, body: string | null): string {
+function resultText(
+  outcome: string,
+  body: string | null,
+  artifact: string | undefined,
+): string {
   // The payload arrives already neutralized by the one rendering, and every
-  // line this template adds is static, so nothing here needs escaping.
+  // line this template adds is static or a validated locator, so nothing here
+  // needs escaping.
   return renderToolOutputUntrusted({
     outcome,
+    artifact: artifact ?? null,
     payload: body,
     hasPayload: body !== null,
   });
@@ -317,6 +336,7 @@ function makePair(
         resultText(
           cleared ? observation.clearedOutcome : observation.outcome,
           cleared ? null : observation.resultBody,
+          observation.artifact,
         ),
         cleared ? undefined : observation.media,
       ),
@@ -548,6 +568,7 @@ function storedObservation(
         : outcome,
     input: part.input,
     resultBody: resolveResultBody(part, toolName, outcome),
+    artifact: isArtifactLocator(part.artifact) ? part.artifact : undefined,
     ...(toolName === READ_TOOL_NAME && part.state === 'output-available'
       ? readObservationRef(part, mediaKey)
       : { media: undefined, retained: undefined }),

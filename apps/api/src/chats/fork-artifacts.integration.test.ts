@@ -208,7 +208,8 @@ d('fork artifact copy', () => {
       toolCallId: `call-${locator}`,
       state: 'output-available',
       input: {},
-      output: { artifact: locator },
+      output: { status: 'success', content: 'passage' },
+      artifact: locator,
     };
   }
 
