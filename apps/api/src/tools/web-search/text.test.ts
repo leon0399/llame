@@ -57,9 +57,9 @@ describe('the web search text shape', () => {
     );
 
     expect(rendered?.blocks).toEqual([
-      { kind: 'result', start: 2, end: 5 },
-      { kind: 'result', start: 7, end: 9 },
-      { kind: 'result', start: 11, end: 14 },
+      { locators: ['https://a.example/one'], start: 2, end: 5 },
+      { locators: ['https://b.example/two'], start: 7, end: 9 },
+      { locators: ['https://c.example/three'], start: 11, end: 14 },
     ]);
   });
 
@@ -325,4 +325,62 @@ describe('the web search text shape', () => {
       }),
     ).toBeUndefined();
   });
+});
+
+it('counts an 8,000-unit answer line as the pieces the reader numbers', () => {
+  const longAnswer: ToolResult = {
+    status: 'success',
+    kind: 'answer',
+    engine: 'hosted',
+    query: 'question',
+    answer: 'a'.repeat(8000),
+    citations: [
+      { url: 'https://example.test/one' },
+      { url: 'https://example.test/two' },
+    ],
+  };
+
+  const rendered = renderWebSearchOutput(
+    webSearchOutputSchema.parse(longAnswer),
+  );
+
+  // Framing line 1; the `> ` prefix pushes the answer over 8,000 units, so it
+  // is two artifact lines and the block ends after both citations.
+  expect(rendered?.blocks).toEqual([
+    {
+      locators: ['https://example.test/one', 'https://example.test/two'],
+      start: 2,
+      end: 6,
+    },
+  ]);
+});
+
+it('shifts a later block past the pieces of a long answer', () => {
+  const output: ToolResult = {
+    status: 'success',
+    kind: 'results',
+    engine: 'hosted',
+    query: 'question',
+    results: [{ title: 'First', url: 'https://example.test/first' }],
+    answers: [
+      {
+        engine: 'hosted',
+        answer: 'a'.repeat(8000),
+        citations: [{ url: 'https://example.test/cited' }],
+      },
+      {
+        engine: 'second',
+        answer: 'short',
+        citations: [{ url: 'https://example.test/second' }],
+      },
+    ],
+  };
+
+  const rendered = renderWebSearchOutput(webSearchOutputSchema.parse(output));
+
+  // Result lines 2-4, blank 5, then the long answer at 6 (heading, two
+  // answer pieces, citation) ends at 9, blank 10, so the next block starts 11.
+  expect(rendered?.blocks[1]?.start).toBe(6);
+  expect(rendered?.blocks[1]?.end).toBe(9);
+  expect(rendered?.blocks[2]?.start).toBe(11);
 });

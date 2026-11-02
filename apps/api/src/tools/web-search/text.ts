@@ -22,6 +22,8 @@ import { z } from 'zod';
 
 import { oneLine } from '@workspace/native-file-tools';
 
+import { artifactLinePieces } from '../artifacts/lines';
+
 import { type ToolResult } from '../types';
 import { type RawAnswer, type RawResult } from './chain';
 import { type WebSearchSuccess } from './output';
@@ -86,18 +88,23 @@ export const webSearchOutputSchema: z.ZodType<WebSearchSuccess & CapMarker> =
 /** The width of an ISO 8601 date, which is the part a host line shows. */
 const ISO_DATE_WIDTH = 10;
 
-/** One block of the text shape and the kind of entry it renders. */
+/** One block of the text shape: its source locators and its rendered lines. */
 type TextBlock = {
-  readonly kind: 'result' | 'answer';
+  readonly locators: ReadonlyArray<string>;
   readonly lines: Array<string>;
 };
 
-/** A block's place in the artifact-line numbering, both ends 1-based. */
+/**
+ * A block's place in the artifact-line numbering, both ends 1-based. The
+ * reader numbers every 8,000-unit piece of a long line as its own line, so the
+ * range counts pieces (tool-result-artifacts D2).
+ */
 export type WebSearchTextBlock = {
-  readonly kind: 'result' | 'answer';
-  /** The first line of the block, its heading line included. */
+  /** The URLs a finding re-checks: a result URL, or an answer's citations. */
+  readonly locators: ReadonlyArray<string>;
+  /** The first artifact line of the block, its heading line included. */
   readonly start: number;
-  /** The last line of the block, inclusive. */
+  /** The last artifact line of the block, inclusive. */
   readonly end: number;
 };
 
@@ -124,7 +131,7 @@ function resultBlock(result: RawResult, rank: number): TextBlock | undefined {
   if (!host) return undefined;
   const published = result.published?.slice(0, ISO_DATE_WIDTH);
   return {
-    kind: 'result',
+    locators: [result.url],
     lines: [
       `## ${rank}. ${oneLine(result.title).trim() || oneLine(result.url)}`,
       oneLine(result.url),
@@ -137,7 +144,7 @@ function resultBlock(result: RawResult, rank: number): TextBlock | undefined {
 /** One grounded answer as its block: its header, its text, its citations. */
 function answerBlock(answer: RawAnswer): TextBlock {
   return {
-    kind: 'answer',
+    locators: answer.citations.map((citation) => citation.url),
     lines: [
       `## Answer (${oneLine(answer.engine)})`,
       ...quoteLines(answer.answer),
@@ -148,10 +155,16 @@ function answerBlock(answer: RawAnswer): TextBlock {
   };
 }
 
+/** How many artifact lines one rendered line takes: pieces, or one if empty. */
+function renderedLineSpan(line: string): number {
+  return Math.max(1, artifactLinePieces(line).length);
+}
+
 /**
  * The text: the framing line, one block per result or answer, then the notes
  * and the cap notice the generic result cap writes last. Every block keeps the
- * line range the artifact numbers it with.
+ * artifact line range the reader numbers it with, so a line over 8,000 units
+ * shifts the ranges after it by the pieces it occupies.
  */
 function assemble(
   output: WebSearchSuccess & CapMarker,
@@ -161,11 +174,18 @@ function assemble(
     `[engine: ${oneLine(output.engine)}; query: ${oneLine(output.query)}]`,
   ];
   const ranges: Array<WebSearchTextBlock> = [];
+  // The framing line is artifact line 1, and the notes that follow the blocks
+  // hold no finding.
+  let next = 2;
   for (const [index, block] of blocks.entries()) {
-    if (index > 0) lines.push('');
-    const start = lines.length + 1;
+    if (index > 0) {
+      lines.push('');
+      next += 1;
+    }
+    const start = next;
     lines.push(...block.lines);
-    ranges.push({ kind: block.kind, start, end: lines.length });
+    for (const line of block.lines) next += renderedLineSpan(line);
+    ranges.push({ locators: block.locators, start, end: next - 1 });
   }
   const notice = output.truncationNotice;
   lines.push(

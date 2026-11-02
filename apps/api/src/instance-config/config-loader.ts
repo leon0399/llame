@@ -661,7 +661,6 @@ function resolveWebSearchFetchLimit(
       builtInDefault: WEB_SEARCH_FETCH_LIMIT_DEFAULT,
       nullable: false,
       env,
-      min: 1,
     }),
     'webSearch.fetchLimit',
   );

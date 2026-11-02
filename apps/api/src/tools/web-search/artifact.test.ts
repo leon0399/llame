@@ -6,15 +6,22 @@
  * fits inline create no artifact.
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type MockInstance, vi } from 'vitest';
 
+import { applySelectorSuffix } from '@workspace/native-file-tools';
 import { isRecord } from '@workspace/runtime-safety';
 
 import * as schema from '../../db/schema';
 import { type Db } from '../../db/tenant-db.service';
 import { type WebSearchConfig } from '../../instance-config/web-search-config';
 import { ArtifactsRepository } from '../artifacts/artifacts-repository';
+import { artifactLineCount, artifactText } from '../artifacts/lines';
+import { withholdFindings, type FindingPart } from '../artifacts/findings';
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
 import { type ToolContext, type ToolResult } from '../types';
 import { type VendorFetch } from './http';
@@ -32,6 +39,7 @@ import {
   webSearchOutputSchema,
 } from './text';
 import { webSearchTool } from './tool';
+import { createWorkspaceRootCell } from '../workspace-path';
 
 /** The Chat counter every write in this suite takes: seq 5. */
 const SEQ = 5;
@@ -136,6 +144,30 @@ function writtenFindings(): ReadonlyArray<unknown> {
     throw new Error('Expected a written finding document.');
   }
   return document['findings'];
+}
+
+function writtenPart(): FindingPart & { content: Buffer } {
+  const part = writes.insertParts.mock.calls[0]?.[1]?.[0];
+  if (part === undefined)
+    throw new Error('Expected one written artifact part.');
+  return {
+    findings: part.findings,
+    contentType: part.contentType,
+    content: part.content,
+  };
+}
+
+/** The stored text with the finding re-check applied, as `read` serves it. */
+function withheldText(
+  context: ToolContext,
+  part: FindingPart & { content: Buffer },
+): string {
+  const text = part.content.toString('utf8');
+  const locator = 'artifact://web_search-5';
+  return withholdFindings(context, part, artifactText(text), {
+    ...applySelectorSuffix(locator, undefined),
+    lineCount: artifactLineCount(text),
+  });
 }
 
 beforeEach(() => {
@@ -532,4 +564,265 @@ it('fetches the default size and shows ten of fifteen results inline', async () 
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it('numbers a long answer by its artifact pieces and withholds every line', async () => {
+  const citations = Array.from({ length: 20 }, (_unused, index) =>
+    longUrl(index + 1),
+  );
+  const source = answerSource('a'.repeat(8000), citations);
+
+  const result = await spillWebSearchResult(testContext(), source, {
+    limit: 10,
+    fetchSize: 20,
+  });
+
+  expect(result).toHaveProperty('artifact');
+  const text = writtenText();
+  expect(writtenFindings()).toEqual([
+    {
+      locators: citations.map((citation) => citation.url),
+      rule: 'reject_only',
+      start: 2,
+      end: artifactLineCount(text),
+    },
+  ]);
+
+  const rejecting = testContext({
+    permissionPolicy: compileToolPermissionMap(
+      {
+        read: {
+          reject: [{ field: 'path', regex: 'example\\.test/19/' }],
+        },
+      },
+      'web-search-artifact-test',
+    ),
+  });
+  const withheld = withheldText(rejecting, writtenPart()).split('\n');
+  expect(withheld[0]).toContain('engine: hosted');
+  expect(withheld.slice(1)).toEqual(
+    Array.from({ length: withheld.length - 1 }, () => '[withheld]'),
+  );
+  expect(withheld.join('\n')).not.toContain('https://example.test/19/last');
+});
+
+it('continues after the last inline result when an answer follows', async () => {
+  const source = resultsSource(
+    Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
+    [
+      {
+        engine: 'hosted',
+        answer: 'short',
+        citations: [{ url: 'https://example.test/cited' }],
+      },
+    ],
+  );
+  const blocks =
+    renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
+
+  const result = await spillWebSearchResult(testContext(), source, {
+    limit: 10,
+    fetchSize: 20,
+  });
+
+  // A blank line separates result 11 from result 10, so the continuation is
+  // the blank line, not the heading that follows it.
+  expect(blocks[10]?.start).toBe((blocks[9]?.end ?? 0) + 2);
+  expect(spilled(result).truncationNotice).toMatch(
+    new RegExp(`:${(blocks[9]?.end ?? 0) + 1}-$`, 'u'),
+  );
+});
+
+it('does not advertise a locator the read group denies after allocation', async () => {
+  const policy = compileToolPermissionMap(
+    {
+      read: {
+        allow: [{ field: 'path', literal: 'artifact://web_search-1' }],
+        reject: [{ field: 'path', literal: 'artifact://web_search-5' }],
+      },
+    },
+    'web-search-artifact-test',
+  );
+
+  const result = await spillWebSearchResult(
+    testContext({ permissionPolicy: policy }),
+    resultsSource(
+      Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
+    ),
+    { limit: 10, fetchSize: 20 },
+  );
+
+  expect(result).not.toHaveProperty('artifact');
+  expect(spilled(result).truncationNotice).toContain('left out: 10 results');
+  expect(writes.insertParts).toHaveBeenCalled();
+});
+
+it('stores nothing without a Run id and keeps the tool name as the call id', async () => {
+  const source = resultsSource(
+    Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
+  );
+
+  const withoutRun = await spillWebSearchResult(
+    testContext({ runId: undefined }),
+    source,
+    { limit: 10, fetchSize: 20 },
+  );
+  expect(withoutRun).not.toHaveProperty('artifact');
+  expect(writes.insertParts).not.toHaveBeenCalled();
+
+  const withoutCall = await spillWebSearchResult(
+    testContext({ toolCallId: undefined }),
+    source,
+    { limit: 10, fetchSize: 20 },
+  );
+  expect(withoutCall).toHaveProperty('artifact', 'artifact://web_search-5');
+  expect(writes.insertArtifact.mock.calls[0]?.[0]).toMatchObject({
+    toolCallId: 'web_search',
+  });
+});
+
+it('stores a part exactly at the byte bound and not one byte over', async () => {
+  const source = resultsSource(
+    Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
+  );
+  const text = renderWebSearchOutput(normalizeFullOutput(source, 20))?.text;
+  if (text === undefined) throw new Error('expected the full text');
+  const bound = Buffer.byteLength(text);
+
+  const atBound = await spillWebSearchResult(
+    testContext({ artifactMaxBytes: bound }),
+    source,
+    { limit: 10, fetchSize: 20 },
+  );
+  expect(atBound).toHaveProperty('artifact', 'artifact://web_search-5');
+
+  const overBound = await spillWebSearchResult(
+    testContext({ artifactMaxBytes: bound - 1 }),
+    source,
+    { limit: 10, fetchSize: 20 },
+  );
+  expect(overBound).not.toHaveProperty('artifact');
+});
+
+it('names the host-file directory when the files are written', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'web-search-host-'));
+  vi.stubEnv('TMPDIR', root);
+  try {
+    const result = await spillWebSearchResult(
+      testContext({ artifactHostFiles: true }),
+      resultsSource(
+        Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
+      ),
+      { limit: 10, fetchSize: 20 },
+    );
+
+    expect(spilled(result).truncationNotice).toContain(
+      `; host files in ${join(root, 'llame', 'chats', 'chat', 'artifacts')}`,
+    );
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('says the host files are on the llame host only in a Machine Workspace', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'web-search-machine-'));
+  vi.stubEnv('TMPDIR', root);
+  try {
+    const result = await spillWebSearchResult(
+      testContext({
+        artifactHostFiles: true,
+        workspaceRoot: createWorkspaceRootCell('machine://box/home/u/project'),
+      }),
+      resultsSource(
+        Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
+      ),
+      { limit: 10, fetchSize: 20 },
+    );
+
+    expect(spilled(result).truncationNotice).toContain(
+      '; host files on the llame host only',
+    );
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('counts every citation an answer output leaves out', async () => {
+  const citations = Array.from({ length: 20 }, (_unused, index) =>
+    longUrl(index + 1),
+  );
+
+  const result = await spillWebSearchResult(
+    testContext({ artifactReadable: false }),
+    answerSource('a'.repeat(8000), citations),
+    { limit: 10, fetchSize: 20 },
+  );
+
+  const inline = spilled(result);
+  if (inline.kind !== 'answer') throw new Error('expected an answer');
+  const dropped = citations.length - inline.citations.length;
+  expect(inline.truncationNotice).toBe(
+    `left out: ${dropped} results; full result not stored`,
+  );
+});
+
+it('uses the singular noun for one left-out result', async () => {
+  const result = await spillWebSearchResult(
+    testContext({ artifactReadable: false }),
+    resultsSource(
+      Array.from({ length: 11 }, (_unused, index) => resultAt(index + 1)),
+    ),
+    { limit: 10, fetchSize: 20 },
+  );
+
+  expect(spilled(result).truncationNotice).toBe(
+    'left out: 1 result; full result not stored',
+  );
+});
+
+it('counts a dropped answer once, not once for each of its citations', async () => {
+  const answers = Array.from({ length: 4 }, (_unused, index) => ({
+    engine: `hosted-${index}`,
+    answer: 'a'.repeat(8000),
+    citations: [{ url: `https://example.test/cited-${index}` }],
+  }));
+
+  const result = await spillWebSearchResult(
+    testContext({ artifactReadable: false }),
+    resultsSource([], answers),
+    { limit: 10, fetchSize: 20 },
+  );
+
+  const inline = spilled(result);
+  if (inline.kind !== 'results') throw new Error('expected results');
+  const dropped = answers.length - (inline.answers?.length ?? 0);
+  expect(dropped).toBeGreaterThan(1);
+  expect(inline.truncationNotice).toBe(
+    `left out: ${dropped} results; full result not stored`,
+  );
+});
+
+it('records an answer output finding with every citation', async () => {
+  const citations = Array.from({ length: 20 }, (_unused, index) =>
+    longUrl(index + 1),
+  );
+  const source = answerSource('a'.repeat(8000), citations);
+
+  await spillWebSearchResult(testContext(), source, {
+    limit: 10,
+    fetchSize: 20,
+  });
+
+  const blocks =
+    renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
+  expect(writtenFindings()).toEqual([
+    {
+      locators: citations.map((citation) => citation.url),
+      rule: 'reject_only',
+      start: blocks[0]?.start,
+      end: blocks[0]?.end,
+    },
+  ]);
 });

@@ -4,6 +4,7 @@ import {
   normalizeFullOutput,
   normalizeOutput as normalizeSearchOutput,
 } from './output';
+import { renderWebSearchOutput } from './text';
 import {
   type RawCitation,
   type RawResult,
@@ -315,7 +316,7 @@ it('keeps the first citation while dropping oversized answer citations', () => {
   expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
 
-it('notes when an answer is cut further to fit with one citation', () => {
+it('keeps a maximal answer when its one citation and the text fit', () => {
   const output = normalizeSearchOutput(
     answerSource(
       'a'.repeat(8000),
@@ -325,10 +326,15 @@ it('notes when an answer is cut further to fit with one citation', () => {
     ),
     10,
   );
-  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
-  expect(JSON.stringify(output)).toContain('answer cut to fit');
+  if (output.kind !== 'answer') throw new Error('expected answer output');
+  // The rendered text is the bound, and this shape fits it whole.
+  expect(
+    (renderWebSearchOutput(output)?.text ?? '').length,
+  ).toBeLessThanOrEqual(15_000);
+  expect(output.answer).toBe('a'.repeat(8000));
+  expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
-it('finds the largest answer that exactly fits the serialized budget', () => {
+it('measures the escape-free answer length, not its JSON spelling', () => {
   const output = normalizeSearchOutput(
     answerSource(
       'a'.repeat(8000),
@@ -339,9 +345,13 @@ it('finds the largest answer that exactly fits the serialized budget', () => {
     10,
   );
   if (output.kind !== 'answer') throw new Error('expected answer output');
-  expect(output.answer).toBe('a'.repeat(5088));
-  expect(JSON.stringify(output).length).toBe(15_000);
-  expect(output.notes).toContain('answer cut to fit the output limit');
+  expect(output.answer).toBe('a'.repeat(8000));
+  // The NUL notes escape to six units each in JSON, so the text is the bound.
+  expect(JSON.stringify(output).length).toBeGreaterThan(15_000);
+  expect(
+    (renderWebSearchOutput(output)?.text ?? '').length,
+  ).toBeLessThanOrEqual(15_000);
+  expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
 it('does not add an answer-cut note at the exact output limit', () => {
   const output = normalizeSearchOutput(
@@ -523,7 +533,7 @@ it('drops whole attached answers from the end last', () => {
   ]);
 });
 
-it('drops every attached answer when none fits', () => {
+it('measures the rendered text, not the JSON escaping of two answers', () => {
   const output = normalizeSearchOutput(
     {
       ...resultsSource([]),
@@ -535,10 +545,14 @@ it('drops every attached answer when none fits', () => {
     },
     10,
   );
-  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
   if (output.kind !== 'results') throw new Error('expected results output');
-  expect(output.answers).toBeUndefined();
-  expect(output.notes).toContain('2 answers dropped to fit the output limit');
+  expect(
+    (renderWebSearchOutput(output)?.text ?? '').length,
+  ).toBeLessThanOrEqual(15_000);
+  // Quotes are escaped in JSON, so this output fits as text only.
+  expect(JSON.stringify(output).length).toBeGreaterThan(15_000);
+  expect(output.answers).toHaveLength(2);
+  expect(output.notes).toContain('1 answer cut to fit the output limit');
 });
 
 const longUrl = (stem: string, length: number): string =>
@@ -690,13 +704,13 @@ it('cuts the last answer outside a bare URL', () => {
       attachedAnswer('c', lastAnswer, [{ url: longUrl('c', 1000) }]),
     ],
   });
-  const plain = normalizeSearchOutput(source('c'.repeat(3000)), 10);
+  const plain = normalizeSearchOutput(source('c'.repeat(8000)), 10);
   if (plain.kind !== 'results') throw new Error('expected results output');
   const budget = plain.answers?.[2]?.answer.length;
   if (budget === undefined) throw new Error('expected a third answer');
   const filler = 'a'.repeat(budget - 10);
   // The URL starts just before the calibrated cut and ends after it.
-  const text = `${filler} ${longUrl('u', 300)}`;
+  const text = `${filler} ${longUrl('u', 300)} ${'z'.repeat(2000)}`;
   expect(text.length).toBeGreaterThan(budget);
 
   const output = normalizeSearchOutput(source(text), 10);
@@ -706,25 +720,31 @@ it('cuts the last answer outside a bare URL', () => {
   expect(output.notes).toEqual(['1 answer cut to fit the output limit']);
 });
 
-it('cuts an answer outside a Markdown link', () => {
-  const source = (answer: string): SearchChainSuccess => ({
-    kind: 'answer',
-    engine: 'hosted',
-    query: 'q'.repeat(100),
-    answer,
-    citations: [{ url: 'https://example.test/a' }],
-    notes: Array.from({ length: 10 }, () => '\u0000'.repeat(200)),
+it('cuts the last attached answer outside a Markdown link', () => {
+  const source = (lastAnswer: string) => ({
+    ...resultsSource([]),
+    answers: [
+      attachedAnswer('a', 'a'.repeat(8000), [
+        { url: 'https://example.test/short' },
+      ]),
+      attachedAnswer('b', 'b'.repeat(3000), [{ url: longUrl('b', 2048) }]),
+      attachedAnswer('c', lastAnswer, [{ url: longUrl('c', 1000) }]),
+    ],
   });
-  const cut = normalizeSearchOutput(source('a'.repeat(8000)), 10);
-  if (cut.kind !== 'answer') throw new Error('expected answer output');
-  const budget = cut.answer.length;
+  const plain = normalizeSearchOutput(source('c'.repeat(8000)), 10);
+  if (plain.kind !== 'results') throw new Error('expected results output');
+  const budget = plain.answers?.[2]?.answer.length;
+  if (budget === undefined) throw new Error('expected a third answer');
   const filler = 'a'.repeat(budget - 10);
   const link = '[Docs](https://example.test/x)';
 
-  const output = normalizeSearchOutput(source(`${filler} ${link} tail`), 10);
-  if (output.kind !== 'answer') throw new Error('expected answer output');
-  expect(output.answer).toBe(`${filler} `);
-  expect(output.notes).toContain('answer cut to fit the output limit');
+  const output = normalizeSearchOutput(
+    source(`${filler} ${link} ${'z'.repeat(2000)}`),
+    10,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers?.[2]?.answer).toBe(`${filler} `);
+  expect(output.notes).toContain('1 answer cut to fit the output limit');
 });
 
 it('keeps every fetched result in the full output up to the fetch size', () => {

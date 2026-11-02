@@ -8,6 +8,7 @@ import {
   type SearchChainSuccess,
   answerLinkRanges,
 } from './chain';
+import { renderWebSearchOutput } from './text';
 
 export const WEB_SEARCH_URL_MAX_CODE_UNITS = 2048;
 export const WEB_SEARCH_OUTPUT_MAX_CODE_UNITS = 15_000;
@@ -202,8 +203,28 @@ function longestFittingPrefix(
   return fitting;
 }
 
-function isOverBudget(value: WebSearchSuccess): boolean {
-  return JSON.stringify(value).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
+/**
+ * Room kept for the one notice line the spill adds after the inline fit: the
+ * locator, its line count, the continuation line, and any host-file directory.
+ */
+const INLINE_NOTICE_RESERVE = 256;
+
+/** The code units the model reads for one candidate output. */
+function inlineTextLength(value: WebSearchSuccess): number {
+  return renderWebSearchOutput(value)?.text.length ?? Number.POSITIVE_INFINITY;
+}
+
+/** Whether the whole output fits inline, with no notice. */
+function fitsInline(value: WebSearchSuccess): boolean {
+  return inlineTextLength(value) <= WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
+}
+
+/** Whether a candidate being trimmed also leaves the notice its room. */
+function isOverTrimmedBudget(value: WebSearchSuccess): boolean {
+  return (
+    inlineTextLength(value) >
+    WEB_SEARCH_OUTPUT_MAX_CODE_UNITS - INLINE_NOTICE_RESERVE
+  );
 }
 
 /** What each trim step removed, formatted into one note per step. */
@@ -300,7 +321,7 @@ function cutAnswer(
     );
   const fitting = longestFittingPrefix(
     output.answer,
-    (candidate) => !isOverBudget(render(candidate)),
+    (candidate) => !isOverTrimmedBudget(render(candidate)),
   );
   return render(fitting ?? '');
 }
@@ -310,6 +331,13 @@ function fitAnswer(
   notes: ReadonlyArray<string>,
   removed: number | undefined,
 ): WebSearchSuccess {
+  const unchanged = withNotes(initial, {
+    notes,
+    counts: NO_TRIM_COUNTS,
+    answerCut: false,
+    removed,
+  });
+  if (fitsInline(unchanged)) return unchanged;
   const counts: TrimCounts = { ...NO_TRIM_COUNTS };
   let citations = initial.citations;
   const render = (): WebSearchSuccess =>
@@ -320,7 +348,7 @@ function fitAnswer(
   const over = dropTrailing(
     initial.citations,
     1,
-    () => isOverBudget(render()),
+    () => isOverTrimmedBudget(render()),
     (kept) => {
       citations = kept;
       counts.citations += 1;
@@ -361,7 +389,7 @@ function renderTrimmed(trim: ResultsTrim): WebSearchSuccess {
 
 /** Second trim step: each attached answer loses citations from its end. */
 function trimAnswerCitations(trim: ResultsTrim): void {
-  let over = isOverBudget(renderTrimmed(trim));
+  let over = isOverTrimmedBudget(renderTrimmed(trim));
   for (let index = trim.answers.length - 1; index >= 0 && over; index -= 1) {
     const answer = trim.answers[index];
     over = dropTrailing(
@@ -371,7 +399,7 @@ function trimAnswerCitations(trim: ResultsTrim): void {
       (kept) => {
         trim.answers[index] = { ...answer, citations: kept };
         trim.counts.citations += 1;
-        over = isOverBudget(renderTrimmed(trim));
+        over = isOverTrimmedBudget(renderTrimmed(trim));
       },
     );
   }
@@ -387,20 +415,36 @@ function cutLastAnswerText(trim: ResultsTrim): void {
   const index = trim.answers.length - 1;
   if (index < 0) return;
   const answer = trim.answers[index];
-  if (answer.answer === '' || !isOverBudget(renderTrimmed(trim))) return;
+  if (answer.answer === '' || !isOverTrimmedBudget(renderTrimmed(trim))) return;
   // The note of this cut joins its own measurement.
   trim.counts.answerCut = true;
   trim.answers[index] = { ...answer, answer: '' };
-  if (isOverBudget(renderTrimmed(trim))) {
+  if (isOverTrimmedBudget(renderTrimmed(trim))) {
     trim.answers[index] = answer;
     trim.counts.answerCut = false;
     return;
   }
   const fitting = longestFittingPrefix(answer.answer, (candidate) => {
     trim.answers[index] = { ...answer, answer: candidate };
-    return !isOverBudget(renderTrimmed(trim));
+    return !isOverTrimmedBudget(renderTrimmed(trim));
   });
   trim.answers[index] = { ...answer, answer: fitting ?? '' };
+}
+
+/** The last three trim steps, from citations to whole attached answers. */
+function trimAnswers(trim: ResultsTrim): void {
+  if (trim.answers.length === 0) return;
+  trimAnswerCitations(trim);
+  cutLastAnswerText(trim);
+  dropTrailing(
+    trim.answers,
+    0,
+    () => isOverTrimmedBudget(renderTrimmed(trim)),
+    (kept) => {
+      trim.answers = kept;
+      trim.counts.answers += 1;
+    },
+  );
 }
 
 /**
@@ -414,6 +458,13 @@ function fitResults(
   notes: ReadonlyArray<string>,
   removed: number | undefined,
 ): WebSearchSuccess {
+  const unchanged = withNotes(initial, {
+    notes,
+    counts: NO_TRIM_COUNTS,
+    answerCut: false,
+    removed,
+  });
+  if (fitsInline(unchanged)) return unchanged;
   const trim: ResultsTrim = {
     initial,
     notes,
@@ -425,25 +476,13 @@ function fitResults(
   dropTrailing(
     trim.results,
     0,
-    () => isOverBudget(renderTrimmed(trim)),
+    () => isOverTrimmedBudget(renderTrimmed(trim)),
     (kept) => {
       trim.results = kept;
       trim.counts.results += 1;
     },
   );
-  if (trim.answers.length > 0) {
-    trimAnswerCitations(trim);
-    cutLastAnswerText(trim);
-    dropTrailing(
-      trim.answers,
-      0,
-      () => isOverBudget(renderTrimmed(trim)),
-      (kept) => {
-        trim.answers = kept;
-        trim.counts.answers += 1;
-      },
-    );
-  }
+  trimAnswers(trim);
   return renderTrimmed(trim);
 }
 
@@ -479,15 +518,12 @@ export function normalizeFullOutput(
   fetchSize: number,
 ): WebSearchSuccess {
   const { output, notes } = boundedOutput(source, fetchSize);
-  const visible =
-    source.removed !== undefined && source.removed > 0
-      ? [
-          `removed ${source.removed} ${source.removed === 1 ? 'entry' : 'entries'}`,
-          ...notes,
-        ]
-      : notes;
-  const bounded = capNotes(visible);
-  return bounded.length === 0 ? output : { ...output, notes: bounded };
+  return withNotes(output, {
+    notes,
+    counts: NO_TRIM_COUNTS,
+    answerCut: false,
+    removed: source.removed,
+  });
 }
 
 /** The bounded fields of one chain result and the notes before the fit. */

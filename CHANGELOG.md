@@ -39,6 +39,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   reject-only finding per result and answer, and ends the inline text with a
   notice naming the locator and the line to continue from. A Run that cannot
   read artifacts gets `[left out: <n> results; full result not stored]` instead.
+  A native `exa` engine now asks for at most 25 results, because Exa lists
+  requests above 25 as an Enterprise feature and bills each result above ten at
+  $1 per 1,000 results.
   See [web_search](docs/product/reference/tools/web-search.md) and the
   [operator runbook](docs/product/operator/web-search.md#query-limits-and-result-counts).
   Refs [#1526](https://github.com/leon0399/llame/issues/1526).
