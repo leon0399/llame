@@ -20,6 +20,7 @@ import { createWorkspaceRootCell } from './workspace-path';
 
 const admission: GrepReadAdmission = {
   admit: () => true,
+  allows: () => true,
   refused: 0,
   recordRefusals() {},
 };

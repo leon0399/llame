@@ -1,4 +1,5 @@
 import {
+  grepIgnoredUnits,
   grepPassageUnits,
   measureGrepRendering,
   renderGrepText,
@@ -266,12 +267,12 @@ describe("grep walk order and ignore rules", () => {
     ]);
   });
 
-  it("keeps files under a directory a deeper layer re-included", async () => {
+  it("keeps the other rules under a directory a deeper layer re-included", async () => {
     const port = createMemoryPort({
-      ".gitignore": file("build/\n"),
+      ".gitignore": file("build/\n*.log\n"),
       sub: directory({
         ".gitignore": file("!build/\n"),
-        build: directory({ "keep.js": hit() }),
+        build: directory({ "keep.js": hit(), "noise.log": hit() }),
       }),
     });
     const result = await runMemoryScan(
@@ -282,6 +283,338 @@ describe("grep walk order and ignore rules", () => {
       "/repo/sub/build/keep.js:1-1",
     ]);
     expect(result.complete).toBe(true);
+  });
+
+  it("searches an explicitly scoped directory an ignore file excludes", async () => {
+    const port = createMemoryPort({ "index.js": hit() }, false, [
+      { above: "node_modules/react/", text: "node_modules/\n" },
+    ]);
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/node_modules/react/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/node_modules/react/index.js:1-1",
+    ]);
+  });
+
+  it("does not let a glob override an ignore rule", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("node_modules/\n"),
+      node_modules: directory({ react: directory({ "index.js": hit() }) }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port, { glob: "**/node_modules/react/*.js" })],
+      ["hit"],
+    );
+    expect(result.results).toEqual([]);
+  });
+
+  it("excludes a nested ignored directory below an explicit scope", async () => {
+    const port = createMemoryPort(
+      {
+        "index.js": hit(),
+        x: directory({ node_modules: directory({ "dep.js": hit() }) }),
+      },
+      false,
+      [{ above: "node_modules/react/", text: "node_modules/\n" }],
+    );
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/node_modules/react/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/node_modules/react/index.js:1-1",
+    ]);
+  });
+
+  it("keeps the files an allow list admits", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("*\n!*/\n!src/**\n"),
+      lib: directory({ "c.js": hit() }),
+      src: directory({ a: directory({ "b.js": hit() }) }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/src/a/b.js:1-1",
+    ]);
+  });
+
+  it("keeps a negated directory's own files under the rule that matched them", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("build*\n!build-tools/\n"),
+      "build-tools": directory({ "build.sh": hit(), "tool.js": hit() }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/build-tools/tool.js:1-1",
+    ]);
+  });
+
+  it("excludes a file an ignore rule matches directly", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("docs/**\n!docs/keep/\n"),
+      docs: directory({
+        "top.md": hit(),
+        keep: directory({ "a.md": hit() }),
+      }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.results).toEqual([]);
+  });
+
+  it("reads .ignore after .gitignore and keeps both out of the candidates", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("build/\n"),
+      ".ignore": file("!build/\nhit\n"),
+      build: directory({ "app.js": hit() }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/build/app.js:1-1",
+    ]);
+  });
+
+  it("applies an anchored rule above the prefix relative to its own directory", async () => {
+    const port = createMemoryPort(
+      {
+        "index.js": hit(),
+        lib: directory({ "a.js": hit() }),
+      },
+      false,
+      [{ above: "node_modules/react/", text: "/lib\n" }],
+    );
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/node_modules/react/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/node_modules/react/index.js:1-1",
+      "/repo/node_modules/react/lib/a.js:1-1",
+    ]);
+  });
+
+  it("applies an ignore file above the prefix", async () => {
+    const port = createMemoryPort({ "a.md": hit(), "b.md": hit() }, false, [
+      { above: "apps/", text: "b.md\n" },
+    ]);
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/apps/", port)],
+      ["hit"],
+    );
+    expect(result.results.map((passage) => passage.locator)).toEqual([
+      "/repo/apps/a.md:1-1",
+    ]);
+  });
+});
+
+describe("grep excluded-directory report", () => {
+  it("reports the excluded directory a later scope can search", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("node_modules/\n"),
+      node_modules: directory({ "dep.js": hit() }),
+      "src.js": hit(),
+    });
+    const first = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(first.ignored).toEqual({
+      paths: ["/repo/node_modules"],
+      atLeast: false,
+    });
+    const nodeModules = createMemoryPort({
+      "dep.js": hit(),
+    });
+    const second = await runMemoryScan(
+      [memoryScope(0, "/repo/node_modules/", nodeModules)],
+      ["hit"],
+    );
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      "/repo/node_modules/dep.js:1-1",
+    ]);
+  });
+
+  it("counts a nested excluded directory once", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("node_modules/\n"),
+      node_modules: directory({
+        node_modules: directory({ "dep.js": hit() }),
+      }),
+    });
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+    );
+    expect(result.ignored?.paths).toEqual(["/repo/node_modules"]);
+  });
+
+  it("does not report an exclusion before the resume point", async () => {
+    const port = createMemoryPort({
+      ".gitignore": file("a/\n"),
+      a: directory({ "noise.md": hit() }),
+      b: directory({ "b.md": file("plain\n") }),
+      c: directory({ "c.md": hit() }),
+    });
+    const first = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+      { budget: { entries: 2, files: null, bytes: null } },
+    );
+    expect(first.ignored?.paths).toEqual(["/repo/a"]);
+    const cursor = decode(first.cursor);
+    expect(cursor.kind).toBe("position");
+    const second = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+      { cursor },
+    );
+    expect(second.ignored).toBeUndefined();
+  });
+
+  it("keeps the ignored line's room back from the next passage", async () => {
+    const expected = {
+      locator: "/repo/b.md:1-1",
+      content: "1: hit",
+      matches: [1],
+    };
+    const ignored = { count: 1, locators: ["/repo/a"], atLeast: false };
+    const fixedReserve = 5;
+    const pageUnits =
+      Math.max(
+        grepContinuationUnits({ scopeIndex: 0, rel: ".gitignore" }),
+        grepContinuationUnits({ scopeIndex: 0, rel: "a" }),
+        grepContinuationUnits({ scopeIndex: 0, rel: "b.md", startLine: 1 }),
+      ) +
+      grepPassageUnits(undefined, expected) +
+      grepIgnoredUnits(ignored) +
+      fixedReserve -
+      1;
+    const excluded = createMemoryPort({
+      ".gitignore": file("a/\n"),
+      a: directory({}),
+      "b.md": hit(),
+    });
+    const reserved = await runMemoryScan(
+      [memoryScope(0, "/repo/", excluded)],
+      ["hit"],
+      { budget: { pageUnits, fixedReserve } },
+    );
+    expect(reserved.ignored?.paths).toEqual(["/repo/a"]);
+    expect(reserved.results).toEqual([{ ...expected, cut: true }]);
+    const control = await runMemoryScan(
+      [memoryScope(0, "/repo/", createMemoryPort({ "b.md": hit() }))],
+      ["hit"],
+      { budget: { pageUnits, fixedReserve } },
+    );
+    expect(control.results).toEqual([expected]);
+  });
+
+  it("ends the page before an exclusion whose line no longer fits", async () => {
+    const inputHash = "a".repeat(64);
+    const ignoredUnits = grepIgnoredUnits({
+      count: 1,
+      locators: ["/repo/node_modules"],
+      atLeast: false,
+    });
+    const continuation = grepContinuationUnits({
+      scopeIndex: 0,
+      rel: "a.md",
+      startLine: 1,
+    });
+    const room = 15_000 - continuation;
+    const line = (width: number): string => "a".repeat(width);
+    const passageOf = (widthsOf: ReadonlyArray<number>) => ({
+      locator: `/repo/a.md:1-${widthsOf.length}`,
+      content: widthsOf
+        .map((width, index) => `${String(index + 1)}: ${line(width)}`)
+        .join("\n"),
+      matches: widthsOf.map((_, index) => index + 1),
+    });
+    const unitsOfLines = (count: number): number =>
+      grepPassageUnits(
+        undefined,
+        passageOf(Array.from({ length: count }, () => 20)),
+      );
+    let low = 1;
+    let high = 2000;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      if (unitsOfLines(middle) <= room) low = middle;
+      else high = middle - 1;
+    }
+    const widths = Array.from({ length: low }, () => 20);
+    let units = unitsOfLines(low);
+    widths[widths.length - 1] += room - units;
+    units = grepPassageUnits(undefined, passageOf(widths));
+    expect(units).toBe(room);
+    const tree = createMemoryPort({
+      ".gitignore": file("node_modules/\n"),
+      "a.md": file(`${widths.map(line).join("\n")}\n`),
+      node_modules: directory({ "dep.js": hit() }),
+      "z.md": file("plain\n"),
+    });
+    const first = await runMemoryScan([memoryScope(0, "/repo/", tree)], ["a"], {
+      literal: true,
+      inputHash,
+      budget: { pageUnits: 15_000, fixedReserve: 0 },
+    });
+    expect(first.results.map((passage) => passage.locator)).toEqual([
+      `/repo/a.md:1-${widths.length}`,
+    ]);
+    expect(first.ignored).toBeUndefined();
+    expect(first.complete).toBe(false);
+    // The rejected record's entries are walked again by the next call, so
+    // only the two entries before the page's cut are counted.
+    expect(first.consumed.entries).toBe(2);
+    expect(measureGrepRendering({ ...first })).toBeLessThanOrEqual(15_000);
+    const decoded = decodeGrepCursor(first.cursor ?? "", inputHash);
+    if ("error" in decoded) throw new Error(decoded.error);
+    const second = await runMemoryScan(
+      [memoryScope(0, "/repo/", tree)],
+      ["a"],
+      {
+        literal: true,
+        inputHash,
+        cursor: decoded,
+        budget: { pageUnits: 15_000, fixedReserve: 0 },
+      },
+    );
+    expect(second.ignored?.paths).toEqual(["/repo/node_modules"]);
+    expect(second.complete).toBe(true);
+    expect(ignoredUnits + room + continuation).toBeGreaterThan(15_000);
+  });
+
+  it("marks the count a lower bound after one thousand directories", async () => {
+    const children = {
+      ".gitignore": file("*.tmp/\n"),
+      ...Object.fromEntries(
+        Array.from({ length: 1001 }, (_, index) => [
+          `d${String(index).padStart(4, "0")}.tmp`,
+          directory({ "a.md": hit() }),
+        ]),
+      ),
+    } satisfies MemoryTree;
+    const port = createMemoryPort(children);
+    const result = await runMemoryScan(
+      [memoryScope(0, "/repo/", port)],
+      ["hit"],
+      { budget: { entries: null, files: null, bytes: null } },
+    );
+    expect(result.ignored?.paths).toHaveLength(1000);
+    expect(result.ignored?.atLeast).toBe(true);
   });
 });
 

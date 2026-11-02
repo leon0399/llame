@@ -190,7 +190,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
       progressed: state.progressed,
     });
     if ('result' in outcome) return outcome.result;
-    appendSegment(state, budget, outcome.page);
+    appendSegment(state, budget, outcome.page, request.admission);
     if (!outcome.page.complete) state.complete = false;
     resumeWithoutCursor(state, undefined, segment.index);
   }
@@ -303,6 +303,7 @@ async function runMachineSegment(
       consumed: machine.consumed,
       progressed: machine.progressed,
       ...(unfinished !== undefined && { unfinished }),
+      ...(machine.ignored !== undefined && { ignored: machine.ignored }),
       ...(machine.position !== undefined && {
         position: machine.position,
       }),
@@ -343,6 +344,7 @@ function localPage(scan: GrepScanResult): SegmentPage {
     consumed: scan.consumed,
     progressed: scan.progressed,
     ...(scan.unfinished !== undefined && { unfinished: scan.unfinished }),
+    ...(scan.ignored !== undefined && { ignored: scan.ignored }),
     ...(scan.last !== undefined && { last: scan.last }),
     ...(scan.position !== undefined && { position: scan.position }),
   };

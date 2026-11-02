@@ -9,14 +9,21 @@
 import {
   fsGrepCursorKey,
   type FsGrepParams,
+  type FsGrepSuccess,
+  type FsGrepWarningKind,
 } from '@workspace/machine-protocol';
 import {
   encodeGrepCursor,
+  GREP_LIMITS,
+  grepIgnoredUnits,
+  grepWarningsUnits,
+  spellGrepHostScopeLocator,
   type DecodedGrepCursor,
   type GrepBudget,
 } from '@workspace/native-file-tools';
 
 import { formatMachineLocator } from '../machines/machine-locator';
+import { remainingOf } from './grep-page';
 import { type GrepReadAdmission } from './grep-admission';
 import { type MachineGrepScope, type MachineGrepSearch } from './grep-machine';
 
@@ -147,4 +154,117 @@ export function unfinishedPosition(
   return rel === ''
     ? { scopeIndex: search.scope.index + 1, rel: '' }
     : { scopeIndex: search.scope.index, rel };
+}
+
+/** The excluded directories one Machine scope's pages report, capped. */
+export type IgnoredAccumulator = {
+  readonly scope: MachineGrepScope;
+  readonly paths: Array<string>;
+  /** Each locator's scope-relative path, so a page cut can filter them. */
+  readonly rels: Array<string>;
+  recorded: number;
+  atLeast: boolean;
+};
+
+export function ignoredAccumulator(
+  scope: MachineGrepScope,
+): IgnoredAccumulator {
+  return { scope, paths: [], rels: [], recorded: 0, atLeast: false };
+}
+
+/**
+ * Fold one daemon page's warnings, budget, and excluded directories into the
+ * scope's totals. The daemon's own cap and this one both count recorded
+ * directories, before the hub's `read` filter.
+ */
+export function mergePage(
+  warnings: Map<FsGrepWarningKind, number>,
+  consumed: { files: number; entries: number; bytes: number },
+  ignored: IgnoredAccumulator,
+  page: FsGrepSuccess,
+): void {
+  for (const warning of page.warnings)
+    warnings.set(
+      warning.kind,
+      (warnings.get(warning.kind) ?? 0) + warning.count,
+    );
+  consumed.files += page.consumed.files;
+  consumed.entries += page.consumed.entries;
+  consumed.bytes += page.consumed.bytes;
+  if (page.ignored === undefined) return;
+  if (page.ignored.atLeast) ignored.atLeast = true;
+  for (const rel of page.ignored.paths) {
+    if (ignored.recorded >= GREP_LIMITS.ignoredReported) {
+      ignored.atLeast = true;
+      break;
+    }
+    ignored.recorded += 1;
+    const locator = machineScopeLocator(ignored.scope, rel);
+    if (locator === undefined) continue;
+    ignored.paths.push(locator);
+    ignored.rels.push(rel);
+  }
+}
+
+/** The loop's first request state: budget, cursor, and inherited progress. */
+type DaemonStart = {
+  readonly budget: GrepBudget;
+  readonly cursor: string | undefined;
+  readonly progressed: boolean;
+};
+
+function daemonBudget(budget: GrepBudget, deadlineAt: number): GrepBudget {
+  return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
+}
+
+export function daemonStart(
+  search: MachineGrepSearch,
+  deadlineAt: number,
+): DaemonStart {
+  return {
+    budget: daemonBudget(search.budget, deadlineAt),
+    cursor: search.resume && daemonCursor(search, search.resume),
+    progressed: search.progressed,
+  };
+}
+
+/**
+ * What the call has left after one daemon page. The next request must leave
+ * the hub's own lines beside it — `base` plus this segment's warnings line so
+ * far — or a page the hub then drops whole would come back on every resume.
+ */
+export function spent(
+  budget: GrepBudget,
+  page: FsGrepSuccess,
+  deadlineAt: number,
+  lines: {
+    readonly base: number;
+    readonly counts: ReadonlyMap<FsGrepWarningKind, number>;
+    readonly ignored: IgnoredAccumulator;
+  },
+): GrepBudget {
+  const consumed = page.consumed;
+  const reserve =
+    lines.base +
+    grepWarningsUnits(lines.counts) +
+    (lines.ignored.paths.length === 0 && !lines.ignored.atLeast
+      ? 0
+      : grepIgnoredUnits(
+          {
+            count: lines.ignored.paths.length,
+            locators: lines.ignored.paths,
+            atLeast: lines.ignored.atLeast,
+          },
+          spellGrepHostScopeLocator,
+        ));
+  return {
+    files: remainingOf(budget.files, consumed.files),
+    entries: remainingOf(budget.entries, consumed.entries),
+    bytes: remainingOf(budget.bytes, consumed.bytes),
+    maxFileBytes: budget.maxFileBytes,
+    limit: budget.limit,
+    pageUnits: budget.pageUnits,
+    fixedReserve: reserve,
+    deadlineMs: Math.max(0, deadlineAt - Date.now()),
+  };
 }

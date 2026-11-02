@@ -62,6 +62,58 @@ export function splitGrepScope(pathPart: string): GrepScopeSplitResult {
   };
 }
 
+/** The seven literal spellings a host scope decodes, each to its character. */
+const LITERAL_SPELLINGS = new Map([
+  ["%25", "%"],
+  ["%2A", "*"],
+  ["%3F", "?"],
+  ["%5B", "["],
+  ["%5D", "]"],
+  ["%7B", "{"],
+  ["%7D", "}"],
+]);
+
+/**
+ * Decode exactly the seven literal spellings of a host scope prefix in one
+ * pass. No other percent sequence is decoded, so an ordinary path that holds
+ * `%41` keeps its meaning, and `%252A` becomes `%2A` rather than `*`.
+ */
+export function decodeGrepLiteralSpelling(text: string): string {
+  return text.replaceAll(
+    /%[0-9A-F]{2}/giu,
+    (sequence) => LITERAL_SPELLINGS.get(sequence.toUpperCase()) ?? sequence,
+  );
+}
+
+/** The spellings a scope writes for the characters of a locator. */
+const HOST_SPELLINGS = new Map(
+  [...LITERAL_SPELLINGS].map(([spelling, character]) => [character, spelling]),
+);
+/** A Machine locator already writes `%` as `%25`, so it spells the glob ones. */
+const MACHINE_SPELLINGS = new Map(
+  [...HOST_SPELLINGS].filter(([character]) => character !== "%"),
+);
+
+function spellScopeLocator(
+  locator: string,
+  spellings: ReadonlyMap<string, string>,
+): string {
+  return locator.replaceAll(
+    /[%*?[\]{}]/gu,
+    (character) => spellings.get(character) ?? character,
+  );
+}
+
+/** A reported host directory as the scope that names it. */
+export function spellGrepHostScopeLocator(locator: string): string {
+  return spellScopeLocator(locator, HOST_SPELLINGS);
+}
+
+/** A reported Machine directory as the scope that names it. */
+export function spellGrepMachineScopeLocator(locator: string): string {
+  return spellScopeLocator(locator, MACHINE_SPELLINGS);
+}
+
 /** The kept segments as one locator prefix; a removed segment leaves a '/'. */
 function literalPrefix(kept: ReadonlyArray<string>): string {
   if (kept.length === 0) return "";

@@ -3,7 +3,11 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
-import { grepUnfinishedUnits, grepWarningsUnits } from "./model-text";
+import {
+  grepIgnoredUnits,
+  grepUnfinishedUnits,
+  grepWarningsUnits,
+} from "./model-text";
 import {
   appendGrepFile,
   createGrepPage,
@@ -12,6 +16,7 @@ import {
   type GrepPageLimits,
 } from "./page";
 import { passageStartLine } from "./passages";
+import { spellGrepHostScopeLocator } from "./scope";
 import {
   startGrepWalk,
   type GrepCandidateEvent,
@@ -34,7 +39,7 @@ type ScanState = {
   readonly input: GrepScanInput;
   readonly page: GrepPage;
   /** What the page may render to, and what it keeps for its caller. */
-  readonly limits: GrepPageLimits;
+  limits: GrepPageLimits;
   /** The widest scope ordinal, which a position cursor may name. */
   readonly widestIndex: number;
   readonly warnings: Map<GrepWarningKind, number>;
@@ -44,6 +49,8 @@ type ScanState = {
   readonly startPoint:
     | { readonly scopeIndex: number; readonly rel: string }
     | undefined;
+  /** Directories an ignore rule excluded, capped across the call. */
+  ignored: { paths: Array<string>; atLeast: boolean };
   /** The passages that are their file's twentieth and reached the page. */
   readonly capped: Array<GrepCappedPassage>;
   readRefused: number;
@@ -113,6 +120,7 @@ function createScanState(input: GrepScanInput): ScanState {
     consumed: { files: 0, entries: 0, bytes: 0 },
     deadlineAt: input.now() + input.budget.deadlineMs,
     startPoint: startPointOf(input),
+    ignored: { paths: [], atLeast: false },
     capped: [],
     readRefused: 0,
     progressed: input.progressed === true,
@@ -167,6 +175,9 @@ function takeRecord(
   state: ScanState,
   record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
 ): boolean {
+  // The record's entries wait behind its exclusions: a page that ends before
+  // an exclusion re-lists them, so counting them here would double the bound.
+  if (!takeIgnored(state, record)) return true;
   if (record.links > 0 && !addWarning(state, "link", record.links)) return true;
   state.consumed.entries += record.entries;
   const { reached } = record;
@@ -181,6 +192,49 @@ function takeRecord(
   );
   if (pastStartPoint(state, reached)) state.progressed = true;
   return false;
+}
+
+/**
+ * Take the excluded directories a record carries, up to the call's cap, and
+ * keep the room the `[ignored …]` line takes on the page.
+ */
+function takeIgnored(
+  state: ScanState,
+  record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
+): boolean {
+  if (record.ignored.length === 0 && !record.ignoredAtLeast) return true;
+  const prior = {
+    ...state.ignored,
+    paths: [...state.ignored.paths],
+  };
+  if (record.ignoredAtLeast) state.ignored.atLeast = true;
+  // The producer caps the whole call at `ignoredReported`, so every path the
+  // record carries is new here.
+  state.ignored.paths.push(...record.ignored);
+  // The ignored line renders beside the continuation line, so it adds to the
+  // reserve the page keeps back rather than replacing the cursor's room.
+  const limits = {
+    ...state.limits,
+    fixedReserve:
+      state.input.budget.fixedReserve +
+      grepIgnoredUnits(
+        {
+          count: state.ignored.paths.length,
+          locators: state.ignored.paths,
+          atLeast: state.ignored.atLeast,
+        },
+        spellGrepHostScopeLocator,
+      ),
+  };
+  // A line the page can no longer hold ends it before this exclusion; the
+  // next call reports the directory instead.
+  if (!holdsGrownReserve(state.page, limits, state.page.warningReserve)) {
+    state.ignored = prior;
+    state.page.full = true;
+    return false;
+  }
+  state.limits = limits;
+  return true;
 }
 
 /** Whether an entry sorts strictly after the point the call starts at. */
@@ -423,6 +477,12 @@ function buildResult(state: ScanState): GrepScanResult {
     consumed: { ...state.consumed },
     progressed: state.progressed,
     ...(state.unfinished !== undefined && { unfinished: state.unfinished }),
+    ...(state.ignored.paths.length > 0 && {
+      ignored: {
+        paths: [...state.ignored.paths],
+        atLeast: state.ignored.atLeast,
+      },
+    }),
     ...(last !== undefined && { last: { ...last } }),
     ...(position !== undefined && { position: { ...position } }),
     ...(state.capped.length > 0 && {

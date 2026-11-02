@@ -7,6 +7,7 @@ import {
 } from "@workspace/runtime-safety";
 
 import { isNonEmptyString, oneLine } from "../model-text";
+import { GREP_LIMITS } from "./limits";
 import { passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
@@ -151,6 +152,89 @@ export function grepUnfinishedLine(locator: string): string {
   return `[not searched to the end: ${oneLine(locator)}]`;
 }
 
+/** The most code units one `[ignored …]` line may take. */
+const IGNORED_LINE_UNITS = 2000;
+
+/** One stored `ignored` field: the admitted count and its first locators. */
+interface IgnoredView {
+  readonly count: number;
+  readonly locators: ReadonlyArray<string>;
+  readonly atLeast: boolean;
+}
+
+/** The stored `ignored` field, or none when it is not one this build wrote. */
+function ignoredOf(value: unknown): IgnoredView | undefined {
+  if (!isRecord(value)) return undefined;
+  const { count, locators, atLeast } = value;
+  if (!isNumber(count) || count < 1 || !Array.isArray(locators))
+    return undefined;
+  const kept: Array<string> = [];
+  for (const locator of locators) {
+    if (!isNonEmptyString(locator)) return undefined;
+    if (kept.length < GREP_LIMITS.ignoredLocators) kept.push(locator);
+  }
+  return { count, locators: kept, atLeast: atLeast === true };
+}
+
+/**
+ * One `[ignored …]` line: the admitted count and the first locators that fit
+ * in 2,000 code units. A count larger than the rendered locators follows them
+ * as a remainder; when not even the first locator fits, the remainder follows
+ * the colon.
+ */
+function grepIgnoredLine(ignored: IgnoredView): string {
+  const count = ignored.atLeast
+    ? `${String(ignored.count)} or more`
+    : String(ignored.count);
+  const noun = ignored.count === 1 ? "directory" : "directories";
+  const head = `[ignored ${count} ${noun}: `;
+  const tail = "; a scope that names one searches it]";
+  const chosen: Array<string> = [];
+  let line: string | undefined;
+  for (const locator of ignored.locators) {
+    const folded = oneLine(locator);
+    const next = [...chosen, folded];
+    const rest = ignored.count - next.length;
+    const candidate = `${head}${next.join(", ")}${
+      rest > 0
+        ? ` (+${String(rest)}${ignored.atLeast ? " or more" : " more"})`
+        : ""
+    }${tail}`;
+    if (candidate.length > IGNORED_LINE_UNITS) break;
+    chosen.push(folded);
+    line = candidate;
+  }
+  if (line !== undefined) return line;
+  // Not one locator fits: the remainder follows the colon.
+  return `${head}(+${String(ignored.count)}${
+    ignored.atLeast ? " or more" : " more"
+  })${tail}`;
+}
+
+/**
+ * Widest the `ignored` line can render for a page that reports these raw
+ * locators: at most the five it names, in the spelling the result carries.
+ * The page keeps this width and its newline back before the next passage.
+ */
+export function grepIgnoredUnits(
+  ignored: {
+    readonly count: number;
+    readonly locators: ReadonlyArray<string>;
+    readonly atLeast: boolean;
+  },
+  spell: (locator: string) => string = (locator) => locator,
+): number {
+  return (
+    grepIgnoredLine({
+      count: ignored.count,
+      locators: ignored.locators
+        .slice(0, GREP_LIMITS.ignoredLocators)
+        .map(spell),
+      atLeast: ignored.atLeast,
+    }).length + 1
+  );
+}
+
 /**
  * Rendered width of the unfinished line with its separating newline, so the
  * file the walk waits on keeps its room back before the page admits a passage.
@@ -185,6 +269,8 @@ export function renderGrepText(result: UnknownRecord): string {
   }
   const warnings = warningsLine(result.warnings);
   if (warnings !== undefined) lines.push(warnings);
+  const ignored = ignoredOf(result.ignored);
+  if (ignored !== undefined) lines.push(grepIgnoredLine(ignored));
   const { unfinishedFile } = result;
   if (isNonEmptyString(unfinishedFile))
     lines.push(grepUnfinishedLine(unfinishedFile));

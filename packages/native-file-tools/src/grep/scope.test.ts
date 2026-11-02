@@ -1,3 +1,4 @@
+import { decodeGrepLiteralSpelling } from "./scope";
 import { compileGlob, normalizeHostScope, splitGrepScope } from "./scope";
 
 describe("grep scope splitting", () => {
@@ -143,5 +144,28 @@ describe("grep glob matching", () => {
     expect(glob.matchesFile("a.md")).toBe(true);
     expect(glob.matchesFile("b.md")).toBe(false);
     expect(glob.mayDescend("a.md")).toBe(false);
+  });
+});
+
+describe("decodeGrepLiteralSpelling", () => {
+  it.each([
+    ["%25", "%"],
+    ["%2A", "*"],
+    ["%3F", "?"],
+    ["%5B", "["],
+    ["%5D", "]"],
+    ["%7B", "{"],
+    ["%7D", "}"],
+    ["%2a", "*"],
+  ])("decodes %s once", (sequence, character) => {
+    expect(decodeGrepLiteralSpelling(`a${sequence}b`)).toBe(`a${character}b`);
+  });
+
+  it("leaves another percent sequence as text", () => {
+    expect(decodeGrepLiteralSpelling("100%41/%2F")).toBe("100%41/%2F");
+  });
+
+  it("decodes a spelled percent once", () => {
+    expect(decodeGrepLiteralSpelling("a%252A")).toBe("a%2A");
   });
 });

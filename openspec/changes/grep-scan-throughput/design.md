@@ -380,10 +380,13 @@ descendant. The walk never tests the scope directory or a directory above it.
 
 The round-2 review ran this method against `git ls-files -o
 --exclude-standard` and `rg --files --hidden` in 26 repositories, and it
-matched `rg` in all of them. These included the v2 table rows, the explicit
-scopes, `docs/**` with `!docs/keep/`, the allow list `*`, `!*/`, `!src/**`,
-anchored and directory-only rules, escapes, character classes, `**/foo/bar`,
-and `a/**/b`.
+matched `rg` in all of them. The one deliberate divergence is that a deeper
+`.gitignore` negation outranks a shallower `.ignore` rule, while ripgrep ranks
+every `.ignore` match above every `.gitignore` match at any depth. The probed
+repositories did not exercise that case. The 26 repositories included the v2
+table rows, the explicit scopes, `docs/**` with `!docs/keep/`, the allow list
+`*`, `!*/`, `!src/**`, anchored and directory-only rules, escapes, character
+classes, `**/foo/bar`, and `a/**/b`.
 
 A unit test pins the negation behavior to `ignore` 7.0.12, so a dependency
 upgrade that changes it fails CI.

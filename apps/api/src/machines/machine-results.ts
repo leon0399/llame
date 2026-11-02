@@ -12,6 +12,7 @@ import {
   isSerializableRecord,
   type FsBytesResult,
   type FsGrepConsumed,
+  type FsGrepIgnored,
   type FsGrepPassage,
   type FsGrepResult,
   type FsGrepSuccess,
@@ -481,6 +482,28 @@ function readGrepWarnings(
   return warnings;
 }
 
+/** The excluded directories a daemon reports, relative to its prefix. */
+function readGrepIgnored(value: JsonValue): FsGrepIgnored | undefined {
+  if (!isSerializableRecord(value)) return undefined;
+  const { paths, atLeast } = value;
+  if (!isTextList(paths) || !isFlag(atLeast)) return undefined;
+  const relative: Array<string> = [];
+  for (const path of paths) {
+    if (path === '' || !isScopeRelativePath(path)) return undefined;
+    relative.push(path);
+  }
+  return { paths: relative, atLeast };
+}
+
+/** The daemon's optional `ignored` field; null means present but malformed. */
+function readGrepIgnoredField(
+  value: SerializableRecord,
+): FsGrepIgnored | null | undefined {
+  const field = fieldOf(value, 'ignored');
+  if (field === undefined) return undefined;
+  return readGrepIgnored(field) ?? null;
+}
+
 function readGrepConsumed(value: JsonValue): FsGrepConsumed | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { files, entries, bytes } = value;
@@ -497,12 +520,14 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
   const results = readGrepPassages(fieldOf(value, 'results') ?? null);
   const warnings = readGrepWarnings(fieldOf(value, 'warnings') ?? null);
   const consumed = readGrepConsumed(fieldOf(value, 'consumed') ?? null);
+  const ignored = readGrepIgnoredField(value);
   if (
     results === undefined ||
     warnings === undefined ||
     consumed === undefined ||
     !isFlag(complete) ||
-    !isFlag(progressed)
+    !isFlag(progressed) ||
+    ignored === null
   )
     return undefined;
   if (cursor !== undefined && !isText(cursor)) return undefined;
@@ -526,5 +551,6 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
     ...success,
     ...(isText(cursor) && { cursor }),
     ...(isText(unfinished) && { unfinished }),
+    ...(ignored !== undefined && { ignored }),
   };
 }

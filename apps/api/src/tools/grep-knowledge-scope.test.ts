@@ -20,6 +20,7 @@ const SPACE_B = '22222222-2222-4222-8222-222222222222';
 
 const admission: GrepReadAdmission = {
   admit: () => true,
+  allows: () => true,
   refused: 0,
   recordRefusals() {},
 };

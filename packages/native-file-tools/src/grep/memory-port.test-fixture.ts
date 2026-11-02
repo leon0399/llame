@@ -1,6 +1,7 @@
 import {
   compileGrepPatterns,
   compileGlob,
+  GREP_IGNORE_FILE_NAMES,
   GREP_LIMITS,
   GrepPortError,
   runGrepScan,
@@ -10,6 +11,7 @@ import type {
   GrepBudget,
   GrepEntry,
   GrepFileStream,
+  GrepIgnoreFile,
   GrepScanResult,
   GrepScope,
   GrepWalkPort,
@@ -138,10 +140,24 @@ function entryFor(name: string, child: MemoryNode): GrepEntry {
   return { name, kind: child.kind };
 }
 
-/** Host-style port; a `.gitignore` child is the directory's ignore file. */
+/** The ignore text a memory directory holds under one file name. */
+function memoryIgnoreText(
+  node: MemoryNode | undefined,
+  name: string,
+): string | undefined {
+  if (node === undefined || node.kind !== "directory") return undefined;
+  const file = node.children[name];
+  return file !== undefined && file.kind === "file" ? file.content : undefined;
+}
+
+/**
+ * Host-style port; a `.gitignore` and a `.ignore` child are the directory's
+ * ignore files, and `ancestors` stands in for the files above the prefix.
+ */
 export function createMemoryPort(
   tree: MemoryTree,
   followsLinks = false,
+  ancestors: ReadonlyArray<GrepIgnoreFile> = [],
 ): MemoryPort {
   const lists: Array<string> = [];
   const reads: Array<string> = [];
@@ -177,17 +193,16 @@ export function createMemoryPort(
         openMemoryNode(resolveMemoryNode(tree, rel), close),
       );
     },
-    ignoreFile(rel: string): Promise<string | undefined> {
+    ignoreFiles(rel: string): Promise<ReadonlyArray<string>> {
       const node = resolveMemoryNode(tree, rel);
-      if (node === undefined || node.kind !== "directory")
-        return Promise.resolve(undefined);
-      const ignored = node.children[".gitignore"];
-      return Promise.resolve(
-        ignored !== undefined && ignored.kind === "file"
-          ? ignored.content
-          : undefined,
-      );
+      const texts: Array<string> = [];
+      for (const name of GREP_IGNORE_FILE_NAMES) {
+        const text = memoryIgnoreText(node, name);
+        if (text !== undefined) texts.push(text);
+      }
+      return Promise.resolve(texts);
     },
+    ignoreAncestors: () => Promise.resolve(ancestors),
   };
 }
 
@@ -223,8 +238,10 @@ export function createSingleFilePort(
         openMemoryNode(rel.length === 0 ? node : undefined, close),
       );
     },
-    ignoreFile(rel: string): Promise<string | undefined> {
-      return Promise.resolve(rel.length === 0 ? ignoreText : undefined);
+    ignoreFiles(rel: string): Promise<ReadonlyArray<string>> {
+      return Promise.resolve(
+        rel.length === 0 && ignoreText !== undefined ? [ignoreText] : [],
+      );
     },
   };
 }

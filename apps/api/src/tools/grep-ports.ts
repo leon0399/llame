@@ -3,7 +3,7 @@
  * Space, and one installed skill package. Each port adapts its own trusted
  * source to the engine's `GrepWalkPort`, and each keeps its own link rule —
  * the host and Knowledge never follow a link, and a skill package follows one
- * exactly as agent-skills does. Only the host port honors `.gitignore`.
+ * exactly as agent-skills does. The host and Machine ports honor ignore files.
  */
 
 import { type Dirent } from 'node:fs';
@@ -12,6 +12,8 @@ import { type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  collectAncestorIgnoreFiles,
+  GREP_IGNORE_FILE_NAMES,
   openFileStream,
   openFlags,
   type GrepEntry,
@@ -86,7 +88,7 @@ export async function readBoundedFileBytes(
   return Buffer.concat(chunks, Math.min(totalBytes, maxBytes + 1));
 }
 
-/** The largest `.gitignore` the walk reads; a larger one applies no rules. */
+/** The largest ignore file the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
 
 /**
@@ -110,7 +112,8 @@ export async function probeHostPath(
 /**
  * The host tree as the operating system reports it. A link is reported as a
  * link and never entered, hidden entries stay visible, and each directory's
- * `.gitignore` becomes walk policy; the engine prunes `.git` itself.
+ * `.gitignore` and `.ignore` become walk policy; the engine prunes `.git`
+ * itself.
  */
 export function createHostWalkPort(
   root: string,
@@ -120,7 +123,12 @@ export function createHostWalkPort(
     followsLinks: false,
     list: (rel) => listHostDirectory(root, rel, signal),
     open: (rel) => openFileStream(hostPath(root, rel), false, signal),
-    ignoreFile: (rel) => readIgnoreFile(root, rel, signal),
+    ignoreFiles: (rel) => readIgnoreFiles(root, rel, signal),
+    ignoreAncestors: () =>
+      collectAncestorIgnoreFiles(
+        { prefix: root, root: '/', fallbackRepository: undefined, signal },
+        (directory, name) => readIgnoreText(directory, name, signal),
+      ),
   };
 }
 
@@ -180,13 +188,28 @@ function hostPath(root: string, rel: string): string {
   return rel.length === 0 ? root : path.join(root, rel);
 }
 
-/** One directory's ignore text, when it is a bounded regular file. */
-async function readIgnoreFile(
+/** One directory's ignore texts, `.gitignore` before `.ignore`. */
+async function readIgnoreFiles(
   root: string,
   rel: string,
   signal: AbortSignal | undefined,
+): Promise<ReadonlyArray<string>> {
+  const directory = hostPath(root, rel);
+  const texts: Array<string> = [];
+  for (const name of GREP_IGNORE_FILE_NAMES) {
+    const text = await readIgnoreText(directory, name, signal);
+    if (text !== undefined) texts.push(text);
+  }
+  return texts;
+}
+
+/** One ignore file's text, when it is a bounded regular file. */
+async function readIgnoreText(
+  directory: string,
+  name: string,
+  signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
-  const file = path.join(hostPath(root, rel), '.gitignore');
+  const file = path.join(directory, name);
   let handle: FileHandle | undefined;
   try {
     // Policy comes from a real file only, opened by the walk's own rule: a
@@ -201,6 +224,8 @@ async function readIgnoreFile(
       ? undefined
       : bytes.toString('utf8');
   } catch {
+    // A cancellation is not an absent file: let the walk end the call.
+    signal?.throwIfAborted();
     return undefined;
   } finally {
     await handle?.close();

@@ -9,6 +9,7 @@ import path from 'node:path';
 
 import {
   compileGlob,
+  decodeGrepLiteralSpelling,
   normalizeHostScope,
   parsePathScheme,
   splitGrepScope,
@@ -61,6 +62,7 @@ import {
 import {
   buildScope,
   hasGlobOperator,
+  hostLiteralStart,
   splitScopePath,
   type ResolvedScopes,
   type ScopeOutcome,
@@ -181,8 +183,13 @@ async function resolveScope(
     const alias = decodeFileAlias(scope);
     if (!alias.ok) return { result: invalidPathResult(alias.message) };
     // A local alias is a host path that the Workspace rule never re-places,
-    // exactly as `read` and the grep scope projection treat it.
-    return buildHostScope(context, alias.hostPath, index, admission);
+    // exactly as `read` and the grep scope projection treat it. Its decoder
+    // already ran, so the literal spellings must not decode a second time.
+    return buildHostScope(context, alias.hostPath, {
+      index,
+      admission,
+      literalStart: normalizeHostScope(alias.hostPath).length,
+    });
   }
   const scheme = parsePathScheme(scope);
   if (scheme === undefined) {
@@ -245,8 +252,48 @@ async function resolveHostScope(
       ? resolveMachineScope(context, placed, index, admission)
       : { result: invalidPathResult('This path scheme cannot be searched.') };
   }
-  return buildHostScope(context, placed, index, admission);
+  return buildHostScope(context, placed, {
+    index,
+    admission,
+    literalStart: hostLiteralStart(scope, root, placed),
+  });
 }
+
+/** The authority and path checks every host scope passes first. */
+function hostScopeRefusal(
+  context: ToolContext,
+  normalized: string,
+): GrepToolError | undefined {
+  if (context.runId === undefined || context.nativeExecutorId === undefined)
+    return executorUnavailableResult();
+  return !path.isAbsolute(normalized) || normalized.includes('\0')
+    ? invalidPathResult('The scope path is invalid.')
+    : undefined;
+}
+
+/**
+ * The seven literal spellings decode in the prefix only, after the glob cut,
+ * so a reported `%5B` names the directory and no encoded bracket is refused
+ * as a glob operator. Only the model-supplied part decodes: a Workspace root
+ * is a real path, so its own `%25` must survive.
+ */
+function decodedHostPrefix(
+  encodedPrefix: string,
+  literalStart: number,
+): string {
+  return (
+    encodedPrefix.slice(0, literalStart) +
+    decodeGrepLiteralSpelling(encodedPrefix.slice(literalStart))
+  );
+}
+
+/** What one host scope settles: its ordinal, admission, and literal start. */
+type HostScopeRequest = {
+  readonly index: number;
+  readonly admission: GrepReadAdmission;
+  /** Where the model-supplied text starts in the prefix; 0 decodes whole. */
+  readonly literalStart?: number;
+};
 
 /**
  * One host path, already decoded from a `file:` alias or placed by the
@@ -255,26 +302,25 @@ async function resolveHostScope(
 async function buildHostScope(
   context: ToolContext,
   hostPath: string,
-  index: number,
-  admission: GrepReadAdmission,
+  request: HostScopeRequest,
 ): Promise<ScopeOutcome> {
-  if (context.runId === undefined || context.nativeExecutorId === undefined) {
-    return { result: executorUnavailableResult() };
-  }
   const normalized = normalizeHostScope(hostPath);
-  if (!path.isAbsolute(normalized) || normalized.includes('\0')) {
-    return { result: invalidPathResult('The scope path is invalid.') };
-  }
+  const refused = hostScopeRefusal(context, normalized);
+  if (refused !== undefined) return { result: refused };
   // A colon is path text here: grep parses no read selector.
   const split = splitGrepScope(normalized);
   if ('error' in split)
     return { result: unsupportedGlobResult(split.operator) };
-  const prefixPath =
+  const encodedPrefix =
     split.prefix.endsWith('/') && split.prefix !== '/'
       ? split.prefix.slice(0, -1)
       : split.prefix;
+  const prefixPath = decodedHostPrefix(
+    encodedPrefix,
+    request.literalStart ?? 0,
+  );
   return buildScope({
-    index,
+    index: request.index,
     locatorFor: (rel) =>
       rel.length === 0
         ? prefixPath
@@ -288,7 +334,7 @@ async function buildHostScope(
     port: () => createHostWalkPort(prefixPath, context.abortSignal),
     probe: () => probeHostPath(prefixPath, context.abortSignal),
     endsWithSeparator: split.endsWithSeparator,
-    admission,
+    admission: request.admission,
     root: prefixPath,
   });
 }

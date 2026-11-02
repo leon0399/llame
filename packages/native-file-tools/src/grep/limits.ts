@@ -19,4 +19,8 @@ export const GREP_LIMITS = {
    * so the head read is one more: at most nine files are open at once.
    */
   readAhead: 8,
+  /** Excluded directories one call reports before it marks a lower bound. */
+  ignoredReported: 1000,
+  /** Excluded-directory locators the result names. */
+  ignoredLocators: 5,
 } as const;

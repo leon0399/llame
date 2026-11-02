@@ -39,6 +39,13 @@ export interface GrepFileStream {
  */
 export type GrepFileStopReason = "deadline" | "byte_bound";
 
+/** One ignore file above the scope prefix, and where it sits relative to it. */
+export interface GrepIgnoreFile {
+  /** Path from the file's directory to the prefix, `/`-separated and ending with '/' (e.g. `apps/`). */
+  readonly above: string;
+  readonly text: string;
+}
+
 /** The abstract directory tree one scope walks. */
 export interface GrepWalkPort {
   /** List one directory. `rel` is ''-rooted, '/'-separated, relative to the scope prefix. Throws GrepPortError on failure. */
@@ -48,8 +55,17 @@ export interface GrepWalkPort {
    * A path that is not an openable regular file is refused here.
    */
   open(rel: string): Promise<GrepFileStream | GrepReadRefusal>;
-  /** Ignore-file text for a directory, when this scheme honors .gitignore (host, machine). Absent on kb/skill ports. */
-  ignoreFile?(rel: string): Promise<string | undefined>;
+  /**
+   * Ignore-file texts of one directory, `.gitignore` first and `.ignore` after,
+   * when this scheme honors ignore files (host, machine). Absent on kb/skill
+   * ports.
+   */
+  ignoreFiles?(rel: string): Promise<ReadonlyArray<string>>;
+  /**
+   * Ignore files from the scheme's root down to the prefix's parent, shallowest
+   * first. A port returns none when its scheme has no ignore files.
+   */
+  ignoreAncestors?(): Promise<ReadonlyArray<GrepIgnoreFile>>;
   /** True when this port's links are pre-resolved (skill). The engine never follows a `link` entry. */
   readonly followsLinks: boolean;
 }
@@ -145,6 +161,11 @@ export interface GrepScanResult {
   /** The file's locator: relative to the prefix on a Machine, canonical here. */
   unfinished?: string;
   /**
+   * Directories the walk declined to enter, in canonical order and relative to
+   * the prefix, capped across the call; `atLeast` marks a larger count.
+   */
+  ignored?: GrepIgnored;
+  /**
    * The page ends where `last` names a passage it emitted, or `position` names
    * the last entry a bound stopped the walk at. Both serve a caller that pages
    * across walks of its own (the tool and the Machine daemon do).
@@ -170,6 +191,12 @@ export interface GrepPageEnd {
 export interface GrepPosition {
   scopeIndex: number;
   rel: string;
+}
+
+/** Directories an ignore rule excluded, capped, with a lower-bound mark. */
+export interface GrepIgnored {
+  readonly paths: ReadonlyArray<string>;
+  readonly atLeast: boolean;
 }
 
 /** One passage that is its file's twentieth: the file ends with it. */

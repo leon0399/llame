@@ -6,12 +6,15 @@
 
 import {
   compileGlob,
+  normalizeHostScope,
   splitGrepScope,
   type CompiledGlob,
   type GrepScope,
 } from '@workspace/native-file-tools';
 
 import { decodeRelativePath } from './locator-spelling';
+import { isFileAlias } from './permissions/file-alias';
+import { isWorkspaceRelative } from './workspace-path';
 import { type GrepReadAdmission } from './grep-admission';
 import { type MachineGrepScope } from './grep-machine';
 import {
@@ -21,6 +24,54 @@ import {
   type GrepToolError,
 } from './grep-results';
 import { type ScopeProbe } from './grep-ports';
+
+/** One normalized host path without a trailing separator but for `/`. */
+function trimHostSeparator(value: string): string {
+  return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+/** The length of the segment prefix two normalized paths share, separators included. */
+function sharedSegmentPrefix(left: string, right: string): number {
+  const leftParts = left.split('/');
+  const rightParts = right.split('/');
+  let shared = 0;
+  while (
+    shared < leftParts.length &&
+    shared < rightParts.length &&
+    leftParts[shared] === rightParts[shared]
+  )
+    shared += 1;
+  const joined = leftParts.slice(0, shared).join('/');
+  return joined.length === 0 ? 0 : joined.length + 1;
+}
+
+/** Two normalized host paths are equal, a trailing separator aside. */
+export function sameHostPath(left: string, right: string): boolean {
+  return trimHostSeparator(left) === trimHostSeparator(right);
+}
+
+/**
+ * Where a placed host path stops being the Workspace root's own text. A
+ * relative scope shares only the root segments its `..` segments leave in
+ * place, so its decoded part starts after that shared prefix. An absolute
+ * scope is model text whole, except one that names the root itself; a file
+ * alias is already a decoded host path.
+ */
+export function hostLiteralStart(
+  scope: string,
+  root: string | undefined,
+  placed: string,
+): number {
+  if (isFileAlias(scope)) return normalizeHostScope(placed).length;
+  if (root === undefined) return 0;
+  const rootText = normalizeHostScope(root);
+  const placedText = normalizeHostScope(placed);
+  if (isWorkspaceRelative(scope))
+    return sharedSegmentPrefix(rootText, placedText);
+  return sameHostPath(normalizeHostScope(scope), rootText)
+    ? placedText.length
+    : 0;
+}
 
 /** One scope set a call resolved, plus the roots its cursor is keyed on. */
 export type ResolvedScopes = {

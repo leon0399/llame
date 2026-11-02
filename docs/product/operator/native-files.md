@@ -148,9 +148,26 @@ A host walk follows these rules:
 - It includes hidden entries.
 - It MUST NOT follow a symbolic link.
 - It MUST NOT enter a directory named `.git`.
-- It applies each `.gitignore` between the scope prefix and the file, with Git
-  precedence.
+- It reads `.ignore` beside `.gitignore` in every directory of the walk, and
+  `.ignore` outranks `.gitignore` in one directory.
+- Above the scope prefix it reads `.ignore` files up to `/`. It reads
+  `.gitignore` above the prefix only from the nearest repository directory
+  down, where the repository directory is the nearest directory at or above
+  the prefix that holds a `.git` entry or file.
+- A rule decides an entry only when its own pattern matches that entry's
+  path. In one file the last matching rule decides, a negation included, and
+  a deeper file outranks a shallower one. The walk never applies a rule to the
+  scope directory or a directory above it, so an explicit scope searches an
+  ignored directory and a re-included directory keeps its other rules.
+- It never searches `.ignore` or `.gitignore` as a candidate of a directory
+  scope.
 - It searches an exact file scope even when an ignore rule matches it.
+- It reports excluded directories in `ignored`, up to 1,000 recorded per call,
+  with the admitted count and first five locators. The `read` group decides
+  each directory both as written and with a final `/`; a refused directory
+  still takes a recorded slot but is neither counted nor named, and the
+  decisions are not recorded one by one. The
+  [grep reference](../reference/tools/grep.md) owns the report format.
 
 ### On a Machine
 
@@ -165,6 +182,12 @@ locator, or submit it as a later scope.
 
 One call shares its file, entry, byte, time, and page budget across every
 scope. A second Machine scope receives what the first one left.
+
+The daemon applies `.ignore` up to its registered root and reads `.gitignore`
+above the prefix only inside the repository, as on the host. It answers its
+excluded directories in `ignored`, relative to the prefix. The API merges the
+lists in scope order, applies the same 1,000-directory cap, and spells each
+admitted locator as a `machine://` scope.
 
 The daemon opens each candidate under its own authority. The API then applies
 the `read` group to every returned file. It drops the passages of a refused

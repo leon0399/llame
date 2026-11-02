@@ -1,4 +1,5 @@
 import {
+  lstat,
   mkdir,
   mkdtemp,
   realpath,
@@ -7,9 +8,9 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
+import path, { dirname } from 'node:path';
 
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi } from 'vitest';
 
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
@@ -77,6 +78,9 @@ async function temporaryRoot(): Promise<string> {
 
 async function withRoot<T>(callback: (root: string) => Promise<T>): Promise<T> {
   const root = await temporaryRoot();
+  // A repository at the fixture root seals the walk: nothing above `tmpdir`
+  // can change which ignore files apply.
+  await mkdir(path.join(root, '.git'), { recursive: true });
   try {
     return await callback(root);
   } finally {
@@ -128,6 +132,21 @@ function resultList(result: ToolResult): ReadonlyArray<unknown> {
   return list;
 }
 
+/** The nearest directory above `directory` that holds a `.git` entry. */
+async function gitAbove(directory: string): Promise<string | undefined> {
+  let current = directory;
+  for (;;) {
+    try {
+      await lstat(path.join(current, '.git'));
+      return current;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return undefined;
+      current = parent;
+    }
+  }
+}
+
 function locatorsOf(result: ToolResult): ReadonlyArray<string> {
   return resultList(result).map((passage) => {
     if (!isRecord(passage) || !isString(passage.locator)) {
@@ -135,6 +154,22 @@ function locatorsOf(result: ToolResult): ReadonlyArray<string> {
     }
     return passage.locator;
   });
+}
+
+/** The excluded-directory report of a successful result, when it carries one. */
+function ignoredOf(result: ToolResult):
+  | {
+      readonly count: number;
+      readonly locators: ReadonlyArray<string>;
+      readonly atLeast: boolean;
+    }
+  | undefined {
+  const ignored = success(result).ignored;
+  if (!isRecord(ignored)) return undefined;
+  const { count, locators, atLeast } = ignored;
+  if (!isNumber(count) || !Array.isArray(locators)) return undefined;
+  if (!locators.every(isString)) return undefined;
+  return { count, locators, atLeast: atLeast === true };
 }
 
 function warningsOf(result: ToolResult): ReadonlyArray<unknown> {
@@ -306,7 +341,362 @@ describe('host walk policy', () => {
   });
 });
 
+describe('host ignore files above the scope', () => {
+  it('applies a repository rule to a narrower scope', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'dist/\n');
+      await writeAt(root, 'apps/web/dist/out.js', 'needle\n');
+      await writeAt(root, 'apps/web/keep.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/apps`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/apps/web/keep.js:1-1`]);
+    });
+  });
+
+  it('applies an ignore file outside a repository', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'Projects/.ignore', '.build-cache/\n');
+      await writeAt(
+        root,
+        'Projects/Arduino/libraries/.build-cache/x.h',
+        'needle\n',
+      );
+      await writeAt(root, 'Projects/Arduino/libraries/keep.h', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/Projects/Arduino`],
+      });
+      expect(locatorsOf(result)).toEqual([
+        `${root}/Projects/Arduino/libraries/keep.h:1-1`,
+      ]);
+    });
+  });
+
+  it('never searches an ignore file of a directory scope', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.ignore', 'needle\n');
+      await writeAt(root, 'plain.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/plain.md:1-1`]);
+    });
+  });
+
+  it('starts repository detection at the prefix itself', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', '*.md\n');
+      await mkdir(path.join(root, 'inner/.git'), { recursive: true });
+      await writeAt(root, 'inner/README.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/inner`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/inner/README.md:1-1`]);
+    });
+  });
+
+  it('applies a gitignore between the repository and the prefix', async () => {
+    await withRoot(async (root) => {
+      await mkdir(path.join(root, 'repo/.git'), { recursive: true });
+      await writeAt(root, 'repo/apps/.gitignore', 'dist/\n');
+      await writeAt(root, 'repo/apps/web/dist/out.js', 'needle\n');
+      await writeAt(root, 'repo/apps/web/keep.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/repo/apps/web`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/repo/apps/web/keep.js:1-1`]);
+    });
+  });
+
+  it('treats a .git file as a repository', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', '*.md\n');
+      await writeAt(root, 'worktree/.git', 'gitdir: elsewhere\n');
+      await writeAt(root, 'worktree/sub/README.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/worktree/sub`],
+      });
+      expect(locatorsOf(result)).toEqual([
+        `${root}/worktree/sub/README.md:1-1`,
+      ]);
+    });
+  });
+
+  it('does not apply a gitignore above the repository', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', '*.md\n');
+      await mkdir(path.join(root, 'repo/.git'), { recursive: true });
+      await writeAt(root, 'repo/README.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/repo`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/repo/README.md:1-1`]);
+    });
+  });
+
+  it('does not apply a gitignore outside a repository above the scope', async () => {
+    // This tree has no repository on purpose, so it cannot use the sealed root.
+    expect(
+      await gitAbove(dirname(tmpdir())),
+      'tmpdir must sit outside every git work tree',
+    ).toBeUndefined();
+    const root = await temporaryRoot();
+    try {
+      await writeAt(root, 'Projects/.gitignore', '*.md\n');
+      await writeAt(root, 'Projects/Arduino/README.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/Projects/Arduino`],
+      });
+      expect(locatorsOf(result)).toEqual([
+        `${root}/Projects/Arduino/README.md:1-1`,
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('host excluded-directory report', () => {
+  it('names the excluded directory a later scope searches', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'node_modules/\n');
+      await writeAt(root, 'node_modules/dep.js', 'needle\n');
+      const first = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [root],
+      });
+      expect(ignoredOf(first)).toEqual({
+        count: 1,
+        locators: [`${root}/node_modules`],
+        atLeast: false,
+      });
+      const second = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/node_modules`],
+      });
+      expect(locatorsOf(second)).toEqual([`${root}/node_modules/dep.js:1-1`]);
+    });
+  });
+
+  it('judges a directory as written with a regex reject', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'secrets/\n');
+      await writeAt(root, 'secrets/key.txt', 'needle\n');
+      const result = await run(
+        contextOf({
+          map: {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', regex: '/secrets$' }],
+            },
+          },
+        }),
+        { patterns: ['needle'], scopes: [root] },
+      );
+      expect(ignoredOf(result)).toBeUndefined();
+    });
+  });
+
+  it('does not name a directory the read group refuses', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'node_modules/\nsecrets/\n');
+      await writeAt(root, 'node_modules/dep.js', 'needle\n');
+      await writeAt(root, 'secrets/key.txt', 'needle\n');
+      const result = await run(
+        contextOf({
+          map: {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: `${root}/secrets` }],
+            },
+          },
+        }),
+        { patterns: ['needle'], scopes: [root] },
+      );
+      expect(ignoredOf(result)).toEqual({
+        count: 1,
+        locators: [`${root}/node_modules`],
+        atLeast: false,
+      });
+    });
+  });
+
+  it('hides a directory a reject names with a final separator', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', '.ssh/\n');
+      await writeAt(root, '.ssh/id.txt', 'needle\n');
+      const result = await run(
+        contextOf({
+          map: {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: `${root}/.ssh/` }],
+            },
+          },
+        }),
+        { patterns: ['needle'], scopes: [root] },
+      );
+      expect(ignoredOf(result)).toBeUndefined();
+    });
+  });
+
+  it('names an excluded directory in bypass mode', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'node_modules/\n');
+      await writeAt(root, 'node_modules/dep.js', 'needle\n');
+      const context: ToolContext = {
+        ...contextOf({
+          map: {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: `${root}/node_modules` }],
+            },
+          },
+        }),
+        permissionMode: 'bypass',
+      };
+      const result = await run(context, {
+        patterns: ['needle'],
+        scopes: [root],
+      });
+      expect(ignoredOf(result)?.locators).toEqual([`${root}/node_modules`]);
+    });
+  });
+
+  it('marks a count past one thousand as a lower bound', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', '*.tmp/\n');
+      for (let index = 0; index < 1001; index += 1)
+        await mkdir(path.join(root, `d${String(index).padStart(4, '0')}.tmp`));
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [root],
+      });
+      expect(ignoredOf(result)).toMatchObject({
+        count: 1000,
+        atLeast: true,
+      });
+    });
+  });
+
+  it('spells a bracketed directory so a later scope searches it', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'node_modules/\n');
+      await writeAt(root, 'app/[id]/node_modules/dep.js', 'needle\n');
+      const first = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [root],
+      });
+      expect(ignoredOf(first)?.locators).toEqual([
+        `${root}/app/%5Bid%5D/node_modules`,
+      ]);
+      const second = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/app/%5Bid%5D/node_modules`],
+      });
+      expect(locatorsOf(second)).toEqual([
+        `${root}/app/[id]/node_modules/dep.js:1-1`,
+      ]);
+    });
+  });
+
+  it('spells a literal percent so a later scope searches it', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', 'node_modules/\n');
+      await writeAt(root, '100%41/node_modules/dep.js', 'needle\n');
+      const first = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [root],
+      });
+      expect(ignoredOf(first)?.locators).toEqual([
+        `${root}/100%2541/node_modules`,
+      ]);
+      const second = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/100%2541/node_modules`],
+      });
+      expect(locatorsOf(second)).toEqual([
+        `${root}/100%41/node_modules/dep.js:1-1`,
+      ]);
+    });
+  });
+});
+
+describe('host scope spellings', () => {
+  it('decodes the literal %2A spelling in the prefix', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a*b/one.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/a%2Ab`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/a*b/one.js:1-1`]);
+    });
+  });
+
+  it('keeps another percent sequence as text', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '100%41/one.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/100%41`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/100%41/one.js:1-1`]);
+    });
+  });
+
+  it('decodes a spelled percent once', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a%2A/one.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/a%252A`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/a%2A/one.js:1-1`]);
+    });
+  });
+
+  it('does not decode a file alias a second time', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a%2A/one.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`file://${root}/a%252A`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/a%2A/one.js:1-1`]);
+    });
+  });
+});
+
 describe('host Workspace rule', () => {
+  it('does not decode a percent spelling in the Workspace root', async () => {
+    await withRoot(async (root) => {
+      const workspace = `${root}/100%2541`;
+      await writeAt(workspace, 'a.md', 'needle\n');
+      const absolute = await run(contextOf({ root: workspace }), {
+        patterns: ['needle'],
+      });
+      expect(locatorsOf(absolute)).toEqual([`${workspace}/a.md:1-1`]);
+      const relative = await run(contextOf({ root: workspace }), {
+        patterns: ['needle'],
+        scopes: ['a.md'],
+      });
+      expect(locatorsOf(relative)).toEqual([`${workspace}/a.md:1-1`]);
+    });
+  });
+
   it('searches the Workspace root when scopes are omitted', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
@@ -523,19 +913,19 @@ describe('operator bounds', () => {
     await withRoot(async (root) => {
       // Larger than one 64 KiB read chunk, so the bound stops the file
       // between its chunks rather than after it ended.
-      await writeAt(root, 'big.log', `${'x'.repeat(63)}\n`.repeat(4000));
-      await writeAt(root, 'z.md', 'needle\n');
+      await writeAt(root, 'data/big.log', `${'x'.repeat(63)}\n`.repeat(4000));
+      await writeAt(root, 'data/z.md', 'needle\n');
       const context = contextOf({
         grepBounds: bounds({ maxBytesRead: 8192 }),
       });
       const first = await run(context, {
         patterns: ['needle'],
-        scopes: [`${root}/**`],
+        scopes: [`${root}/data/**`],
       });
       expect(first).toMatchObject({
         status: 'success',
         results: [],
-        unfinishedFile: `${root}/big.log`,
+        unfinishedFile: `${root}/data/big.log`,
       });
       expect(warningsOf(first)).toEqual([{ kind: 'byte_bound', count: 1 }]);
       const cursor = cursorOf(first);
@@ -544,10 +934,10 @@ describe('operator bounds', () => {
       // The cursor moves past the log the bound stopped inside.
       const second = await run(context, {
         patterns: ['needle'],
-        scopes: [`${root}/**`],
+        scopes: [`${root}/data/**`],
         cursor,
       });
-      expect(locatorsOf(second)).toEqual([`${root}/z.md:1-1`]);
+      expect(locatorsOf(second)).toEqual([`${root}/data/z.md:1-1`]);
     });
   });
 

@@ -106,6 +106,7 @@ export type {
   FsBytesResult,
   FsGrepBounds,
   FsGrepConsumed,
+  FsGrepIgnored,
   FsGrepParams,
   FsGrepPassage,
   FsGrepResult,

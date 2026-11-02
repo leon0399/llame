@@ -1,4 +1,9 @@
-import { measureGrepRendering, renderGrepText } from "./model-text";
+import { spellGrepHostScopeLocator } from "./scope";
+import {
+  grepIgnoredUnits,
+  measureGrepRendering,
+  renderGrepText,
+} from "./model-text";
 
 /** One stored passage of the fixture page, with the marks the page adds. */
 function passage(
@@ -188,6 +193,155 @@ describe("grep text rendering", () => {
     });
     expect(text).toContain("[not searched to the end: a b.log]");
     expect(text.split("\n")).toHaveLength(2);
+  });
+
+  it("renders excluded directories after the warnings", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: false,
+      cursor: "c",
+      warnings: [{ kind: "deadline", count: 1 }],
+      ignored: {
+        count: 7,
+        locators: ["/r/a", "/r/b", "/r/c", "/r/d", "/r/e"],
+      },
+    });
+    expect(text.split("\n")).toEqual([
+      "[warnings: 1 deadline]",
+      "[ignored 7 directories: /r/a, /r/b, /r/c, /r/d, /r/e (+2 more); a scope that names one searches it]",
+      "[more results. Continue with cursor: c]",
+    ]);
+  });
+
+  it("takes the singular noun for one excluded directory", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: { count: 1, locators: ["/r/node_modules"] },
+    });
+    expect(text).toBe(
+      "[ignored 1 directory: /r/node_modules; a scope that names one searches it]",
+    );
+  });
+
+  it("marks a lower-bound exclusion count", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: {
+        count: 1000,
+        locators: ["/r/a", "/r/b", "/r/c", "/r/d", "/r/e"],
+        atLeast: true,
+      },
+    });
+    expect(text.startsWith("[ignored 1000 or more directories:")).toBe(true);
+    expect(
+      text.endsWith("(+995 or more); a scope that names one searches it]"),
+    ).toBe(true);
+  });
+
+  it("keeps an excluded locator with a line break on its line", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: { count: 1, locators: ["/r/a\nb"] },
+    });
+    expect(text).toBe(
+      "[ignored 1 directory: /r/a b; a scope that names one searches it]",
+    );
+  });
+
+  it("leaves the locator out when not one fits the line", () => {
+    const locator = `/${"a".repeat(2500)}`;
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: { count: 1, locators: [locator] },
+    });
+    expect(text).toBe(
+      "[ignored 1 directory: (+1 more); a scope that names one searches it]",
+    );
+    expect(text.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("renders the ignored line before the unfinished file", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: false,
+      cursor: "c",
+      ignored: { count: 1, locators: ["/r/a"] },
+      unfinishedFile: "/var/log/big.log",
+    });
+    expect(text.split("\n")).toEqual([
+      "[ignored 1 directory: /r/a; a scope that names one searches it]",
+      "[not searched to the end: /var/log/big.log]",
+      "[more results. Continue with cursor: c]",
+    ]);
+  });
+
+  it("stops at the first locator that does not fit", () => {
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: {
+        count: 5,
+        locators: ["/r/a", `/${"b".repeat(3000)}`, "/r/c", "/r/d", "/r/e"],
+      },
+    });
+    expect(text).toBe(
+      "[ignored 5 directories: /r/a (+4 more); a scope that names one searches it]",
+    );
+  });
+
+  it("keeps a line that is exactly two thousand units", () => {
+    const head = "[ignored 1 directory: ";
+    const tail = "; a scope that names one searches it]";
+    const locator = "a".repeat(2000 - head.length - tail.length);
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: { count: 1, locators: [locator] },
+    });
+    expect(text).toBe(`${head}${locator}${tail}`);
+    expect(text).toHaveLength(2000);
+    const longer = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: { count: 1, locators: [`${locator}a`] },
+    });
+    expect(longer).toBe(
+      "[ignored 1 directory: (+1 more); a scope that names one searches it]",
+    );
+  });
+
+  it("counts the ignored line and its newline as reserved width", () => {
+    const ignored = { count: 2, locators: ["/r/a", "/r/b"], atLeast: false };
+    const text = renderGrepText({ results: [], complete: true, ignored });
+    expect(grepIgnoredUnits(ignored)).toBe(text.length + 1);
+  });
+
+  it("measures a locator in the spelling the result carries", () => {
+    const raw = { count: 1, locators: ["/r/a[b]"], atLeast: false };
+    const spelled = { ...raw, locators: ["/r/a%5Bb%5D"] };
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: spelled,
+    });
+    expect(grepIgnoredUnits(raw, spellGrepHostScopeLocator)).toBe(
+      text.length + 1,
+    );
+  });
+
+  it("counts the remainder of a capped locator list", () => {
+    const ignored = {
+      count: 7,
+      locators: ["/r/a", "/r/b", "/r/c", "/r/d", "/r/e"],
+      atLeast: false,
+    };
+    const text = renderGrepText({ results: [], complete: true, ignored });
+    expect(text).toContain("(+2 more)");
+    expect(grepIgnoredUnits(ignored)).toBe(text.length + 1);
   });
 
   it("counts escaped delimiters toward the rendering width", () => {

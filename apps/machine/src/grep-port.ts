@@ -1,9 +1,10 @@
 /**
  * The Machine filesystem as the shared grep engine walks it: a directory tree
  * reported with links never entered, hidden entries visible, `.git` pruned by
- * the engine, and each `.gitignore` becoming walk policy, exactly as the hub's
- * host port does. The one difference is the layout: every path here is inside
- * the prefix the hub's request named, which the root guard already admitted.
+ * the engine, and each directory's `.gitignore` and `.ignore` becoming walk
+ * policy, exactly as the hub's host port does. The one difference is the
+ * layout: in-scope paths are relative to the prefix the hub's request named,
+ * and the ignore files above it stop at the registered root that holds it.
  */
 
 import { type Dirent } from "node:fs";
@@ -12,6 +13,8 @@ import path from "node:path";
 
 import type { NativeFailureResult } from "@workspace/machine-protocol";
 import {
+  collectAncestorIgnoreFiles,
+  GREP_IGNORE_FILE_NAMES,
   GrepPortError,
   openFileStream,
   openFlags,
@@ -19,8 +22,9 @@ import {
   type GrepWalkPort,
 } from "@workspace/native-file-tools";
 import type { RootGuard } from "./guard";
+import { isInsideRoots } from "./locators";
 
-/** The largest `.gitignore` the walk reads; a larger one applies no rules. */
+/** The largest ignore file the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
 /** One chunk of a bounded ignore read; a file never reaches memory whole. */
 const READ_CHUNK_BYTES = 64 * 1024;
@@ -50,6 +54,8 @@ function failure(
  */
 type Walk = {
   readonly canonical: string;
+  /** The registered root above it, where the ancestor ignore walk stops. */
+  readonly root: string;
   readonly guard: RootGuard;
   readonly signal: AbortSignal | undefined;
 };
@@ -59,7 +65,12 @@ export function createGrepWalkPort(
   guard: RootGuard,
   signal: AbortSignal | undefined,
 ): GrepWalkPort {
-  const walk: Walk = { canonical, guard, signal };
+  const walk: Walk = {
+    canonical,
+    root: registeredRoot(guard.roots, canonical),
+    guard,
+    signal,
+  };
   return {
     followsLinks: false,
     list: (rel) => listDirectory(walk, rel),
@@ -67,8 +78,31 @@ export function createGrepWalkPort(
       openFileStream(at(walk.canonical, rel), false, walk.signal, () =>
         unchanged(walk, rel),
       ),
-    ignoreFile: (rel) => readIgnoreFile(walk, rel),
+    ignoreFiles: (rel) => readIgnoreFiles(walk, rel),
+    ignoreAncestors: () =>
+      collectAncestorIgnoreFiles(
+        {
+          prefix: walk.canonical,
+          root: walk.root,
+          fallbackRepository: walk.root,
+        },
+        (directory, name) => readIgnoreText(walk, path.join(directory, name)),
+      ),
   };
+}
+
+/** The registered root that holds the prefix, or the deepest one when nested. */
+function registeredRoot(
+  roots: ReadonlyArray<string>,
+  canonical: string,
+): string {
+  let held: string | undefined;
+  for (const root of roots) {
+    if (!isInsideRoots([root], canonical)) continue;
+    if (held === undefined || root.length > held.length) held = root;
+  }
+  // A prefix whose root is not held stops its ancestor walk at itself.
+  return held ?? canonical;
 }
 
 /**
@@ -149,28 +183,47 @@ async function readBounded(
   return Buffer.concat(chunks, total);
 }
 
-/** One directory's ignore text, when it is a bounded regular file. */
-async function readIgnoreFile(
+/** One directory's ignore texts, `.gitignore` before `.ignore`. */
+async function readIgnoreFiles(
   walk: Walk,
   rel: string,
+): Promise<ReadonlyArray<string>> {
+  const texts: Array<string> = [];
+  for (const name of GREP_IGNORE_FILE_NAMES) {
+    const text = await readIgnoreText(
+      walk,
+      at(walk.canonical, path.join(rel, name)),
+    );
+    if (text !== undefined) texts.push(text);
+  }
+  return texts;
+}
+
+/** One ignore file's text, when it is a bounded regular file inside the roots. */
+async function readIgnoreText(
+  walk: Walk,
+  file: string,
 ): Promise<string | undefined> {
-  const ignoreRel =
-    rel.length === 0 ? ".gitignore" : path.join(rel, ".gitignore");
   let handle: FileHandle | undefined;
   try {
+    walk.signal?.throwIfAborted();
     // Policy comes from a real file only, under the walk's own rule: a link is
     // never followed and a FIFO never blocks the walk.
-    handle = await open(at(walk.canonical, ignoreRel), openFlags(false));
+    handle = await open(file, openFlags(false));
     const stats = await handle.stat();
     if (!stats.isFile() || stats.size > IGNORE_FILE_BYTES) return undefined;
-    const bytes = await readBounded(handle, IGNORE_FILE_BYTES, undefined);
+    const bytes = await readBounded(handle, IGNORE_FILE_BYTES, walk.signal);
     // An ignore file reached through a swapped directory or replaced by a
     // link applies no rules, exactly as a link at the address would not.
-    if (!(await unchanged(walk, ignoreRel))) return undefined;
+    const after = await walk.guard.resolvePath(file).catch(() => undefined);
+    if (after === undefined || after.isLink || after.canonical !== file)
+      return undefined;
     return bytes.byteLength > IGNORE_FILE_BYTES
       ? undefined
       : bytes.toString("utf8");
   } catch {
+    // A cancellation is not an absent file: let the walk end the call.
+    walk.signal?.throwIfAborted();
     return undefined;
   } finally {
     await handle?.close();

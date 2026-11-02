@@ -135,6 +135,9 @@ type GrepPage = {
   readonly cursor: string | undefined;
   readonly progressed: boolean;
   readonly unfinished: string | undefined;
+  readonly ignored:
+    | { readonly paths: ReadonlyArray<string>; readonly atLeast: boolean }
+    | undefined;
 };
 
 function parsePassage(value: SerializableValue): FsGrepPassage {
@@ -194,10 +197,11 @@ function parseGrep(answer: JsonValue): GrepPage {
     !isIntegerValue(bytes)
   )
     throw new Error("the consumed budget is malformed");
-  const { progressed, unfinished } = answer;
+  const { progressed, unfinished, ignored: ignoredValue } = answer;
   if (!isBoolean(progressed)) throw new Error("the answer has no progress");
   if (unfinished !== undefined && !isStringValue(unfinished))
     throw new Error("the unfinished file is malformed");
+  const ignored = parseIgnored(ignoredValue);
   return {
     results: parseList(answer["results"], parsePassage),
     complete,
@@ -206,7 +210,23 @@ function parseGrep(answer: JsonValue): GrepPage {
     cursor: isStringValue(cursor) ? cursor : undefined,
     progressed,
     unfinished: isStringValue(unfinished) ? unfinished : undefined,
+    ignored,
   };
+}
+
+/** The excluded directories an answer names, relative to its prefix. */
+function parseIgnored(
+  value: SerializableValue,
+):
+  | { readonly paths: ReadonlyArray<string>; readonly atLeast: boolean }
+  | undefined {
+  if (value === undefined) return undefined;
+  if (!isSerializableRecord(value)) throw new Error("ignored is an object");
+  const { paths, atLeast } = value;
+  if (!Array.isArray(paths) || !paths.every(isStringValue))
+    throw new Error("ignored carries its paths");
+  if (!isBoolean(atLeast)) throw new Error("ignored carries its bound");
+  return { paths: [...paths], atLeast };
 }
 
 async function grep(params: FsGrepParams): Promise<GrepPage> {
@@ -264,6 +284,77 @@ describe("fs.grep", () => {
     expect(pathsOf(await grep(request(join(fixture.root, "project"))))).toEqual(
       ["a.go"],
     );
+  });
+
+  it("reads .ignore beside .gitignore with the deeper file deciding", async () => {
+    await writeAt("project/.gitignore", "build/\n");
+    await writeAt("project/.ignore", "!build/\n");
+    await writeAt("project/build/app.go", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "project"))))).toEqual(
+      ["build/app.go"],
+    );
+  });
+
+  it("applies the ignore files of the registered root", async () => {
+    await writeAt(".ignore", "cache/\n");
+    await writeAt("project/cache/b.go", "needle\n");
+    await writeAt("project/a.go", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "project"))))).toEqual(
+      ["a.go"],
+    );
+  });
+
+  it("treats the registered root as the repository boundary under an outer repository", async () => {
+    await writeAt(".gitignore", "dist/\n");
+    // A repository above the registered root is not consulted.
+    await writeFile(join(fixture.base, ".gitignore"), "dist/\n*.md\n");
+    await mkdir(join(fixture.base, ".git"));
+    await writeAt("packages/api/dist/out.go", "needle\n");
+    await writeAt("packages/api/README.md", "needle\n");
+    await writeAt("packages/api/a.go", "needle\n");
+    expect(
+      pathsOf(await grep(request(join(fixture.root, "packages/api")))),
+    ).toEqual(["README.md", "a.go"]);
+  });
+
+  it("limits a .gitignore above the prefix to its repository", async () => {
+    await writeAt(".gitignore", "*.md\n");
+    await mkdir(join(fixture.root, "a/.git"), { recursive: true });
+    await writeAt("a/.gitignore", "dist/\n");
+    await writeAt("a/sub/README.md", "needle\n");
+    await writeAt("a/sub/dist/out.go", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "a/sub"))))).toEqual([
+      "README.md",
+    ]);
+  });
+
+  it("treats a .git file as a repository", async () => {
+    await writeAt(".gitignore", "*.md\n");
+    await writeAt("b/.git", "gitdir: elsewhere\n");
+    await writeAt("b/sub/README.md", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "b/sub"))))).toEqual([
+      "README.md",
+    ]);
+  });
+
+  it("never searches a .ignore of the scope", async () => {
+    await writeAt("project/.ignore", "needle\n");
+    await writeAt("project/a.go", "needle\n");
+    expect(pathsOf(await grep(request(join(fixture.root, "project"))))).toEqual(
+      ["a.go"],
+    );
+  });
+
+  it("reports the excluded directory the hub spells as a scope", async () => {
+    await writeAt("project/.gitignore", "node_modules/\n");
+    await writeAt("project/node_modules/dep.js", "needle\n");
+    await writeAt("project/a.go", "needle\n");
+    const page = await grep(request(join(fixture.root, "project")));
+    expect(pathsOf(page)).toEqual(["a.go"]);
+    expect(page.ignored).toEqual({
+      paths: ["node_modules"],
+      atLeast: false,
+    });
   });
 
   it("continues a page from its own cursor", async () => {
@@ -717,10 +808,29 @@ describe("fs.grep", () => {
     const port = createGrepWalkPort(guarded.canonical, guard, undefined);
     await rm(join(prefix, "sub"), { recursive: true, force: true });
     await symlink(fixture.outside, join(prefix, "sub"));
-    if (port.ignoreFile === undefined)
+    if (port.ignoreFiles === undefined)
       throw new Error("the walk reads ignore files");
-    expect(await port.ignoreFile("sub")).toBeUndefined();
+    expect(await port.ignoreFiles("sub")).toEqual([]);
     expect(await port.list("sub")).toEqual([]);
+  });
+
+  it("stops an ignore-file read when the call aborts", async () => {
+    const prefix = join(fixture.root, "project");
+    await writeAt("project/.gitignore", "x\n");
+    const guard = createRootGuard([fixture.root]);
+    const guarded = await guard.resolvePath(prefix);
+    const controller = new AbortController();
+    controller.abort();
+    const port = createGrepWalkPort(
+      guarded.canonical,
+      guard,
+      controller.signal,
+    );
+    if (port.ignoreFiles === undefined)
+      throw new Error("the walk reads ignore files");
+    await expect(port.ignoreFiles("")).rejects.toMatchObject({
+      name: "AbortError",
+    });
   });
 
   it("reads the resolved prefix when an ancestor link is repointed outside the roots", async () => {

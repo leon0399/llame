@@ -24,6 +24,7 @@ function admission(allow = true): GrepReadAdmission & {
       admitted.push(locator);
       return allow;
     },
+    allows: () => allow,
     refused: 0,
     recordRefusals() {},
   };

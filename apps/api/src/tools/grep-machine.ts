@@ -19,11 +19,11 @@ import {
 } from '@workspace/machine-protocol';
 import {
   decodeGrepCursor,
-  grepWarningsUnits,
   normalizeHostScope,
   splitGrepScope,
   type DecodedGrepCursor,
   type GrepBudget,
+  type GrepIgnored,
   type GrepPageEnd,
   type GrepPassage,
   type GrepScope,
@@ -42,7 +42,6 @@ import {
   readFsStatResult,
 } from '../machines/machine-results';
 import { type GrepReadAdmission } from './grep-admission';
-import { remainingOf } from './grep-page';
 import {
   invalidPathResult,
   machineUnsupportedResult,
@@ -62,12 +61,16 @@ import {
   type MachineFailureResult,
 } from './machine-call';
 import {
-  daemonCursor,
+  daemonStart,
+  ignoredAccumulator,
   machineScopeLocator,
+  spent,
+  mergePage,
   requestCursorKey,
   requestOf,
   unfinishedPosition,
   type DaemonAsk,
+  type IgnoredAccumulator,
 } from './grep-machine-wire';
 import { type ToolContext, type ToolResult } from './types';
 
@@ -112,6 +115,10 @@ export type MachineGrepSegment =
       readonly progressed: boolean;
       /** The file a bound stopped the daemon walk inside, relative to the prefix. */
       readonly unfinished?: string;
+      /** The excluded directory locators of this scope, capped across its pages. */
+      readonly ignored?: GrepIgnored & {
+        readonly rels: ReadonlyArray<string>;
+      };
       /**
        * Where a daemon page below the call's page stopped when it admitted no
        * passage at all: the call resumes after that entry.
@@ -306,7 +313,9 @@ type DaemonPage =
  * what the call has left, so a scope of hidden files can never answer an
  * incomplete page without a cursor. Every page reports what it consumed, so
  * the budget bounds the loop; a page that consumed nothing and named no new
- * cursor is the last one the call asks for.
+ * cursor is the last one the call asks for. Progress belongs to the call: a
+ * page that got past the start point lets the next request know, so its own
+ * stop hides no file behind it.
  */
 async function runDaemonPages(
   search: MachineGrepSearch,
@@ -317,11 +326,8 @@ async function runDaemonPages(
   const counts = new Map<FsGrepWarningKind, number>();
   const consumed = { files: 0, entries: 0, bytes: 0 };
   const base = search.budget.fixedReserve;
-  let budget = daemonBudget(search.budget, deadlineAt);
-  let cursor = search.resume && daemonCursor(search, search.resume);
-  // Progress belongs to the call: a page that got past the start point lets
-  // the next request know, so its own stop hides no file behind it.
-  let progressed = search.progressed;
+  let { budget, cursor, progressed } = daemonStart(search, deadlineAt);
+  const ignored = ignoredAccumulator(search.scope);
   let last: FsGrepSuccess | undefined;
   while (canAskPage(budget, search.scope.singleFile === true)) {
     const asked = await requestPage(search, connector, {
@@ -330,9 +336,9 @@ async function runDaemonPages(
       progressed,
     });
     if ('result' in asked) return { status: 'error', result: asked.result };
-    const page = asked.page;
-    last = page;
-    mergePage(counts, consumed, page);
+    last = asked.page;
+    const page = last;
+    mergePage(counts, consumed, ignored, page);
     progressed = progressed || page.progressed;
     const rendered = renderPage(search, page, entries);
     if ('result' in rendered)
@@ -340,12 +346,13 @@ async function runDaemonPages(
     const next = keepAsking(rendered.kept, page, cursor);
     if (next === undefined) break;
     cursor = next;
-    budget = spent(budget, page, deadlineAt, base + grepWarningsUnits(counts));
+    budget = spent(budget, page, deadlineAt, { base, counts, ignored });
   }
   return segmentOfPages(search, {
     entries,
     warnings: counts,
     consumed,
+    ignored,
     last,
     progressed,
   });
@@ -406,16 +413,12 @@ function keepAsking(
   return nextCursor(page, cursor);
 }
 
-/** What one daemon page has left: the call's deadline minus the clock now. */
-function daemonBudget(budget: GrepBudget, deadlineAt: number): GrepBudget {
-  return { ...budget, deadlineMs: Math.max(0, deadlineAt - Date.now()) };
-}
-
 /** What one Machine scope's pages add up to. */
 type MachineSegmentPage = {
   readonly entries: ReadonlyArray<MachineGrepEntry>;
   readonly warnings: ReadonlyMap<FsGrepWarningKind, number>;
   readonly consumed: FsGrepConsumed;
+  readonly ignored: IgnoredAccumulator;
   readonly last: FsGrepSuccess | undefined;
   readonly position:
     | { readonly scopeIndex: number; readonly rel: string }
@@ -436,23 +439,14 @@ function segmentOf(page: MachineSegmentPage): MachineGrepSegment {
     ...(page.last?.unfinished !== undefined && {
       unfinished: page.last.unfinished,
     }),
+    ...(page.ignored.paths.length > 0 && {
+      ignored: {
+        paths: page.ignored.paths,
+        rels: page.ignored.rels,
+        atLeast: page.ignored.atLeast,
+      },
+    }),
   };
-}
-
-/** Fold one daemon page's warnings and consumed budget into the segment's. */
-function mergePage(
-  warnings: Map<FsGrepWarningKind, number>,
-  consumed: { files: number; entries: number; bytes: number },
-  page: FsGrepSuccess,
-): void {
-  for (const warning of page.warnings)
-    warnings.set(
-      warning.kind,
-      (warnings.get(warning.kind) ?? 0) + warning.count,
-    );
-  consumed.files += page.consumed.files;
-  consumed.entries += page.consumed.entries;
-  consumed.bytes += page.consumed.bytes;
 }
 
 /**
@@ -469,30 +463,6 @@ function nextCursor(
   return page.cursor === undefined || page.cursor === cursor
     ? undefined
     : page.cursor;
-}
-
-/**
- * What the call has left after one daemon page. The next request must leave
- * the hub's own lines beside it — `base` plus this segment's warnings line so
- * far — or a page the hub then drops whole would come back on every resume.
- */
-function spent(
-  budget: GrepBudget,
-  page: FsGrepSuccess,
-  deadlineAt: number,
-  reserve: number,
-): GrepBudget {
-  const consumed = page.consumed;
-  return {
-    files: remainingOf(budget.files, consumed.files),
-    entries: remainingOf(budget.entries, consumed.entries),
-    bytes: remainingOf(budget.bytes, consumed.bytes),
-    maxFileBytes: budget.maxFileBytes,
-    limit: budget.limit,
-    pageUnits: budget.pageUnits,
-    fixedReserve: reserve,
-    deadlineMs: Math.max(0, deadlineAt - Date.now()),
-  };
 }
 
 /**
