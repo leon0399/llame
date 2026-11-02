@@ -47,7 +47,10 @@ export { runGrepScan } from "./scan";
 export { passageEndLine, passageStartLine } from "./passages";
 export { compareRel } from "./walk";
 export {
+  REMAINDER_LINE_UNITS,
   grepArtifactLines,
+  grepLeftOutUnits,
+  grepRemainderUnits,
   grepFileLocator,
   grepIgnoredUnits,
   grepPassageBlockLines,
@@ -58,6 +61,7 @@ export {
   measureGrepRendering,
   renderGrepText,
 } from "./model-text";
+export type { GrepRemainder } from "./model-text";
 export { GREP_WARNING_KINDS, GrepPortError } from "./types";
 export type {
   GrepBudget,

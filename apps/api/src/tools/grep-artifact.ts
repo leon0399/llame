@@ -1,41 +1,44 @@
 /**
  * The model-facing part of a `grep` call (tool-result-artifacts D3, D7): the
- * whole result is rendered as it walks into `artifact://grep-<n>`, and the
- * inline part is the head of that text under the tool's own bound.
+ * whole result is rendered into `artifact://grep-<n>` and the inline part is
+ * the head of that text under the tool's own bound.
  *
  * The inline part is a prefix of the artifact text, so every inline line keeps
  * its number in the artifact. The framing lines after the passages — warnings,
  * excluded directories, an unfinished file, the remainder, and the notice —
  * exist only inline; the artifact holds headings and passages. A Run that
- * cannot read the artifact keeps the head and counts the files it left out.
+ * cannot read the artifact keeps the head and counts what it left out.
  */
 
 import {
   GREP_LIMITS,
   grepFileLocator,
   grepIgnoredUnits,
+  grepLeftOutUnits,
   grepPassageBlockLines,
-  grepPassageContinues,
   grepPassageUnits,
+  grepRemainderUnits,
   grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,
   passageEndLine,
   passageStartLine,
   type GrepPassage,
+  type GrepRemainder,
 } from '@workspace/native-file-tools';
+import {
+  artifactNotice,
+  cutStringAtCodePointBoundary,
+  type ArtifactNoticeHostFiles,
+} from '@workspace/runtime-safety';
 
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
-import { DEFAULT_ARTIFACT_MAX_BYTES } from '../instance-config/llame-config';
-import { machineWorkspaceRoot } from './workspace-path';
 import { artifactFindings, type ArtifactFinding } from './artifacts/findings';
+import { artifactLinePieceCount } from './artifacts/lines';
+import { storeSinglePartArtifact, artifactHostFiles } from './artifacts/spill';
+import { type WrittenArtifact } from './artifacts/artifact-writer';
 import {
-  writeToolArtifact,
-  type WrittenArtifact,
-} from './artifacts/artifact-writer';
-import { artifactLineCount } from './artifacts/lines';
-import { canReadArtifacts } from './artifacts/readable';
-import {
+  grepArtifactBytes,
   grepArtifactFindings,
   grepArtifactHasNotice,
   grepArtifactText,
@@ -46,62 +49,68 @@ import {
 } from './grep-page';
 import { type ToolContext, type ToolResult } from './types';
 
-/** One call's result assembly, after the walk stopped. */
-export type GrepFinish = {
-  readonly state: PageState;
-  readonly context: ToolContext;
-  /** The most files the inline part holds (`limit`, 1 to 20). */
-  readonly limit: number;
-};
-
 /**
  * The call's result: the whole result when it fits the inline bound, otherwise
  * the artifact plus its inline head. A Run that cannot read an artifact keeps
- * the head and states how many files it left out.
+ * the head and states what it left out.
  */
-export async function finishGrepCall(finish: GrepFinish): Promise<ToolResult> {
-  const { state, context, limit } = finish;
-  const whole = pageResult(state);
+export async function finishGrepCall(
+  state: PageState,
+  context: ToolContext,
+  limit: number,
+): Promise<ToolResult> {
+  const artifact = state.artifact;
+  // UTF-16 units are at least a third of the UTF-8 bytes, so a larger
+  // artifact cannot fit and needs no render.
+  const withinReach =
+    grepArtifactBytes(artifact) <= 3 * GREP_LIMITS.pageCodeUnits;
   if (
-    filesOf(state.artifact.results) <= limit &&
-    measureGrepRendering(whole) <= GREP_LIMITS.pageCodeUnits
+    filesOf(artifact) <= limit &&
+    withinReach &&
+    measureGrepRendering(pageResult(state)) <= GREP_LIMITS.pageCodeUnits
   )
-    return whole;
+    return pageResult(state);
   const trailing = trailingUnits(state);
-  if (!canReadArtifacts(context, 'grep'))
-    return leftOutResult(state, limit, trailing);
-  const findings = grepArtifactFindings(state.artifact);
+  const findings = grepArtifactFindings(artifact);
   const written = await storeGrepArtifact(state, context, findings);
   if (written === undefined) return leftOutResult(state, limit, trailing);
-  return artifactResult({ state, context, limit, written, findings, trailing });
+  return artifactResult({
+    state,
+    written,
+    hostFiles: artifactHostFiles(context, 'grep', written),
+    findings,
+    limit,
+    trailing,
+  });
 }
 
-/** The inline result without an artifact: the head and its left-out count. */
+/** The inline result without an artifact: the head and what it left out. */
 function leftOutResult(
   state: PageState,
   limit: number,
   trailing: number,
 ): ToolResult {
-  const total = filesOf(state.artifact.results);
-  // The line counts files, or passages when no whole file is left out; keep
-  // room for the wider of the two.
+  const total = filesOf(state.artifact);
+  const passages = state.artifact.results.length;
+  // The line counts files, or the lines of a single cut passage; keep room for
+  // the wider of the two.
   const reserve =
     trailing +
-    1 +
     Math.max(
-      `[left out: ${String(total)} files; full result not stored]`.length,
-      `[left out: ${String(state.artifact.results.length)} passages; full result not stored]`
-        .length,
+      grepLeftOutUnits(total, 'files'),
+      grepLeftOutUnits(passages, 'lines'),
     );
   const head = inlineHead(state.artifact, limit, reserve, false);
-  const leftFiles = total - filesOf(head.results);
-  const leftPassages = state.artifact.results.length - head.results.length;
+  const leftFiles = total - head.files;
+  const leftPassages = passages - head.results.length;
   const leftOut =
     leftFiles > 0
       ? { count: leftFiles, of: 'files' as const }
-      : leftPassages > 0
-        ? { count: leftPassages, of: 'passages' as const }
-        : undefined;
+      : head.cut !== undefined
+        ? { count: head.cut, of: 'lines' as const }
+        : leftPassages > 0
+          ? { count: leftPassages, of: 'results' as const }
+          : undefined;
   return {
     ...pageResult(state, head.results),
     ...(leftOut !== undefined && { leftOut }),
@@ -111,56 +120,41 @@ function leftOutResult(
 /** The result of a stored artifact: its head, the remainder line, the notice. */
 function artifactResult(input: {
   readonly state: PageState;
-  readonly context: ToolContext;
-  readonly limit: number;
   readonly written: WrittenArtifact;
+  readonly hostFiles: ArtifactNoticeHostFiles | undefined;
   readonly findings: ReadonlyArray<ArtifactFinding>;
+  readonly limit: number;
   /** The rendered width of the framing lines after the passages. */
   readonly trailing: number;
 }): ToolResult {
-  const { state, context, limit, written, findings, trailing } = input;
-  const suffix = hostFilesSuffix(context, written);
+  const { state, written, hostFiles, findings, limit, trailing } = input;
   // The notice names the line after the head, so its digits are widest when
   // the head reaches the artifact's last line: keep that width back.
-  const reserve =
-    trailing +
-    REMAINDER_LINE_RESERVE +
-    grepNotice(written, written.lineCount + 1, suffix).length +
-    3;
+  const widest = storedNotice(written, hostFiles, written.lineCount + 1);
+  const reserve = trailing + grepRemainderUnits() + widest.length + 3;
   const head = inlineHead(state.artifact, limit, reserve, true);
   const remainder = remainderAfter(state.artifact, findings, head);
   return {
     ...pageResult(state, head.results),
     artifact: written.locator,
     ...(remainder !== undefined && { remainder }),
-    truncationNotice: grepNotice(written, head.artifactLines + 1, suffix),
+    truncationNotice: storedNotice(written, hostFiles, head.artifactLines + 1),
   };
 }
 
-/** The most code units the remainder line may take, and its newline. */
-const REMAINDER_LINE_RESERVE = 2001;
-
-/** One `[full result: …]` notice, without its brackets. */
-function grepNotice(
+/** The one artifact notice, bracket-free: its renderer adds the pair. */
+function storedNotice(
   written: WrittenArtifact,
+  hostFiles: ArtifactNoticeHostFiles | undefined,
   next: number,
-  suffix: string,
 ): string {
-  const lines =
-    written.lineCount === 1 ? '1 line' : `${String(written.lineCount)} lines`;
-  return `full result: ${written.locator} (${lines}); continue with ${written.locator}:${String(next)}-${suffix}`;
-}
-
-/** The host-file clause of the notice, when the writer made files (D10). */
-function hostFilesSuffix(
-  context: ToolContext,
-  written: WrittenArtifact,
-): string {
-  const files = written.hostFiles;
-  if (files === undefined) return '';
-  return machineWorkspaceRoot(context.workspaceRoot?.current()) !== undefined
-    ? '; host files on the llame host only'
-    : `; host files in ${files.directory}`;
+  return artifactNotice(
+    [{ locator: written.locator, lines: written.lineCount }],
+    {
+      continueWith: { locator: written.locator, next },
+      ...(hostFiles !== undefined && { hostFiles }),
+    },
+  ).slice(1, -1);
 }
 
 /** The inline head: whole passages of the artifact text while the next fits. */
@@ -168,13 +162,18 @@ type InlineHead = {
   readonly results: ReadonlyArray<GrepPassage>;
   /** The artifact-numbered lines the head occupies, the notice line included. */
   readonly artifactLines: number;
+  /** The file runs the head holds. */
+  readonly files: number;
+  /** Source lines of the cut first passage the head does not hold. */
+  readonly cut?: number;
 };
 
 /**
  * The head of the artifact text under the inline bound: whole passages in
  * result order while the next one fits, at most `limit` files, inside 15,000
  * code units once `reserve` keeps the framing lines' room back. When the first
- * passage does not fit, it is cut at a line boundary and marked `cut`.
+ * passage does not fit, it is cut at a line boundary, or inside one line, and
+ * `markCut` names the artifact that holds the rest.
  */
 function inlineHead(
   artifact: GrepArtifact,
@@ -185,8 +184,9 @@ function inlineHead(
   const budget = GREP_LIMITS.pageCodeUnits - reserve;
   const results: Array<GrepPassage> = [];
   const notice = grepArtifactHasNotice(artifact);
-  // The notice line starts the text, so it takes its own room first.
-  let used = notice ? `notice: ${KNOWLEDGE_CONTENT_NOTICE}`.length : 0;
+  // The notice line and its newline start the text, so they take their room
+  // first.
+  let used = notice ? `notice: ${KNOWLEDGE_CONTENT_NOTICE}`.length + 1 : 0;
   let files = 0;
   let artifactLines = notice ? 1 : 0;
   for (const [index, passage] of artifact.results.entries()) {
@@ -206,24 +206,30 @@ function inlineHead(
       const cut = cutToInline(passage, budget - used, markCut);
       results.push(cut);
       artifactLines += blockPieces(cut);
+      // The cut passage still shows its file, so the file is not left out.
+      if (block.newRun) files += 1;
+      const left =
+        passageEndLine(passage.locator) - passageEndLine(cut.locator);
+      if (left > 0) return { results, artifactLines, files, cut: left };
     }
     break;
   }
-  return { results, artifactLines };
+  return { results, artifactLines, files };
 }
 
 /** The artifact-numbered lines one passage's block holds. */
 function blockPieces(passage: GrepPassage): number {
   return grepPassageBlockLines(undefined, passage, false).reduce(
-    (total, line) => total + artifactLineCount(line),
+    (total, line) => total + artifactLinePieceCount(line),
     0,
   );
 }
 
 /**
- * The first `available` code units of a passage, as whole lines with one
- * match line as the floor. `markCut` records that the artifact holds the rest;
- * without an artifact the passage is not marked, because nothing holds it.
+ * The first `available` code units of a passage, as whole lines; when not even
+ * one line fits, that line is cut by code points. `markCut` records that the
+ * artifact holds the rest; without an artifact nothing is marked, because
+ * nothing holds it.
  */
 function cutToInline(
   passage: GrepPassage,
@@ -232,31 +238,67 @@ function cutToInline(
 ): GrepPassage {
   const start = passageStartLine(passage.locator);
   const end = passageEndLine(passage.locator);
-  const file = grepFileLocator(passage.locator);
   const lines = passage.content.replace(/\n$/u, '').split('\n');
-  const cutAt = (line: number): GrepPassage => ({
-    locator: `${file}:${String(start)}-${String(line)}`,
-    content: lines.slice(0, line - start + 1).join('\n'),
-    matches: passage.matches.filter((match) => match <= line),
+  const cutAt = (last: number, first?: string): GrepPassage => ({
+    locator: `${fileOf(passage)}:${String(start)}-${String(last)}`,
+    content: first ?? lines.slice(0, last - start + 1).join('\n'),
+    matches: passage.matches.filter((match) => match <= last),
     ...(markCut && { cut: true as const }),
     ...(passage.truncated === true && { truncated: true as const }),
   });
-  for (let line = end; line > start; line -= 1) {
-    const cut = cutAt(line);
-    if (grepPassageUnits(undefined, cut) <= available) return cut;
+  // The width only grows with more lines, so the largest fitting end is a
+  // binary search, not one full render per line.
+  let low = start;
+  let high = end;
+  let best: GrepPassage | undefined;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = cutAt(middle);
+    if (grepPassageUnits(undefined, candidate) <= available) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
   }
-  // One line is the floor: a match never yields an empty inline part.
-  return cutAt(start);
+  if (best !== undefined) return best;
+  return cutFirstLineIn(cutAt)(lines[0] ?? '', start, available);
 }
 
-/** The files the result lists, by run of consecutive passages. */
-function filesOf(results: ReadonlyArray<GrepPassage>): number {
-  let files = 0;
-  for (const [index, passage] of results.entries()) {
-    if (index === 0 || !grepPassageContinues(results[index - 1], passage))
-      files += 1;
-  }
-  return files;
+/**
+ * The first line of the cut passage, shortened by code points until it fits.
+ * It is the floor when not even one whole line fits the inline part.
+ */
+function cutFirstLineIn(cutAt: (last: number, first: string) => GrepPassage) {
+  return (line: string, start: number, available: number): GrepPassage => {
+    let low = 0;
+    let high = line.length;
+    let best: GrepPassage | undefined;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const candidate = cutAt(
+        start,
+        cutStringAtCodePointBoundary(line, middle),
+      );
+      if (grepPassageUnits(undefined, candidate) <= available) {
+        best = candidate;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return best ?? cutAt(start, '');
+  };
+}
+
+/** The files the artifact lists, by run of consecutive passages. */
+function filesOf(artifact: GrepArtifact): number {
+  return artifact.blocks.filter((block) => block.newRun).length;
+}
+
+/** The file locator of a passage, its range removed. */
+function fileOf(passage: GrepPassage): string {
+  return grepFileLocator(passage.locator);
 }
 
 /** The rendered width of the framing lines after the passages. */
@@ -274,17 +316,7 @@ function remainderAfter(
   artifact: GrepArtifact,
   findings: ReadonlyArray<ArtifactFinding>,
   head: InlineHead,
-):
-  | {
-      readonly files: number;
-      readonly passages: number;
-      readonly next: ReadonlyArray<{
-        readonly locator: string;
-        readonly start: number;
-        readonly end: number;
-      }>;
-    }
-  | undefined {
+): GrepRemainder | undefined {
   const next = findings.flatMap((finding) => {
     if (finding.end <= head.artifactLines) return [];
     return [
@@ -298,7 +330,12 @@ function remainderAfter(
   if (next.length === 0) return undefined;
   return {
     files: next.length,
-    passages: artifact.results.length - head.results.length,
+    // A cut first passage still leaves lines in the artifact, so its rest
+    // counts as the passage that continues after the inline part.
+    passages:
+      artifact.results.length -
+      head.results.length +
+      (head.cut === undefined ? 0 : 1),
     next: next.slice(0, 10),
   };
 }
@@ -309,32 +346,10 @@ async function storeGrepArtifact(
   context: ToolContext,
   findings: ReadonlyArray<ArtifactFinding>,
 ): Promise<WrittenArtifact | undefined> {
-  const { runId, toolCallId, userId, chatId } = context;
-  if (runId === undefined || toolCallId === undefined) return undefined;
-  try {
-    return await writeToolArtifact(
-      context.tenantDb,
-      {
-        chatId,
-        userId,
-        runId,
-        toolCallId,
-        toolName: 'grep',
-        complete: state.complete,
-        parts: [
-          {
-            contentType: 'text/markdown',
-            content: Buffer.from(grepArtifactText(state.artifact), 'utf8'),
-            findings: artifactFindings(findings),
-          },
-        ],
-      },
-      {
-        maxBytes: context.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES,
-        hostFiles: context.artifactHostFiles === true,
-      },
-    );
-  } catch {
-    return undefined;
-  }
+  return await storeSinglePartArtifact(context, 'grep', {
+    contentType: 'text/markdown',
+    content: grepArtifactText(state.artifact),
+    findings: artifactFindings(findings),
+    complete: state.complete,
+  });
 }

@@ -141,7 +141,7 @@ The artifact notice is the last bracketed line:
 `<next>` is the artifact line after the last inline passage. When the writer
 also made host files, the notice adds `host files in <directory>`, or
 `host files on the llame host only` in a Machine Workspace; see
-[artifacts](artifacts.md) and the
+[artifact](../locators/artifact.md) and the
 [native files runbook](../../operator/native-files.md#host-files).
 
 A Run that cannot read an artifact keeps the head inline and ends the text with

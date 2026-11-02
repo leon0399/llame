@@ -139,7 +139,9 @@ d('grep artifact producer', () => {
     const after = await read(locator, {
       read: {
         allow: true,
-        reject: [{ field: 'path', regex: `^${escapeRegex(secretFile)}` }],
+        reject: [
+          { field: 'path', regex: `^${escapeRegex(`${root}/secrets/`)}` },
+        ],
       },
     });
     // The heading and the passage's lines are withheld; every other file's
@@ -174,6 +176,12 @@ async function writeFixtures(root: string): Promise<void> {
   await writeFile(
     path.join(root, 'secrets', 'a.ts'),
     [long('a'), long('needle '), long('b')].join('\n'),
+  );
+  // Two passages of one file: the blank line between them must count in the
+  // artifact's numbering, or the next finding's range shifts.
+  await writeFile(
+    path.join(root, 'secrets', 'two.ts'),
+    [long('needle one'), long('b'), '', '', long('needle two')].join('\n'),
   );
   await mkdir(path.join(root, 'public'), { recursive: true });
   await Promise.all(

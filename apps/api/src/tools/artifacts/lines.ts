@@ -47,6 +47,14 @@ export function artifactLineCount(source: string): number {
   return artifactLinePieces(source).length;
 }
 
+/**
+ * How many artifact lines one rendered line takes: at least one, because the
+ * reader counts the blank separator between two passages as a line too.
+ */
+export function artifactLinePieceCount(line: string): number {
+  return line.length <= ARTIFACT_LINE_UNITS ? 1 : splitCodeUnits(line).length;
+}
+
 function splitCodeUnits(body: string): Array<string> {
   if (body.length <= ARTIFACT_LINE_UNITS) return [body];
   const pieces = new Array<string>();

@@ -2,8 +2,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
-
-=======
 - `grep` now stores its whole result as the Markdown artifact
   `artifact://grep-<n>` when the result does not fit inline, and the model
   reads the head of that text inline: whole passages in result order, at most

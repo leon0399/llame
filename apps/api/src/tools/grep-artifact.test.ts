@@ -341,9 +341,9 @@ describe('grep artifacts', () => {
     const inline = resultsOf(result);
     expect(inline).toHaveLength(1);
     expect(inline[0]?.cut).toBe(true);
-    expect(renderToolResultText('grep', result)).toContain(
-      '[passage cut; the artifact holds the rest]',
-    );
+    const text = renderToolResultText('grep', result);
+    expect(text).toContain('[passage cut; the artifact holds the rest]');
+    expect(text.length).toBeLessThanOrEqual(15_000);
     const artifact = artifactText().split('\n');
     expect(artifact).toHaveLength(401);
     expect(artifact[0]).toBe(`## ${path.join(root, 'd/big.ts')}`);
@@ -354,6 +354,27 @@ describe('grep artifacts', () => {
     });
     expect(numbered).toEqual(
       Array.from({ length: 400 }, (_, index) => index + 1),
+    );
+  });
+
+  it('counts the lines a cut single passage left out without a reader', async () => {
+    const lines = Array.from({ length: 400 }, (_, index) =>
+      longLine(`needle ${String(index + 1)} `, 100),
+    );
+    await writeAt('d/big.ts', lines.join('\n'));
+    const result = await run(contextOf({ artifactReadable: false }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/big.ts`],
+    });
+
+    const text = renderToolResultText('grep', result);
+    // Nothing holds the rest, so no marker may claim an artifact does.
+    expect(text).not.toContain('[passage cut; the artifact holds the rest]');
+    expect(text.length).toBeLessThanOrEqual(15_000);
+    expect(leftOutOf(result)?.of).toBe('lines');
+    expect(leftOutOf(result)?.count).toBeGreaterThan(0);
+    expect(text.split('\n').at(-1)).toBe(
+      `[left out: ${String(leftOutOf(result)?.count)} lines; full result not stored]`,
     );
   });
 

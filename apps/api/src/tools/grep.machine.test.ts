@@ -976,6 +976,27 @@ describe('Machine request shape', () => {
 });
 
 describe('Machine page bounds', () => {
+  it('stops the walked Machine scope at the artifact bound', async () => {
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([passage('a.go', 1, 1), passage('b.go', 2, 2)]),
+        },
+      },
+    });
+    const result = await run(context(connector, { artifactMaxBytes: 40 }), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv'],
+    });
+    const session = await peer.session(0);
+    // The first passage fills the bound, so the walk asks for no next page.
+    expect(
+      session.calls.filter((call) => call.method === 'fs.grep'),
+    ).toHaveLength(1);
+    expect(warningsOf(result)).toEqual([{ kind: 'artifact_bound', count: 1 }]);
+    expect(success(result).complete).toBe(false);
+  });
+
   it('hands a following scope exactly what the page left', async () => {
     const { peer, connector } = fixture({
       answers: {

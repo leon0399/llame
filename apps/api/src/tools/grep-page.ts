@@ -14,6 +14,7 @@
 
 import {
   GREP_LIMITS,
+  grepArtifactLines,
   grepFileLocator,
   grepPassageBlockLines,
   grepPassageContinues,
@@ -31,7 +32,7 @@ import {
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { type ArtifactFinding } from './artifacts/findings';
-import { artifactLineCount } from './artifacts/lines';
+import { artifactLinePieceCount } from './artifacts/lines';
 import { type GrepReadAdmission } from './grep-admission';
 import { type ToolResult } from './types';
 
@@ -44,8 +45,6 @@ function spellIgnoredLocator(locator: string): string {
 
 /** One passage's block in the artifact text. */
 type ArtifactBlock = {
-  /** The heading line or blank separator, then the passage's own lines. */
-  readonly lines: ReadonlyArray<string>;
   /** UTF-8 bytes of the block's lines, each with its line terminator. */
   readonly bytes: number;
   /** Artifact-numbered lines the block holds, 8,000-unit pieces included. */
@@ -60,8 +59,6 @@ export type GrepArtifact = {
   readonly results: Array<GrepPassage>;
   /** One block for each passage, parallel to `results`. */
   readonly blocks: Array<ArtifactBlock>;
-  /** The rendered body lines, the Knowledge notice line excluded. */
-  readonly lines: Array<string>;
   /** The body's UTF-8 bytes, each line with its terminator. */
   lineBytes: number;
   /** The body's artifact-numbered lines, 8,000-unit pieces included. */
@@ -88,7 +85,6 @@ export function createGrepArtifact(options: GrepArtifactOptions): GrepArtifact {
   return {
     results: [],
     blocks: [],
-    lines: [],
     lineBytes: 0,
     lineCount: 0,
     noticeBytes: options.mayCarryKnowledge
@@ -102,10 +98,11 @@ export function createGrepArtifact(options: GrepArtifactOptions): GrepArtifact {
 /**
  * The bytes of the artifact text so far: every line and its terminator,
  * except the terminator the last line does not take, plus the notice line the
- * whole result may still need.
+ * whole result may still need. An empty artifact already keeps the notice's
+ * bytes back, so its first passage cannot push the text over the bound.
  */
 export function grepArtifactBytes(artifact: GrepArtifact): number {
-  if (artifact.lineCount === 0) return 0;
+  if (artifact.lineCount === 0) return Math.max(0, artifact.noticeBytes - 1);
   return artifact.lineBytes - 1 + artifact.noticeBytes;
 }
 
@@ -117,7 +114,7 @@ export function grepArtifactBytesLeft(artifact: GrepArtifact): number {
 /**
  * Keep one page's passages, in walk order, as the artifact text. A passage
  * that does not fit ends the artifact: it is not stored, and the call stops at
- * the bound. The count of kept passages is the return.
+ * the bound. True while the artifact takes every passage given.
  */
 export function addGrepPassages(
   artifact: GrepArtifact,
@@ -129,7 +126,7 @@ export function addGrepPassages(
       previous === undefined ? undefined : mergeCutPassage(previous, passage);
     if (
       merged !== undefined
-        ? !replaceCutPassage(artifact, merged)
+        ? !replaceCutPassage(artifact, merged, passage)
         : !appendBlock(artifact, passage)
     )
       return false;
@@ -146,7 +143,6 @@ function appendBlock(artifact: GrepArtifact, passage: GrepPassage): boolean {
   }
   artifact.results.push(passage);
   artifact.blocks.push(block);
-  artifact.lines.push(...block.lines);
   artifact.lineBytes += block.bytes;
   artifact.lineCount += block.pieces;
   return true;
@@ -162,43 +158,54 @@ function artifactBlock(
 ): ArtifactBlock {
   const lines = grepPassageBlockLines(previous, passage, false);
   return {
-    lines,
-    bytes: lines.reduce(
-      (total, line) => total + Buffer.byteLength(line, 'utf8') + 1,
-      0,
-    ),
-    pieces: lines.reduce((total, line) => total + artifactLineCount(line), 0),
+    bytes: lineBytes(lines),
+    pieces: linePieces(lines),
     newRun: !grepPassageContinues(previous, passage),
   };
 }
 
+/** The UTF-8 bytes of rendered lines, each with its line terminator. */
+function lineBytes(lines: ReadonlyArray<string>): number {
+  return lines.reduce(
+    (total, line) => total + Buffer.byteLength(line, 'utf8') + 1,
+    0,
+  );
+}
+
+/** The artifact lines the rendered lines hold, one at least for each line. */
+function linePieces(lines: ReadonlyArray<string>): number {
+  return lines.reduce((total, line) => total + artifactLinePieceCount(line), 0);
+}
+
 /**
- * The passage a page cut and the passage that continues it, as one passage:
- * the artifact renders the joined block in place of the cut one, and its byte
- * count replaces the old block's.
+ * The passage a page cut and the passage that continues it, as one passage.
+ * Only the continuation's own lines are appended, so a long passage resumed
+ * across many pages costs one render of the continuation, never of the whole
+ * joined block. The heading the continuation would open is dropped: it stays
+ * in the run the cut passage already opened.
  */
 function replaceCutPassage(
   artifact: GrepArtifact,
   merged: GrepPassage,
+  continuation: GrepPassage,
 ): boolean {
   const index = artifact.results.length - 1;
-  const previous = index === 0 ? undefined : artifact.results[index - 1];
   const old = artifact.blocks[index];
-  const block = artifactBlock(previous, merged);
-  const delta = block.bytes - old.bytes;
-  if (grepArtifactBytes(artifact) + delta > artifact.maxBytes) {
+  const lines = grepPassageBlockLines(undefined, continuation, false).slice(1);
+  const added = lineBytes(lines);
+  if (grepArtifactBytes(artifact) + added > artifact.maxBytes) {
     artifact.full = true;
     return false;
   }
   artifact.results[index] = merged;
-  artifact.blocks[index] = block;
-  artifact.lines.splice(
-    artifact.lines.length - old.lines.length,
-    old.lines.length,
-    ...block.lines,
-  );
-  artifact.lineBytes += delta;
-  artifact.lineCount += block.pieces - old.pieces;
+  const pieces = linePieces(lines);
+  artifact.blocks[index] = {
+    bytes: old.bytes + added,
+    pieces: old.pieces + pieces,
+    newRun: old.newRun,
+  };
+  artifact.lineBytes += added;
+  artifact.lineCount += pieces;
   return true;
 }
 
@@ -209,15 +216,12 @@ export function grepArtifactHasNotice(artifact: GrepArtifact): boolean {
 
 /** The stored text of the artifact: the notice line, then the passages. */
 export function grepArtifactText(artifact: GrepArtifact): string {
-  const lines = grepArtifactHasNotice(artifact)
-    ? [`notice: ${KNOWLEDGE_CONTENT_NOTICE}`, ...artifact.lines]
-    : artifact.lines;
-  return lines.join('\n');
-}
-
-/** The artifact-numbered lines the stored text holds. */
-export function grepArtifactLineCount(artifact: GrepArtifact): number {
-  return artifact.lineCount + (grepArtifactHasNotice(artifact) ? 1 : 0);
+  return grepArtifactLines({
+    ...(grepArtifactHasNotice(artifact) && {
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    }),
+    results: artifact.results,
+  }).join('\n');
 }
 
 /**
@@ -277,8 +281,6 @@ export type PageState = {
   progressed: boolean;
   /** The file's locator a bound stopped the call inside before any progress. */
   unfinished: string | undefined;
-  /** The artifact bound already ended the call. */
-  artifactBound: boolean;
   /** The excluded directories the `read` group admitted, in canonical order. */
   ignored: {
     readonly paths: Array<string>;
@@ -297,7 +299,6 @@ export function createPageState(options: GrepArtifactOptions): PageState {
     complete: true,
     progressed: false,
     unfinished: undefined,
-    artifactBound: false,
     ignored: { paths: [], seen: new Set(), count: 0, atLeast: false },
   };
 }

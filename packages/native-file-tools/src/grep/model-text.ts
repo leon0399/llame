@@ -295,7 +295,7 @@ export function grepUnfinishedUnits(locator: string): number {
 }
 
 /** One stored `remainder` field: the counts and next files after the inline part. */
-interface RemainderView {
+export interface GrepRemainder {
   readonly files: number;
   readonly passages: number;
   readonly next: ReadonlyArray<{
@@ -306,15 +306,27 @@ interface RemainderView {
 }
 
 /** The most code units one `[more: …]` line may take. */
-const REMAINDER_LINE_UNITS = 2000;
+export const REMAINDER_LINE_UNITS = 2000;
+
+/** The width the inline part keeps back for the remainder line and its newline. */
+export function grepRemainderUnits(): number {
+  return REMAINDER_LINE_UNITS + 1;
+}
+
+/** The width one `[left out: …; full result not stored]` line takes. */
+export function grepLeftOutUnits(count: number, of: string): number {
+  return (
+    `[left out: ${String(count)} ${of}; full result not stored]`.length + 1
+  );
+}
 
 /** The stored `remainder` field, or none when it is not one this build wrote. */
-function remainderOf(value: unknown): RemainderView | undefined {
+function remainderOf(value: unknown): GrepRemainder | undefined {
   if (!isRecord(value)) return undefined;
   const { files, passages, next } = value;
   if (!isNumber(files) || files < 1) return undefined;
   if (!isNumber(passages) || passages < 1) return undefined;
-  const entries: Array<RemainderView["next"][number]> = [];
+  const entries: Array<GrepRemainder["next"][number]> = [];
   if (Array.isArray(next)) {
     for (const entry of next) {
       if (!isRecord(entry)) return undefined;
@@ -339,7 +351,7 @@ function countNoun(value: number, noun: string): string {
  * renders inside the inline bound the producer kept back for it.
  */
 function grepRemainderLine(
-  remainder: RemainderView,
+  remainder: GrepRemainder,
   artifact: string | undefined,
 ): string {
   const head = `[more: ${countNoun(remainder.files, "file")}, ${countNoun(
@@ -360,7 +372,7 @@ function grepRemainderLine(
 }
 
 function remainderEntry(
-  entry: RemainderView["next"][number],
+  entry: GrepRemainder["next"][number],
   artifact: string | undefined,
 ): string {
   const locator = oneLine(entry.locator);
@@ -379,8 +391,7 @@ function leftOutOf(value: unknown): LeftOutView | undefined {
   if (!isRecord(value)) return undefined;
   const { count, of } = value;
   if (!isNumber(count) || count < 1) return undefined;
-  if (of !== "lines" && of !== "files" && of !== "results" && of !== "passages")
-    return undefined;
+  if (of !== "lines" && of !== "files" && of !== "results") return undefined;
   return { count, of };
 }
 

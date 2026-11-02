@@ -24,10 +24,7 @@ import {
 } from '@workspace/native-file-tools';
 import { z } from 'zod';
 
-import {
-  BUILT_IN_DEFAULTS,
-  DEFAULT_ARTIFACT_MAX_BYTES,
-} from '../instance-config/llame-config';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
@@ -42,6 +39,7 @@ import {
   type MachineGrepScope,
 } from './grep-machine';
 import { namedUnfinished } from './grep-machine-wire';
+import { artifactMaxBytes } from './artifacts/spill';
 import { finishGrepCall } from './grep-artifact';
 import {
   addGrepPassages,
@@ -49,7 +47,7 @@ import {
   appendSegment,
   budgetAfter,
   createPageState,
-  grepArtifactBytesLeft,
+  grepArtifactBytes,
   type PageState,
   type SegmentPage,
 } from './grep-page';
@@ -76,6 +74,7 @@ type GrepArguments = z.infer<typeof grepInputSchema>;
 export const nativeGrepTool: Tool<GrepArguments> = {
   id: 'grep',
   classification: 'read_only',
+  spill: 'tool',
   description: loadPackagedToolDescription('grep'),
   inputSchema: grepInputSchema,
   execute: (context, input) => executeGrep(context, input),
@@ -155,7 +154,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const { patterns, resolved, deadlineAt } = request;
   const budget = grepBudget(request.context);
   const state = createPageState({
-    maxBytes: request.context.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES,
+    maxBytes: artifactMaxBytes(request.context),
     // A `kb://` segment can give a Knowledge passage, whose notice line the
     // artifact must keep room for from the start.
     mayCarryKnowledge: segmentsOf(resolved).some(
@@ -167,7 +166,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
     // The artifact bound stops the walk before another scope is opened.
-    if (state.artifact.full || grepArtifactBytesLeft(state.artifact) <= 0) {
+    if (artifactSpent(state)) {
       endAtArtifactBound(state);
       break;
     }
@@ -187,11 +186,11 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     });
     if (failure !== undefined) return failure;
   }
-  return finishGrepCall({
+  return finishGrepCall(
     state,
-    context: request.context,
-    limit: request.input.limit ?? GREP_LIMITS.filesPerPage,
-  });
+    request.context,
+    request.input.limit ?? GREP_LIMITS.filesPerPage,
+  );
 }
 
 /** End the walk at the call deadline with the warning the spec requires. */
@@ -203,9 +202,16 @@ function endAtDeadline(state: PageState): void {
 /** End the walk where the artifact has no room for another passage. */
 function endAtArtifactBound(state: PageState): void {
   state.complete = false;
-  if (state.artifactBound) return;
-  state.artifactBound = true;
-  addWarning(state, 'artifact_bound');
+  if (!state.warnings.has('artifact_bound'))
+    addWarning(state, 'artifact_bound');
+}
+
+/** Whether the artifact can take no further passage. */
+function artifactSpent(state: PageState): boolean {
+  return (
+    state.artifact.full ||
+    grepArtifactBytes(state.artifact) >= state.artifact.maxBytes
+  );
 }
 
 /**
@@ -329,10 +335,7 @@ async function runLocalSegment(
   };
   try {
     for (;;) {
-      if (
-        run.state.artifact.full ||
-        grepArtifactBytesLeft(run.state.artifact) <= 0
-      ) {
+      if (artifactSpent(run.state)) {
         endAtArtifactBound(run.state);
         return undefined;
       }
@@ -344,6 +347,12 @@ async function runLocalSegment(
       const next = nextPage(scan, walk, run.request.deadlineAt);
       if (next === undefined) {
         endSegment(run, scan);
+        return undefined;
+      }
+      // A page that kept nothing and has the same budget left would repeat
+      // itself forever: its own reserve left no room for the passage it met.
+      if (scan.results.length === 0) {
+        endAtArtifactBound(run.state);
         return undefined;
       }
       walk = next;
@@ -378,7 +387,10 @@ function engineInput(
     budget: {
       ...walk.budget,
       limit: NO_FILE_LIMIT,
-      pageUnits: Math.max(0, grepArtifactBytesLeft(run.state.artifact)),
+      pageUnits: Math.max(
+        0,
+        run.state.artifact.maxBytes - grepArtifactBytes(run.state.artifact),
+      ),
       fixedReserve: 0,
     },
     cursor: walk.cursor,
@@ -395,9 +407,13 @@ function engineInput(
  */
 function endSegment(run: SegmentRun, scan: GrepScanResult): void {
   if (scan.complete === true) return;
-  if (scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind)))
-    run.state.complete = false;
+  if (stoppedAtBound(scan)) run.state.complete = false;
   else endAtArtifactBound(run.state);
+}
+
+/** Whether a bound or the deadline ended an engine page. */
+function stoppedAtBound(scan: GrepScanResult): boolean {
+  return scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind));
 }
 
 /** The next internal page's state, or undefined when the walk ends here. */
@@ -407,8 +423,7 @@ function nextPage(
   deadlineAt: number,
 ): PageWalk | undefined {
   if (scan.complete || scan.cursor === undefined) return undefined;
-  if (scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind)))
-    return undefined;
+  if (stoppedAtBound(scan)) return undefined;
   const cursor = decodeGrepCursor(scan.cursor, INTERNAL_CURSOR_HASH);
   if ('error' in cursor) return undefined;
   return {

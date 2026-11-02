@@ -84,6 +84,10 @@ type ContextOptions = {
   readonly map?: ToolPermissionMap;
   /** Operator `tools.grep` bounds; absent means every bound is unset. */
   readonly grepBounds?: GrepBoundsConfig;
+  /** The call's own timeout, so a spinning walk fails fast in the test. */
+  readonly timeoutMs?: number;
+  /** The stored-result bound, when a test needs a small one. */
+  readonly artifactMaxBytes?: number;
 };
 
 function contextOf(options: ContextOptions = {}): ToolContext {
@@ -114,6 +118,10 @@ function contextOf(options: ContextOptions = {}): ToolContext {
     ...(options.artifacts === true && { artifactReadable: true }),
     skillCatalog: NO_CATALOG,
     grepBounds: options.grepBounds,
+    ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+    ...(options.artifactMaxBytes !== undefined && {
+      artifactMaxBytes: options.artifactMaxBytes,
+    }),
     workspaceRoot:
       options.root === undefined
         ? undefined
@@ -970,6 +978,28 @@ async function matchingTree(root: string, count: number): Promise<void> {
 }
 
 describe('host pages inside one call', () => {
+  it('ends at the artifact bound when a page keeps nothing', async () => {
+    await withRoot(async (root) => {
+      // A long match fills the bound, and the next candidate is a binary file
+      // whose skip warning no longer fits the engine's own reserve: the empty
+      // page must end the walk at the artifact bound, not spin to the timeout.
+      await writeAt(root, 'a.ts', `needle ${'x'.repeat(120)}\n`);
+      await writeAt(root, 'b.bin', '\u0000\u0001');
+      const result = await run(
+        contextOf({
+          artifacts: true,
+          timeoutMs: 300,
+          artifactMaxBytes: 180,
+        }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      expect(warningsOf(result)).toEqual([
+        { kind: 'artifact_bound', count: 1 },
+      ]);
+      expect(success(result).complete).toBe(false);
+    });
+  });
+
   // A walk of more than the inline head resumes inside the call. Each case
   // proves a bound that trips after the head filled sees what the head left.
 

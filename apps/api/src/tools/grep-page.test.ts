@@ -11,6 +11,7 @@ import {
   budgetAfter,
   createPageState,
   grepArtifactBytes,
+  grepArtifactFindings,
   grepArtifactText,
   pageResult,
 } from './grep-page';
@@ -268,6 +269,28 @@ describe('grep page assembly', () => {
     });
     expect(state.consumed).toEqual({ files: 2, entries: 5, bytes: 15 });
     expect(state.progressed).toBe(true);
+  });
+
+  it('counts the blank line between passages in each finding range', () => {
+    const state = pageState();
+    addGrepPassages(state.artifact, [
+      passage('a.md:1-1', '1: x', [1]),
+      passage('a.md:5-5', '5: y', [5]),
+      passage('b.md:2-2', '2: z', [2]),
+    ]);
+    const lines = grepArtifactText(state.artifact).split('\n');
+    expect(lines).toEqual([
+      '## a.md',
+      '*1: x',
+      '',
+      '*5: y',
+      '## b.md',
+      '*2: z',
+    ]);
+    expect(grepArtifactFindings(state.artifact)).toEqual([
+      { locators: ['a.md'], rule: 'allow_only', start: 1, end: 4 },
+      { locators: ['b.md'], rule: 'allow_only', start: 5, end: 6 },
+    ]);
   });
 
   it('stops the artifact at its byte bound and reports the stop', () => {

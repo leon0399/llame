@@ -111,37 +111,36 @@ async function boundedSpill(
 }
 
 /**
- * The full model rendering as one artifact part. `undefined` means the Run has
- * no reader, so nothing is promised; a failed write — including a part over
- * `tools.artifacts.maxBytes`, which the writer refuses before allocating a
- * number — is `not-stored`. The allocated locator is checked against the
- * `read` group again, because the probe before the write cannot know the
- * counter value; a denied locator is not advertised, and its already-written
- * row stays an orphan the store has no delete for.
+ * The full model rendering as one artifact part.
+ * `undefined` means the Run has no reader, so nothing is promised; a failed
+ * write — including a part over `tools.artifacts.maxBytes`, which the writer
+ * refuses before allocating a number — is `not-stored`. The allocated locator
+ * is checked against the `read` group again, because the probe before the
+ * write cannot know the counter value; a denied locator is not advertised,
+ * and its already-written row stays an orphan the store has no delete for.
  */
 async function storeHeadRendering(
   context: ToolContext,
   toolName: string,
   rendering: SpillRendering,
 ): Promise<CappedResultSpill | undefined> {
-  const { runId } = context;
-  if (runId === undefined || !canReadArtifacts(context, toolName)) {
-    return undefined;
-  }
-  const written = await writeHeadArtifact(context, {
-    runId,
-    toolName,
-    rendering,
+  const write = await writeSinglePart(context, toolName, {
+    contentType: rendering.contentType,
+    content: rendering.content,
   });
-  // A sequence-specific `read` rule is judged on the allocated locator; when
-  // neither path admits it, the row stays an orphan and nothing is promised. A
-  // host route needs the file it would name; without one only `read` reaches it.
+  if (write.kind === 'no-reader') return undefined;
+  // The head spill settles one outcome: a failed write rejects here, and
+  // `boundedSpill` turns that rejection into `not-stored`.
+  if (write.kind === 'failed') throw new Error('The artifact write failed.');
+  const written = write.written;
+  // A host route needs the file it would name; without one only `read`
+  // reaches the artifact.
   const reachable =
     written.hostDirectory === undefined
       ? readAdmitsArtifact(context, toolName, written.seq)
       : canReadArtifacts(context, toolName, written.seq);
   if (!reachable) return { kind: 'not-stored' };
-  const hostFiles = headHostFiles(context, toolName, written);
+  const hostFiles = artifactHostFiles(context, toolName, written);
   return {
     kind: 'stored',
     locator: written.locator,
@@ -151,38 +150,78 @@ async function storeHeadRendering(
   };
 }
 
-/** Store the whole rendering as the artifact's only part, host files included. */
-function writeHeadArtifact(
+/** One part a tool that builds its own artifact hands to the shared store. */
+export type SinglePartArtifact = {
+  readonly contentType: string;
+  readonly content: string;
+  /** The read-time re-check record (`grep` and `web_search` only). */
+  readonly findings?: unknown;
+  /** Whether the producer stored the whole result it found; default `true`. */
+  readonly complete?: boolean;
+};
+
+/**
+ * Store one part for a tool, or nothing. A Run without a reader gets nothing;
+ * a failed write — the writer refuses a part over `tools.artifacts.maxBytes`
+ * before allocating a number — is the same. The allocated locator is judged
+ * again, because the probe before the write cannot know the counter value.
+ */
+export async function storeSinglePartArtifact(
   context: ToolContext,
-  input: {
-    readonly runId: string;
-    readonly toolName: string;
-    readonly rendering: SpillRendering;
-  },
-): Promise<WrittenArtifact> {
-  return writeToolArtifact(
-    context.tenantDb,
-    {
-      chatId: context.chatId,
-      userId: context.userId,
-      runId: input.runId,
-      toolCallId: context.toolCallId ?? input.toolName,
-      toolName: input.toolName,
-      complete: true,
-      parts: [
-        {
-          contentType: input.rendering.contentType,
-          content: Buffer.from(input.rendering.content, 'utf8'),
-        },
-      ],
-    },
-    {
-      maxBytes: artifactMaxBytes(context),
-      hostFiles: context.artifactHostFiles === true,
-      abortSignal: context.abortSignal,
-      timeoutSignal: context.timeoutSignal,
-    },
-  );
+  toolName: string,
+  part: SinglePartArtifact,
+): Promise<WrittenArtifact | undefined> {
+  const write = await writeSinglePart(context, toolName, part);
+  return write.kind === 'written' ? write.written : undefined;
+}
+
+/** The shared one-part write's outcome: no reader, a failure, or the row. */
+type SinglePartWrite =
+  | { readonly kind: 'no-reader' }
+  | { readonly kind: 'failed' }
+  | { readonly kind: 'written'; readonly written: WrittenArtifact };
+
+/** Write one part after probing the Run, then re-check the allocated locator. */
+async function writeSinglePart(
+  context: ToolContext,
+  toolName: string,
+  part: SinglePartArtifact,
+): Promise<SinglePartWrite> {
+  const { runId } = context;
+  if (runId === undefined || !canReadArtifacts(context, toolName)) {
+    return { kind: 'no-reader' };
+  }
+  try {
+    const written = await writeToolArtifact(
+      context.tenantDb,
+      {
+        chatId: context.chatId,
+        userId: context.userId,
+        runId,
+        toolCallId: context.toolCallId ?? toolName,
+        toolName,
+        complete: part.complete ?? true,
+        parts: [
+          {
+            contentType: part.contentType,
+            content: Buffer.from(part.content, 'utf8'),
+            ...(part.findings !== undefined && { findings: part.findings }),
+          },
+        ],
+      },
+      {
+        maxBytes: artifactMaxBytes(context),
+        hostFiles: context.artifactHostFiles === true,
+        abortSignal: context.abortSignal,
+        timeoutSignal: context.timeoutSignal,
+      },
+    );
+    return canReadArtifacts(context, toolName, written.seq)
+      ? { kind: 'written', written }
+      : { kind: 'failed' };
+  } catch {
+    return { kind: 'failed' };
+  }
 }
 
 /**
@@ -191,7 +230,7 @@ function writeHeadArtifact(
  * there; a head spill stores only when the Run can read it back, which is the
  * route the notice then names.
  */
-function headHostFiles(
+export function artifactHostFiles(
   context: ToolContext,
   toolName: string,
   written: WrittenArtifact,
