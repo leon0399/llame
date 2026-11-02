@@ -11,44 +11,42 @@
  */
 
 import { admitPermission } from '../permissions/admit';
-import { nativeFileProjection } from '../permissions/locator-projection';
 import { type ToolContext } from '../types';
 import { machineWorkspaceRoot } from '../workspace-path';
 import { formatArtifactLocator } from './locator';
 
 /**
- * Whether this Run's artifacts are also files on the llame host (D10). The
- * write layer owns the files; this is only the Run's capability bit.
- */
-export function hasHostFiles(context: ToolContext): boolean {
-  return context.artifactHostFiles === true;
-}
-
-/**
- * Whether this Run can read back an artifact it made. The probe locator stands
- * in for the artifact's own number, which the write allocates: a rule that
- * names one sequence is not predicted here.
+ * Whether this Run can read back an artifact it made: either path. `seq`
+ * defaults to the probe value; a writer judges the allocated locator with it.
  */
 export function canReadArtifacts(
   context: ToolContext,
   toolName: string,
+  seq = 1,
 ): boolean {
   return (
-    readAdmitsArtifact(context, toolName) || hostFilesReachArtifact(context)
+    readAdmitsArtifact(context, toolName, seq) ||
+    hostFilesReachArtifact(context)
   );
 }
 
-/** `read` is allowlisted and its group admits the artifact's locator. */
-function readAdmitsArtifact(context: ToolContext, toolName: string): boolean {
+/**
+ * `read` is allowlisted and its group admits the artifact's locator. `seq`
+ * defaults to 1, the probe value before a write allocates the real counter
+ * value; a sequence-specific rule is judged again with the allocated one.
+ */
+export function readAdmitsArtifact(
+  context: ToolContext,
+  toolName: string,
+  seq = 1,
+): boolean {
   if (context.artifactReadable !== true) return false;
+  // An `artifact://` path is already its own canonical projection, so the
+  // `read` group matches the locator exactly as the reader submits it.
   const decision = admitPermission(context, (evaluate) =>
     evaluate({
       toolId: 'read',
-      args: { path: formatArtifactLocator(toolName, 1) },
-      projectFieldValue: nativeFileProjection(
-        'read',
-        context.workspaceRoot?.current(),
-      ),
+      args: { path: formatArtifactLocator(toolName, seq) },
     }),
   );
   return decision?.decision === 'allow';
@@ -62,7 +60,7 @@ function readAdmitsArtifact(context: ToolContext, toolName: string): boolean {
  */
 function hostFilesReachArtifact(context: ToolContext): boolean {
   return (
-    hasHostFiles(context) &&
+    context.artifactHostFiles === true &&
     machineWorkspaceRoot(context.workspaceRoot?.current()) === undefined &&
     bashGroupAdmits(context)
   );

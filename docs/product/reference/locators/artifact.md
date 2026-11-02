@@ -89,7 +89,12 @@ single part, and `bash-<n>/<stream>.<ext>` for a `bash` stream. The extension
 of the content type is `.md`, `.json`, or `.txt`, so the ordinary readers apply.
 The notice names the directory (`; host files in <directory>`), or says
 `; host files on the llame host only` in a Machine Workspace and when `bash`
-runs on an `ssh://` host, because neither opens a llame host path.
+runs on an `ssh://` host, because neither opens a llame host path. A Run whose
+only route is a host `bash` is given the directory with `on the llame host`
+after it instead, so the notice always names a usable route. The worker
+creates `llame/` and `llame/chats/` private to its own OS user (mode `0700`)
+and writes no file, and sweeps nothing, when either is a symbolic link or
+another user's.
 
 A host file holds the content as it was admitted; only `read` on
 `artifact://` checks findings again, so a `bash` command that opens the file

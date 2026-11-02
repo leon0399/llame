@@ -14,6 +14,7 @@ import { type Db } from '../db/tenant-db.service';
 import { isString } from '@workspace/runtime-safety';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
+import { artifactDirectory } from './artifacts/host-files';
 import { RunEventsRepository } from '../runs/runs-repository';
 import {
   resetManagedExecutorForTests,
@@ -962,8 +963,7 @@ describe('bash durable admission', () => {
   it('restores a Chat artifact file before the command starts', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
     const hostRoot = await mkdtemp(join(tmpdir(), 'bash-artifact-host-'));
-    const previousTmpdir = process.env.TMPDIR;
-    process.env.TMPDIR = hostRoot;
+    vi.stubEnv('TMPDIR', hostRoot);
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
@@ -974,16 +974,9 @@ describe('bash durable admission', () => {
       payload: null,
       createdAt: new Date(),
     });
-    const artifactDirectory = join(
-      hostRoot,
-      'llame',
-      'chats',
-      'chat',
-      'artifacts',
-      'bash-1',
-    );
-    const stdoutFile = join(artifactDirectory, 'stdout.txt');
-    await mkdir(artifactDirectory, { recursive: true });
+    const artifactDir = join(artifactDirectory('chat'), 'bash-1');
+    const stdoutFile = join(artifactDir, 'stdout.txt');
+    await mkdir(artifactDir, { recursive: true, mode: 0o700 });
     await writeFile(stdoutFile, 'tampered\n');
     const createdAt = new Date('2026-11-02T12:00:00.000Z');
     vi.spyOn(
@@ -1000,14 +993,10 @@ describe('bash durable admission', () => {
         byteSize: 6,
       },
     ]);
-    vi.spyOn(ArtifactsRepository.prototype, 'findPart').mockResolvedValue({
-      name: 'stdout',
-      contentType: 'text/plain',
-      content: Buffer.from('hello\n'),
-      lineCount: 1,
-      byteSize: 6,
-      findings: null,
-    });
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'findPartContent',
+    ).mockResolvedValue(Buffer.from('hello\n'));
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
     try {
       const result = await bashTool.execute(
@@ -1017,8 +1006,38 @@ describe('bash durable admission', () => {
 
       expect(result).toMatchObject({ status: 'success', stdout: 'hello\n' });
     } finally {
-      if (previousTmpdir === undefined) delete process.env.TMPDIR;
-      else process.env.TMPDIR = previousTmpdir;
+      await rm(hostRoot, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('runs the command when the artifact files cannot be reconciled', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
+    const hostRoot = await mkdtemp(join(tmpdir(), 'bash-artifact-host-'));
+    vi.stubEnv('TMPDIR', hostRoot);
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'listChatPartFiles',
+    ).mockRejectedValue(new Error('the store is unavailable'));
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    try {
+      const result = await bashTool.execute(
+        { ...testContext(), artifactHostFiles: true },
+        { command: 'printf ready' },
+      );
+
+      expect(result).toMatchObject({ status: 'success', stdout: 'ready' });
+    } finally {
       await rm(hostRoot, { recursive: true, force: true });
       await rm(directory, { recursive: true, force: true });
     }

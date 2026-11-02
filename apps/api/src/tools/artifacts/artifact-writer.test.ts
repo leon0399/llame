@@ -18,6 +18,7 @@ const MAX_BYTES = 1024;
 const RUN_ID = '00000000-0000-4000-8000-000000000010';
 const CHAT_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = 'owner-1';
+const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
 
 function tenantRunner(): TenantRunner {
   const db = drizzle.mock({ schema });
@@ -51,7 +52,7 @@ describe('writeToolArtifact', () => {
       .mockResolvedValue(seq);
     const insertArtifact = vi
       .spyOn(ArtifactsRepository.prototype, 'insertArtifact')
-      .mockResolvedValue('artifact-id');
+      .mockResolvedValue({ id: 'artifact-id', createdAt: CREATED_AT });
     const insertParts = vi
       .spyOn(ArtifactsRepository.prototype, 'insertParts')
       .mockResolvedValue(undefined);

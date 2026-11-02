@@ -26,9 +26,25 @@ export type ArtifactNoticeContinuation = {
   readonly next: number;
 };
 
+/**
+ * The host files a spilled artifact also has on the llame host
+ * (tool-result-artifacts "The notice names the host files"). Present only when
+ * the write actually made them.
+ */
+export type ArtifactNoticeHostFiles = {
+  /** The absolute directory that holds this artifact's files. */
+  readonly directory: string;
+  /** This call ran away from the llame host, so its shell cannot open them. */
+  readonly elsewhere: boolean;
+  /** `read` can serve the artifact, so its locator is a route here. */
+  readonly readable: boolean;
+};
+
 export type ArtifactNoticeOptions = {
   /** `grep` and `web_search` continue from a line; `bash` does not. */
   readonly continueWith?: ArtifactNoticeContinuation;
+  /** The files written for the artifact, when the Run keeps host files. */
+  readonly hostFiles?: ArtifactNoticeHostFiles;
 };
 
 /**
@@ -51,7 +67,25 @@ export function artifactNotice(
     options.continueWith === undefined
       ? ""
       : `; continue with ${oneLine(options.continueWith.locator)}:${options.continueWith.next}-`;
-  return `[full result: ${named}${continuation}]`;
+  return `[full result: ${named}${continuation}${hostFilesPhrase(options.hostFiles)}]`;
+}
+
+/**
+ * Where the host files are. A call on the llame host names the directory; one
+ * away from it (a Machine, an `ssh://` cwd) cannot open that path, so the
+ * notice says the files are on the llame host only when `read` is a route, and
+ * otherwise names the directory with that qualification so a later host `bash`
+ * can use it.
+ */
+function hostFilesPhrase(
+  hostFiles: ArtifactNoticeHostFiles | undefined,
+): string {
+  if (hostFiles === undefined) return "";
+  const directory = oneLine(hostFiles.directory);
+  if (!hostFiles.elsewhere) return `; host files in ${directory}`;
+  return hostFiles.readable
+    ? "; host files on the llame host only"
+    : `; host files in ${directory} on the llame host`;
 }
 
 /**

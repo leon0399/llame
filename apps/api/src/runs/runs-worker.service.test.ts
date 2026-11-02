@@ -9,15 +9,9 @@
  * markFinished's first-writer-wins guard (a no-op when the run is already
  * terminal).
  */
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  utimesSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
+import path, { dirname } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -44,6 +38,10 @@ import {
   type RunUserMessage,
 } from './run-execution.service';
 import { RUN_EXECUTION_CEILING_SECONDS } from './run-queues';
+import {
+  artifactDirectory,
+  SWEEP_AFTER_MS,
+} from '../tools/artifacts/host-files';
 import { RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
@@ -85,6 +83,7 @@ function makeService(
     aborts?: RunAbortRegistrar;
     canonicalSearchCoverage?: CanonicalSearchCoverageGate;
     allowedTools?: Array<string>;
+    nativeExecutorId?: string;
     runsConcurrency?: number | null;
   } = {},
 ) {
@@ -113,6 +112,7 @@ function makeService(
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: overrides.allowedTools ?? [],
+        nativeExecutorId: overrides.nativeExecutorId,
       },
     },
   };
@@ -222,38 +222,48 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   });
 
   it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
-    const previousTmpdir = process.env.TMPDIR;
     const hostRoot = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
-    process.env.TMPDIR = hostRoot;
+    vi.stubEnv('TMPDIR', hostRoot);
     const stale = path.join(
-      hostRoot,
-      'llame',
-      'chats',
-      '0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11',
+      artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
+      'bash-1',
     );
     const live = path.join(
-      hostRoot,
-      'llame',
-      'chats',
-      '5d0e9d9e-9a5f-4cbb-8a0f-6c4a1f6a2e77',
+      artifactDirectory('5d0e9d9e-9a5f-4cbb-8a0f-6c4a1f6a2e77'),
+      'bash-2',
     );
-    mkdirSync(path.join(stale, 'artifacts', 'bash-1'), { recursive: true });
-    mkdirSync(path.join(live, 'artifacts', 'bash-2'), { recursive: true });
-    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
-    utimesSync(stale, eightDaysAgo, eightDaysAgo);
-    try {
-      const tx = makeFakeTx();
-      const { service } = makeService(tx);
+    mkdirSync(stale, { recursive: true, mode: 0o700 });
+    mkdirSync(live, { recursive: true, mode: 0o700 });
+    const staleSeen = new Date(Date.now() - SWEEP_AFTER_MS - 1);
+    utimesSync(dirname(dirname(stale)), staleSeen, staleSeen);
+    const tx = makeFakeTx();
+    const { service } = makeService(tx, {
+      allowedTools: ['bash'],
+      nativeExecutorId: 'host-a',
+    });
 
-      await service.onApplicationBootstrap();
+    await service.onApplicationBootstrap();
 
-      expect(existsSync(stale)).toBe(false);
-      expect(existsSync(live)).toBe(true);
-    } finally {
-      if (previousTmpdir === undefined) delete process.env.TMPDIR;
-      else process.env.TMPDIR = previousTmpdir;
-      rmSync(hostRoot, { recursive: true, force: true });
-    }
+    expect(existsSync(dirname(dirname(stale)))).toBe(false);
+    expect(existsSync(dirname(dirname(live)))).toBe(true);
+  });
+
+  it('sweeps nothing when the worker keeps no host files', async () => {
+    const hostRoot = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
+    vi.stubEnv('TMPDIR', hostRoot);
+    const stale = path.join(
+      artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
+      'bash-1',
+    );
+    mkdirSync(stale, { recursive: true, mode: 0o700 });
+    const staleSeen = new Date(Date.now() - SWEEP_AFTER_MS - 1);
+    utimesSync(dirname(dirname(stale)), staleSeen, staleSeen);
+    const tx = makeFakeTx();
+    const { service } = makeService(tx, { allowedTools: ['read'] });
+
+    await service.onApplicationBootstrap();
+
+    expect(existsSync(dirname(dirname(stale)))).toBe(true);
   });
 
   it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {

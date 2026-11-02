@@ -24,6 +24,7 @@ import { runTool } from './runner';
 import { executeSshBash } from './ssh-bash';
 import { type SshClient, type SshRunOutcome } from '../ssh/ssh-client';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
+import { artifactDirectory } from './artifacts/host-files';
 import { bashTool } from './bash';
 import { previewStream, spillBashResult, spillBashStreams } from './bash-spill';
 import { renderToolResultText } from './model-text';
@@ -39,11 +40,10 @@ const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
 
 /** Each test's own `$TMPDIR`, so a host file never reaches the real one. */
 let temporaryRoot: string;
-let previousTmpdir: string | undefined;
 
 /** The host directory of the artifact this suite's writes make. */
 function hostDirectory(): string {
-  return join(tmpdir(), 'llame', 'chats', 'chat', 'artifacts', `bash-${SEQ}`);
+  return join(artifactDirectory('chat'), `bash-${SEQ}`);
 }
 
 /** The three Chat-scoped calls one artifact write makes. */
@@ -106,9 +106,8 @@ beforeEach(() => {
   // A fresh call history per test: the writer mocks below are the same objects
   // across tests, so a call from an earlier test would otherwise be counted.
   vi.clearAllMocks();
-  previousTmpdir = process.env.TMPDIR;
   temporaryRoot = mkdtempSync(join(tmpdir(), 'bash-spill-host-'));
-  process.env.TMPDIR = temporaryRoot;
+  vi.stubEnv('TMPDIR', temporaryRoot);
   insertWrites = {
     nextSeq: vi
       .spyOn(ArtifactsRepository.prototype, 'nextSeq')
@@ -123,8 +122,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (previousTmpdir === undefined) delete process.env.TMPDIR;
-  else process.env.TMPDIR = previousTmpdir;
+  vi.unstubAllEnvs();
   rmSync(temporaryRoot, { recursive: true, force: true });
 });
 
@@ -654,7 +652,7 @@ describe('the bash tool spill on the host and over ssh', () => {
 
     const result = await executeSshBash(
       {
-        ...testContext(),
+        ...testContext({ artifactHostFiles: true }),
         sshClient: client,
         sshBinding: {
           destination: 'box',
@@ -680,6 +678,9 @@ describe('the bash tool spill on the host and over ssh', () => {
       name: 'stderr',
       content: Buffer.from(stderr, 'utf8'),
     });
+    // The ssh:// host cannot open the llame host file; `read` is the route.
+    expect(result.message).toContain('[full result: artifact://bash-5/stderr');
+    expect(result.message).toContain('; host files on the llame host only]');
   });
 });
 
@@ -833,7 +834,7 @@ describe('the bash artifact host files', () => {
     expect(textOf(result)).toContain(
       '[full result: artifact://bash-5/stdout (3 lines); host files on the llame host only]',
     );
-    expect(textOf(result)).not.toContain(temporaryRoot);
+    expect(textOf(result)).not.toContain(tmpdir());
   });
 
   it('keeps no host path when the Run writes no file', async () => {
@@ -844,6 +845,18 @@ describe('the bash artifact host files', () => {
 
     expect(textOf(result).split('\n').at(-1)).toBe(
       '[full result: artifact://bash-5/stdout (3 lines)]',
+    );
+  });
+
+  it('names the host directory away from this host when only a host bash reads it', async () => {
+    const result = await spillBashResult(
+      testContext({ artifactReadable: false, artifactHostFiles: true }),
+      success('a'.repeat(20_000)),
+      true,
+    );
+
+    expect(textOf(result)).toContain(
+      `[full result: artifact://bash-5/stdout (3 lines); host files in ${hostDirectory()} on the llame host]`,
     );
   });
 

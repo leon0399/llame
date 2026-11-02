@@ -147,12 +147,7 @@ export async function spillBashStreams(
     streams: { stdout, stderr },
     ...(written !== undefined && { artifact: written.locator }),
     ...(written !== undefined && {
-      notice: storedNotice(
-        context,
-        spilling,
-        written,
-        hostFilesOnly,
-      ),
+      notice: storedNotice(context, spilling, written, hostFilesOnly),
     }),
   };
 }

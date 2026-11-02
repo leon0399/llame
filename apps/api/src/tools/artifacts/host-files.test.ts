@@ -13,16 +13,18 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
+import { chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../../db/schema';
 import { type Db } from '../../db/tenant-db.service';
-import { ArtifactsRepository } from './artifacts-repository';
+import { ArtifactsRepository, type ChatPartFile } from './artifacts-repository';
 import { writeToolArtifact } from './artifact-writer';
 import {
   artifactDirectory,
@@ -36,9 +38,9 @@ const CHAT = '0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11';
 const OTHER_CHAT = '5d0e9d9e-9a5f-4cbb-8a0f-6c4a1f6a2e77';
 const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
 const MAX_BYTES = 8 * 1024 * 1024;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 let temporaryRoot: string;
-let previousTmpdir: string | undefined;
 
 function tenantDb() {
   const db: Db = drizzle.mock({ schema });
@@ -48,9 +50,30 @@ function tenantDb() {
   };
 }
 
+/** Directories the writer would create, at the mode it creates them. */
+function mkdirPrivate(directory: string): void {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+}
+
 /** The directory `$TMPDIR/llame/chats/<chatId>` names the sweep. */
 function chatRoot(chatId: string): string {
   return path.join(tmpdir(), 'llame', 'chats', chatId);
+}
+
+/** The two bash streams as the writer takes them. */
+function bashParts() {
+  return [
+    {
+      name: 'stdout',
+      contentType: 'text/plain',
+      content: Buffer.from('hello\nworld\n'),
+    },
+    {
+      name: 'stderr',
+      contentType: 'text/plain',
+      content: Buffer.from('warning\n'),
+    },
+  ];
 }
 
 function write(chatId: string, overrides: { hostFiles?: boolean } = {}) {
@@ -63,52 +86,39 @@ function write(chatId: string, overrides: { hostFiles?: boolean } = {}) {
       toolCallId: 'call-1',
       toolName: 'bash',
       complete: true,
-      parts: [
-        {
-          name: 'stdout',
-          contentType: 'text/plain',
-          content: Buffer.from('hello\nworld\n'),
-        },
-        {
-          name: 'stderr',
-          contentType: 'text/plain',
-          content: Buffer.from('warning\n'),
-        },
-      ],
+      parts: bashParts(),
     },
     { maxBytes: MAX_BYTES, hostFiles: overrides.hostFiles ?? true },
   );
 }
 
 beforeEach(() => {
-  previousTmpdir = process.env.TMPDIR;
+  vi.restoreAllMocks();
   temporaryRoot = mkdtempSync(path.join(tmpdir(), 'artifact-host-files-'));
-  process.env.TMPDIR = temporaryRoot;
+  vi.stubEnv('TMPDIR', temporaryRoot);
 });
 
 afterEach(() => {
-  if (previousTmpdir === undefined) delete process.env.TMPDIR;
-  else process.env.TMPDIR = previousTmpdir;
+  vi.unstubAllEnvs();
   rmSync(temporaryRoot, { recursive: true, force: true });
 });
 
 describe('writing host files after the commit', () => {
-  it('writes a bash artifact as one file for each stream', async () => {
+  beforeEach(() => {
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(12);
     vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
       { id: 'artifact-12', createdAt: CREATED_AT },
     );
-    const insertParts = vi
-      .spyOn(ArtifactsRepository.prototype, 'insertParts')
-      .mockResolvedValue(undefined);
+    vi.spyOn(ArtifactsRepository.prototype, 'insertParts').mockResolvedValue(
+      undefined,
+    );
+  });
 
+  it('writes a bash artifact as one file for each stream', async () => {
     const written = await write(CHAT);
 
-    expect(insertParts).toHaveBeenCalledOnce();
     const directory = artifactDirectory(CHAT);
-    expect(written.hostFiles).toEqual({
-      directory: path.join(directory, 'bash-12'),
-    });
+    expect(written.hostDirectory).toBe(path.join(directory, 'bash-12'));
     expect(readdirSync(directory)).toEqual(['bash-12']);
     const stdout = path.join(directory, 'bash-12', 'stdout.txt');
     expect(readFileSync(stdout, 'utf8')).toBe('hello\nworld\n');
@@ -119,46 +129,92 @@ describe('writing host files after the commit', () => {
   });
 
   it('writes no file without the host-files capability', async () => {
-    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(12);
-    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
-      { id: 'artifact-12', createdAt: CREATED_AT },
-    );
-    vi.spyOn(ArtifactsRepository.prototype, 'insertParts').mockResolvedValue(
-      undefined,
-    );
-
     const written = await write(CHAT, { hostFiles: false });
 
-    expect(written.hostFiles).toBeUndefined();
+    expect(written.hostDirectory).toBeUndefined();
     expect(existsSync(artifactDirectory(CHAT))).toBe(false);
   });
 
   it('writes a single-part artifact with its content extension', async () => {
-    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(3);
-    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
-      { id: 'artifact-3', createdAt: CREATED_AT },
-    );
-    vi.spyOn(ArtifactsRepository.prototype, 'insertParts').mockResolvedValue(
-      undefined,
-    );
-
-    const written = await writeArtifactHostFiles({
+    const directory = await writeArtifactHostFiles({
       chatId: CHAT,
       toolName: 'grep',
       seq: 3,
       createdAt: CREATED_AT,
-      parts: [{ contentType: 'text/markdown', content: Buffer.from('# a\n') }],
+      parts: [
+        {
+          name: '',
+          contentType: 'text/markdown',
+          content: Buffer.from('# a\n'),
+        },
+      ],
     });
 
-    expect(written).toEqual({ directory: artifactDirectory(CHAT) });
+    expect(directory).toBe(artifactDirectory(CHAT));
     expect(
       readFileSync(path.join(artifactDirectory(CHAT), 'grep-3.md'), 'utf8'),
     ).toBe('# a\n');
   });
+
+  it('gives a JSON part the .json extension', async () => {
+    await writeArtifactHostFiles({
+      chatId: CHAT,
+      toolName: 'bash',
+      seq: 4,
+      createdAt: CREATED_AT,
+      parts: [
+        {
+          name: 'stdout',
+          contentType: 'application/json',
+          content: Buffer.from('{"a":1}\n'),
+        },
+      ],
+    });
+
+    expect(
+      readFileSync(
+        path.join(artifactDirectory(CHAT), 'bash-4', 'stdout.json'),
+        'utf8',
+      ),
+    ).toBe('{"a":1}\n');
+  });
+
+  it('writes nothing when the host root is a symbolic link', async () => {
+    const real = mkdtempSync(path.join(temporaryRoot, 'real-'));
+    symlinkSync(real, path.join(temporaryRoot, 'llame'));
+
+    const written = await write(CHAT);
+
+    expect(written.hostDirectory).toBeUndefined();
+    expect(readdirSync(real)).toEqual([]);
+  });
+
+  it('writes nothing when the host root is not private', async () => {
+    mkdirPrivate(path.join(temporaryRoot, 'llame', 'chats'));
+    // A group- or other-readable root is another user's to list and replace.
+    await chmod(path.join(temporaryRoot, 'llame'), 0o755);
+
+    const written = await write(CHAT);
+
+    expect(written.hostDirectory).toBeUndefined();
+  });
+
+  it('refuses a path that leaves the Chat directory', async () => {
+    const written = await writeArtifactHostFiles({
+      chatId: '../escape',
+      toolName: 'bash',
+      seq: 1,
+      createdAt: CREATED_AT,
+      parts: bashParts(),
+    });
+
+    expect(written).toBeUndefined();
+    expect(existsSync(path.join(temporaryRoot, 'escape'))).toBe(false);
+  });
 });
 
 describe('reconciling host files', () => {
-  function storedPart(chatId: string, name: string, content: string) {
+  function storedPart(name: string, content: string): ChatPartFile {
     return {
       artifactId: 'artifact-12',
       toolName: 'bash',
@@ -174,32 +230,22 @@ describe('reconciling host files', () => {
     return { tenantDb: tenantDb(), userId: 'owner', chatId };
   }
 
-  it('writes every file again when the host lost them', async () => {
+  function scriptParts(parts: ReadonlyArray<ChatPartFile>): void {
     vi.spyOn(
       ArtifactsRepository.prototype,
       'listChatPartFiles',
-    ).mockResolvedValue([
-      storedPart(CHAT, 'stdout', 'hello\n'),
-      storedPart(CHAT, 'stderr', 'warn\n'),
+    ).mockResolvedValue([...parts]);
+  }
+
+  it('writes every file again when the host lost them', async () => {
+    scriptParts([
+      storedPart('stdout', 'hello\n'),
+      storedPart('stderr', 'warn\n'),
     ]);
     const find = vi
-      .spyOn(ArtifactsRepository.prototype, 'findPart')
-      .mockResolvedValueOnce({
-        name: 'stdout',
-        contentType: 'text/plain',
-        content: Buffer.from('hello\n'),
-        lineCount: 1,
-        byteSize: 6,
-        findings: null,
-      })
-      .mockResolvedValueOnce({
-        name: 'stderr',
-        contentType: 'text/plain',
-        content: Buffer.from('warn\n'),
-        lineCount: 1,
-        byteSize: 5,
-        findings: null,
-      });
+      .spyOn(ArtifactsRepository.prototype, 'findPartContent')
+      .mockResolvedValueOnce(Buffer.from('hello\n'))
+      .mockResolvedValueOnce(Buffer.from('warn\n'));
 
     await reconcileArtifactFiles(context());
 
@@ -214,20 +260,10 @@ describe('reconciling host files', () => {
   });
 
   it('fetches no content for a file that matches', async () => {
-    vi.spyOn(
-      ArtifactsRepository.prototype,
-      'listChatPartFiles',
-    ).mockResolvedValue([storedPart(CHAT, 'stdout', 'hello\n')]);
+    scriptParts([storedPart('stdout', 'hello\n')]);
     const find = vi
-      .spyOn(ArtifactsRepository.prototype, 'findPart')
-      .mockResolvedValue({
-        name: 'stdout',
-        contentType: 'text/plain',
-        content: Buffer.from('hello\n'),
-        lineCount: 1,
-        byteSize: 6,
-        findings: null,
-      });
+      .spyOn(ArtifactsRepository.prototype, 'findPartContent')
+      .mockResolvedValue(Buffer.from('hello\n'));
     await writeArtifactHostFiles({
       chatId: CHAT,
       toolName: 'bash',
@@ -248,73 +284,124 @@ describe('reconciling host files', () => {
     expect(find).not.toHaveBeenCalled();
   });
 
-  it('repairs a changed file before the next bash call', async () => {
-    const directory = path.join(artifactDirectory(CHAT), 'bash-12');
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(path.join(directory, 'stdout.txt'), 'tampered\n');
-    vi.spyOn(
-      ArtifactsRepository.prototype,
-      'listChatPartFiles',
-    ).mockResolvedValue([storedPart(CHAT, 'stdout', 'hello\n')]);
-    vi.spyOn(ArtifactsRepository.prototype, 'findPart').mockResolvedValue({
-      name: 'stdout',
-      contentType: 'text/plain',
-      content: Buffer.from('hello\n'),
-      lineCount: 1,
-      byteSize: 6,
-      findings: null,
-    });
+  it('repairs a file whose size matches but whose time changed', async () => {
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    const stdout = path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt');
+    mkdirPrivate(path.dirname(stdout));
+    writeFileSync(stdout, 'hellO\n');
+    const later = new Date(CREATED_AT.getTime() + 5000);
+    utimesSync(stdout, later, later);
+    const find = vi
+      .spyOn(ArtifactsRepository.prototype, 'findPartContent')
+      .mockResolvedValue(Buffer.from('hello\n'));
 
     await reconcileArtifactFiles(context());
 
-    expect(readFileSync(path.join(directory, 'stdout.txt'), 'utf8')).toBe(
-      'hello\n',
-    );
+    expect(find).toHaveBeenCalledOnce();
+    expect(readFileSync(stdout, 'utf8')).toBe('hello\n');
+  });
+
+  it('repairs a file whose size changed at the stored time', async () => {
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    const stdout = path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt');
+    mkdirPrivate(path.dirname(stdout));
+    writeFileSync(stdout, 'tampered\n');
+    utimesSync(stdout, CREATED_AT, CREATED_AT);
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'findPartContent',
+    ).mockResolvedValue(Buffer.from('hello\n'));
+
+    await reconcileArtifactFiles(context());
+
+    expect(readFileSync(stdout, 'utf8')).toBe('hello\n');
   });
 
   it('touches only the Chat it reconciles', async () => {
     const otherDirectory = artifactDirectory(OTHER_CHAT);
-    mkdirSync(path.join(otherDirectory, 'bash-7'), { recursive: true });
+    mkdirPrivate(path.join(otherDirectory, 'bash-7'));
     const otherFile = path.join(otherDirectory, 'bash-7', 'stdout.txt');
     writeFileSync(otherFile, 'theirs\n');
     const otherTime = new Date('2026-10-01T00:00:00.000Z');
     utimesSync(otherFile, otherTime, otherTime);
+    scriptParts([storedPart('stdout', 'hello\n')]);
     vi.spyOn(
       ArtifactsRepository.prototype,
-      'listChatPartFiles',
-    ).mockResolvedValue([storedPart(CHAT, 'stdout', 'hello\n')]);
-    vi.spyOn(ArtifactsRepository.prototype, 'findPart').mockResolvedValue({
-      name: 'stdout',
-      contentType: 'text/plain',
-      content: Buffer.from('hello\n'),
-      lineCount: 1,
-      byteSize: 6,
-      findings: null,
-    });
+      'findPartContent',
+    ).mockResolvedValue(Buffer.from('hello\n'));
 
     await reconcileArtifactFiles(context());
 
     expect(readFileSync(otherFile, 'utf8')).toBe('theirs\n');
     expect(statSync(otherFile).mtimeMs).toBe(otherTime.getTime());
   });
+
+  it('marks the Chat directory as seen', async () => {
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'findPartContent',
+    ).mockResolvedValue(Buffer.from('hello\n'));
+    const seen = new Date('2026-10-01T00:00:00.000Z');
+    mkdirPrivate(chatRoot(CHAT));
+    utimesSync(chatRoot(CHAT), seen, seen);
+
+    await reconcileArtifactFiles(context());
+
+    expect(statSync(chatRoot(CHAT)).mtimeMs).toBeGreaterThan(
+      seen.getTime() + DAY_MS,
+    );
+  });
+
+  it('repairs the other parts when one cannot be read', async () => {
+    scriptParts([
+      storedPart('stdout', 'hello\n'),
+      storedPart('stderr', 'warn\n'),
+    ]);
+    vi.spyOn(ArtifactsRepository.prototype, 'findPartContent')
+      .mockRejectedValueOnce(new Error('the store refused the read'))
+      .mockResolvedValueOnce(Buffer.from('warn\n'));
+    const seen = new Date('2026-10-01T00:00:00.000Z');
+    mkdirPrivate(chatRoot(CHAT));
+    utimesSync(chatRoot(CHAT), seen, seen);
+
+    await reconcileArtifactFiles(context());
+
+    expect(
+      readFileSync(
+        path.join(artifactDirectory(CHAT), 'bash-12', 'stderr.txt'),
+        'utf8',
+      ),
+    ).toBe('warn\n');
+    expect(statSync(chatRoot(CHAT)).mtimeMs).toBeGreaterThan(
+      seen.getTime() + DAY_MS,
+    );
+  });
+
+  it('reads no part when the host root is not private', async () => {
+    mkdirPrivate(path.join(temporaryRoot, 'llame', 'chats'));
+    await chmod(path.join(temporaryRoot, 'llame'), 0o755);
+    const list = vi.spyOn(ArtifactsRepository.prototype, 'listChatPartFiles');
+
+    await reconcileArtifactFiles(context());
+
+    expect(list).not.toHaveBeenCalled();
+  });
 });
 
 describe('sweeping host directories', () => {
   const NOW = new Date('2026-11-02T12:00:00.000Z');
 
-  function seed(chatId: string, seenDaysAgo: number): string {
+  function seed(chatId: string, seen: Date): string {
     const directory = chatRoot(chatId);
-    mkdirSync(path.join(directory, 'artifacts', 'bash-1'), {
-      recursive: true,
-    });
-    const seen = new Date(NOW.getTime() - seenDaysAgo * 24 * 60 * 60 * 1000);
+    mkdirPrivate(path.join(directory, 'artifacts', 'bash-1'));
     utimesSync(directory, seen, seen);
     return directory;
   }
 
   it('removes a Chat directory no attempt reconciled for seven days', async () => {
-    const stale = seed(CHAT, 8);
-    const live = seed(OTHER_CHAT, 1);
+    const stale = seed(CHAT, new Date(NOW.getTime() - 8 * DAY_MS));
+    const live = seed(OTHER_CHAT, new Date(NOW.getTime() - DAY_MS));
 
     await sweepArtifactDirectories(NOW);
 
@@ -322,22 +409,40 @@ describe('sweeping host directories', () => {
     expect(existsSync(live)).toBe(true);
   });
 
-  it('keeps a directory seen within seven days', async () => {
-    const boundary = seed('7f4c2b1a-9e8d-4c3b-8a7f-6e5d4c3b2a10', 7 - 1 / 24);
+  it('keeps a directory seen exactly seven days ago and removes a millisecond more', async () => {
+    const boundary = seed(CHAT, new Date(NOW.getTime() - SWEEP_AFTER_MS));
+    const stale = seed(
+      OTHER_CHAT,
+      new Date(NOW.getTime() - SWEEP_AFTER_MS - 1),
+    );
 
     await sweepArtifactDirectories(NOW);
 
     expect(existsSync(boundary)).toBe(true);
+    expect(existsSync(stale)).toBe(false);
   });
 
   it('leaves an entry that is not a Chat directory', async () => {
     const directory = path.join(tmpdir(), 'llame', 'chats', 'not-a-chat');
-    mkdirSync(directory, { recursive: true });
+    mkdirPrivate(directory);
     const stale = new Date(NOW.getTime() - SWEEP_AFTER_MS * 2);
     utimesSync(directory, stale, stale);
 
     await sweepArtifactDirectories(NOW);
 
     expect(existsSync(directory)).toBe(true);
+  });
+
+  it('removes nothing when the host root is a symbolic link', async () => {
+    const real = mkdtempSync(path.join(temporaryRoot, 'real-'));
+    const chat = path.join(real, CHAT);
+    mkdirPrivate(chat);
+    const stale = new Date(NOW.getTime() - 8 * DAY_MS);
+    utimesSync(chat, stale, stale);
+    symlinkSync(real, path.join(temporaryRoot, 'llame'));
+
+    await sweepArtifactDirectories(NOW);
+
+    expect(existsSync(chat)).toBe(true);
   });
 });

@@ -179,7 +179,7 @@ async function knownResult(
       request.executorContext,
     ),
     // An `ssh://` host cannot open a llame host path (D10).
-    { hostFilesOnly: true },
+    true,
   );
 }
 

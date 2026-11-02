@@ -3,8 +3,9 @@
  *
  * A result larger than the model-facing cap is stored whole first, then cut in
  * place, so the inline part keeps the shape the tool declared. The artifact is
- * written only when the Run can read it back: `read` in `tools.allowed` with
- * the `read` group admitting the locator. A rendering larger than
+ * written only when the Run can read it back: `read` with the `read` group
+ * admitting the locator, or a host-bound `bash` that opens its host files
+ * (design D10). A rendering larger than
  * `tools.artifacts.maxBytes` is not stored at all, because cutting JSON would
  * make it invalid; a failed write is the same outcome.
  */
@@ -13,6 +14,7 @@ import {
   isOversizedResult,
   RESULT_TRUNCATE_CHARS,
   truncateOversizedResult,
+  type ArtifactNoticeHostFiles,
   type CappedResultSpill,
   type ToolResult,
 } from '@workspace/runtime-safety';
@@ -23,37 +25,14 @@ import {
   renderToolResultForSpill,
   type SpillRendering,
 } from '../model-text';
-import { admitPermission } from '../permissions/admit';
 import { type Tool, type ToolContext } from '../types';
-import { writeToolArtifact } from './artifact-writer';
-import { formatArtifactLocator } from './locator';
+import { machineWorkspaceRoot } from '../workspace-path';
+import { writeToolArtifact, type WrittenArtifact } from './artifact-writer';
+import { canReadArtifacts, readAdmitsArtifact } from './readable';
 
 /** The operator bound, or the built-in one outside the run loop. */
 export function artifactMaxBytes(context: ToolContext): number {
   return context.artifactMaxBytes ?? BUILT_IN_DEFAULTS.tools.artifacts.maxBytes;
-}
-
-/**
- * Whether the Run can read back a `<toolName>` artifact at `seq` (default 1, the
- * probe before a write allocates the real counter value). A sequence-specific
- * `read` rule is checked against the allocated locator before the result
- * advertises it. No compiled policy, or no allow, means no reader.
- */
-export function runCanReadArtifacts(
-  context: ToolContext,
-  toolName: string,
-  seq = 1,
-): boolean {
-  if (context.artifactReadable !== true) return false;
-  // An `artifact://` path is already its own canonical projection, so the
-  // `read` group matches the locator exactly as the reader submits it.
-  const decision = admitPermission(context, (evaluate) =>
-    evaluate({
-      toolId: 'read',
-      args: { path: formatArtifactLocator(toolName, seq) },
-    }),
-  );
-  return decision?.decision === 'allow';
 }
 
 /**
@@ -146,33 +125,77 @@ async function storeHeadRendering(
   rendering: SpillRendering,
 ): Promise<CappedResultSpill | undefined> {
   const { runId } = context;
-  if (runId === undefined || !runCanReadArtifacts(context, toolName)) {
+  if (runId === undefined || !canReadArtifacts(context, toolName)) {
     return undefined;
   }
-  const written = await writeToolArtifact(
-    context.tenantDb,
-    {
-      chatId: context.chatId,
-      userId: context.userId,
-      runId,
-      toolCallId: context.toolCallId ?? toolName,
-      toolName,
-      complete: true,
-      parts: [
-        {
-          contentType: rendering.contentType,
-          content: Buffer.from(rendering.content, 'utf8'),
-        },
-      ],
-    },
-    { maxBytes: artifactMaxBytes(context) },
-  );
-  if (!runCanReadArtifacts(context, toolName, written.seq)) {
+  const written = await writeHeadArtifact(context, {
+    runId,
+    toolName,
+    rendering,
+  });
+  // A sequence-specific `read` rule is judged on the allocated locator; when
+  // neither path admits it, the row stays an orphan and nothing is promised.
+  if (!canReadArtifacts(context, toolName, written.seq)) {
     return { kind: 'not-stored' };
   }
+  const hostFiles = headHostFiles(context, toolName, written);
   return {
     kind: 'stored',
     locator: written.locator,
     lineCount: written.lineCount,
+    ...(hostFiles !== undefined && { hostFiles }),
+  };
+}
+
+/** Store the whole rendering as the artifact's only part, host files included. */
+function writeHeadArtifact(
+  context: ToolContext,
+  input: {
+    readonly runId: string;
+    readonly toolName: string;
+    readonly rendering: SpillRendering;
+  },
+): Promise<WrittenArtifact> {
+  return writeToolArtifact(
+    context.tenantDb,
+    {
+      chatId: context.chatId,
+      userId: context.userId,
+      runId: input.runId,
+      toolCallId: context.toolCallId ?? input.toolName,
+      toolName: input.toolName,
+      complete: true,
+      parts: [
+        {
+          contentType: input.rendering.contentType,
+          content: Buffer.from(input.rendering.content, 'utf8'),
+        },
+      ],
+    },
+    {
+      maxBytes: artifactMaxBytes(context),
+      hostFiles: context.artifactHostFiles === true,
+    },
+  );
+}
+
+/**
+ * The host-file facts of the cap notice, or undefined when no file was made.
+ * A Machine Workspace cannot open a llame host path, so `elsewhere` holds
+ * there; a head spill stores only when the Run can read it back, which is the
+ * route the notice then names.
+ */
+function headHostFiles(
+  context: ToolContext,
+  toolName: string,
+  written: WrittenArtifact,
+): ArtifactNoticeHostFiles | undefined {
+  const directory = written.hostDirectory;
+  if (directory === undefined) return undefined;
+  return {
+    directory,
+    elsewhere:
+      machineWorkspaceRoot(context.workspaceRoot?.current()) !== undefined,
+    readable: readAdmitsArtifact(context, toolName),
   };
 }

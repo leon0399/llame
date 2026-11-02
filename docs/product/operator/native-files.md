@@ -298,6 +298,13 @@ extension follows the content type: `.md` for Markdown, `.json` for JSON, and
 `.txt` otherwise. The notice of a spilled result names that directory, so the
 model can open the file with `bash`, `head`, `rg`, or `sed`.
 
+Because `$TMPDIR` is shared, the worker creates `llame/` and `llame/chats/`
+with mode `0700` and checks both on every use: a symbolic link, another user's
+owner, or any group or other permission disables host files for that process
+(one warning is logged) instead of writing through it. The Chat and artifact
+directories are created `0700` too, and each file is written `0600` through a
+temporary name.
+
 `$TMPDIR` is the worker process's temporary directory (`/tmp` unless the
 environment sets another one). It is not shared between hosts, and a Run that
 moves to another worker or host finds no file: at the start of each attempt the
@@ -311,13 +318,16 @@ so any Run on that host can read or rewrite them, and a person with a shell on
 the host can too. Treat them as working copies, not as a secret store: `read`
 on an `artifact://` locator applies the `read` group, but a file opened through
 `bash` does not. A Machine Workspace and an `ssh://` `bash` cannot open a llame
-host path; their notice says `host files on the llame host only`, and `read`
-is the way to the artifact there.
+host path: when `read` is also available their notice says `host files on the
+llame host only`, and `read` is the way to the artifact there. A Run that can
+reach artifacts only through a host `bash` is given the directory with `on the
+llame host` after it, so a later host command can open it.
 
-At worker start and at each attempt start, the worker removes every Chat
-directory on that host that no attempt reconciled for seven days. That is how
-the directory of a deleted Chat goes away; a live Chat gets its files back at
-its next reconcile.
+At worker start, and at an attempt start at most once an hour for each worker,
+the worker removes every Chat directory on that host that no attempt
+reconciled for seven days. That is how the directory of a deleted Chat goes
+away; a live Chat gets its files back at its next reconcile. A worker that
+does not allowlist `bash` never sweeps.
 
 ## Instruction files
 

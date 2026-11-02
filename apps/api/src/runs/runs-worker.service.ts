@@ -21,7 +21,10 @@ import {
   type ModelClientFactory,
 } from '../models/models.service';
 import { deadLetterQueue, QUEUE, type QueueConsumer } from '../queue/queue';
-import { sweepArtifactDirectories } from '../tools/artifacts/host-files';
+import {
+  hostFilesEnabled,
+  sweepArtifactDirectories,
+} from '../tools/artifacts/host-files';
 import { RunAbortRegistry, type RunAbortRegistrar } from './run-abort-registry';
 import { ModelContextExecutionError } from './model-context-errors';
 import {
@@ -102,9 +105,12 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       return;
     }
     // Host artifact files of Chats no attempt reconciled for seven days
-    // (tool-result-artifacts D10). The sweep swallows its own filesystem
-    // failures, so it cannot fail worker startup.
-    await sweepArtifactDirectories();
+    // (tool-result-artifacts D10). Only a worker that can write those files
+    // sweeps them; the sweep swallows its own failures, so it cannot fail
+    // startup.
+    if (hostFilesEnabled(this.instanceConfig.config.tools)) {
+      await sweepArtifactDirectories();
+    }
     await this.canonicalSearchCoverage.assertReady();
     await this.queue.ensureQueue(
       runsQueueDefinition(this.instanceConfig.config),

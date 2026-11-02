@@ -1,6 +1,7 @@
 import { realpath, stat } from 'node:fs/promises';
 
 import {
+  hostFilesEnabled,
   reconcileArtifactFiles,
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
@@ -638,6 +639,9 @@ class ReplyAlreadyCompletedError extends Error {
 
 /** Adapter locator decisions have their own cap and cannot crowd out hops or probes. */
 const MAX_ADAPTER_DECISIONS = 16;
+
+/** How often one worker sweeps stale artifact Chat directories (D10). */
+const ARTIFACT_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 /**
  * AbortSignal.abort(reason) tag for the worker's own in-process wall-clock
  * timeout (design D7 mechanism 1). Both a timeout and a user-requested cancel
@@ -849,34 +853,8 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
-
-  /** `bash` allowlisted on a process with a native executor (D10). */
-  private artifactHostFilesEnabled(): boolean {
-    const { allowed, nativeExecutorId } = this.instanceConfig.config.tools;
-    return allowed.includes('bash') && nativeExecutorId !== undefined;
-  }
-
-  /**
-   * Attempt start (D10): sweep the Chat directories no attempt touched for
-   * seven days, then restore this Chat's artifact files before the first model
-   * request. A failure here never fails the Run: Postgres still holds every
-   * artifact, and the next reconcile writes the files again.
-   */
-  private async restoreArtifactFiles(
-    input: ExecuteRunInput,
-    chat: Chat | undefined,
-  ): Promise<void> {
-    if (!this.artifactHostFilesEnabled()) return;
-    await sweepArtifactDirectories();
-    if ((chat?.artifactSeq ?? 0) === 0) return;
-    await reconcileArtifactFiles({
-      tenantDb: this.tenantDb,
-      userId: input.userId,
-      chatId: input.chatId,
-    }).catch((error: unknown) => {
-      this.logger.warn(`Artifact file reconcile failed: ${String(error)}`);
-    });
-  }
+  /** The last attempt-start artifact sweep, throttled per worker (D10). */
+  private artifactSweptAt = 0;
   private readonly toolPromptRenderer: ToolPromptRenderer;
   /**
    * The `webSearch.engines` template collection, built once from the resolved
@@ -986,6 +964,39 @@ export class RunExecutionService {
    */
   onModuleDestroy(): void {
     this.sshClient?.dispose();
+  }
+
+  /** `bash` allowlisted on a process with a native executor (D10). */
+  private artifactHostFilesEnabled(): boolean {
+    return hostFilesEnabled(this.instanceConfig.config.tools);
+  }
+
+  /**
+   * Attempt start (D10): restore this Chat's artifact files before the first
+   * model request, and sweep the Chat directories no attempt touched for seven
+   * days. The sweep runs at most once an hour per worker, so a burst of
+   * attempts does not walk the host root for each one. A failure here never
+   * fails the Run: Postgres still holds every artifact, and the next reconcile
+   * writes the files again.
+   */
+  private async restoreArtifactFiles(
+    input: ExecuteRunInput,
+    chat: Chat | undefined,
+  ): Promise<void> {
+    if (!this.artifactHostFilesEnabled()) return;
+    const now = Date.now();
+    if (now - this.artifactSweptAt >= ARTIFACT_SWEEP_INTERVAL_MS) {
+      this.artifactSweptAt = now;
+      await sweepArtifactDirectories();
+    }
+    if ((chat?.artifactSeq ?? 0) === 0) return;
+    await reconcileArtifactFiles({
+      tenantDb: this.tenantDb,
+      userId: input.userId,
+      chatId: input.chatId,
+    }).catch((error: unknown) => {
+      this.logger.warn(`Artifact file reconcile failed: ${String(error)}`);
+    });
   }
 
   /**

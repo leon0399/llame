@@ -7,10 +7,16 @@
  * commits, reconciled by size and modification time, and swept after seven
  * days. Any failure here leaves the artifact intact: the next reconcile
  * writes the file again.
+ *
+ * `$TMPDIR` is shared, so the root is created private to this worker and
+ * verified before every use: a symlinked or foreign-owned `llame/` or `chats/`
+ * would let another local user steer the writes and the sweep. When the check
+ * fails, no file is written, reconciled, or swept, and one warning is logged.
  */
 
 import { randomUUID } from 'node:crypto';
 import {
+  lstat,
   mkdir,
   readdir,
   rename,
@@ -21,12 +27,14 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
+import { Logger } from '@nestjs/common';
 
-import { type TenantRunner } from '../../db/tenant-db.service';
-import { ArtifactsRepository, type ChatPartFile } from './artifacts-repository';
-
-/** The process's `$TMPDIR` home of every Chat directory on this host. */
-const HOST_ROOT = 'llame';
+import { type ToolContext } from '../types';
+import {
+  ArtifactsRepository,
+  type ChatPartFile,
+  type NewArtifactPart,
+} from './artifacts-repository';
 
 /** A Chat directory unreconciled for this long is removed by the sweep. */
 export const SWEEP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -35,33 +43,79 @@ export const SWEEP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const UUID_NAME =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
-/** A part as the writer hands it to the host files. */
-export type HostFilePart = {
-  readonly name?: string;
-  readonly contentType: string;
-  readonly content: Buffer;
-};
+/** A directory only this worker may use. */
+const PRIVATE_MODE = 0o700;
 
-/** The directory holding one artifact's files, when they were written. */
-export type WrittenHostFiles = {
-  readonly directory: string;
-};
+const logger = new Logger('ArtifactHostFiles');
+
+/** Whether the unsafe-root warning was already logged in this process. */
+let rootWarned = false;
 
 /** The trusted fields a reconcile reads; a `bash` call has all of them. */
-export type ArtifactHostContext = {
-  readonly tenantDb: TenantRunner;
-  readonly userId: string;
-  readonly chatId: string;
-};
+export type ArtifactHostContext = Pick<
+  ToolContext,
+  'tenantDb' | 'userId' | 'chatId'
+>;
 
-/** `$TMPDIR/llame/chats`: the parent of every Chat directory on this host. */
-function chatsRoot(): string {
-  return join(tmpdir(), HOST_ROOT, 'chats');
+/** Whether this process keeps artifact host files (D10). */
+export function hostFilesEnabled(tools: {
+  readonly allowed: ReadonlyArray<string>;
+  readonly nativeExecutorId?: string | undefined;
+}): boolean {
+  return tools.allowed.includes('bash') && tools.nativeExecutorId !== undefined;
 }
 
 /** The Chat's artifact directory on the llame host (D10). */
 export function artifactDirectory(chatId: string): string {
   return confined(chatsRoot(), join(chatId, 'artifacts'));
+}
+
+/** `$TMPDIR/llame/chats`: the parent of every Chat directory on this host. */
+function chatsRoot(): string {
+  return join(tmpdir(), 'llame', 'chats');
+}
+
+/**
+ * The host root, created and verified private to this worker. `undefined`
+ * means host files are refused for this process.
+ */
+async function verifiedChatsRoot(): Promise<string | undefined> {
+  const parent = join(tmpdir(), 'llame');
+  const root = chatsRoot();
+  try {
+    await mkdir(parent, { recursive: true, mode: PRIVATE_MODE });
+    // Check the parent before creating anything below it: `mkdir` follows a
+    // symlinked component, so a hostile `llame/` would otherwise get a
+    // `chats/` child of its target.
+    if (!(await isPrivateDirectory(parent))) {
+      return refuseRoot(`${parent} is not a private directory of this user`);
+    }
+    await mkdir(root, { recursive: true, mode: PRIVATE_MODE });
+  } catch (error) {
+    return refuseRoot(`cannot create ${root}: ${String(error)}`);
+  }
+  return (await isPrivateDirectory(root))
+    ? root
+    : refuseRoot(`${root} is not a private directory of this user`);
+}
+
+/** A real directory this user owns, with no group or other access. */
+async function isPrivateDirectory(path: string): Promise<boolean> {
+  const stats = await lstat(path).catch(() => undefined);
+  return (
+    stats !== undefined &&
+    stats.isDirectory() &&
+    stats.uid === process.getuid?.() &&
+    (stats.mode & 0o077) === 0
+  );
+}
+
+function refuseRoot(reason: string): undefined {
+  if (!rootWarned) {
+    rootWarned = true;
+    logger.warn(`Artifact host files disabled: ${reason}`);
+  }
+  return undefined;
 }
 
 /**
@@ -74,22 +128,27 @@ export async function writeArtifactHostFiles(input: {
   readonly toolName: string;
   readonly seq: number;
   readonly createdAt: Date;
-  readonly parts: ReadonlyArray<HostFilePart>;
-}): Promise<WrittenHostFiles | undefined> {
+  readonly parts: ReadonlyArray<
+    Pick<NewArtifactPart, 'name' | 'contentType' | 'content'>
+  >;
+}): Promise<string | undefined> {
+  const root = await verifiedChatsRoot();
+  if (root === undefined) return undefined;
   try {
-    const directory = artifactDirectory(input.chatId);
-    await mkdir(directory, { recursive: true });
+    const directory = confined(root, join(input.chatId, 'artifacts'));
+    await mkdir(directory, { recursive: true, mode: PRIVATE_MODE });
     for (const part of input.parts) {
-      const file = partFileName(
-        input.toolName,
-        input.seq,
-        part.name ?? '',
-        part.contentType,
+      await writeFileAtomically(
+        directory,
+        partFileName({ ...input, ...part }),
+        part.content,
+        input.createdAt,
       );
-      await writeFileAtomically(directory, file, part.content, input.createdAt);
     }
-    await touch(confined(chatsRoot(), input.chatId));
-    return { directory: filesDirectory(directory, input) };
+    await touch(confined(root, input.chatId));
+    return input.parts.every((part) => part.name === '')
+      ? directory
+      : join(directory, `${input.toolName}-${input.seq}`);
   } catch {
     return undefined;
   }
@@ -98,20 +157,64 @@ export async function writeArtifactHostFiles(input: {
 /**
  * Compare the Chat's files with its stored parts and rewrite each absent file
  * and each file whose size or modification time differs. Content is fetched
- * only for a file that must be written; the directory is touched either way,
- * which marks the Chat as seen for the sweep.
+ * one part at a time, only for a file that must be written; the directory is
+ * touched either way, which marks the Chat as seen for the sweep.
  */
 export async function reconcileArtifactFiles(
   context: ArtifactHostContext,
 ): Promise<void> {
+  const root = await verifiedChatsRoot();
+  if (root === undefined) return;
   const parts = await context.tenantDb.runAs(context.userId, (db) =>
     new ArtifactsRepository(db).listChatPartFiles(context.chatId),
   );
   if (parts.length === 0) return;
-  const directory = artifactDirectory(context.chatId);
-  const stale = await staleParts(directory, parts);
-  if (stale.length > 0) await repairParts(context, directory, stale);
-  await touch(confined(chatsRoot(), context.chatId));
+  const directory = confined(root, join(context.chatId, 'artifacts'));
+  const matches = await Promise.all(
+    parts.map((part) => fileMatches(directory, part)),
+  );
+  for (const [index, part] of parts.entries()) {
+    if (!matches[index]) await repairPart(context, directory, part);
+  }
+  await touch(confined(root, context.chatId));
+}
+
+async function fileMatches(
+  directory: string,
+  part: ChatPartFile,
+): Promise<boolean> {
+  const target = confined(directory, partFileName(part));
+  const stored = await stat(target).catch(() => undefined);
+  if (stored === undefined) return false;
+  return (
+    stored.size === part.byteSize &&
+    Math.abs(stored.mtimeMs - part.createdAt.getTime()) < 1
+  );
+}
+
+/**
+ * Fetch and write one stale part. A part that cannot be read or written does
+ * not stop the others, and the caller still marks the Chat as seen.
+ */
+async function repairPart(
+  context: ArtifactHostContext,
+  directory: string,
+  part: ChatPartFile,
+): Promise<void> {
+  try {
+    const content = await context.tenantDb.runAs(context.userId, (db) =>
+      new ArtifactsRepository(db).findPartContent(part.artifactId, part.name),
+    );
+    if (content === undefined) return;
+    await writeFileAtomically(
+      directory,
+      partFileName(part),
+      content,
+      part.createdAt,
+    );
+  } catch {
+    // The next reconcile tries this file again.
+  }
 }
 
 /**
@@ -121,7 +224,8 @@ export async function reconcileArtifactFiles(
 export async function sweepArtifactDirectories(
   now: Date = new Date(),
 ): Promise<void> {
-  const root = chatsRoot();
+  const root = await verifiedChatsRoot();
+  if (root === undefined) return;
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isDirectory() || !UUID_NAME.test(entry.name)) continue;
@@ -135,74 +239,17 @@ export async function sweepArtifactDirectories(
   }
 }
 
-/** The parts whose host file is absent, another size, or another time. */
-async function staleParts(
-  directory: string,
-  parts: ReadonlyArray<ChatPartFile>,
-): Promise<Array<ChatPartFile>> {
-  const stale: Array<ChatPartFile> = [];
-  for (const part of parts) {
-    if (!(await fileMatches(directory, part))) stale.push(part);
-  }
-  return stale;
-}
-
-async function fileMatches(
-  directory: string,
-  part: ChatPartFile,
-): Promise<boolean> {
-  const target = confined(
-    directory,
-    partFileName(part.toolName, part.seq, part.name, part.contentType),
-  );
-  const stored = await stat(target).catch(() => undefined);
-  if (stored === undefined) return false;
-  return (
-    stored.size === part.byteSize &&
-    Math.abs(stored.mtimeMs - part.createdAt.getTime()) < 1
-  );
-}
-
-/** Fetch the bytes of each stale part, then write them outside the read. */
-async function repairParts(
-  context: ArtifactHostContext,
-  directory: string,
-  stale: ReadonlyArray<ChatPartFile>,
-): Promise<void> {
-  const found = await context.tenantDb.runAs(context.userId, async (db) => {
-    const repository = new ArtifactsRepository(db);
-    const repaired: Array<{ part: ChatPartFile; content: Buffer }> = [];
-    for (const part of stale) {
-      const stored = await repository.findPart(part.artifactId, part.name);
-      if (stored !== undefined)
-        repaired.push({ part, content: stored.content });
-    }
-    return repaired;
-  });
-  for (const { part, content } of found) {
-    await writeFileAtomically(
-      directory,
-      partFileName(part.toolName, part.seq, part.name, part.contentType),
-      content,
-      part.createdAt,
-    );
-  }
-}
-
 /**
  * `<toolName>-<n>.<ext>`, or `<toolName>-<n>/<part>.<ext>` for a named part
  * (D10). Every name comes from the stored locator and part name, which the
  * store admits as one token; the caller still confines the result.
  */
 function partFileName(
-  toolName: string,
-  seq: number,
-  name: string,
-  contentType: string,
+  part: Pick<ChatPartFile, 'toolName' | 'seq' | 'name' | 'contentType'>,
 ): string {
-  const stem = `${toolName}-${seq}`;
-  const file = name === '' ? stem : join(stem, name);
-  return `${file}${contentExtension(contentType)}`;
+  const stem = `${part.toolName}-${part.seq}`;
+  const file = part.name === '' ? stem : join(stem, part.name);
+  return `${file}${contentExtension(part.contentType)}`;
 }
 
 /** The extension a content type gives the file, so readers apply. */
@@ -217,19 +264,6 @@ function contentExtension(contentType: string): string {
   }
 }
 
-/** The directory the notice names: a named part lives in its artifact's. */
-function filesDirectory(
-  directory: string,
-  input: {
-    readonly toolName: string;
-    readonly seq: number;
-    readonly parts: ReadonlyArray<HostFilePart>;
-  },
-): string {
-  const named = input.parts.some((part) => (part.name ?? '') !== '');
-  return named ? join(directory, `${input.toolName}-${input.seq}`) : directory;
-}
-
 /** A temporary name, then a rename, so a `bash` call never reads half a file. */
 async function writeFileAtomically(
   directory: string,
@@ -238,7 +272,7 @@ async function writeFileAtomically(
   modified: Date,
 ): Promise<void> {
   const target = confined(directory, file);
-  await mkdir(dirname(target), { recursive: true });
+  await mkdir(dirname(target), { recursive: true, mode: PRIVATE_MODE });
   const temporary = `${target}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, content, { mode: 0o600 });
@@ -253,7 +287,7 @@ async function writeFileAtomically(
 /** Mark a directory as seen now; the sweep ages this time. */
 async function touch(directory: string): Promise<void> {
   const now = new Date();
-  await mkdir(directory, { recursive: true });
+  await mkdir(directory, { recursive: true, mode: PRIVATE_MODE });
   await utimes(directory, now, now);
 }
 

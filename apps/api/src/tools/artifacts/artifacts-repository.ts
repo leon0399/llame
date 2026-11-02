@@ -228,4 +228,24 @@ export class ArtifactsRepository {
       .where(eq(toolArtifacts.chatId, chatId))
       .orderBy(asc(toolArtifacts.seq), asc(toolArtifactParts.name));
   }
+
+  /**
+   * One part's bytes only, for the reconcile's repair (D10): the findings and
+   * the reader's counts are not needed there.
+   */
+  async findPartContent(
+    artifactId: string,
+    name: string,
+  ): Promise<Buffer | undefined> {
+    const [row] = await this.db
+      .select({ content: toolArtifactParts.content })
+      .from(toolArtifactParts)
+      .where(
+        and(
+          eq(toolArtifactParts.artifactId, artifactId),
+          eq(toolArtifactParts.name, name),
+        ),
+      );
+    return row?.content;
+  }
 }

@@ -201,7 +201,7 @@ async function runMachineBash(
       if (result === undefined) return machineUnusableResult(name);
       // The Machine opens its own paths; the llame host files are a cache this
       // command cannot reach (tool-result-artifacts D10).
-      return spillBashResult(context, result, { hostFilesOnly: true });
+      return spillBashResult(context, result, true);
     },
   );
 }
@@ -251,10 +251,10 @@ async function runAdmittedBash(
       }),
     );
     if (prior) return prior;
-    const result = await spillBashResult(context, await admitted.run(), {
-      hostFilesOnly:
-        machineWorkspaceRoot(context.workspaceRoot?.current()) !== undefined,
-    });
+    // A host command always runs on the llame host, so the notice names the
+    // directory: in a Machine Workspace every spilled call is a Machine one
+    // (the projection sends it there), so no host-only case is reachable here.
+    const result = await spillBashResult(context, await admitted.run());
     await context.tenantDb.runAs(userId, async (db) => {
       await new RunEventsRepository(db).append(runId, 'native.result', {
         toolCallId,
@@ -284,11 +284,6 @@ export const bashTool: Tool<BashInput> = {
   execute: async (context, input): Promise<ToolResult> => {
     const projectedInput = projectBashInput(context, input);
     if ('status' in projectedInput) return projectedInput;
-    // Repair the Chat's artifact files before the command can open them; a
-    // failed reconcile leaves them as they were (tool-result-artifacts D10).
-    if (context.artifactHostFiles === true) {
-      await reconcileArtifactFiles(context).catch(() => undefined);
-    }
     const routed = routedBashExecution(context, projectedInput);
     return routed ?? runHostBash(context, projectedInput);
   },
@@ -321,6 +316,11 @@ async function runHostBash(
       type: 'executor_unavailable',
       message: 'Native host authority is unavailable.',
     };
+  }
+  // Repair the Chat's artifact files before this command can open them; a
+  // failed reconcile leaves them as they were (tool-result-artifacts D10).
+  if (context.artifactHostFiles === true) {
+    await reconcileArtifactFiles(context).catch(() => undefined);
   }
   // Always wrap in bash -c: the managed allowlist only admits basenames like
   // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.

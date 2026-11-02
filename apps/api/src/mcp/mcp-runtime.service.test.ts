@@ -504,7 +504,7 @@ describe('McpRuntimeService', () => {
     );
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(4);
     vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
-      'artifact-id',
+      { id: 'artifact-id', createdAt: new Date('2026-11-02T12:00:00.000Z') },
     );
     vi.spyOn(ArtifactsRepository.prototype, 'insertParts').mockResolvedValue(
       undefined,
