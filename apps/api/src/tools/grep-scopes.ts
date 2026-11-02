@@ -77,42 +77,6 @@ import {
 const KNOWLEDGE_SCHEME = 'kb';
 const SKILL_SCHEME = 'skill';
 
-/** The seven literal spellings a host directory locator writes. */
-const HOST_SCOPE_SPELLINGS = new Map([
-  ['%', '%25'],
-  ['*', '%2A'],
-  ['?', '%3F'],
-  ['[', '%5B'],
-  [']', '%5D'],
-  ['{', '%7B'],
-  ['}', '%7D'],
-]);
-
-/** A Machine locator already writes `%` as `%25`; only its glob characters remain. */
-const MACHINE_SCOPE_SPELLINGS = new Map([
-  ['*', '%2A'],
-  ['?', '%3F'],
-  ['[', '%5B'],
-  [']', '%5D'],
-  ['{', '%7B'],
-  ['}', '%7D'],
-]);
-
-/**
- * Spell one excluded directory locator as the scope that names it. A host
- * path escapes all seven characters; a Machine locator escapes the glob ones,
- * because its formatter already wrote a literal `%` as `%25`.
- */
-export function spellGrepScopeLocator(locator: string): string {
-  const spellings = locator.startsWith(`${MACHINE_SCHEME}://`)
-    ? MACHINE_SCOPE_SPELLINGS
-    : HOST_SCOPE_SPELLINGS;
-  return locator.replaceAll(
-    /[%*?[\]{}]/gu,
-    (character) => spellings.get(character) ?? character,
-  );
-}
-
 /**
  * The shape checks every scope passes before the runner asks policy: a scheme
  * this process cannot search, a `file:` alias that does not decode, the glob

@@ -164,10 +164,7 @@ export interface GrepScanResult {
    * Directories the walk declined to enter, in canonical order and relative to
    * the prefix, capped across the call; `atLeast` marks a larger count.
    */
-  ignored?: {
-    readonly paths: ReadonlyArray<string>;
-    readonly atLeast: boolean;
-  };
+  ignored?: GrepIgnored;
   /**
    * The page ends where `last` names a passage it emitted, or `position` names
    * the last entry a bound stopped the walk at. Both serve a caller that pages
@@ -194,6 +191,12 @@ export interface GrepPageEnd {
 export interface GrepPosition {
   scopeIndex: number;
   rel: string;
+}
+
+/** Directories an ignore rule excluded, capped, with a lower-bound mark. */
+export interface GrepIgnored {
+  readonly paths: ReadonlyArray<string>;
+  readonly atLeast: boolean;
 }
 
 /** One passage that is its file's twentieth: the file ends with it. */

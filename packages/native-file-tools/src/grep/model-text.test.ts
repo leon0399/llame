@@ -292,6 +292,27 @@ describe("grep text rendering", () => {
     );
   });
 
+  it("keeps a line that is exactly two thousand units", () => {
+    const head = "[ignored 1 directory: ";
+    const tail = "; a scope that names one searches it]";
+    const locator = "a".repeat(2000 - head.length - tail.length);
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: { count: 1, locators: [locator] },
+    });
+    expect(text).toBe(`${head}${locator}${tail}`);
+    expect(text).toHaveLength(2000);
+    const longer = renderGrepText({
+      results: [],
+      complete: true,
+      ignored: { count: 1, locators: [`${locator}a`] },
+    });
+    expect(longer).toBe(
+      "[ignored 1 directory: (+1 more); a scope that names one searches it]",
+    );
+  });
+
   it("counts the ignored line and its newline as reserved width", () => {
     const ignored = { count: 2, locators: ["/r/a", "/r/b"], atLeast: false };
     const text = renderGrepText({ results: [], complete: true, ignored });

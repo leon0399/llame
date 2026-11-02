@@ -3,7 +3,6 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
-import { GREP_LIMITS } from "./limits";
 import {
   grepIgnoredUnits,
   grepUnfinishedUnits,
@@ -202,13 +201,9 @@ function takeIgnored(
 ): void {
   if (record.ignored.length === 0 && !record.ignoredAtLeast) return;
   if (record.ignoredAtLeast) state.ignored.atLeast = true;
-  for (const locator of record.ignored) {
-    if (state.ignored.paths.length >= GREP_LIMITS.ignoredReported) {
-      state.ignored.atLeast = true;
-      continue;
-    }
-    state.ignored.paths.push(locator);
-  }
+  // The producer caps the whole call at `ignoredReported`, so every path the
+  // record carries is new here.
+  state.ignored.paths.push(...record.ignored);
   // The ignored line renders beside the continuation line, so it adds to the
   // reserve the page keeps back rather than replacing the cursor's room.
   state.limits = {

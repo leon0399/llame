@@ -16,6 +16,7 @@ import {
 import {
   encodeGrepCursor,
   grepContinuationUnits,
+  grepIgnoredUnits,
   grepPassageUnits,
   grepWarningsUnits,
   hashGrepInputs,
@@ -1296,6 +1297,30 @@ describe('Machine page bounds', () => {
     });
   });
 
+  it('subtracts the ignored line from the page a following scope gets', async () => {
+    const { peer, connector } = fixture({
+      answer: answeredByPath({
+        '/srv/a': page([], {
+          ignored: { paths: ['m'], atLeast: false },
+        }),
+        '/srv/b': page([]),
+      }),
+    });
+    await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+    });
+    const ignoredUnits = grepIgnoredUnits({
+      count: 1,
+      locators: ['machine://devl/srv/a/m'],
+      atLeast: false,
+    });
+    const session = await peer.session(0);
+    expect(budgetOf(session.calls[1].params)).toMatchObject({
+      pageUnits: 15_000 - ignoredUnits - pageFixedReserve(),
+    });
+  });
+
   it('keeps asking the daemon while every passage of a page is refused', async () => {
     const scope = 'machine://devl/srv/app/**';
     let searches = 0;
@@ -1582,6 +1607,46 @@ describe('Machine page bounds', () => {
       scopes: ['machine://devl/srv/app/**'],
     });
     expect(dropped).toMatchObject({ status: 'success', complete: false });
+    expect(locatorsOf(dropped)).toEqual([]);
+  });
+
+  it("keeps the ignored line's room from the first passage", async () => {
+    const contextIgnored = grepIgnoredUnits({
+      count: 1,
+      locators: ['machine://devl/srv/app/m'],
+      atLeast: false,
+    });
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      grepContinuationUnits({ scopeIndex: 0, rel: 'a.go', startLine: 1 }) -
+      contextIgnored;
+    const pageWith = (units: number) =>
+      page(
+        [
+          {
+            ...passage('a.go', 1, 1),
+            content: contentOfUnits(locatorAt('a.go', 1, 1), units),
+          },
+        ],
+        { ignored: { paths: ['m'], atLeast: false } },
+      );
+    const fitted = fixture({
+      answers: { 'fs.grep': { value: pageWith(room) } },
+    });
+    const kept = await run(context(fitted.connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(locatorsOf(kept)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(measureGrepRendering(kept)).toBeLessThanOrEqual(15_000);
+    const over = fixture({
+      answers: { 'fs.grep': { value: pageWith(room + 1) } },
+    });
+    const dropped = await run(context(over.connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
     expect(locatorsOf(dropped)).toEqual([]);
   });
 
@@ -2330,6 +2395,64 @@ describe('Machine excluded-directory report', () => {
       scopes: ['machine://devl/srv/app'],
     });
     expect(ignoredOf(result)).toMatchObject({ count: 1000, atLeast: true });
+  });
+
+  it('counts recorded directories before the read filter', async () => {
+    const paths = Array.from(
+      { length: 1000 },
+      (_, index) => `d${String(index).padStart(4, '0')}`,
+    );
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([], {
+            ignored: { paths: [...paths, 'keep'], atLeast: false },
+          }),
+        },
+      },
+    });
+    const result = await run(
+      context(connector, {
+        permissionPolicy: compileToolPermissionMap(
+          {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', regex: '/d\\d{4}$' }],
+            },
+          },
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: ['machine://devl/srv/app'] },
+    );
+    expect(ignoredOf(result)).toBeUndefined();
+  });
+
+  it('caps two Machine scopes together', async () => {
+    const paths = (prefix: string) =>
+      Array.from(
+        { length: 600 },
+        (_, index) => `${prefix}${String(index).padStart(4, '0')}`,
+      );
+    const { connector } = fixture({
+      answer: answeredByPath({
+        '/srv/a': page([], {
+          ignored: { paths: paths('a'), atLeast: false },
+        }),
+        '/srv/b': page([], {
+          ignored: { paths: paths('b'), atLeast: false },
+        }),
+      }),
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a', 'machine://devl/srv/b'],
+    });
+    expect(ignoredOf(result)).toMatchObject({
+      count: 1000,
+      atLeast: true,
+    });
   });
 
   it('caps the merged list again after a daemon that reports more', async () => {

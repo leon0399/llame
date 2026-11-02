@@ -15,7 +15,10 @@ import {
   grepPassageUnits,
   grepWarningsUnits,
   measureGrepRendering,
+  spellGrepHostScopeLocator,
+  spellGrepMachineScopeLocator,
   type GrepBudget,
+  type GrepIgnored,
   type GrepPageEnd,
   type GrepPassage,
   type GrepScanResult,
@@ -26,8 +29,6 @@ import {
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { type GrepReadAdmission } from './grep-admission';
-import { type CallBudget } from './grep-machine';
-import { spellGrepScopeLocator } from './grep-scopes';
 import { type ToolResult } from './types';
 
 /** One passage the call may emit, with the cursor point it ends at. */
@@ -51,11 +52,7 @@ export type SegmentPage = {
    * The excluded directory locators of the segment, before the `read` filter;
    * `rels` carries each one's scope-relative position, when the segment has it.
    */
-  readonly ignored?: {
-    readonly paths: ReadonlyArray<string>;
-    readonly rels?: ReadonlyArray<string>;
-    readonly atLeast: boolean;
-  };
+  readonly ignored?: GrepIgnored & { readonly rels?: ReadonlyArray<string> };
   /** The walk's own page end, when every entry of the segment is a kept one. */
   readonly last?: GrepPageEnd;
   /** Where a segment that emitted nothing stopped, for a bound-stop cursor. */
@@ -102,7 +99,7 @@ export type PageState = {
   /** The file's locator a bound stopped the call inside before any progress. */
   unfinished: string | undefined;
   /** The excluded directories the `read` group admitted, in canonical order. */
-  readonly ignored: {
+  ignored: {
     paths: Array<string>;
     count: number;
     recorded: number;
@@ -236,7 +233,11 @@ export function appendSegment(
   page: SegmentPage,
   admission: GrepReadAdmission,
 ): void {
-  mergeIgnored(state, page.ignored, admission);
+  // The segment's ignored line takes page room before its own passages, so
+  // merge it first; when the page cuts, redo it without the exclusions the
+  // next call will walk again.
+  const prior = snapshotIgnored(state);
+  mergeIgnored(state, page.ignored, admission, undefined);
   // A segment can contribute only warning counts. Their line still renders
   // beside the passages already kept, so a page that cannot hold it ends
   // before the segment: the next call reports those counts (design D7).
@@ -260,7 +261,11 @@ export function appendSegment(
   // there: no later segment can overwrite it.
   state.unfinished = page.unfinished;
   const cutRel = appendEntries(state, budget, reserve, page);
-  mergeIgnored(state, page.ignored, admission, cutRel);
+  if (cutRel !== undefined) {
+    state.ignored = prior;
+    state.ignoredUnits = 0;
+    mergeIgnored(state, page.ignored, admission, cutRel);
+  }
   // A walk's own page end is trusted only when every passage it named was
   // kept: it is the furthest point the segment itself reached.
   if (page.last !== undefined)
@@ -305,10 +310,15 @@ function fitsPage(
   );
 }
 
+/** The admitted exclusions the page held before one segment merged its own. */
+function snapshotIgnored(state: PageState): PageState['ignored'] {
+  return { ...state.ignored, paths: [...state.ignored.paths] };
+}
+
 /**
  * Take one segment's excluded directories, up to the call's cap, judge each
  * against the `read` group as written and with a final separator, and keep the
- * first five admitted locators in their scope spelling.
+ * first five admitted locators as raw paths.
  */
 function mergeIgnored(
   state: PageState,
@@ -356,7 +366,8 @@ function mergeIgnored(
  */
 function appendEntries(
   state: PageState,
-  budget: CallBudget,
+  budget: GrepBudget,
+  reserve: number,
   page: SegmentPage,
 ): string | undefined {
   let lastKept: string | undefined;
@@ -410,7 +421,11 @@ export function pageResult(state: PageState, inputHash: string): ToolResult {
     ...(state.ignored.count > 0 && {
       ignored: {
         count: state.ignored.count,
-        locators: state.ignored.paths.map(spellGrepScopeLocator),
+        locators: state.ignored.paths.map((locator) =>
+          locator.startsWith('machine://')
+            ? spellGrepMachineScopeLocator(locator)
+            : spellGrepHostScopeLocator(locator),
+        ),
         ...(state.ignored.atLeast && { atLeast: true }),
       },
     }),

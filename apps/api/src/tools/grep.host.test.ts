@@ -77,6 +77,9 @@ async function temporaryRoot(): Promise<string> {
 
 async function withRoot<T>(callback: (root: string) => Promise<T>): Promise<T> {
   const root = await temporaryRoot();
+  // A repository at the fixture root seals the walk: nothing above `tmpdir`
+  // can change which ignore files apply.
+  await mkdir(path.join(root, '.git'), { recursive: true });
   try {
     return await callback(root);
   } finally {
@@ -325,7 +328,6 @@ describe('host walk policy', () => {
 describe('host ignore files above the scope', () => {
   it('applies a repository rule to a narrower scope', async () => {
     await withRoot(async (root) => {
-      await mkdir(path.join(root, '.git'));
       await writeAt(root, '.gitignore', 'dist/\n');
       await writeAt(root, 'apps/web/dist/out.js', 'needle\n');
       await writeAt(root, 'apps/web/keep.js', 'needle\n');
@@ -368,6 +370,48 @@ describe('host ignore files above the scope', () => {
     });
   });
 
+  it('starts repository detection at the prefix itself', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', '*.md\n');
+      await mkdir(path.join(root, 'inner/.git'), { recursive: true });
+      await writeAt(root, 'inner/README.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/inner`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/inner/README.md:1-1`]);
+    });
+  });
+
+  it('applies a gitignore between the repository and the prefix', async () => {
+    await withRoot(async (root) => {
+      await mkdir(path.join(root, 'repo/.git'), { recursive: true });
+      await writeAt(root, 'repo/apps/.gitignore', 'dist/\n');
+      await writeAt(root, 'repo/apps/web/dist/out.js', 'needle\n');
+      await writeAt(root, 'repo/apps/web/keep.js', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/repo/apps/web`],
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/repo/apps/web/keep.js:1-1`]);
+    });
+  });
+
+  it('treats a .git file as a repository', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, '.gitignore', '*.md\n');
+      await writeAt(root, 'worktree/.git', 'gitdir: elsewhere\n');
+      await writeAt(root, 'worktree/sub/README.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/worktree/sub`],
+      });
+      expect(locatorsOf(result)).toEqual([
+        `${root}/worktree/sub/README.md:1-1`,
+      ]);
+    });
+  });
+
   it('does not apply a gitignore above the repository', async () => {
     await withRoot(async (root) => {
       await writeAt(root, '.gitignore', '*.md\n');
@@ -382,7 +426,9 @@ describe('host ignore files above the scope', () => {
   });
 
   it('does not apply a gitignore outside a repository above the scope', async () => {
-    await withRoot(async (root) => {
+    // This tree has no repository on purpose, so it cannot use the sealed root.
+    const root = await temporaryRoot();
+    try {
       await writeAt(root, 'Projects/.gitignore', '*.md\n');
       await writeAt(root, 'Projects/Arduino/README.md', 'needle\n');
       const result = await run(contextOf(), {
@@ -392,7 +438,9 @@ describe('host ignore files above the scope', () => {
       expect(locatorsOf(result)).toEqual([
         `${root}/Projects/Arduino/README.md:1-1`,
       ]);
-    });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

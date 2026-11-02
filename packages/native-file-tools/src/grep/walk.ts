@@ -3,6 +3,7 @@ import {
   decideIgnoreLayer,
   type CompiledIgnoreLayer,
 } from "./ignore";
+import { GREP_IGNORE_FILE_NAMES } from "./ignore-files";
 
 import type { GrepEntry, GrepScope } from "./types";
 
@@ -15,8 +16,8 @@ type IgnoreLayer = {
   readonly layer: CompiledIgnoreLayer;
 };
 
-/** The two ignore files a directory scope never searches. */
-const IGNORE_FILE_NAMES = new Set([".gitignore", ".ignore"]);
+/** The ignore files a directory scope never searches. */
+const IGNORE_FILE_NAMES = new Set<string>(GREP_IGNORE_FILE_NAMES);
 
 /** What a resume point names: a file the page ended in, or a reached entry. */
 export type GrepCursorKind = "passage" | "position";

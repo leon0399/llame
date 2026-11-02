@@ -8,18 +8,17 @@
  */
 
 import { type Dirent } from "node:fs";
-import { open, readdir, stat, type FileHandle } from "node:fs/promises";
+import { open, readdir, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import type { NativeFailureResult } from "@workspace/machine-protocol";
 import {
+  collectAncestorIgnoreFiles,
+  GREP_IGNORE_FILE_NAMES,
   GrepPortError,
-  ignoreAbovePath,
-  ignoreAncestorDirectories,
   openFileStream,
   openFlags,
   type GrepEntry,
-  type GrepIgnoreFile,
   type GrepWalkPort,
 } from "@workspace/native-file-tools";
 import type { RootGuard } from "./guard";
@@ -27,8 +26,6 @@ import { isInsideRoots } from "./locators";
 
 /** The largest ignore file the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
-/** The two ignore files one directory can hold, the deeper one second. */
-const IGNORE_FILE_NAMES = [".gitignore", ".ignore"] as const;
 /** One chunk of a bounded ignore read; a file never reaches memory whole. */
 const READ_CHUNK_BYTES = 64 * 1024;
 const NOT_FOUND_MESSAGE = "The target does not exist.";
@@ -82,7 +79,15 @@ export function createGrepWalkPort(
         unchanged(walk, rel),
       ),
     ignoreFiles: (rel) => readIgnoreFiles(walk, rel),
-    ignoreAncestors: () => readAncestorIgnoreFiles(walk),
+    ignoreAncestors: () =>
+      collectAncestorIgnoreFiles(
+        {
+          prefix: walk.canonical,
+          root: walk.root,
+          fallbackRepository: walk.root,
+        },
+        (directory, name) => readIgnoreText(walk, path.join(directory, name)),
+      ),
   };
 }
 
@@ -184,7 +189,7 @@ async function readIgnoreFiles(
   rel: string,
 ): Promise<ReadonlyArray<string>> {
   const texts: Array<string> = [];
-  for (const name of IGNORE_FILE_NAMES) {
+  for (const name of GREP_IGNORE_FILE_NAMES) {
     const text = await readIgnoreText(
       walk,
       at(walk.canonical, path.join(rel, name)),
@@ -192,58 +197,6 @@ async function readIgnoreFiles(
     if (text !== undefined) texts.push(text);
   }
   return texts;
-}
-
-/**
- * The ignore files above the prefix, from the registered root down to its
- * parent: `.ignore` everywhere, and `.gitignore` from the repository directory
- * down. The walk looks for the repository only up to the registered root, and
- * without one there, the root is the repository directory.
- */
-async function readAncestorIgnoreFiles(
-  walk: Walk,
-): Promise<ReadonlyArray<GrepIgnoreFile>> {
-  const repository = await repositoryDirectory(walk);
-  const files: Array<GrepIgnoreFile> = [];
-  for (const directory of ignoreAncestorDirectories(
-    walk.canonical,
-    walk.root,
-  )) {
-    walk.signal?.throwIfAborted();
-    const above = ignoreAbovePath(directory, walk.canonical);
-    if (isAtOrBelow(directory, repository)) {
-      const gitignore = await readIgnoreText(
-        walk,
-        path.join(directory, ".gitignore"),
-      );
-      if (gitignore !== undefined) files.push({ above, text: gitignore });
-    }
-    const ignore = await readIgnoreText(walk, path.join(directory, ".ignore"));
-    if (ignore !== undefined) files.push({ above, text: ignore });
-  }
-  return files;
-}
-
-/** The nearest directory at or above the prefix that holds a `.git` entry. */
-async function repositoryDirectory(walk: Walk): Promise<string> {
-  let current = walk.canonical;
-  for (;;) {
-    try {
-      const stats = await stat(path.join(current, ".git"));
-      if (stats.isDirectory() || stats.isFile()) return current;
-    } catch {
-      // No `.git` here; the walk continues toward the registered root.
-    }
-    if (current === walk.root) return walk.root;
-    current = path.dirname(current);
-  }
-}
-
-function isAtOrBelow(directory: string, ancestor: string): boolean {
-  return (
-    directory === ancestor ||
-    directory.startsWith(ancestor === "/" ? "/" : `${ancestor}/`)
-  );
 }
 
 /** One ignore file's text, when it is a bounded regular file inside the roots. */

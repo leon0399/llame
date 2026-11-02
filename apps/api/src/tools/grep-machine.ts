@@ -24,6 +24,7 @@ import {
   splitGrepScope,
   type DecodedGrepCursor,
   type GrepBudget,
+  type GrepIgnored,
   type GrepPageEnd,
   type GrepPassage,
   type GrepScope,
@@ -116,10 +117,8 @@ export type MachineGrepSegment =
       /** The file a bound stopped the daemon walk inside, relative to the prefix. */
       readonly unfinished?: string;
       /** The excluded directory locators of this scope, capped across its pages. */
-      readonly ignored?: {
-        readonly paths: ReadonlyArray<string>;
+      readonly ignored?: GrepIgnored & {
         readonly rels: ReadonlyArray<string>;
-        readonly atLeast: boolean;
       };
       /**
        * Where a daemon page below the call's page stopped when it admitted no

@@ -85,6 +85,35 @@ export function decodeGrepLiteralSpelling(text: string): string {
   );
 }
 
+/** The spellings a scope writes for the characters of a locator. */
+const HOST_SPELLINGS = new Map(
+  [...LITERAL_SPELLINGS].map(([spelling, character]) => [character, spelling]),
+);
+/** A Machine locator already writes `%` as `%25`, so it spells the glob ones. */
+const MACHINE_SPELLINGS = new Map(
+  [...HOST_SPELLINGS].filter(([character]) => character !== "%"),
+);
+
+function spellScopeLocator(
+  locator: string,
+  spellings: ReadonlyMap<string, string>,
+): string {
+  return locator.replaceAll(
+    /[%*?[\]{}]/gu,
+    (character) => spellings.get(character) ?? character,
+  );
+}
+
+/** A reported host directory as the scope that names it. */
+export function spellGrepHostScopeLocator(locator: string): string {
+  return spellScopeLocator(locator, HOST_SPELLINGS);
+}
+
+/** A reported Machine directory as the scope that names it. */
+export function spellGrepMachineScopeLocator(locator: string): string {
+  return spellScopeLocator(locator, MACHINE_SPELLINGS);
+}
+
 /** The kept segments as one locator prefix; a removed segment leaves a '/'. */
 function literalPrefix(kept: ReadonlyArray<string>): string {
   if (kept.length === 0) return "";
