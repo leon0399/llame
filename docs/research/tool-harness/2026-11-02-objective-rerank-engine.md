@@ -44,45 +44,51 @@ sources:
   - id: issue-915
     resource: "https://github.com/leon0399/llame/issues/915"
     title: "#915 Tool-result snapshots on the filesystem, readable as artifact:// with selectors"
+  - id: issue-1515
+    resource: "https://github.com/leon0399/llame/issues/1515"
+    title: "#1515 Opt-in grep bounds and the deadline derived from the call timeout (throwaway-script timings)"
   - id: cursor-dcd
     resource: "https://cursor.com/blog/dynamic-context-discovery"
-    title: "Cursor: Dynamic context discovery (2026-01-06; long tool responses written to files)"
+    title: "Cursor: Dynamic context discovery; long tool responses written to files (live page, no version identifier; read 2026-11-02; dated 2026-01-06)"
   - id: manus
     resource: "https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus"
-    title: "Manus: Context engineering for AI agents (file system as context)"
+    title: "Manus: Context engineering for AI agents; file system as context (live page, no version identifier; read 2026-11-02)"
   - id: parallel
     resource: "https://docs.parallel.ai/search/best-practices"
-    title: "Parallel Search best practices: objective plus search_queries (read 2026-11-02)"
+    title: "Parallel Search best practices: objective plus search_queries (live page, no version identifier; read 2026-11-02)"
   - id: exa
     resource: "https://exa.ai/docs/reference/search"
-    title: "Exa Search reference: objective, highlights (read 2026-11-02)"
+    title: "Exa Search reference: objective, highlights (live page, no version identifier; read 2026-11-02)"
   - id: deepseek
     resource: "https://api-docs.deepseek.com/api/search"
-    title: "DeepSeek Search: ori_question, rerank_score (read 2026-11-02)"
+    title: "DeepSeek Search: ori_question, rerank_score (live page, no version identifier; read 2026-11-02)"
   - id: voyage
     resource: "https://blog.voyageai.com/2025/08/11/rerank-2-5/"
-    title: "Voyage rerank-2.5: instruction-following reranker"
+    title: "Voyage rerank-2.5: instruction-following reranker (live page, no version identifier; read 2026-11-02; dated 2025-08-11)"
   - id: zerank
     resource: "https://zeroentropy.dev/articles/zerank-2-advanced-instruction-following-multilingual-reranker"
-    title: "ZeroEntropy zerank-2: instruction block"
+    title: "ZeroEntropy zerank-2: instruction block (live page, no version identifier; read 2026-11-02)"
+  - id: cohere
+    resource: "https://docs.cohere.com/changelog/rerank-v5"
+    title: "Cohere Rerank 5 changelog: Context Focus returns scored spans per document (live page, no version identifier; read 2026-11-02; dated 2026-09-30)"
   - id: qwen3-reranker
-    resource: "https://huggingface.co/Qwen/Qwen3-Reranker-8B"
-    title: "Qwen3-Reranker model card (instruction template, FollowIR)"
+    resource: "https://huggingface.co/Qwen/Qwen3-Reranker-8B/blob/77d193c791ed757ca307ee72715aa132723da912/README.md"
+    title: "Qwen3-Reranker model card at 77d193c: instruction template, 1-5% instruction gain, FollowIR"
   - id: followir
-    resource: "https://arxiv.org/abs/2403.15246"
+    resource: "https://arxiv.org/abs/2403.15246v3"
     title: "FollowIR: instruction following in retrieval"
   - id: rankgpt
-    resource: "https://arxiv.org/abs/2304.09542"
+    resource: "https://arxiv.org/abs/2304.09542v3"
     title: "RankGPT: listwise LLM reranking"
   - id: swe-grep
     resource: "https://cognition.com/blog/swe-grep"
-    title: "Cognition SWE-grep and Fast Context"
+    title: "Cognition SWE-grep and Fast Context (live page, no version identifier; read 2026-11-02)"
   - id: relace
     resource: "https://relace.ai/blog/code-retrieval"
-    title: "Relace code retrieval and reranker"
+    title: "Relace code retrieval and reranker (live page, no version identifier; read 2026-11-02)"
   - id: augment
     resource: "https://docs.augmentcode.com/context-services/mcp/overview"
-    title: "Augment Context Engine MCP"
+    title: "Augment Context Engine MCP (live page, no version identifier; read 2026-11-02)"
 ---
 
 # Objective-ranked search results with offloaded artifacts
@@ -113,37 +119,38 @@ One shared engine ranks, splits and renders for every tool. Cursors such as
 ### Prior art
 
 - **F1. The objective field is not new.** Parallel requires `objective`
-  beside `search_queries` in its own agent tool schema; Exa ships `objective`
-  (up to 4,096 characters); DeepSeek takes `ori_question` (128 code points).
-  llame's `objective` (#1431, merged as #1444) is one of that family.
+  beside `search_queries` in its own agent tool schema[^parallel]; Exa ships
+  `objective` (up to 4,096 characters)[^exa]; DeepSeek takes `ori_question`
+  (128 code points)[^deepseek]. llame's `objective` (#1431, merged as #1444)
+  is one of that family.
 - **F2. Offloading long tool results to files is established, but always in
   positional order.**
   - OMP spills tool output past its inline caps to `artifact://` and keeps
-    the head inline ([code-mode study](./2026-09-14-code-mode-eval-tool.md)).
+    the head inline[^code-mode].
   - Cursor writes long shell and MCP results to a file, and the agent calls
     `tail` and reads more as needed; Cursor reports fewer summarizations at
     the context limit. Its first-party search tools use "minimal response
-    formats" instead.
-  - Manus treats the file system as restorable, externalized context.
+    formats" instead[^cursor-dcd].
+  - Manus treats the file system as restorable, externalized context[^manus].
   - CodeBuddy, Hermes and neural-code spill results to files
     (`docs/research/harnesses/`).
     None of them chooses the inline part by relevance.
 - **F3. The only "best part inline, the rest on demand" analogue is inside one
-  web vendor.** Exa highlights and Cohere Rerank 5's Context Focus return the
-  query-conditioned passages and leave full text available. Neither spans
-  several corpora, and neither has a harness-owned artifact.
+  web vendor.** Exa highlights[^exa] and Cohere Rerank 5's Context Focus
+  return the query-conditioned passages and leave full text available[^cohere].
+  Neither spans several corpora, and neither has a harness-owned artifact.
 - **F4. The combination was not found elsewhere. Moderate confidence (about
   0.7).** That combination is one model-supplied objective, a harness-owned
   ranking of the whole result for web, episodic memory, Knowledge and live
   code, and a relevance-ordered artifact replacing pagination. The closest
   pieces are:
-  - OMP's shared `JUDGE` role ([semantic find](./2026-09-24-semantic-find-judge/report.md));
-  - Augment's one retrieval tool over many corpora;
-  - Exa highlights;
-  - Cursor's file offload.
+  - OMP's shared `JUDGE` role[^semantic-find];
+  - Augment's one retrieval tool over many corpora[^augment];
+  - Exa highlights[^exa];
+  - Cursor's file offload[^cursor-dcd].
 
   Agentic code search (SWE-grep, WarpGrep, Claude Code's Explore) delegates
-  to a subagent instead.
+  to a subagent instead[^swe-grep].
 
 ### Value
 
@@ -153,29 +160,31 @@ One shared engine ranks, splits and renders for every tool. Cursors such as
   is a choice made from the whole result, so its order decides which findings
   the model sees without another call. `[INFERENCE]`
 - **F6. The measured effect of a vendor objective is close to zero, so the
-  ranker must be llame's.** With DeepSeek, 56 of 59 top-10 lists did not
-  change ([spike](./2026-10-26-web-search-objective-spike/report.md)). The
-  literature agrees that retrievers use instructions as extra keywords
-  (FollowIR, and Qwen3-Reranker's 1-5% gain from an instruction). Voyage
-  rerank-2.5 claims +8-13% from instructions. A lexical tool like `grep` gets
-  no relevance from any vendor, so a stage-1 ranker llame owns and knows code
-  carries most of the value. `[INFERENCE]`
-- **F7. For recall, the objective and the question nearly coincide.** Jev U1
-  and Decision A1 rank on the question. The field adds the most where the
-  query is a pattern rather than a question: `grep`, `glob`, and terse web
-  queries.
+  ranker must be llame's.** With DeepSeek, 56 of 59 top-10 lists did not change
+  between a call with `ori_question` and the same call without it[^objective-spike].
+  The literature agrees that retrievers use instructions as extra keywords[^followir],
+  and Qwen3-Reranker's card reports 1-5% from an instruction[^qwen3-reranker].
+  Voyage rerank-2.5 claims +8-13% from instructions[^voyage]. A lexical tool
+  like `grep` gets no relevance from any vendor, so a stage-1 ranker llame owns
+  and knows code carries most of the value. `[INFERENCE]`
+- **F7. For recall, the objective and the question nearly coincide.** Jev U1[^jev]
+  and Decision A1[^decision-apis] rank on the question. The field adds the most
+  where the query is a pattern rather than a question: `grep`, `glob`, and
+  terse web queries.
 
 ### Costs and constraints
 
 - **F8. Ranking the whole result removes `grep`'s early stop.**
-  - Today a full page ends the walk. To rank the whole result, the walk must
-    finish, so the stop becomes the deadline or a result bound.
-  - With the bounds layer's defaults (no count or byte bound), a broad
-    `grep` runs to the 108 s deadline on a large tree. The 32 s
-    `/mnt/d/Projects` timing in #1515 ended at a full page; the timing for a
-    walk with no page stop was not measured.
-  - A no-match walk over this repository takes 3.4 s, so small trees are
-    unaffected.
+  - Today a full page ends the current call and returns a keyset cursor, so a
+    later call continues the walk from the last emitted passage. To rank the
+    whole result, the walk must finish in one call, so the stop becomes the
+    deadline or a result bound.
+  - With the bounds layer's defaults (no count or byte bound), a broad `grep`
+    runs to the 108 s deadline on a large tree. #1515 measured 32 s for
+    `/mnt/d/Projects` ending at a full page, and 3.4 s for a no-match walk
+    over this repository, so small trees are unaffected; both numbers came
+    from an uncommitted throwaway script and are observations, not
+    reproducible measurements. A walk with no page stop was not timed[^issue-1515].
   - The artifact needs its own bound (bytes or findings), which becomes the
     new early stop.
 - **F9. A deadline- or bound-stopped result is a ranked prefix of the walk.**
@@ -193,19 +202,20 @@ One shared engine ranks, splits and renders for every tool. Cursors such as
   and `read` permission can be revoked. Reading `artifact://grep-7:40-60`
   must not satisfy `edit`'s snapshot precondition (#706): an edit needs a
   fresh read of the source. Retention, tenant scoping and survival across a
-  retry are #915's open questions. Because a later turn may cite
+  retry are #915's open questions[^issue-915]. Because a later turn may cite
   `artifact://grep-7`, artifacts must live at least as long as the Chat's
   replayable history, compaction included.
 - **F12. llame has no transport or accounting for side model calls.** A
   model ranker needs a new accounted lane: title generation and hosted web
-  search are unaccounted today.
+  search are unaccounted today
+  (`openspec/specs/run-usage-accounting/spec.md`).
 - **F13. Private corpora limit model ranking.** Chat, Knowledge and
   host-file text may reach a ranking provider only under an explicit
   declaration, as with `shareRecentChats`, or through a self-hosted reranker.
   Scores never reach the model: chat search already withholds every rank and
   score (`openspec/specs/chat-search/spec.md`). The permission study scored a
   useful "no measurements were provided" passage at 0.27 against a relevant
-  label.
+  label[^permission-cascade].
 - **F14. Stage 1 does not need an AST; code structure is a shared provider
   it can use later.**
   - Most stage-1 signals come from text and paths: test, vendored and
@@ -313,7 +323,12 @@ flowchart LR
   - **`glob`:** path-term overlap and depth.
   - An optional embedding leg can be added where an embedder exists.
 - **Stage 2** runs one of #1434-#1436's backends on the top band only, for
-  the data classes it declares:
+  the data classes it declares. It is the optional cross-encoder phase the
+  chat-search study scopes over a fused top-K[^cross-lingual-recall], and the
+  two-stage retrieve-then-rerank shape the code-retrieval vendors recommend[^relace].
+  - The top band must fit one window. A listwise LLM backend costs one call
+    per window of passages and sends their text to the provider[^rankgpt], so
+    a wider band costs more calls and more egress.
   - It has a per-call input bound and a per-Run cost bound on an accounted
     `rerank` lane.
   - A deadline overflow keeps the stage-1 order with status `partial`.
@@ -330,8 +345,9 @@ flowchart LR
   ranking and the artifact and returns canonical order, as today. That is
   most calls `[INFERENCE]`.
 - **Objective handling.** The objective is untrusted, model-authored text.
-  It travels as data inside a code-owned rubric. When it is absent or repeats
-  the query, stage 1 ranks by the query alone.
+  It travels as data inside a code-owned rubric; the rerankers that take an
+  instruction block keep it beside the query rather than inside it[^zerank][^qwen3-reranker].
+  When it is absent or repeats the query, stage 1 ranks by the query alone.
 
 ## Threats and negative tests
 
@@ -343,9 +359,13 @@ flowchart LR
   construction.
 - **Authorization.**
   - Cards come only from findings that passed the `read` group.
-  - An `artifact://` read is scoped to the owner and Chat that created it.
-  - A revoked `read` grant is checked again at artifact read time; this is
-    an open decision.
+  - An `artifact://` read is scoped to the owner and Chat that created it,
+    under the row-level security the Chat already has.
+  - Every artifact read re-evaluates the `read` group against the recorded
+    locator of each finding it serves, so revoking a `read` grant takes
+    effect at the next artifact read. Serving the grants admitted at write
+    time instead would let a Chat read a locator the current configuration
+    refuses.
 - **Egress.** A `chat` card never reaches a backend that has not declared
   `chat`.
 - **Staleness.** An artifact read never satisfies `edit`'s snapshot
@@ -373,18 +393,21 @@ Build artifacts before objective ranking. Moderate-high confidence.
 Tracked by #1518:
 
 1. **Artifacts (#915).** Owner- and Chat-scoped storage, `artifact://` reads
-   with the `read` tool's selectors, retention tied to the Chat's replayable
-   history, and RLS. `grep` is the only first consumer.
+   with the `read` tool's selectors, the `read`-group re-check at every
+   artifact read, retention tied to the Chat's replayable history, and RLS.
+   `grep` is the only first consumer.
 2. **Shared layout for `grep` and `web_search`, in canonical order.** For
    both tools: the inline part, the remainder map, a result bound as the new
    stop, and the status line.
-   - `grep` (#1519) drops its keyset cursor.
+   - `grep` (#1519) replaces its keyset cursor with the artifact. The
+     artifact carries the resume point that Q2 settles before the cursor
+     goes, so a deadline- or bound-stopped walk stays continuable (F9).
    - `web_search` first gets a text shape (#1525): results prefixed so page
      text cannot forge a header or notice. Its offload (#1526) then keeps the
      wider candidate set that #1433 already plans.
 
    This replaces cursors and cut-offs before any ranking exists, so the
-   artifact contract is settled on its own.
+   artifact contract is settled on its own, the continuation included.
 
 3. **Offline evaluation (#1520), in parallel with 1-2.** Throwaway scripts
    compare stage-1 ranking with walk order on recorded `grep` calls, measuring
@@ -428,11 +451,14 @@ Artifacts hold each tool's model text shape, not JSON:
   artifact grouped by file is the middle option sketched above.
 - **Q2. Incomplete results.** Without a cursor, decide between narrowing
   guidance only and an internal resume point the model can invoke, such as
-  `grep(continue: "artifact://grep-7")`.
+  `grep(continue: "artifact://grep-7")`. Step 2 needs the answer before the
+  keyset cursor goes.
 - **Q3. The artifact bound.** Choose its size and unit (bytes, findings or
   files) and how it interacts with the opt-in `tools.grep` bounds.
-- **Q4. Revocation.** Decide whether an artifact read re-checks the current
-  `read` group or serves the snapshot as admitted at write time.
+- **Q4. Revocation granularity.** An artifact read re-checks the `read` group
+  against each served finding's locator (see Threats). Decide whether a
+  refused finding is cut from the page with a notice, so the rest stays
+  readable, or refuses the whole artifact read.
 - **Q5. `objective`: required or optional?** Parallel and Cursor make the
   field required; on `grep` an optional field with a query-only fallback is
   the conservative start.
@@ -440,3 +466,49 @@ Artifacts hold each tool's model text shape, not JSON:
   the operator's fixtures (#1433), or task outcome.
 - **Q7. Bundled local reranker.** Should llame ship a TEI-class reranker so
   the private classes get stage 2 without egress?
+
+[^objective-spike]: [web_search objective spike: DeepSeek ori_question effect](./2026-10-26-web-search-objective-spike/report.md)
+
+[^semantic-find]: [OMP semantic find and JUDGE](./2026-09-24-semantic-find-judge/report.md)
+
+[^jev]: [System One and Jev: U1 recall relevance](./2026-09-23-system-one-jev/report.md)
+
+[^decision-apis]: [Decision APIs: A1 recall relevance](./2026-10-08-decision-apis.md)
+
+[^permission-cascade]: [Permission classifier cascade: relevance is not support](./2026-09-24-permission-classifier-cascade/report.md)
+
+[^code-mode]: [Code-mode eval tool: OMP output caps spilled to artifact://](./2026-09-14-code-mode-eval-tool.md)
+
+[^cross-lingual-recall]: [Cross-lingual recall: the optional cross-encoder phase](../chat-search/2026-07-27-cross-lingual-recall.md)
+
+[^issue-915]: [#915 Tool-result snapshots readable as artifact://](https://github.com/leon0399/llame/issues/915)
+
+[^issue-1515]: [#1515 Opt-in grep bounds and throwaway-script timings](https://github.com/leon0399/llame/issues/1515)
+
+[^cursor-dcd]: [Cursor: dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery)
+
+[^manus]: [Manus: context engineering, the file system as context](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus)
+
+[^parallel]: [Parallel Search best practices: objective plus search_queries](https://docs.parallel.ai/search/best-practices)
+
+[^exa]: [Exa Search reference: objective, highlights](https://exa.ai/docs/reference/search)
+
+[^deepseek]: [DeepSeek Search: ori_question, rerank_score](https://api-docs.deepseek.com/api/search)
+
+[^voyage]: [Voyage rerank-2.5: instruction-following reranker](https://blog.voyageai.com/2025/08/11/rerank-2-5/)
+
+[^zerank]: [ZeroEntropy zerank-2: the instruction block](https://zeroentropy.dev/articles/zerank-2-advanced-instruction-following-multilingual-reranker)
+
+[^cohere]: [Cohere Rerank 5: Context Focus spans](https://docs.cohere.com/changelog/rerank-v5)
+
+[^qwen3-reranker]: [Qwen3-Reranker-8B model card, instruction template and FollowIR](https://huggingface.co/Qwen/Qwen3-Reranker-8B/blob/77d193c791ed757ca307ee72715aa132723da912/README.md)
+
+[^followir]: [FollowIR: instruction following in retrieval](https://arxiv.org/abs/2403.15246v3)
+
+[^rankgpt]: [RankGPT: listwise LLM reranking](https://arxiv.org/abs/2304.09542v3)
+
+[^swe-grep]: [Cognition SWE-grep and Fast Context](https://cognition.com/blog/swe-grep)
+
+[^relace]: [Relace: code retrieval and reranker](https://relace.ai/blog/code-retrieval)
+
+[^augment]: [Augment Context Engine MCP](https://docs.augmentcode.com/context-services/mcp/overview)
