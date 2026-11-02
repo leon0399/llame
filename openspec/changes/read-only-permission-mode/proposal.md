@@ -77,7 +77,7 @@ Assumptions that follow but were not asked:
   and gets no usage-badge segment. Recording it would modify the
   `durable-runs` and `run-usage-accounting` requirements that fix
   `permissionMode` to `bypass` only. The Run response and the context receipt
-  already report the accepted mode. Leo to confirm.
+  already report the accepted mode. Leo confirmed this on 2026-11-03.
 
 ## Capabilities
 

@@ -28,8 +28,10 @@ zero and is reported separately in each PR.
 
 ## 1. proposal
 
-- [ ] 1.1 Validate the change: `pnpm exec openspec validate read-only-permission-mode --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/read-only-permission-mode/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
-- [ ] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
+- [x] 1.1 Validate the change: `pnpm exec openspec validate read-only-permission-mode --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/read-only-permission-mode/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
+  - Evidence: all five pass on 4695a150.
+- [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
+  - Evidence: local rounds 1 and 2 (spec-consistency and feasibility reviewers; fixes in dbabb02a and 98d697fd). design.md "Revision history" records each round.
 - [ ] 1.3 Obtain Leo's approval of the published revision, including the D9 deviation in proposal.md.
 - [ ] 1.4 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) before ready; GR: run [Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring) to exit.
 
