@@ -74,8 +74,9 @@ fork's artifacts.
 
 One byte bound applies to every part:
 `tools.artifacts.maxBytes`, default 8,388,608 (8 MiB), floor 131,072
-(128 KiB). A producer that streams stops at the bound and marks its result
-incomplete; a whole result above it is not stored.
+(128 KiB), ceiling 268,435,456 (256 MiB). A producer that streams stops at
+the bound and marks its result incomplete; a whole result above it is not
+stored. The ceiling keeps a stored part small enough to read back.
 
 ```jsonc
 {

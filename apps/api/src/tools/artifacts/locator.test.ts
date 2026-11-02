@@ -1,8 +1,8 @@
 import {
   ARTIFACT_SCHEME,
+  ARTIFACT_SEQ_MAX,
   formatArtifactLocator,
   isLocatorName,
-  parseArtifactLocator,
   parseArtifactLocatorText,
 } from './locator';
 
@@ -15,38 +15,56 @@ describe('artifact locator', () => {
   });
 
   it('parses a tool name that itself contains a hyphen', () => {
-    expect(parseArtifactLocator('mcp__docs__fetch-4')).toEqual({
+    expect(parseArtifactLocatorText('artifact://mcp__docs__fetch-4')).toEqual({
       toolName: 'mcp__docs__fetch',
       seq: 4,
       part: undefined,
     });
-    expect(parseArtifactLocator('bash-2/stderr')).toEqual({
+    expect(parseArtifactLocatorText('artifact://bash-2/stderr')).toEqual({
       toolName: 'bash',
       seq: 2,
       part: 'stderr',
     });
   });
 
-  it('refuses a zero number and a malformed name', () => {
-    expect(parseArtifactLocator('grep-0')).toBeUndefined();
-    expect(parseArtifactLocator('-1')).toBeUndefined();
-    expect(parseArtifactLocator('grep/1')).toBeUndefined();
-    expect(parseArtifactLocator('grep-1/stdout/x')).toBeUndefined();
+  it('refuses a zero, a non-locator, and a malformed name', () => {
+    expect(parseArtifactLocatorText('artifact://grep-0')).toBeUndefined();
+    expect(parseArtifactLocatorText('artifact://-1')).toBeUndefined();
+    expect(parseArtifactLocatorText('artifact://grep/1')).toBeUndefined();
+    expect(
+      parseArtifactLocatorText('artifact://grep-1/stdout/x'),
+    ).toBeUndefined();
   });
 
-  it('parses only a whole locator with the scheme', () => {
-    expect(parseArtifactLocatorText('artifact://grep-7')).toEqual({
+  it('refuses a number above the storable integer', () => {
+    expect(
+      parseArtifactLocatorText(`artifact://grep-${ARTIFACT_SEQ_MAX}`),
+    ).toEqual({
+      toolName: 'grep',
+      seq: ARTIFACT_SEQ_MAX,
+      part: undefined,
+    });
+    expect(
+      parseArtifactLocatorText(`artifact://grep-${ARTIFACT_SEQ_MAX + 1}`),
+    ).toBeUndefined();
+    expect(
+      parseArtifactLocatorText('artifact://grep-99999999999999999999'),
+    ).toBeUndefined();
+  });
+
+  it('parses only a whole locator and accepts the scheme in any case', () => {
+    expect(parseArtifactLocatorText('media://grep-7')).toBeUndefined();
+    expect(parseArtifactLocatorText('ARTIFACT://grep-7')).toEqual({
       toolName: 'grep',
       seq: 7,
       part: undefined,
     });
-    expect(parseArtifactLocatorText('media://grep-7')).toBeUndefined();
+    expect(ARTIFACT_SCHEME).toBe('artifact');
   });
 
   it('accepts the token shape a tool and a stream name share', () => {
     expect(isLocatorName('web_search')).toBe(true);
     expect(isLocatorName('mcp__docs__fetch')).toBe(true);
     expect(isLocatorName('bad name')).toBe(false);
-    expect(ARTIFACT_SCHEME).toBe('artifact');
   });
 });

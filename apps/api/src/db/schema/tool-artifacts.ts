@@ -1,7 +1,6 @@
 import { InferSelectModel, sql } from 'drizzle-orm';
 import {
   boolean,
-  index,
   integer,
   jsonb,
   pgPolicy,
@@ -93,8 +92,11 @@ export const toolArtifactParts = pgTable(
     findings: jsonb('findings'),
   },
   (t) => [
-    // The reader names a part inside its artifact.
-    index('tool_artifact_parts_artifact_idx').on(t.artifactId),
+    // A part is named once inside its artifact, so a locator names one row.
+    // NULLS NOT DISTINCT keeps that true if `name` ever becomes nullable.
+    unique('tool_artifact_parts_artifact_name_unique')
+      .on(t.artifactId, t.name)
+      .nullsNotDistinct(),
     pgPolicy('tool_artifact_parts_owner_select', {
       for: 'select',
       using: sql`artifact_id IN (

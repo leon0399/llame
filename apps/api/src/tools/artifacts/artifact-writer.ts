@@ -8,6 +8,9 @@ import {
 import { artifactLineCount } from './lines';
 import { formatArtifactLocator, isLocatorName } from './locator';
 
+/** A part name a host-file path can be built from. */
+const PART_NAME = /^[a-z][a-z0-9_-]*$/u;
+
 /** One part a producer hands to the writer. */
 export type ArtifactPartInput = {
   /** The stream name for `bash`; absent for a tool's single part. */
@@ -50,13 +53,7 @@ export async function writeToolArtifact(
   request: ArtifactWriteRequest,
   options: { readonly maxBytes: number },
 ): Promise<WrittenArtifact> {
-  if (!isLocatorName(request.toolName)) {
-    throw new Error(`"${request.toolName}" is not a usable artifact tool name`);
-  }
-  const parts = request.parts.map((part) =>
-    preparePart(part, options.maxBytes),
-  );
-
+  const parts = prepareParts(request, options.maxBytes);
   const seq = await tenantDb.runAs(request.userId, (db) =>
     new ArtifactsRepository(db).nextSeq(request.chatId, request.userId),
   );
@@ -81,16 +78,49 @@ export async function writeToolArtifact(
     id,
     seq,
     locator: formatArtifactLocator(request.toolName, seq),
-    lineCount: sum(parts, (part) => part.lineCount),
-    byteSize: sum(parts, (part) => part.byteSize),
+    lineCount: parts.reduce((total, part) => total + part.lineCount, 0),
+    byteSize: parts.reduce((total, part) => total + part.byteSize, 0),
   };
 }
 
-function sum(
-  parts: ReadonlyArray<NewArtifactPart>,
-  value: (part: NewArtifactPart) => number,
-): number {
-  return parts.reduce((total, part) => total + value(part), 0);
+/**
+ * The request's parts as stored rows. The artifact's shape is decided before
+ * the counter moves: a part over `tools.artifacts.maxBytes`, an unusable tool
+ * or part name, and an ambiguous part set are failed writes, so no artifact is
+ * numbered for a result the store cannot hold.
+ */
+function prepareParts(
+  request: ArtifactWriteRequest,
+  maxBytes: number,
+): Array<NewArtifactPart> {
+  if (!isLocatorName(request.toolName)) {
+    throw new Error(`"${request.toolName}" is not a usable artifact tool name`);
+  }
+  const parts = request.parts.map((part) => preparePart(part, maxBytes));
+  assertPartNames(parts.map((part) => part.name));
+  return parts;
+}
+
+/**
+ * A part set is either one unnamed part or only named parts, and each name is
+ * unique and path-safe, because the materialize layer builds a host file path
+ * from it.
+ */
+function assertPartNames(names: ReadonlyArray<string>): void {
+  if (names.length === 0) {
+    throw new Error('An artifact needs at least one part.');
+  }
+  if (names.length > 1 && names.some((name) => name === '')) {
+    throw new Error('An artifact with several parts names every part.');
+  }
+  for (const name of names) {
+    if (name !== '' && !PART_NAME.test(name)) {
+      throw new Error(`"${name}" is not a usable artifact part name`);
+    }
+  }
+  if (new Set(names).size !== names.length) {
+    throw new Error('An artifact part names must be distinct.');
+  }
 }
 
 /**

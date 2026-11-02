@@ -167,7 +167,7 @@ describe('inheritForkedChatState', () => {
       workspaceRoot: '/work/project',
       workspaceExecutorId: 'worker-a',
       workspaceGeneration: 7,
-      artifactSeq: 0,
+      artifactSeq: 5,
     });
 
     const { inherited } = inheritForkedChatState(source, prefix);
@@ -181,7 +181,7 @@ describe('inheritForkedChatState', () => {
       workspaceRoot: '/work/project',
       workspaceExecutorId: 'worker-a',
       workspaceGeneration: 7,
-      artifactSeq: 0,
+      artifactSeq: 5,
       recencyDigestRebakedFrom: null,
       skillCatalogRebakedFrom: null,
     });

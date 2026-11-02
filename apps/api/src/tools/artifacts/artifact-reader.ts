@@ -3,31 +3,25 @@ import {
   boundFlatResult,
   directoryResult,
   MAX_RESULT_CODE_UNITS,
-  NativeFileError,
-  outlineReader,
-  resolveEndRelativeSelector,
-  selectMultiRangeLines,
-  selectSourceLines,
+  parsePathScheme,
   splitSelectorSuffix,
-  splitSourceLines,
-  type ReadTarget,
 } from '@workspace/native-file-tools';
 
+import { placeListingSelector, type ListingRefusal } from '../listing-window';
+import { nativeErrorResult, selectInMemoryText } from '../text-selection';
 import { type ToolContext, type ToolResult } from '../types';
 import {
   ArtifactsRepository,
-  type ArtifactPartSummary,
+  type ArtifactParts,
   type StoredPart,
 } from './artifacts-repository';
-import { artifactLinePieces, artifactText } from './lines';
+import { artifactText } from './lines';
 import {
   ARTIFACT_SCHEME,
   formatArtifactLocator,
   parseArtifactLocatorText,
   type ArtifactLocator,
 } from './locator';
-
-export { ARTIFACT_SCHEME };
 
 const BARE_LOCATOR = `${ARTIFACT_SCHEME}://`;
 
@@ -52,7 +46,10 @@ export async function readArtifact(
     };
   }
   const { path, selector } = splitSelectorSuffix(submitted);
-  if (path === BARE_LOCATOR) return listChatArtifacts(context, selector);
+  const scheme = parsePathScheme(path);
+  if (scheme?.scheme === ARTIFACT_SCHEME && scheme.rest === '') {
+    return listChatArtifacts(context, selector);
+  }
   const locator = parseArtifactLocatorText(path);
   if (locator === undefined) return invalidLocatorResult();
 
@@ -78,20 +75,35 @@ async function readLocator(
   repository: ArtifactsRepository,
   { chatId, path, locator, selector }: LocatorRead,
 ): Promise<ToolResult> {
-  const artifact = await repository.find(chatId, locator.toolName, locator.seq);
-  if (artifact === undefined) return notFoundResult();
   if (locator.part !== undefined) {
-    const part = await repository.findPart(artifact.id, locator.part);
+    const part = await repository.readPart(
+      chatId,
+      locator.toolName,
+      locator.seq,
+      locator.part,
+    );
     return part === undefined
       ? notFoundResult()
-      : readPart(path, part, selector);
+      : readStoredPart(path, part, selector);
   }
-  const parts = await repository.listParts(artifact.id);
-  const single = parts[0];
-  if (single === undefined) return notFoundResult();
-  if (single.name !== '') return listStreams(path, parts, selector);
-  const part = await repository.findPart(artifact.id, '');
-  return part === undefined ? notFoundResult() : readPart(path, part, selector);
+  const found = await repository.findParts(
+    chatId,
+    locator.toolName,
+    locator.seq,
+  );
+  if (found === undefined) return notFoundResult();
+  if (found.parts.length === 1 && found.parts[0].name === '') {
+    const part = await repository.readPart(
+      chatId,
+      locator.toolName,
+      locator.seq,
+      '',
+    );
+    return part === undefined
+      ? notFoundResult()
+      : readStoredPart(path, part, selector);
+  }
+  return listStreams(path, locator, found, selector);
 }
 
 async function listChatArtifacts(
@@ -110,43 +122,38 @@ async function listChatArtifacts(
 
 function listStreams(
   path: string,
-  parts: ReadonlyArray<ArtifactPartSummary>,
+  locator: ArtifactLocator,
+  found: ArtifactParts,
   selector: string | undefined,
 ): ToolResult {
-  const entries = parts.map(
+  const entries = found.parts.map(
     (part) =>
-      `${path}/${part.name} (${count(part.lineCount, 'line')}, ${count(part.byteSize, 'byte')})`,
+      `${path}/${part.name} (${locator.toolName}, ${count(part.lineCount, 'line')}, ${count(part.byteSize, 'byte')}, ${found.createdAt.toISOString()})`,
   );
   return renderListing(path, entries, selector, 'no streams');
 }
 
-/** One part's text, numbered in 8,000-unit pieces, with the read selectors. */
-async function readPart(
+/**
+ * One stored part's text, numbered by its stored line count and then placed by
+ * the shared selectors. The part's text is split once here, because the pieces
+ * are what the selectors number.
+ */
+async function readStoredPart(
   path: string,
   part: StoredPart,
   selector: string | undefined,
 ): Promise<ToolResult> {
   try {
     const target = applySelectorSuffix(path, selector);
-    const source = part.content.toString('utf8');
-    const resolved = resolveEndRelativeSelector(
+    return await selectInMemoryText({
       target,
-      artifactLinePieces(source).length,
-    );
-    const text = artifactText(source);
-    if (resolved.outline) {
-      return await outlineReader(part.contentType)(
-        splitSourceLines(text),
-        resolved,
-      );
-    }
-    return resolved.ranges === undefined
-      ? selectSourceLines(text, resolved, part.contentType)
-      : selectMultiRangeLines(text, resolved, part.contentType);
+      text: artifactText(part.content.toString('utf8')),
+      lineCount: part.lineCount,
+      mediaType: part.contentType,
+    });
   } catch (error) {
-    if (error instanceof NativeFileError) {
-      return { status: 'error', type: error.type, message: error.message };
-    }
+    const refused = nativeErrorResult(error);
+    if (refused !== undefined) return refused;
     throw error;
   }
 }
@@ -162,46 +169,31 @@ function renderListing(
   selector: string | undefined,
   emptyText: string,
 ): ToolResult {
-  try {
-    const target = applySelectorSuffix(path, selector);
-    const refusal = listingSelectorRefusal(target);
-    if (refusal !== undefined) return refusal;
-    const resolved = resolveEndRelativeSelector(target, entries.length);
-    const end = Math.min(
-      resolved.offset + (resolved.limit ?? entries.length),
-      entries.length,
-    );
-    const selected = entries.slice(resolved.offset, end);
-    const page =
-      selected.length === 0 && entries.length === 0
-        ? `${path}\n(${emptyText})\n`
-        : [path, ...selected].join('\n') + '\n';
-    const result = directoryResult(path, entries.length, {
-      content: page,
-      truncated: end < entries.length,
-      ...(end < entries.length && { nextOffset: end }),
-    });
-    return boundFlatResult(result, resolved.offset, MAX_RESULT_CODE_UNITS);
-  } catch (error) {
-    if (error instanceof NativeFileError) {
-      return { status: 'error', type: error.type, message: error.message };
-    }
-    throw error;
-  }
+  const placed = placeListingSelector(path, selector, entries.length);
+  if ('refusal' in placed) return listingRefusal(placed.refusal);
+  const { offset, limit } = placed.window;
+  const end = Math.min(offset + (limit ?? entries.length), entries.length);
+  const content =
+    entries.length === 0
+      ? `${path}\n(${emptyText})\n`
+      : [path, ...entries.slice(offset, end)].join('\n') + '\n';
+  const result = directoryResult(path, entries.length, {
+    content,
+    truncated: end < entries.length,
+    ...(end < entries.length && { nextOffset: end }),
+  });
+  return boundFlatResult(result, offset, MAX_RESULT_CODE_UNITS);
 }
 
-/** A listing has no second interval, no raw form, and no outline. */
-function listingSelectorRefusal(target: ReadTarget): ToolResult | undefined {
-  const message = target.outline
-    ? 'The :outline member is not supported for artifact listings.'
-    : target.raw
-      ? 'The :raw selector is not supported for artifact listings.'
-      : target.ranges !== undefined
-        ? 'Comma-separated selectors are not supported for artifact listings.'
-        : undefined;
-  return message === undefined
-    ? undefined
-    : { status: 'error', type: 'invalid_selector', message };
+/** A listing takes no second interval, no raw form, and no outline. */
+function listingRefusal(refusal: ListingRefusal): ToolResult {
+  const message =
+    refusal === 'invalid'
+      ? 'The artifact listing selector is invalid.'
+      : refusal === 'outline'
+        ? 'The :outline member is not supported for artifact listings.'
+        : 'An artifact listing accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.';
+  return { status: 'error', type: 'invalid_selector', message };
 }
 
 function count(value: number, noun: string): string {

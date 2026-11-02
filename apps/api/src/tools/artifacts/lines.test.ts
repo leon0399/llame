@@ -5,19 +5,24 @@ import {
   artifactText,
 } from './lines';
 
+/** One UTF-16 code unit repeated `count` times. */
+function units(unit: string, count: number): string {
+  return unit.repeat(count);
+}
+
 describe('artifact line numbering', () => {
   it('counts a source line up to the bound as one line', () => {
-    const source = `${'a'.repeat(ARTIFACT_LINE_UNITS)}\nb\n`;
+    const source = `${units('a', ARTIFACT_LINE_UNITS)}\nb\n`;
 
     expect(artifactLineCount(source)).toBe(2);
     expect(artifactLinePieces(source)).toEqual([
-      'a'.repeat(ARTIFACT_LINE_UNITS),
+      units('a', ARTIFACT_LINE_UNITS),
       'b',
     ]);
   });
 
   it('turns a longer line into one line per piece', () => {
-    const long = 'x'.repeat(ARTIFACT_LINE_UNITS * 2 + 1);
+    const long = units('x', ARTIFACT_LINE_UNITS * 2 + 1);
     const source = `head\n${long}\n${long}tail\n`;
 
     expect(artifactLineCount(source)).toBe(7);
@@ -34,14 +39,51 @@ describe('artifact line numbering', () => {
     expect(artifactText(source).endsWith('xtail\n')).toBe(true);
   });
 
-  it('ends a piece on a code-point boundary', () => {
-    // The pair occupies units 8,000 and 8,001, so the boundary index points at
-    // its low half: the piece ends before the pair and the next piece opens it.
-    const body = `${'a'.repeat(ARTIFACT_LINE_UNITS - 1)}😀end`;
-    const pieces = artifactLinePieces(body);
+  it('keeps a surrogate pair that starts exactly at the cut', () => {
+    const body = `${units('a', ARTIFACT_LINE_UNITS)}😀end`;
 
-    expect(pieces).toEqual(['a'.repeat(ARTIFACT_LINE_UNITS - 1), `😀end`]);
-    expect(pieces.join('')).toBe(body);
+    expect(artifactLinePieces(body)).toEqual([
+      units('a', ARTIFACT_LINE_UNITS),
+      '😀end',
+    ]);
+  });
+
+  it('steps back when the cut falls on either low surrogate end', () => {
+    for (const low of ['\uDC00', '\uDFFF']) {
+      const body = `${units('a', ARTIFACT_LINE_UNITS - 1)}\uD800${low}y`;
+
+      expect(artifactLinePieces(body)).toEqual([
+        units('a', ARTIFACT_LINE_UNITS - 1),
+        `\uD800${low}y`,
+      ]);
+    }
+  });
+
+  it('keeps a pair that ends just before the cut', () => {
+    const body = `${units('a', ARTIFACT_LINE_UNITS - 2)}😀bbb`;
+
+    expect(artifactLinePieces(body)).toEqual([
+      `${units('a', ARTIFACT_LINE_UNITS - 2)}😀`,
+      'bbb',
+    ]);
+  });
+
+  it('does not step back for a plain code point at the cut', () => {
+    const body = `${units('a', ARTIFACT_LINE_UNITS - 1)}€xy`;
+
+    expect(artifactLinePieces(body)).toEqual([
+      `${units('a', ARTIFACT_LINE_UNITS - 1)}€`,
+      'xy',
+    ]);
+  });
+
+  it('keeps every piece within the bound', () => {
+    const body = units('😀', ARTIFACT_LINE_UNITS);
+
+    for (const piece of artifactLinePieces(body)) {
+      expect(piece.length).toBeLessThanOrEqual(ARTIFACT_LINE_UNITS);
+    }
+    expect(artifactLinePieces(body).join('')).toBe(body);
   });
 
   it('reproduces a source without a long line and keeps its terminator', () => {

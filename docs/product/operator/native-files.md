@@ -262,7 +262,7 @@ resource and read back with `artifact://<toolName>-<n>`; see
 [artifacts](../reference/tools/artifacts.md). The store is Postgres, so the
 scheme needs no `nativeExecutorId` and no `bash`: `read` serves it whenever it
 is allowlisted. A part is bounded by `tools.artifacts.maxBytes` (default 8 MiB,
-floor 128 KiB).
+floor 128 KiB, ceiling 256 MiB).
 
 With a whole-tool allow on `read`, every `artifact://` read is admitted. A
 field-allow allowlist must name the scheme explicitly, as it must name

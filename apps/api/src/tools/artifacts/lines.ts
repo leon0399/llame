@@ -1,4 +1,5 @@
 import { splitSourceLines } from '@workspace/native-file-tools';
+import { codePointSafeCutIndex } from '@workspace/runtime-safety';
 
 /**
  * Artifact line numbering (tool-result-artifacts D2). A stored part can hold a
@@ -9,10 +10,6 @@ import { splitSourceLines } from '@workspace/native-file-tools';
  * names artifact lines uses this same count.
  */
 export const ARTIFACT_LINE_UNITS = 8000;
-
-// The low half of a UTF-16 surrogate pair (0xDC00–0xDFFF).
-const LOW_SURROGATE_START = 56_320;
-const LOW_SURROGATE_END = 57_343;
 
 /**
  * The part's text as the reader numbers it: each source line's content, with a
@@ -46,15 +43,10 @@ function splitCodeUnits(body: string): Array<string> {
   const pieces = new Array<string>();
   let start = 0;
   while (start < body.length) {
-    let end = Math.min(start + ARTIFACT_LINE_UNITS, body.length);
-    // A cut between a high and a low surrogate would break the pair, so the
-    // boundary moves one unit back and the low surrogate opens the next piece.
-    if (
-      end < body.length &&
-      body.charCodeAt(end) >= LOW_SURROGATE_START &&
-      body.charCodeAt(end) <= LOW_SURROGATE_END
-    )
-      end -= 1;
+    const end = codePointSafeCutIndex(
+      body,
+      Math.min(start + ARTIFACT_LINE_UNITS, body.length),
+    );
     pieces.push(body.slice(start, end));
     start = end;
   }

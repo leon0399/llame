@@ -12,6 +12,7 @@ import { parse as parseYaml } from 'yaml';
 import { parse as parseToml } from 'smol-toml';
 
 import {
+  ARTIFACT_MAX_BYTES_CEILING,
   ARTIFACT_MAX_BYTES_FLOOR,
   BUILT_IN_DEFAULTS,
   DEFAULT_EMBEDDING_BATCH_SIZE,
@@ -317,9 +318,10 @@ function resolveGrepBounds(
 
 /**
  * The one byte bound on every artifact part (tool-result-artifacts D13). It is
- * a required positive integer with a floor of 128 KiB, so a Machine stream
- * always fits; a smaller value, a fraction, or an unknown key fails startup
- * naming the path.
+ * a required positive integer between 128 KiB, so a Machine stream always
+ * fits, and 256 MiB, above which a read cannot serve the part back; a value
+ * outside that range, a fraction, or an unknown key fails startup naming the
+ * path.
  */
 function resolveArtifactBounds(
   raw: RawInstanceConfig | undefined,
@@ -337,6 +339,7 @@ function resolveArtifactBounds(
         nullable: false,
         env,
         min: ARTIFACT_MAX_BYTES_FLOOR,
+        max: ARTIFACT_MAX_BYTES_CEILING,
       }),
       'tools.artifacts.maxBytes',
     ),
@@ -1489,8 +1492,10 @@ function resolveNumeric(opts: {
   nullable: boolean;
   env: NodeJS.ProcessEnv;
   min?: number;
+  max?: number;
 }): number | null {
-  const { configPath, present, raw, builtInDefault, nullable, env, min } = opts;
+  const { configPath, present, raw, builtInDefault, nullable, env, min, max } =
+    opts;
 
   if (!present) {
     // Absent from the file = the built-in default. The environment reaches
@@ -1512,7 +1517,7 @@ function resolveNumeric(opts: {
     return null;
   }
   if (isNumber(raw)) {
-    assertPositiveInteger(raw, configPath, min);
+    assertPositiveInteger(raw, configPath, min, max);
     return raw;
   }
 
@@ -1524,7 +1529,7 @@ function resolveNumeric(opts: {
       `${configPath}: must be a number or a {env:}/{path:} token string`,
     );
   }
-  return resolveNumericFromToken(raw, { configPath, env, nullable, min });
+  return resolveNumericFromToken(raw, { configPath, env, nullable, min, max });
 }
 
 /** The {env:}/{path:} token-string branch of `resolveNumeric` — resolved,
@@ -1537,9 +1542,10 @@ function resolveNumericFromToken(
     env: NodeJS.ProcessEnv;
     nullable: boolean;
     min?: number;
+    max?: number;
   },
 ): number | null {
-  const { configPath, env, nullable, min } = opts;
+  const { configPath, env, nullable, min, max } = opts;
   const resolved = resolveInterpolatedString(raw, configPath, env);
   if (resolved.trim() === '') {
     if (nullable) {
@@ -1555,7 +1561,7 @@ function resolveNumericFromToken(
       `${configPath}: interpolated value does not resolve to a valid number`,
     );
   }
-  assertPositiveInteger(n, configPath, min);
+  assertPositiveInteger(n, configPath, min, max);
   return n;
 }
 
@@ -1606,8 +1612,18 @@ function isStringArray(value: unknown): value is Array<string> {
  * exactly the misconfiguration this feature exists to catch at boot, so it
  * fails loud rather than falling back.
  */
-function assertPositiveInteger(n: number, configPath: string, min = 1): void {
-  if (!Number.isInteger(n) || n < min) {
+function assertPositiveInteger(
+  n: number,
+  configPath: string,
+  min = 1,
+  max?: number,
+): void {
+  if (!Number.isInteger(n) || n < min || (max !== undefined && n > max)) {
+    if (max !== undefined && Number.isInteger(n) && n > max) {
+      throw new InstanceConfigError(
+        `${configPath}: must be an integer <= ${max}`,
+      );
+    }
     throw new InstanceConfigError(
       min === 1
         ? `${configPath}: must be a positive integer`

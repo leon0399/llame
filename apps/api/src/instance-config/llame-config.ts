@@ -491,8 +491,8 @@ export type GrepBoundsConfig = {
 
 /** The smallest artifact byte bound; a Machine stream always fits it. */
 export const ARTIFACT_MAX_BYTES_FLOOR = 131_072;
-/** The built-in `tools.artifacts.maxBytes` (8 MiB). */
-export const DEFAULT_ARTIFACT_MAX_BYTES = 8_388_608;
+/** The largest artifact byte bound a read can serve back. */
+export const ARTIFACT_MAX_BYTES_CEILING = 268_435_456;
 
 /**
  * The one byte bound on every artifact part (tool-result-artifacts D13). A
@@ -787,7 +787,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
       maxBytesRead: null,
       maxFileBytes: null,
     },
-    artifacts: { maxBytes: DEFAULT_ARTIFACT_MAX_BYTES },
+    artifacts: { maxBytes: 8_388_608 },
     promptFiles: {},
     webAdapters: [],
   },

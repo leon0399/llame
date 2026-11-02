@@ -136,16 +136,21 @@ d('fork artifact copy', () => {
     const fork = await service.forkSharedChat(source.chatId, stranger);
 
     if (fork === undefined) throw new Error('Expected a shared fork');
-    expect(await listCount(fork.id)).toBe(0);
+    // Counted as the caller: the source's owner identity would mask a copy.
+    expect(await listCount(fork.id, stranger)).toBe(0);
   });
 
   it('never copies an artifact of another Chat', async () => {
+    // A name no earlier case can have written, so only a lookup that ignored
+    // the source Chat could find it.
+    const elsewhere = 'artifact://hunt-1';
     const other = await seedSource({
       parts: [],
       artifactContent: 'elsewhere\n',
+      toolName: 'hunt',
     });
     const source = await seedSource({
-      parts: [toolPart(GREP_ONE)],
+      parts: [toolPart(elsewhere)],
       artifactContent: undefined,
     });
 
@@ -153,7 +158,7 @@ d('fork artifact copy', () => {
 
     expect(await listCount(other.chatId)).toBe(1);
     expect(await listCount(fork.id)).toBe(0);
-    expect(await read(fork.id, GREP_ONE)).toMatchObject({
+    expect(await read(fork.id, elsewhere)).toMatchObject({
       status: 'error',
       type: 'not_found',
     });
@@ -165,6 +170,7 @@ d('fork artifact copy', () => {
     parts: Array<unknown>;
     artifactContent: string | undefined;
     visibility?: 'private' | 'public';
+    toolName?: string;
   }) {
     const chatId = await tenantDb.runAs(owner, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
@@ -188,7 +194,10 @@ d('fork artifact copy', () => {
       return chat.id;
     });
     if (input.artifactContent !== undefined) {
-      await writeArtifact(chatId, { content: input.artifactContent });
+      await writeArtifact(chatId, {
+        content: input.artifactContent,
+        ...(input.toolName !== undefined && { toolName: input.toolName }),
+      });
     }
     return { chatId };
   }
@@ -232,14 +241,14 @@ d('fork artifact copy', () => {
     );
   }
 
-  const context = (chatId: string): ToolContext => ({
-    userId: owner,
+  const context = (chatId: string, userId = owner): ToolContext => ({
+    userId,
     chatId,
     tenantDb,
   });
 
-  function read(chatId: string, locator: string) {
-    return readArtifact(context(chatId), 'read', locator);
+  function read(chatId: string, locator: string, userId = owner) {
+    return readArtifact(context(chatId, userId), 'read', locator);
   }
 
   async function artifactText(chatId: string, locator: string) {
@@ -250,8 +259,8 @@ d('fork artifact copy', () => {
     return result['content'];
   }
 
-  async function listCount(chatId: string): Promise<number> {
-    const result = await read(chatId, 'artifact://');
+  async function listCount(chatId: string, userId = owner): Promise<number> {
+    const result = await read(chatId, 'artifact://', userId);
     if (result.status !== 'success' || !isNumber(result['entryCount'])) {
       throw new Error(`Expected a listing, got ${JSON.stringify(result)}`);
     }

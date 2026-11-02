@@ -7,7 +7,7 @@
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-import { eq, sql as drizzleSql } from 'drizzle-orm';
+import { eq, inArray, sql as drizzleSql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
@@ -191,12 +191,12 @@ d('artifact store', () => {
           },
         ],
       });
-      const parts = await tenantDb.runAs(owner, (tx) =>
-        new ArtifactsRepository(tx).listParts(written.id),
+      const found = await tenantDb.runAs(owner, (tx) =>
+        new ArtifactsRepository(tx).findParts(chat, 'grep', written.seq),
       );
 
       expect(written.byteSize).toBe(10);
-      expect(parts).toEqual([
+      expect(found?.parts).toEqual([
         { name: 'stderr', lineCount: 1, byteSize: 2 },
         { name: 'stdout', lineCount: 1, byteSize: 8 },
       ]);
@@ -269,7 +269,7 @@ d('artifact store', () => {
         new ArtifactsRepository(tx).listChat(chat),
       );
       const part = await tenantDb.runAs(stranger, (tx) =>
-        new ArtifactsRepository(tx).findPart(written.id, ''),
+        new ArtifactsRepository(tx).readPart(chat, 'grep', written.seq, ''),
       );
       expect(rows).toEqual([]);
       expect(part).toBeUndefined();
@@ -293,10 +293,93 @@ d('artifact store', () => {
       expect(sqlStateOf(refused)).toBe('42501');
     });
 
+    it('shows no artifact to the public sharing identity', async () => {
+      const chat = await tenantDb.runAs(owner, (tx) =>
+        new ChatsRepository(tx).create({
+          ownerUserId: owner,
+          title: 'Shared with an artifact',
+          visibility: 'public',
+        }),
+      );
+      await write(chat.id);
+
+      const rows = await tenantDb.runAsPublic((tx) =>
+        new ArtifactsRepository(tx).listChat(chat.id),
+      );
+      expect(rows).toEqual([]);
+      const [artifacts] = await tenantDb.runAsPublic((tx) =>
+        tx.select({ n: drizzleSql<number>`count(*)::int` }).from(toolArtifacts),
+      );
+      const [parts] = await tenantDb.runAsPublic((tx) =>
+        tx
+          .select({ n: drizzleSql<number>`count(*)::int` })
+          .from(toolArtifactParts),
+      );
+      expect(artifacts.n).toBe(0);
+      expect(parts.n).toBe(0);
+    });
+
+    it('refuses a part insert into another owner artifact', async () => {
+      const chat = await createChat(tenantDb, owner, 'Foreign part');
+      const written = await write(chat);
+
+      const refused = await tenantDb
+        .runAs(stranger, (tx) =>
+          tx.insert(toolArtifactParts).values({
+            artifactId: written.id,
+            name: 'stdout',
+            contentType: 'text/plain',
+            content: Buffer.from('x'),
+            sha256: '0'.repeat(64),
+            byteSize: 1,
+            lineCount: 1,
+          }),
+        )
+        .catch((error: unknown) => error);
+      expect(sqlStateOf(refused)).toBe('42501');
+    });
+
+    it('keeps part names unique inside one artifact', async () => {
+      const chat = await createChat(tenantDb, owner, 'Duplicate part');
+      const written = await write(chat, {
+        toolName: 'bash',
+        parts: [
+          {
+            name: 'stdout',
+            contentType: 'text/plain',
+            content: Buffer.from('o'),
+          },
+        ],
+      });
+
+      const refused = await tenantDb
+        .runAs(owner, (tx) =>
+          tx.insert(toolArtifactParts).values({
+            artifactId: written.id,
+            name: 'stdout',
+            contentType: 'text/plain',
+            content: Buffer.from('e'),
+            sha256: '0'.repeat(64),
+            byteSize: 1,
+            lineCount: 1,
+          }),
+        )
+        .catch((error: unknown) => error);
+      expect(sqlStateOf(refused)).toBe('23505');
+    });
+
     it('deletes every artifact and part row with its Chat', async () => {
       const chat = await createChat(tenantDb, owner, 'Cascade');
-      await write(chat);
-      await write(chat, { toolName: 'bash' });
+      const grep = await write(chat);
+      const bash = await write(chat, { toolName: 'bash' });
+      const artifactIds = [grep.id, bash.id];
+      const partsBefore = await tenantDb.runAs(owner, (tx) =>
+        tx
+          .select({ n: drizzleSql<number>`count(*)::int` })
+          .from(toolArtifactParts)
+          .where(inArray(toolArtifactParts.artifactId, artifactIds)),
+      );
+      expect(partsBefore[0].n).toBe(2);
 
       await tenantDb.runAs(owner, (tx) =>
         new ChatsRepository(tx).deleteById(chat, owner),
@@ -311,11 +394,7 @@ d('artifact store', () => {
         tx
           .select({ n: drizzleSql<number>`count(*)::int` })
           .from(toolArtifactParts)
-          .innerJoin(
-            toolArtifacts,
-            eq(toolArtifactParts.artifactId, toolArtifacts.id),
-          )
-          .where(eq(toolArtifacts.chatId, chat)),
+          .where(inArray(toolArtifactParts.artifactId, artifactIds)),
       );
       expect(remaining[0].n).toBe(0);
       expect(parts[0].n).toBe(0);
@@ -407,8 +486,12 @@ d('artifact store', () => {
       const result = await read('artifact://bash-1', chat);
       const content = contentOf(result);
       expect(countOf(result)).toBe(2);
-      expect(content).toContain('artifact://bash-1/stdout (1 line, 2 bytes)');
-      expect(content).toContain('artifact://bash-1/stderr');
+      expect(content).toContain(
+        'artifact://bash-1/stdout (bash, 1 line, 2 bytes, 2026-',
+      );
+      expect(content).toContain(
+        'artifact://bash-1/stderr (bash, 1 line, 2 bytes',
+      );
     });
 
     it('keeps listing an artifact whose reply was replaced', async () => {
@@ -444,14 +527,17 @@ d('artifact store', () => {
     it('outlines a Markdown part and reads another raw', async () => {
       const chat = await createChat(tenantDb, owner, 'Outline');
       await write(chat, {
-        content: '# File a\npassage\n## File b\npassage\n',
+        content:
+          '# File a\nfirst paragraph\n\nsecond paragraph\n## File b\nthird paragraph\n\nfourth paragraph\n',
       });
 
       const outline = contentOf(await read('artifact://grep-1:outline', chat));
       expect(outline).toContain('# File a');
       expect(outline).toContain('## File b');
-      expect(contentOf(await read('artifact://grep-1:2:raw', chat))).toContain(
-        'passage',
+      expect(outline).not.toContain('second paragraph');
+      expect(outline).not.toContain('fourth paragraph');
+      expect(contentOf(await read('artifact://grep-1:4:raw', chat))).toBe(
+        'second paragraph\n',
       );
       const plain = await write(chat, {
         toolName: 'bash',

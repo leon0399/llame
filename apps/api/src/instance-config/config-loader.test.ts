@@ -972,10 +972,39 @@ describe('loadInstanceConfig — tools.artifacts bound (tool-result-artifacts D1
 
   it('fails startup below the 128 KiB floor, naming the path', () => {
     writeConfig('{ "tools": { "artifacts": { "maxBytes": 4096 } } }');
-
     expect(() => loadInstanceConfig()).toThrow(
       /tools[./]artifacts[./]maxBytes/,
     );
+
+    // A token is outside the JSON Schema's integer bounds, so this one reaches
+    // the loader's own floor.
+    writeConfig(
+      '{ "tools": { "artifacts": { "maxBytes": "{env:IC_ARTIFACT_BYTES}" } } }',
+    );
+    expect(() => loadInstanceConfig({ IC_ARTIFACT_BYTES: '4096' })).toThrow(
+      'tools.artifacts.maxBytes: must be an integer >= 131072',
+    );
+  });
+
+  it('refuses a value above the 256 MiB ceiling, naming the path', () => {
+    writeConfig('{ "tools": { "artifacts": { "maxBytes": 268435457 } } }');
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]artifacts[./]maxBytes/,
+    );
+
+    writeConfig(
+      '{ "tools": { "artifacts": { "maxBytes": "{env:IC_ARTIFACT_BYTES}" } } }',
+    );
+    expect(() =>
+      loadInstanceConfig({ IC_ARTIFACT_BYTES: '268435457' }),
+    ).toThrow('tools.artifacts.maxBytes: must be an integer <= 268435456');
+
+    writeConfig(
+      '{ "tools": { "artifacts": { "maxBytes": "{env:IC_ARTIFACT_BYTES}" } } }',
+    );
+    expect(
+      loadInstanceConfig({ IC_ARTIFACT_BYTES: '268435456' }).tools.artifacts,
+    ).toEqual({ maxBytes: 268_435_456 });
   });
 
   it('refuses a fraction and an unknown field, naming the path', () => {

@@ -77,6 +77,19 @@ describe('tool artifact schema', () => {
 
     expect(config.enableRLS).toBe(true);
     expect(
+      config.uniqueConstraints.map((constraint) => [
+        constraint.name,
+        constraint.columns.map((column) => column.name),
+        constraint.nullsNotDistinct,
+      ]),
+    ).toEqual([
+      [
+        'tool_artifact_parts_artifact_name_unique',
+        ['artifact_id', 'name'],
+        true,
+      ],
+    ]);
+    expect(
       config.foreignKeys.map((key) => [key.getName(), key.onDelete]),
     ).toEqual([
       ['tool_artifact_parts_artifact_id_tool_artifacts_id_fk', 'cascade'],

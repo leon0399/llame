@@ -13,19 +13,15 @@
 
 import {
   DIRECTORY_TRAVERSAL_BUDGET,
-  NativeFileError,
   applySelectorSuffix,
   compareEntries,
   fileMediaType,
-  outlineReader,
   renderCollectedDirectory,
-  resolveEndRelativeSelector,
-  selectMultiRangeLines,
-  selectSourceLines,
   splitSourceLines,
   type ReadTarget,
 } from '@workspace/native-file-tools';
 
+import { nativeErrorResult, selectInMemoryText } from './text-selection';
 import { type SshBinding, type SshClient } from '../ssh/ssh-client';
 import {
   SSH_LOCATOR_HELP,
@@ -96,11 +92,6 @@ function readBudgetMs(context: ToolContext): number {
   return remaining === undefined
     ? SSH_READ_BUDGET_MS
     : Math.max(1, Math.min(remaining, SSH_READ_BUDGET_MS));
-}
-
-function nativeErrorResult(error: unknown): ToolResult | undefined {
-  if (!(error instanceof NativeFileError)) return undefined;
-  return { status: 'error', type: error.type, message: error.message };
 }
 
 function directorySelectorFailure(target: ReadTarget): ToolResult | undefined {
@@ -204,21 +195,12 @@ async function renderTextRead(
     const read = applySelectorSuffix(target.locator, target.selector);
     // The text is in hand, so its own line count is the count an `N-` or a
     // `-K` member resolves against, exactly as a file's own lines are.
-    const lines =
-      read.pending === undefined ? undefined : splitSourceLines(text);
-    const resolved =
-      lines === undefined
-        ? read
-        : resolveEndRelativeSelector(read, lines.length);
-    const mediaType = fileMediaType(target.path);
-    if (resolved.outline)
-      return await outlineReader(mediaType)(
-        lines ?? splitSourceLines(text),
-        resolved,
-      );
-    return resolved.ranges === undefined
-      ? selectSourceLines(text, resolved, mediaType)
-      : selectMultiRangeLines(text, resolved, mediaType);
+    return await selectInMemoryText({
+      target: read,
+      text,
+      lineCount: read.pending === undefined ? 0 : splitSourceLines(text).length,
+      mediaType: fileMediaType(target.path),
+    });
   } catch (error) {
     return refusedRendering(error);
   }

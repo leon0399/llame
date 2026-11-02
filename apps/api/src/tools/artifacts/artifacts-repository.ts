@@ -19,18 +19,16 @@ export type ArtifactPartSummary = {
   readonly byteSize: number;
 };
 
-export type StoredArtifact = {
-  readonly id: string;
-  readonly seq: number;
-  readonly toolName: string;
-  readonly complete: boolean;
+/** One artifact's parts, with the creation time both lists show. */
+export type ArtifactParts = {
   readonly createdAt: Date;
+  readonly parts: ReadonlyArray<ArtifactPartSummary>;
 };
 
-export type StoredPart = ArtifactPartSummary & {
+export type StoredPart = {
   readonly contentType: string;
   readonly content: Buffer;
-  readonly findings: unknown;
+  readonly lineCount: number;
 };
 
 export type NewArtifact = {
@@ -121,60 +119,67 @@ export class ArtifactsRepository {
       .orderBy(asc(toolArtifacts.seq));
   }
 
-  async find(
+  /** One artifact's parts and creation time, or undefined for a missing one. */
+  async findParts(
     chatId: string,
     toolName: string,
     seq: number,
-  ): Promise<StoredArtifact | undefined> {
-    const [row] = await this.db
+  ): Promise<ArtifactParts | undefined> {
+    const rows = await this.db
       .select({
-        id: toolArtifacts.id,
-        seq: toolArtifacts.seq,
-        toolName: toolArtifacts.toolName,
-        complete: toolArtifacts.complete,
         createdAt: toolArtifacts.createdAt,
+        name: toolArtifactParts.name,
+        lineCount: toolArtifactParts.lineCount,
+        byteSize: toolArtifactParts.byteSize,
       })
       .from(toolArtifacts)
+      .innerJoin(
+        toolArtifactParts,
+        eq(toolArtifactParts.artifactId, toolArtifacts.id),
+      )
       .where(
         and(
           eq(toolArtifacts.chatId, chatId),
           eq(toolArtifacts.toolName, toolName),
           eq(toolArtifacts.seq, seq),
         ),
-      );
-    return row;
-  }
-
-  async listParts(artifactId: string): Promise<Array<ArtifactPartSummary>> {
-    return this.db
-      .select({
-        name: toolArtifactParts.name,
-        lineCount: toolArtifactParts.lineCount,
-        byteSize: toolArtifactParts.byteSize,
-      })
-      .from(toolArtifactParts)
-      .where(eq(toolArtifactParts.artifactId, artifactId))
+      )
       .orderBy(asc(toolArtifactParts.name));
+    const [first] = rows;
+    if (first === undefined) return undefined;
+    return {
+      createdAt: first.createdAt,
+      parts: rows.map(({ name, lineCount, byteSize }) => ({
+        name,
+        lineCount,
+        byteSize,
+      })),
+    };
   }
 
-  /** The part without its bytes, for a reader that must only list. */
-  async findPart(
-    artifactId: string,
+  /** One named part of one artifact, with its bytes, in one joined query. */
+  async readPart(
+    chatId: string,
+    toolName: string,
+    seq: number,
     name: string,
   ): Promise<StoredPart | undefined> {
     const [row] = await this.db
       .select({
-        name: toolArtifactParts.name,
         contentType: toolArtifactParts.contentType,
         content: toolArtifactParts.content,
         lineCount: toolArtifactParts.lineCount,
-        byteSize: toolArtifactParts.byteSize,
-        findings: toolArtifactParts.findings,
       })
       .from(toolArtifactParts)
+      .innerJoin(
+        toolArtifacts,
+        eq(toolArtifacts.id, toolArtifactParts.artifactId),
+      )
       .where(
         and(
-          eq(toolArtifactParts.artifactId, artifactId),
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.toolName, toolName),
+          eq(toolArtifacts.seq, seq),
           eq(toolArtifactParts.name, name),
         ),
       );
