@@ -331,12 +331,11 @@ describe("fs.grep", () => {
 
   it("refuses a request that carries no bounds", async () => {
     await writeAt("project/a.go", "needle\n");
-    // A hub of another build sends the same fields without `bounds`; the
-    // daemon must refuse the shape rather than run with old bounds.
+    // The legacy shape a pre-rename hub sends: a `budget` object and no
+    // `bounds` key. The daemon must refuse it rather than run with old
+    // bounds, even though a daemon of that other build would accept it.
     const full = request(join(fixture.root, "project"));
-    // The wire message itself: the other build's request never carried the
-    // field, so the parsed message has no `bounds` key at all.
-    const legacy = { ...full };
+    const legacy = { ...full, budget: { ...BOUNDS } };
     Reflect.deleteProperty(legacy, "bounds");
     const outcome = await daemon.attempt(FS_GREP_METHOD, legacy);
     expect(outcome.ok).toBe(false);
@@ -429,8 +428,16 @@ describe("fs.grep", () => {
   it("searches with every count bound unset", async () => {
     await writeAt("project/a.go", "needle one\n");
     await writeAt("project/b.go", "needle two\n");
+    const prefix = join(fixture.root, "project");
+    // The finite control stops after one file, so the unset request's second
+    // file proves the nulls really remove the bound.
+    const bounded = await grep(
+      request(prefix, { bounds: { ...BOUNDS, files: 1 } }),
+    );
+    expect(pathsOf(bounded)).toEqual(["a.go"]);
+    expect(bounded.complete).toBe(false);
     const page = await grep(
-      request(join(fixture.root, "project"), {
+      request(prefix, {
         bounds: { ...BOUNDS, files: null, entries: null, bytes: null },
       }),
     );

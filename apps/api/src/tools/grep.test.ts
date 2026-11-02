@@ -30,7 +30,11 @@ import {
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import {
   grepWarningsUnits,
   measureGrepRendering,
@@ -157,6 +161,17 @@ function contextOf(options: ContextOptions = {}): ToolContext {
     onDerivedDecision: options.onDerivedDecision,
     grepBounds: options.grepBounds,
   };
+}
+
+/** The decoded payload of a cursor a result carries. */
+function cursorPayloadOf(result: ToolResult): UnknownRecord {
+  const cursor = success(result).cursor;
+  if (!isString(cursor)) throw new Error('the page carries a cursor');
+  const payload: unknown = JSON.parse(
+    Buffer.from(cursor, 'base64url').toString('utf8'),
+  );
+  if (!isRecord(payload)) throw new Error('the cursor is an object');
+  return payload;
 }
 
 /** A successful result as an open record, so a field assertion stays checked. */
@@ -803,6 +818,13 @@ describe('paging', () => {
         expect(result).toMatchObject({ status: 'success', results: [] });
         expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
         expect(success(result).complete).toBe(false);
+        // The stop carries a cursor at the first unsearched scope, so the next
+        // call resumes instead of repeating the resolution.
+        expect(cursorPayloadOf(result)).toMatchObject({
+          kind: 'position',
+          scopeIndex: 0,
+          rel: '',
+        });
       } finally {
         vi.useRealTimers();
       }

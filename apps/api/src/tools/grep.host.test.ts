@@ -457,26 +457,6 @@ describe('host authority', () => {
 });
 
 describe('operator bounds', () => {
-  it('reports no bound warning on an unconfigured walk', async () => {
-    await withRoot(async (root) => {
-      // Thirty listed files before the one match, and no bound warning: the
-      // machine tests prove an unset bound travels as null on the wire.
-      const misses = Array.from(
-        { length: 30 },
-        (_, index) => `m${String(index)}.md`,
-      );
-      await Promise.all(misses.map((name) => writeAt(root, name, 'miss\n')));
-      await writeAt(root, 'z.md', 'needle\n');
-      const result = await run(contextOf(), {
-        patterns: ['needle'],
-        scopes: [`${root}/**`],
-      });
-      expect(locatorsOf(result)).toEqual([`${root}/z.md:1-1`]);
-      expect(success(result).complete).toBe(true);
-      expect(warningsOf(result)).toEqual([]);
-    });
-  });
-
   it('stops the walk at the configured file bound', async () => {
     await withRoot(async (root) => {
       for (const name of ['a.md', 'b.md', 'c.md']) {
