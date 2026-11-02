@@ -392,6 +392,30 @@ describe("grep walk bounds", () => {
     expect(second.complete).toBe(true);
   });
 
+  it("names the bound a scope starts already spent under", async () => {
+    const cases = [
+      { budget: { files: 0 }, warning: "file_bound" },
+      { budget: { entries: 0 }, warning: "entry_bound" },
+      { budget: { bytes: 0 }, warning: "byte_bound" },
+    ] as const;
+    for (const { budget, warning } of cases) {
+      const port = createMemoryPort({ "a.md": hit(), "b.md": hit() });
+      const result = await runMemoryScan(
+        [memoryScope(0, "/repo/", port)],
+        ["hit"],
+        { budget },
+      );
+      expect(result.results).toEqual([]);
+      expect(result.complete).toBe(false);
+      expect(result.warnings).toEqual([{ kind: warning, count: 1 }]);
+      expect(decode(result.cursor)).toMatchObject({
+        kind: "position",
+        scopeIndex: 0,
+        rel: "",
+      });
+    }
+  });
+
   it("names the last reached file when the file bound stops a walk without a passage", async () => {
     const port = createMemoryPort({
       "a.md": file("miss\n"),

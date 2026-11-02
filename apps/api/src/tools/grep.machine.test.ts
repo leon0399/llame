@@ -2285,12 +2285,54 @@ describe('daemon page stop conditions', () => {
     );
     expect(locatorsOf(result)).toEqual([]);
     expect(success(result).complete).toBe(false);
+    // The skipped scope names the bound that stopped the call.
+    expect(success(result).warnings).toEqual([
+      { kind: 'file_bound', count: 1 },
+    ]);
     expect(cursorPayloadOf(result)).toMatchObject({
       kind: 'position',
       scopeIndex: 1,
       rel: '',
     });
     expect(fsGrepCalls(await peer.session(0))).toBe(1);
+  });
+
+  it('names a spent entry or byte bound when a later scope is skipped', async () => {
+    const cases = [
+      {
+        policy: {
+          maxFilesExamined: null,
+          maxEntriesListed: 1,
+          maxBytesRead: null,
+          maxFileBytes: null,
+        },
+        warning: 'entry_bound',
+      },
+      {
+        policy: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: 1,
+          maxFileBytes: null,
+        },
+        warning: 'byte_bound',
+      },
+    ] as const;
+    for (const { policy, warning } of cases) {
+      const { connector } = fixture({
+        answers: {
+          'fs.grep': {
+            value: page([], { consumed: { files: 1, entries: 1, bytes: 10 } }),
+          },
+        },
+      });
+      const result = await run(context(connector, { grepBounds: policy }), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+      });
+      expect(success(result).complete).toBe(false);
+      expect(success(result).warnings).toEqual([{ kind: warning, count: 1 }]);
+    }
   });
 
   it('keeps a warning-only segment that exactly fills the page', async () => {

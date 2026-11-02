@@ -344,12 +344,29 @@ function segmentOfPages(
   search: MachineGrepSearch,
   pages: Omit<MachineSegmentPage, 'position'>,
 ): MachineGrepSegment {
-  const { entries, last } = pages;
+  const { entries, last, warnings } = pages;
   const position =
     entries.length > 0 || last === undefined
       ? undefined
       : (unfinishedPosition(search, last) ?? stoppedPosition(search, last));
-  return segmentOf({ ...pages, position });
+  // A scope whose bound was spent by an earlier segment is never asked, so
+  // no page can name the stop: the segment reports it instead, in the order
+  // the walk would have tripped it (entries while listing, then files, then
+  // bytes at a candidate).
+  const spent = last === undefined ? spentBound(search.budget) : undefined;
+  const counted =
+    spent !== undefined && !warnings.has(spent)
+      ? new Map([...warnings, [spent, 1] as const])
+      : warnings;
+  return segmentOf({ ...pages, warnings: counted, position });
+}
+
+/** The count bound a segment starts already spent under, if any. */
+function spentBound(budget: GrepBudget): FsGrepWarningKind | undefined {
+  if (budget.entries === 0) return 'entry_bound';
+  if (budget.files === 0) return 'file_bound';
+  if (budget.bytes === 0) return 'byte_bound';
+  return undefined;
 }
 
 /**
