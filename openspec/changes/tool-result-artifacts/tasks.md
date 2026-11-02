@@ -52,9 +52,12 @@ without its first consumers. Every implementation layer stays inside about
 
 ## 1. proposal
 
-- [ ] 1.1 Validate the change: `pnpm exec openspec validate tool-result-artifacts --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/tool-result-artifacts/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
-- [ ] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
-- [ ] 1.3 Obtain Leo's approval of the published revision, including each deviation in proposal.md.
+- [x] 1.1 Validate the change: `pnpm exec openspec validate tool-result-artifacts --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/tool-result-artifacts/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm exec openspec validate tool-result-artifacts --strict` passes; markdownlint, link check, `pnpm format:check`, and `git diff --check` are clean on 46d0a9f1.
+- [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
+  - Evidence: local rounds 1 and 2 (spec consistency and feasibility reviewers; fixes in 5b0381be and be6984e0) and GitHub review round 1 (29 threads; fixes in 46d0a9f1). design.md "Revision history" records each round.
+- [x] 1.3 Obtain Leo's approval of the published revision, including each deviation in proposal.md.
+  - Evidence: Leo, in chat on 2026-11-02: "Assume spec is approved and further smaller review deviations are acceptible." This approves the published revision 46d0a9f1 and its listed deviations, and accepts smaller deviations found in later review.
 
 ## 2. web-search-text
 
