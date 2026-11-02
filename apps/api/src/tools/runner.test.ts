@@ -675,7 +675,7 @@ describe('runTool', () => {
     // SAFETY: toMatchObject does not narrow; the notice is the tool's own
     // passthrough field (see the truncation test above).
     expect((result as UnknownRecord).truncationNotice).toContain(
-      'The full result is artifact://echo-3',
+      '[full result: artifact://echo-3',
     );
   });
 

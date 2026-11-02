@@ -1,5 +1,5 @@
 import { cutStringAtCodePointBoundary } from "./code-point-boundary";
-import { ARTIFACT_NOT_STORED } from "./artifact-notice";
+import { ARTIFACT_NOT_STORED, artifactNotice } from "./artifact-notice";
 import {
   isBoolean,
   isNumber,
@@ -187,18 +187,20 @@ function truncationNotice(input: TruncationNoticeInput): string {
 }
 
 /**
- * Where the head result's artifact is. A stored rendering names its locator,
- * its line count, and the line a reader continues from; a rendering that could
- * not be stored says so and leaves the artifact field off the result.
+ * Where the head result's artifact is: the same bracketed notice a
+ * `tool`-shaped spill ends with, continuing from the first artifact line. A
+ * rendering that could not be stored says so and leaves the artifact field off
+ * the result.
  */
 function spillPhrase(spill: CappedResultSpill | undefined): string {
   if (spill === undefined) return "";
   if (spill.kind === "not-stored") return ` ${ARTIFACT_NOT_STORED}`;
-  const lines = spill.lineCount === 1 ? "line" : "lines";
-  return (
-    ` The full result is ${spill.locator} (${spill.lineCount} ${lines});` +
-    ` read it from ${spill.locator}:1-.`
-  );
+  return ` ${artifactNotice(
+    [{ locator: spill.locator, lines: spill.lineCount }],
+    {
+      continueWith: { locator: spill.locator, next: 1 },
+    },
+  )}`;
 }
 
 /**
@@ -219,23 +221,55 @@ function displayAwareMeasure(
 }
 
 /**
- * Whether the cap would shorten this result. The predicate follows the same
- * display rule the truncation does, so a caller that stores the whole rendering
- * first (a `head` spill) never writes an artifact for a result that fits.
+ * A result with its `display` data split off, and the measure that sees it. A
+ * display-carrying result is never serialized with its display into the capped
+ * result, so both the predicate and the cut read the display-free form while
+ * the caller's measure still counts the rendering display builds.
+ */
+type DisplaySplit =
+  | {
+      readonly split: false;
+      readonly shown: ToolResult;
+      readonly measure: (candidate: ToolResult) => number;
+    }
+  | {
+      readonly split: true;
+      readonly shown: ToolResult;
+      readonly measure: (candidate: ToolResult) => number;
+      readonly display: unknown;
+    };
+
+function splitDisplay(
+  result: ToolResult,
+  measure: (candidate: ToolResult) => number,
+): DisplaySplit {
+  if (result.status !== "success" || !Object.hasOwn(result, "display")) {
+    return { split: false, shown: result, measure };
+  }
+  const { display, ...shown } = result;
+  return {
+    split: true,
+    shown,
+    display,
+    measure: isRecord(display)
+      ? displayAwareMeasure(measure, display)
+      : measure,
+  };
+}
+
+/**
+ * Whether the cap would shorten this result. The predicate shares
+ * {@link splitDisplay} with the truncation, so a caller that stores the whole
+ * rendering first (a `head` spill) never writes an artifact for a result that
+ * fits.
  */
 export function isOversizedResult(
   result: ToolResult,
   measure: (candidate: ToolResult) => number = measureJson,
 ): boolean {
   if (result.status !== "success") return false;
-  if (Object.hasOwn(result, "display")) {
-    const { display, ...shown } = result;
-    return isOversizedResult(
-      shown,
-      isRecord(display) ? displayAwareMeasure(measure, display) : measure,
-    );
-  }
-  return measure(result) > RESULT_TRUNCATE_CHARS;
+  const split = splitDisplay(result, measure);
+  return split.measure(split.shown) > RESULT_TRUNCATE_CHARS;
 }
 
 /**
@@ -269,14 +303,12 @@ export function truncateOversizedResult(
   spill?: CappedResultSpill,
 ): ToolResult {
   if (result.status !== "success") return result;
-  if (Object.hasOwn(result, "display")) {
-    const { display, ...shown } = result;
-    const capped = truncateOversizedResult(
-      shown,
-      isRecord(display) ? displayAwareMeasure(measure, display) : measure,
-      spill,
-    );
-    return capped.status === "success" ? { ...capped, display } : capped;
+  const split = splitDisplay(result, measure);
+  if (split.split) {
+    const capped = truncateOversizedResult(split.shown, split.measure, spill);
+    return capped.status === "success"
+      ? { ...capped, display: split.display }
+      : capped;
   }
   const measured = measure(result);
   if (measured <= RESULT_TRUNCATE_CHARS) return result;

@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import {
+  ARTIFACT_NOT_STORED,
+  isOversizedResult,
   RESULT_TRUNCATE_CHARS,
   truncateOversizedResult,
-} from "./result-truncation";
+} from "./index";
 import { type ToolResult } from "./types";
 import { isRecord, isString } from "./unknown-record";
 
@@ -814,5 +816,123 @@ describe("truncateOversizedResult display-aware measures", () => {
 
     expect(widths[0]).toBe(editWidth(result));
     expect(widths[0]).not.toBe(editWidth(withoutDisplay(result)));
+  });
+
+  it("follows the same display rule in the oversize predicate", () => {
+    const plainHeader = "edited a.tsx".length;
+    const result = editResult("x".repeat(RESULT_TRUNCATE_CHARS - plainHeader));
+
+    // Fits with the display set aside, over the cap with its header counted.
+    expect(editWidth(withoutDisplay(result))).toBe(RESULT_TRUNCATE_CHARS);
+    expect(isOversizedResult(result, editWidth)).toBe(true);
+    expect(truncateOversizedResult(result, editWidth)).toMatchObject({
+      truncated: true,
+    });
+  });
+
+  it("does not count a non-record display in the predicate", () => {
+    const measure = (candidate: ToolResult): number =>
+      JSON.stringify(candidate).length;
+    const result: ToolResult = {
+      status: "success",
+      content: "x".repeat(RESULT_TRUNCATE_CHARS - 40),
+      display: "x".repeat(50_000),
+    };
+
+    expect(isOversizedResult(result, measure)).toBe(false);
+    expect(truncateOversizedResult(result, measure)).toEqual(result);
+  });
+});
+
+describe("isOversizedResult", () => {
+  it("is false for a result at the cap and true for one over it", () => {
+    const atCap: ToolResult = {
+      status: "success",
+      blob: "x".repeat(RESULT_TRUNCATE_CHARS - 30),
+    };
+    expect(JSON.stringify(atCap).length).toBe(RESULT_TRUNCATE_CHARS);
+    expect(isOversizedResult(atCap)).toBe(false);
+    expect(
+      isOversizedResult({
+        status: "success",
+        blob: "x".repeat(RESULT_TRUNCATE_CHARS),
+      }),
+    ).toBe(true);
+  });
+
+  it("never reports an error as oversized", () => {
+    expect(
+      isOversizedResult({
+        status: "error",
+        type: "execution_failed",
+        message: "x".repeat(RESULT_TRUNCATE_CHARS * 2),
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("truncateOversizedResult head spill", () => {
+  const LOCATOR = "artifact://mcp__docs__fetch-4";
+
+  const oversized = (): ToolResult => ({
+    status: "success",
+    content: "x".repeat(RESULT_TRUNCATE_CHARS * 2),
+  });
+
+  function noticeOf(result: ToolResult): string {
+    if (result.status !== "success" || !isString(result.truncationNotice)) {
+      throw new Error(
+        `Expected a capped result, got ${JSON.stringify(result)}`,
+      );
+    }
+    return result.truncationNotice;
+  }
+
+  it("pins the artifact field and names the locator, line count, and range", () => {
+    const result = truncateOversizedResult(
+      { ...oversized(), artifact: LOCATOR },
+      undefined,
+      { kind: "stored", locator: LOCATOR, lineCount: 900 },
+    );
+
+    expect(result).toMatchObject({ artifact: LOCATOR, truncated: true });
+    expect(noticeOf(result)).toContain(
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-]`,
+    );
+    expect(noticeOf(result)).toContain(
+      "Re-run this tool with narrower arguments if you need the omitted content.",
+    );
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
+  });
+
+  it("pluralizes a single artifact line", () => {
+    const notice = noticeOf(
+      truncateOversizedResult(oversized(), undefined, {
+        kind: "stored",
+        locator: LOCATOR,
+        lineCount: 1,
+      }),
+    );
+
+    expect(notice).toContain(`[full result: ${LOCATOR} (1 line);`);
+    expect(notice).not.toContain("(1 lines)");
+  });
+
+  it("says the full result is not stored when the write did not happen", () => {
+    const result = truncateOversizedResult(oversized(), undefined, {
+      kind: "not-stored",
+    });
+
+    expect(result).not.toHaveProperty("artifact");
+    expect(noticeOf(result)).toContain(ARTIFACT_NOT_STORED);
+  });
+
+  it("carries no artifact clause without a spill", () => {
+    const notice = noticeOf(truncateOversizedResult(oversized()));
+
+    expect(notice).not.toContain("full result");
+    expect(notice).not.toContain(ARTIFACT_NOT_STORED);
   });
 });

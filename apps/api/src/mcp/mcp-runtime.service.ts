@@ -594,9 +594,6 @@ export class McpRuntimeService
       messages: [],
       abortSignal: context.abortSignal,
     });
-    // An MCP tool declares no spill shape, so the result takes the `head`
-    // spill: the whole rendering is stored when the Run can read it, then the
-    // cap keeps its head (tool-result-artifacts D3, D6).
     const observed = {
       ...outcome,
       result: await capHeadResult(context, toolId, outcome.result),

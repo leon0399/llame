@@ -166,11 +166,6 @@ export interface ToolContext {
    */
   readonly artifactReadable?: boolean;
   /**
-   * `bash` is in `tools.allowed` and runs on the llame host with host files, so
-   * a Run can read an artifact from disk without `read` (design D10).
-   */
-  readonly artifactHostFiles?: boolean;
-  /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.
    */

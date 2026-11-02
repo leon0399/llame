@@ -3045,20 +3045,18 @@ export class RunExecutionService {
 
   /**
    * The artifact read surface of a Run (tool-result-artifacts "An artifact
-   * needs a way to read it"): `read` is allowlisted with its per-locator group
-   * admission, or `bash` runs on the llame host with host files.
+   * needs a way to read it"): the operator byte bound, and whether `read` is
+   * allowlisted. `capHeadResult` evaluates the `read` group on the locator;
+   * host files arrive with a later layer.
    */
   private artifactReadContext(): Pick<
     ToolContext,
-    'artifactMaxBytes' | 'artifactReadable' | 'artifactHostFiles'
+    'artifactMaxBytes' | 'artifactReadable'
   > {
-    const { artifacts, allowed, nativeExecutorId } =
-      this.instanceConfig.config.tools;
+    const { artifacts, allowed } = this.instanceConfig.config.tools;
     return {
       artifactMaxBytes: artifacts.maxBytes,
       artifactReadable: allowed.includes('read'),
-      artifactHostFiles:
-        allowed.includes('bash') && nativeExecutorId !== undefined,
     };
   }
 

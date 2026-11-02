@@ -17,6 +17,7 @@ import * as schema from '../../db/schema';
 import { TenantDbService } from '../../db/tenant-db.service';
 import { ChatsRepository } from '../../chats/chats-repository';
 import { renderToolResultText } from '../model-text';
+import { compileToolPermissionMap } from '../permissions/compile-permissions';
 import { type ToolContext, type ToolResult } from '../types';
 import { readArtifact } from './artifact-reader';
 import { capHeadResult } from './spill';
@@ -58,8 +59,11 @@ d('head spill', () => {
     runId: crypto.randomUUID(),
     toolCallId: crypto.randomUUID(),
     tenantDb,
-    // Host files make the artifact readable without a compiled read policy.
-    artifactHostFiles: true,
+    artifactReadable: true,
+    permissionPolicy: compileToolPermissionMap(
+      { read: { allow: [{ field: 'path', regex: '^artifact://' }] } },
+      'test-policy',
+    ),
   });
 
   it('reads a long JSON text value by lines with a continuation', async () => {

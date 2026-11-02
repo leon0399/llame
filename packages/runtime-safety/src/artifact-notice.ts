@@ -3,9 +3,9 @@
  * (tool-result-artifacts "An artifact notice is one bracketed line").
  *
  * The producer owns the inline layout and the omitted content; this module
- * only names the stored parts, the line a reader continues from, and where the
- * host files are. Every value renders on one line, because a line break inside
- * a locator or a directory would start a line the notice does not own.
+ * only names the stored parts and the line a reader continues from. Every
+ * value renders on one line, because a line break inside a locator would start
+ * a line the notice does not own.
  */
 
 /** The marker a result carries when its whole rendering was not stored. */
@@ -26,22 +26,16 @@ export type ArtifactNoticeContinuation = {
   readonly next: number;
 };
 
-/** The host files of an artifact, when they exist. */
-export type ArtifactNoticeHost =
-  | { readonly kind: "directory"; readonly directory: string }
-  | { readonly kind: "host-only" };
-
 export type ArtifactNoticeOptions = {
   /** `grep` and `web_search` continue from a line; `bash` does not. */
   readonly continueWith?: ArtifactNoticeContinuation;
-  readonly host?: ArtifactNoticeHost;
 };
 
 /**
- * `[full result: <locator> (<lines> lines); continue with <locator>:<next>-;
- * host files in <directory>]`. One part is `1 line`, two are joined with a
- * comma. An empty part list is a producer bug, so it still renders one
- * bracketed line with no parts rather than throwing inside a tool result.
+ * `[full result: <locator> (<lines> lines); continue with <locator>:<next>-]`.
+ * One part is `1 line`, two are joined with a comma. An empty part list is a
+ * producer bug, so it still renders one bracketed line with no parts rather
+ * than throwing inside a tool result.
  */
 export function artifactNotice(
   parts: ReadonlyArray<ArtifactNoticePart>,
@@ -57,13 +51,7 @@ export function artifactNotice(
     options.continueWith === undefined
       ? ""
       : `; continue with ${oneLine(options.continueWith.locator)}:${options.continueWith.next}-`;
-  const host =
-    options.host === undefined
-      ? ""
-      : options.host.kind === "directory"
-        ? `; host files in ${oneLine(options.host.directory)}`
-        : "; host files on the llame host only";
-  return `[full result: ${named}${continuation}${host}]`;
+  return `[full result: ${named}${continuation}]`;
 }
 
 /** Collapse every line break so a value cannot start a notice line. */

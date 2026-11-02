@@ -137,7 +137,7 @@ describe('capHeadResult', () => {
     );
     expect(result).toMatchObject({ artifact: LOCATOR, truncated: true });
     expect(noticeOf(result)).toContain(
-      `The full result is ${LOCATOR} (${lineCount} lines); read it from ${LOCATOR}:1-.`,
+      `[full result: ${LOCATOR} (${lineCount} lines); continue with ${LOCATOR}:1-]`,
     );
   });
 
@@ -178,24 +178,46 @@ describe('capHeadResult', () => {
     expect(result).not.toHaveProperty('artifact');
     expect(noticeOf(result)).not.toContain('[full result not stored]');
   });
+
+  it('stores nothing outside a Run', async () => {
+    const storage = spyStorage();
+    const result = await capHeadResult(
+      context({ runId: undefined }),
+      TOOL,
+      hugeResult(),
+    );
+
+    expect(storage.insertArtifact).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
+    expect(noticeOf(result)).not.toContain('[full result not stored]');
+  });
+
+  it('stores a text rendering as rendered', async () => {
+    const storage = spyStorage(4);
+    const body = 'passage\n'.repeat(3000);
+    const result = await capHeadResult(context(), 'read', {
+      status: 'success',
+      kind: 'file',
+      path: 'a.txt',
+      content: body,
+      truncated: false,
+    });
+
+    const stored = storage.insertParts.mock.calls[0]?.[1][0];
+    if (stored === undefined) throw new Error('Expected a stored part.');
+    expect(stored.contentType).toBe('text/plain');
+    const text = stored.content.toString('utf8');
+    expect(text.split('\n')[0]).toContain('a.txt');
+    expect(text).toContain('passage');
+    expect(text).not.toContain('"status"');
+    expect(result).toMatchObject({ artifact: 'artifact://read-4' });
+  });
 });
 
 describe('runCanReadArtifacts', () => {
-  it('is true when bash runs on the llame host with host files', () => {
-    expect(
-      runCanReadArtifacts(
-        context({ artifactReadable: false, artifactHostFiles: true }),
-        TOOL,
-      ),
-    ).toBe(true);
-  });
-
   it('needs read in tools.allowed', () => {
     expect(
-      runCanReadArtifacts(
-        context({ artifactReadable: false, artifactHostFiles: false }),
-        TOOL,
-      ),
+      runCanReadArtifacts(context({ artifactReadable: false }), TOOL),
     ).toBe(false);
   });
 

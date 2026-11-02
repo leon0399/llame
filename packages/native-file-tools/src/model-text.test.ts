@@ -514,6 +514,21 @@ describe("read text one-line framing", () => {
       "[The result was cut. [214 more lines. Use x:3-]]",
     );
   });
+
+  it("does not nest a head spill's artifact notice", () => {
+    const artifact = "artifact://mcp__docs__fetch-4";
+    const result = fileRead({
+      truncationNotice:
+        "Result truncated to fit the 16000-character tool-result cap; " +
+        `8 characters omitted. [full result: ${artifact} (900 lines); ` +
+        `continue with ${artifact}:1-] Re-run this tool with narrower arguments.`,
+    });
+
+    const line = renderReadText(result).split("\n").at(-1);
+    expect(line).toContain(`[full result: ${artifact} (900 lines)`);
+    expect(line).not.toContain("[[");
+    expect(line).not.toContain("]]");
+  });
 });
 
 describe("read text cap notice", () => {

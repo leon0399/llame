@@ -199,6 +199,38 @@ export function renderToolResultForModel(
   return { kind: 'json', value: jsonValue.parse(JSON.parse(text)) };
 }
 
+/** A `head` spill's stored part and the model text the cap measured. */
+export type SpillRendering = {
+  /** The model-facing text, in the cap's units. */
+  readonly text: string;
+  readonly contentType: string;
+  readonly content: string;
+};
+
+/**
+ * One model rendering for a `head` spill (tool-result-artifacts D2, D3). The
+ * text is the rendering the cap measures, and the content is the part to
+ * store: a JSON rendering is pretty-printed, one member or item on each line,
+ * so a long value stays readable by line; a text rendering is stored as
+ * rendered. Rendered once, so an oversized result is not rendered twice before
+ * it is cut.
+ */
+export function renderToolResultForSpill(
+  toolName: string,
+  result: ToolResult,
+): SpillRendering {
+  const { text, escapedAsText } = modelView(toolName, result);
+  if (isTextResultTool(toolName) || escapedAsText) {
+    return { text, contentType: 'text/plain', content: text };
+  }
+  const value: unknown = JSON.parse(text);
+  return {
+    text,
+    contentType: 'application/json',
+    content: JSON.stringify(value, null, 2) ?? text,
+  };
+}
+
 /** The output one settled result sends: its text with its media reference, or
  *  its JSON value. */
 export function modelToolOutput(

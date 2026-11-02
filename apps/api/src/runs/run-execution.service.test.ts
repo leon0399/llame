@@ -453,6 +453,8 @@ type ExecutionServiceOptions = {
   webSearch?: WebSearchConfig;
   /** The operator's `tools.grep` bounds; absent leaves every bound unset. */
   grepBounds?: InstanceConfigReader['config']['tools']['grep'];
+  /** The operator's `tools.artifacts` bound; absent uses the built-in one. */
+  artifacts?: InstanceConfigReader['config']['tools']['artifacts'];
   /** The operator's global per-call timeout. */
   callTimeoutSeconds?: number;
 };
@@ -491,6 +493,7 @@ function makeExecutionService(
         permissionModes:
           options.permissionModes ?? BUILT_IN_DEFAULTS.tools.permissionModes,
         grep: options.grepBounds ?? BUILT_IN_DEFAULTS.tools.grep,
+        artifacts: options.artifacts ?? BUILT_IN_DEFAULTS.tools.artifacts,
         callTimeoutSeconds:
           options.callTimeoutSeconds ??
           BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
@@ -1203,6 +1206,7 @@ describe('RunExecutionService executeRun', () => {
           },
         ],
         grepBounds,
+        artifacts: { maxBytes: 4096 },
         callTimeoutSeconds: 45,
       },
     );
@@ -1212,6 +1216,9 @@ describe('RunExecutionService executeRun', () => {
       await executeBoundTool(options, { q: 'context' }, 'grep-bounds');
       expect(observedContexts).toHaveLength(1);
       expect(observedContexts[0]?.grepBounds).toEqual(grepBounds);
+      expect(observedContexts[0]?.artifactMaxBytes).toBe(4096);
+      // This Run does not allowlist `read`, so it cannot open an artifact.
+      expect(observedContexts[0]?.artifactReadable).toBe(false);
       expect(observedContexts[0]?.callTimeoutSeconds).toBe(45);
       await options.onFinish?.({
         text: 'answer',
@@ -14303,6 +14310,8 @@ describe('RunExecutionService prompt imports', () => {
       await expect(result.text).resolves.toBe('answer');
       expect(read).toHaveBeenCalledOnce();
       expect(read.mock.calls[0]?.[0].grepBounds).toEqual(grepBounds);
+      expect(read.mock.calls[0]?.[0].artifactMaxBytes).toBe(8_388_608);
+      expect(read.mock.calls[0]?.[0].artifactReadable).toBe(true);
       expect(read.mock.calls[0]?.[0].callTimeoutSeconds).toBe(45);
     } finally {
       rmSync(root, { recursive: true, force: true });
