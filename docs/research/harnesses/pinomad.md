@@ -15,6 +15,9 @@ sources:
   - id: pinomad-license-l1-l4
     resource: "https://github.com/bubbleptr/pinomad/blob/ea50587ea0ad10b484b4a17c8e521b0706a3db42/LICENSE#L1-L4"
     title: "Apache License 2.0 heading"
+  - id: pinomad-readme-checkpoints-l12
+    resource: "https://github.com/bubbleptr/pinomad/blob/ea50587ea0ad10b484b4a17c8e521b0706a3db42/README.md#L12"
+    title: "README says Pi Durable checkpoints every model call and tool call"
   - id: pinomad-readme-license-l49
     resource: "https://github.com/bubbleptr/pinomad/blob/ea50587ea0ad10b484b4a17c8e521b0706a3db42/README.md#L49"
     title: "Apache-2.0, with Pi notices under docs/licenses"
@@ -79,7 +82,7 @@ PiNomad is a self-hosted coding product on the experimental Pi Durable runtime d
 
 **Study**
 
-1. **One host, many windows.** ADR-0002 chooses Pi Durable because a crashed host should continue an unfinished model call or tool task from a checkpoint, and because several clients observe one session.[^pinomad-adr-0002-l7-l12] Startup calls `harness.resume()`. Close writes no tool outcome; the comment says a running turn resumes at the next open.[^pinomad-host-resume-l333-l334][^pinomad-host-close-l372] An interrupt is tool-specific: tools marked `replay: "safe"` run again; bash, write, and edit do not, and the model receives an interrupted result that may be partial.[^pinomad-adr-0009-l16] The README sentence that Pi Durable checkpoints every model call and tool call is stronger than that ADR. llame already treats a [Run as the unit of execution](../../../VISION.md#runs-are-the-unit-of-execution); a phone attached to a host is a client, not a second Run store.
+1. **One host, many windows.** ADR-0002 chooses Pi Durable because a crashed host should continue an unfinished model call or tool task from a checkpoint, and because several clients observe one session.[^pinomad-adr-0002-l7-l12] Startup calls `harness.resume()`. Close writes no tool outcome; the comment says a running turn resumes at the next open.[^pinomad-host-resume-l333-l334][^pinomad-host-close-l372] An interrupt is tool-specific: tools marked `replay: "safe"` run again; bash, write, and edit do not, and the model receives an interrupted result that may be partial.[^pinomad-adr-0009-l16] The README says Pi Durable checkpoints every model call and tool call, which is stronger than that ADR.[^pinomad-readme-checkpoints-l12] llame already treats a [Run as the unit of execution](../../../VISION.md#runs-are-the-unit-of-execution); a phone attached to a host is a client, not a second Run store.
 2. **Tools run on the host, with no approval gate.** Coding tools are Durable's read, write, edit, and bash bundle, executed through a `NodeExecutionEnv` for the conversation cwd.[^pinomad-coding-l26-l27][^pinomad-host-env-l247-l250] ADR-0011 removes the approval gate and keeps `ask_user_question` for ambiguity. The tool blocks until the person answers.[^pinomad-adr-0011-l14-l16] A paired device has the same reach as a local client. That is the opposite of [the harness owns execution](../../../VISION.md#the-harness-owns-execution) for shell and file writes: the host executes, and it does not ask.
 3. **The cwd is chosen when the conversation is created.** A project is a directory the person registers. A git project defaults to a worktree unless `checkout` is `project`. A non-worktree project sets `agent.cwd` to that path in the creation call. A Chat home's cwd is `<dataDir>/chats/<id>`, set in the same commit.[^pinomad-checkout-l194-l207][^pinomad-chat-cwd-l247-l250][^pinomad-host-open-l219-l223] The environment map is one `NodeExecutionEnv` per cwd.[^pinomad-host-env-l247-l250]
 4. **Pairing is the authorization boundary.** Protocol major 5, minor 25: a different major version cannot talk.[^pinomad-protocol-l88-l96] After the relay handshake, forwarded bytes are already Noise-encrypted. The relay's own control frames are plaintext, so it sees connection metadata.[^pinomad-relay-l1-l5] Device admission checks the one-time secret, revocation, and account policy inside one commit.[^pinomad-admit-l47-l54]
@@ -95,6 +98,8 @@ PiNomad is a self-hosted coding product on the experimental Pi Durable runtime d
 **Caution:** There is no per-tool approval and no OS sandbox around bash in the host code reviewed here.[^pinomad-coding-l26-l27] The relay sees ciphertext payloads and plaintext control frames.[^pinomad-relay-l1-l5] Hosts do not sync conversations with each other. ADR-0009's older sentence about `~/.pi/agent` credentials is superseded by ADR-0031.[^pinomad-adr-0031-l20-l22]
 
 [^pinomad-license-l1-l4]: [Apache License 2.0 heading](https://github.com/bubbleptr/pinomad/blob/ea50587ea0ad10b484b4a17c8e521b0706a3db42/LICENSE#L1-L4)
+
+[^pinomad-readme-checkpoints-l12]: [README says Pi Durable checkpoints every model call and tool call](https://github.com/bubbleptr/pinomad/blob/ea50587ea0ad10b484b4a17c8e521b0706a3db42/README.md#L12)
 
 [^pinomad-readme-license-l49]: [Apache-2.0, with Pi notices under docs/licenses](https://github.com/bubbleptr/pinomad/blob/ea50587ea0ad10b484b4a17c8e521b0706a3db42/README.md#L49)
 

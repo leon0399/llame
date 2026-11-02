@@ -33,6 +33,12 @@ sources:
   - id: thinkrail-ws-l299-l310
     resource: "https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/packages/server/src/host/server.ts#L299-L310"
     title: "WebSocket upgrade takes a client query parameter"
+  - id: thinkrail-arch-auth-l122-l123
+    resource: "https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/architecture.md#L122-L123"
+    title: "Architecture says auth is Tailscale ACLs and device identity"
+  - id: thinkrail-host-flag-l53-l55
+    resource: "https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/apps/cli/src/args.test.ts#L53-L55"
+    title: "Argument test accepts --host 0.0.0.0"
   - id: thinkrail-cli-host-l1-l2
     resource: "https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/apps/cli/src/args.ts#L1-L2"
     title: "CLI defaults to localhost port 24242"
@@ -102,7 +108,7 @@ ThinkRail is JetBrains' agentic IDE around pi: isolated git workspaces, living s
 - Low: item 6's spec graph as project knowledge. It is files the agent edits, which fits human-readable knowledge, and it is still pi context.
 - Avoid: treating a reached `/ws` as an authenticated owner. Binding is the boundary in the server code reviewed here.[^thinkrail-ws-l299-l310]
 
-**Caution:** The architecture document describes Tailscale ACLs as the auth. The fetch handler that upgrades `/ws` does not check a credential.[^thinkrail-ws-l299-l310] The CLI accepts an explicit `--host`, including `0.0.0.0`, in its argument tests. MCP confirmation does not cover pi's shell. PiNomad's coding tools have no approval gate; ThinkRail's MCP gate is narrower and does not change that comparison for shell.
+**Caution:** The architecture document says auth is external: Tailscale ACLs and device identity, with an `owner` field and no login UI.[^thinkrail-arch-auth-l122-l123] The fetch handler that upgrades `/ws` does not check a credential.[^thinkrail-ws-l299-l310] An argument test accepts `--host 0.0.0.0`.[^thinkrail-host-flag-l53-l55] MCP confirmation does not cover pi's shell. PiNomad's coding tools have no approval gate; ThinkRail's MCP gate is narrower and does not change that comparison for shell.
 
 [^thinkrail-license-l1-l4]: [Apache License 2.0 heading](https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/LICENSE#L1-L4)
 
@@ -117,6 +123,10 @@ ThinkRail is JetBrains' agentic IDE around pi: isolated git workspaces, living s
 [^thinkrail-protocol-l131]: [Wire protocol version 98](https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/packages/contracts/src/wsProtocol.ts#L131)
 
 [^thinkrail-ws-l299-l310]: [WebSocket upgrade takes a client query parameter](https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/packages/server/src/host/server.ts#L299-L310)
+
+[^thinkrail-arch-auth-l122-l123]: [Architecture says auth is Tailscale ACLs and device identity](https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/architecture.md#L122-L123)
+
+[^thinkrail-host-flag-l53-l55]: [Argument test accepts --host 0.0.0.0](https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/apps/cli/src/args.test.ts#L53-L55)
 
 [^thinkrail-cli-host-l1-l2]: [CLI defaults to localhost port 24242](https://github.com/JetBrains/thinkrail/blob/bc1d252695c2998a96ed203370fefcb3a78dbfa0/apps/cli/src/args.ts#L1-L2)
 
