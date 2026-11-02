@@ -463,6 +463,44 @@ export function normalizeOutput(
   source: SearchChainSuccess,
   limit: number,
 ): WebSearchSuccess {
+  const { output, notes } = boundedOutput(source, limit);
+  return output.kind === 'results'
+    ? fitResults(output, notes, source.removed)
+    : fitAnswer(output, notes, source.removed);
+}
+
+/**
+ * The whole normalized output of a call, with every fetched result and no
+ * inline-size cut (tool-result-artifacts D9). It is what the call's artifact
+ * holds; `normalizeOutput` is its inline fit.
+ */
+export function normalizeFullOutput(
+  source: SearchChainSuccess,
+  fetchSize: number,
+): WebSearchSuccess {
+  const { output, notes } = boundedOutput(source, fetchSize);
+  const visible =
+    source.removed !== undefined && source.removed > 0
+      ? [
+          `removed ${source.removed} ${source.removed === 1 ? 'entry' : 'entries'}`,
+          ...notes,
+        ]
+      : notes;
+  const bounded = capNotes(visible);
+  return bounded.length === 0 ? output : { ...output, notes: bounded };
+}
+
+/** The bounded fields of one chain result and the notes before the fit. */
+type BoundedOutput = {
+  readonly output: WebSearchSuccess;
+  readonly notes: Array<string>;
+};
+
+/** The bounded fields of one chain result, its notes, and its count. */
+function boundedOutput(
+  source: SearchChainSuccess,
+  count: number,
+): BoundedOutput {
   const notes = source.notes === undefined ? [] : [...source.notes];
   const truncation =
     source.kind === 'answer'
@@ -471,8 +509,5 @@ export function normalizeOutput(
         : undefined
       : truncatedAnswersNote(source);
   if (truncation !== undefined) notes.unshift(truncation);
-  const initial = capFields(source, limit);
-  return initial.kind === 'results'
-    ? fitResults(initial, notes, source.removed)
-    : fitAnswer(initial, notes, source.removed);
+  return { output: capFields(source, count), notes };
 }

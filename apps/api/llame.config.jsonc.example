@@ -511,6 +511,10 @@
   //     },
   //   ],
   //   "chain": ["brave", "exa", "perplexity", "searxng"],
+  //   // How many results each call asks its engines for, 1-100, default 20.
+  //   // Each vendor's own maximum still clamps it. `limit` bounds what the
+  //   // model reads inline; results beyond it stay in the call's artifact.
+  //   "fetchLimit": 20,
   // },
 
   // Run limits — every one is OPT-IN. Interpolated numbers must be

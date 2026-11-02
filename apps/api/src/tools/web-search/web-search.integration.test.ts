@@ -74,10 +74,12 @@ import {
   type HostedStreamScript,
 } from '../../testing/hosted-search-client';
 import { waitFor } from '../../testing/support';
+import { readArtifact } from '../artifacts/artifact-reader';
+import { renderToolResultText } from '../model-text';
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
 import type { CompiledPolicy } from '../permissions/types';
 import { TOOL_REGISTRY } from '../registry';
-import type { KnowledgeToolResolver } from '../types';
+import type { KnowledgeToolResolver, ToolContext } from '../types';
 import type { KnowledgeToolCandidateResolverPort } from '../../knowledge/knowledge-tool-candidate-resolver';
 import { BRAVE_SEARCH_URL } from './brave';
 import { YANDEX_SEARCH_URL } from './yandex';
@@ -103,6 +105,16 @@ const FIXTURE_SUCCESS_BODY = JSON.stringify({
         page_age: '2026-10-08T00:00:00.000Z',
       },
     ],
+  },
+});
+const FIXTURE_MANY_BODY = JSON.stringify({
+  web: {
+    results: Array.from({ length: 15 }, (_unused, index) => ({
+      title: `Fixture result ${index + 1}`,
+      url: `https://example.test/r/${index + 1}`,
+      description: `Fixture description ${index + 1}`,
+      page_age: '2026-10-08T00:00:00.000Z',
+    })),
   },
 });
 const USAGE = {
@@ -257,7 +269,13 @@ function modelFor(
     doStream: () => Promise.resolve(script(++turn)),
   });
 }
-type FixtureMode = 'success' | 'hold' | 'auth' | 'redirect' | 'yandex-denied';
+type FixtureMode =
+  | 'success'
+  | 'many'
+  | 'hold'
+  | 'auth'
+  | 'redirect'
+  | 'yandex-denied';
 type Deferred = { promise: Promise<void>; resolve: () => void };
 function deferred(): Deferred {
   let resolve = () => {};
@@ -298,6 +316,10 @@ function sendFixtureResponse(
       }),
       { 'content-type': 'application/json' },
     );
+  else if (mode === 'many')
+    send(response, 200, FIXTURE_MANY_BODY, {
+      'content-type': 'application/json',
+    });
   else if (mode === 'redirect')
     send(response, 302, 'redirect', { location: target ?? '/sink' });
   else
@@ -458,6 +480,17 @@ const ALLOW_SEARCH_AND_READ = compileToolPermissionMap(
   {
     web_search: { allow: true },
     read: { allow: [{ field: 'path', regex: '^/' }] },
+  },
+  'web-search-test-policy',
+);
+/**
+ * Allows `read` of any path, so an `artifact://` locator is admitted and the
+ * Run can store what it does not show inline (tool-result-artifacts D9).
+ */
+const ALLOW_SEARCH_AND_ARTIFACT = compileToolPermissionMap(
+  {
+    web_search: { allow: true },
+    read: { allow: true },
   },
   'web-search-test-policy',
 );
@@ -841,6 +874,76 @@ describeIfDb('web search through the real tool loop', () => {
     expect(output.results.at(0)?.url).toBe('https://example.test/results/page');
     expect(output.results.at(0)?.snippet.length).toBeLessThanOrEqual(300);
     expect(output.results.at(0)?.snippet).not.toContain('<b>');
+  });
+  it('stores results past the inline limit in an artifact a read serves', async () => {
+    fixture.configure('many');
+    const seeded = await seedRun('artifact');
+    const model = modelFor((turn) =>
+      turn === 1
+        ? toolResponse('search-artifact', 'web_search', {
+            query: FIXTURE_QUERY,
+            limit: 10,
+          })
+        : textResponse('Search completed.'),
+    );
+    await execute(
+      seeded,
+      service({
+        allowed: ['web_search', 'read'],
+        permissionPolicy: ALLOW_SEARCH_AND_ARTIFACT,
+      }),
+      model,
+    );
+    await waitStatus(seeded.run.id, 'completed');
+    expect(fixture.requests).toHaveLength(1);
+
+    // The stored part is what the model read inline: ten results, the
+    // artifact locator, and the notice.
+    const part = partOf(await assistantParts(seeded.chatId), 'tool-web_search');
+    expect(part).toMatchObject({
+      toolCallId: 'search-artifact',
+      state: 'output-available',
+      outcome: 'success',
+    });
+    const output = resultSchema.parse(part?.['output']);
+    expect(output.results).toHaveLength(10);
+    const record = recordSchema.parse(part?.['output']);
+    expect(record['artifact']).toBe('artifact://web_search-1');
+    const rendered = renderToolResultText('web_search', {
+      ...record,
+      status: 'success',
+    });
+    expect(rendered.match(/^## \d+\./gmu)).toHaveLength(10);
+    expect(rendered.split('\n').at(-1)).toMatch(
+      /^\[full result: artifact:\/\/web_search-1 \(\d+ lines\); continue with artifact:\/\/web_search-1:\d+-\]$/u,
+    );
+
+    // A read of the artifact serves the stored text alone; a new reject
+    // withholds the result it names.
+    if (!isString(record['artifact']))
+      throw new Error('Expected the artifact locator.');
+    const readContext: ToolContext = {
+      userId,
+      chatId: seeded.chatId,
+      tenantDb,
+      permissionPolicy: compileToolPermissionMap(
+        {
+          read: {
+            reject: [{ field: 'path', regex: 'example\\.test\\/r\\/2$' }],
+          },
+        },
+        'web-search-artifact-read',
+      ),
+    };
+    const read = await readArtifact(readContext, 'read', record['artifact']);
+    if (read.status !== 'success' || !isString(read['content']))
+      throw new Error('Expected a read success.');
+    const content = read['content'];
+    expect(content).toContain('https://example.test/r/15');
+    expect(content).toContain('[withheld]');
+    expect(content).not.toContain('https://example.test/r/2\n');
+    expect(content).toContain('https://example.test/r/3');
+    expect(fixture.requests).toHaveLength(1);
   });
   it('rejects a query permission before the Brave fixture receives a request', async () => {
     fixture.configure('success');

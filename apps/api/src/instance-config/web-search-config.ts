@@ -85,10 +85,17 @@ export type RawWebSearchEngineEntry =
       engines: Array<string>;
     };
 
+/** The default `webSearch.fetchLimit`, before each vendor's own maximum. */
+export const WEB_SEARCH_FETCH_LIMIT_DEFAULT = 20;
+/** The largest `webSearch.fetchLimit` the loader accepts. */
+export const WEB_SEARCH_FETCH_LIMIT_MAX = 100;
+
 /** The still-uninterpolated operator `webSearch` section. */
 export type RawWebSearchConfig = {
   engines: Array<RawWebSearchEngineEntry>;
   chain: Array<string>;
+  /** Schema-validated integer of 1 to 100; no interpolation applies. */
+  fetchLimit?: unknown;
 };
 
 export type WebSearchEngineConfig =
@@ -161,4 +168,10 @@ export type WebSearchEngineConfig =
 export type WebSearchConfig = {
   engines: ReadonlyArray<WebSearchEngineConfig>;
   chain: ReadonlyArray<string>;
+  /**
+   * How many results each call asks its engines for before a vendor maximum
+   * clamps it (tool-result-artifacts D9). The loader always resolves it; a
+   * directly built config may omit it and takes the built-in default.
+   */
+  fetchLimit?: number;
 };

@@ -67,7 +67,7 @@ const outputEnvelopeFields = {
  * tool produces so the two cannot drift. A part that matches neither — a
  * legacy part, or a payload another build wrote — keeps its JSON rendering.
  */
-const outputSchema: z.ZodType<WebSearchSuccess & CapMarker> =
+export const webSearchOutputSchema: z.ZodType<WebSearchSuccess & CapMarker> =
   z.discriminatedUnion('kind', [
     z.object({
       ...outputEnvelopeFields,
@@ -86,6 +86,27 @@ const outputSchema: z.ZodType<WebSearchSuccess & CapMarker> =
 /** The width of an ISO 8601 date, which is the part a host line shows. */
 const ISO_DATE_WIDTH = 10;
 
+/** One block of the text shape and the kind of entry it renders. */
+type TextBlock = {
+  readonly kind: 'result' | 'answer';
+  readonly lines: Array<string>;
+};
+
+/** A block's place in the artifact-line numbering, both ends 1-based. */
+export type WebSearchTextBlock = {
+  readonly kind: 'result' | 'answer';
+  /** The first line of the block, its heading line included. */
+  readonly start: number;
+  /** The last line of the block, inclusive. */
+  readonly end: number;
+};
+
+/** The rendered text and the line range of every result or answer block. */
+export type RenderedWebSearchText = {
+  readonly text: string;
+  readonly blocks: ReadonlyArray<WebSearchTextBlock>;
+};
+
 /** One stored text as `> ` lines; a trailing line break adds no empty line. */
 function quoteLines(text: string): Array<string> {
   return text
@@ -98,60 +119,72 @@ function quoteLines(text: string): Array<string> {
  * One result as its block. A URL that names no host leaves the shape without
  * its required host line, so that result keeps its JSON rendering instead.
  */
-function resultBlock(
-  result: RawResult,
-  rank: number,
-): Array<string> | undefined {
+function resultBlock(result: RawResult, rank: number): TextBlock | undefined {
   const host = URL.parse(result.url)?.host;
   if (!host) return undefined;
   const published = result.published?.slice(0, ISO_DATE_WIDTH);
-  return [
-    `## ${rank}. ${oneLine(result.title).trim() || oneLine(result.url)}`,
-    oneLine(result.url),
-    published === undefined ? host : `${host} · ${oneLine(published)}`,
-    ...(result.snippet === undefined ? [] : quoteLines(result.snippet)),
-  ];
+  return {
+    kind: 'result',
+    lines: [
+      `## ${rank}. ${oneLine(result.title).trim() || oneLine(result.url)}`,
+      oneLine(result.url),
+      published === undefined ? host : `${host} · ${oneLine(published)}`,
+      ...(result.snippet === undefined ? [] : quoteLines(result.snippet)),
+    ],
+  };
 }
 
 /** One grounded answer as its block: its header, its text, its citations. */
-function answerBlock(answer: RawAnswer): Array<string> {
-  return [
-    `## Answer (${oneLine(answer.engine)})`,
-    ...quoteLines(answer.answer),
-    ...answer.citations.map(
-      (citation, index) => `[${index + 1}] ${oneLine(citation.url)}`,
-    ),
-  ];
-}
-
-/** The text: the framing line, one block per result or answer, then the notes
- *  and the cap notice the generic result cap writes last. */
-function assemble(
-  output: WebSearchSuccess & CapMarker,
-  blocks: ReadonlyArray<ReadonlyArray<string>>,
-): string {
-  const body = blocks.flatMap((block, index) =>
-    index === 0 ? block : ['', ...block],
-  );
-  const notice = output.truncationNotice;
-  return [
-    `[engine: ${oneLine(output.engine)}; query: ${oneLine(output.query)}]`,
-    ...body,
-    ...(output.notes ?? []).map((note) => `[${oneLine(note)}]`),
-    ...(notice ? [`[${oneLine(notice)}]`] : []),
-  ].join('\n');
+function answerBlock(answer: RawAnswer): TextBlock {
+  return {
+    kind: 'answer',
+    lines: [
+      `## Answer (${oneLine(answer.engine)})`,
+      ...quoteLines(answer.answer),
+      ...answer.citations.map(
+        (citation, index) => `[${index + 1}] ${oneLine(citation.url)}`,
+      ),
+    ],
+  };
 }
 
 /**
- * The text shape of a `web_search` success, or `undefined` for any other
- * result — a failure, and a payload that is not one of the two closed shapes.
+ * The text: the framing line, one block per result or answer, then the notes
+ * and the cap notice the generic result cap writes last. Every block keeps the
+ * line range the artifact numbers it with.
  */
-export function renderWebSearchText(result: ToolResult): string | undefined {
-  const parsed = outputSchema.safeParse(result);
-  if (!parsed.success) return undefined;
-  const output = parsed.data;
+function assemble(
+  output: WebSearchSuccess & CapMarker,
+  blocks: ReadonlyArray<TextBlock>,
+): RenderedWebSearchText {
+  const lines = [
+    `[engine: ${oneLine(output.engine)}; query: ${oneLine(output.query)}]`,
+  ];
+  const ranges: Array<WebSearchTextBlock> = [];
+  for (const [index, block] of blocks.entries()) {
+    if (index > 0) lines.push('');
+    const start = lines.length + 1;
+    lines.push(...block.lines);
+    ranges.push({ kind: block.kind, start, end: lines.length });
+  }
+  const notice = output.truncationNotice;
+  lines.push(
+    ...(output.notes ?? []).map((note) => `[${oneLine(note)}]`),
+    ...(notice ? [`[${oneLine(notice)}]`] : []),
+  );
+  return { text: lines.join('\n'), blocks: ranges };
+}
+
+/**
+ * The rendered text of one normalized output, or `undefined` when it is not
+ * one of the two closed shapes. The producer uses the block ranges for its
+ * findings; the model reads `text`.
+ */
+export function renderWebSearchOutput(
+  output: WebSearchSuccess & CapMarker,
+): RenderedWebSearchText | undefined {
   if (output.kind === 'answer') return assemble(output, [answerBlock(output)]);
-  const blocks: Array<Array<string>> = [];
+  const blocks: Array<TextBlock> = [];
   for (const [index, item] of output.results.entries()) {
     const block = resultBlock(item, index + 1);
     if (block === undefined) return undefined;
@@ -159,4 +192,13 @@ export function renderWebSearchText(result: ToolResult): string | undefined {
   }
   blocks.push(...(output.answers ?? []).map(answerBlock));
   return assemble(output, blocks);
+}
+
+/**
+ * The text shape of a `web_search` success, or `undefined` for any other
+ * result — a failure, and a payload that is not one of the two closed shapes.
+ */
+export function renderWebSearchText(result: ToolResult): string | undefined {
+  const parsed = webSearchOutputSchema.safeParse(result);
+  return parsed.success ? renderWebSearchOutput(parsed.data)?.text : undefined;
 }

@@ -729,6 +729,12 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
+        },
+        "fetchLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "How many results every call asks its engines for, before each vendor's own maximum clamps it. Defaults to 20. The model's `limit` argument bounds the results it reads inline; fetched results beyond that stay in the call's artifact."
         }
       }
     },

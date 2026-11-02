@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { type ToolResult } from '../types';
-import { renderWebSearchText } from './text';
+import {
+  renderWebSearchOutput,
+  renderWebSearchText,
+  webSearchOutputSchema,
+} from './text';
 
 /** Three ranked results, the second without a snippet or a date. */
 const threeResults: ToolResult = {
@@ -45,6 +49,18 @@ describe('the web search text shape', () => {
         '> Third snippet.',
       ].join('\n'),
     );
+  });
+
+  it('gives every result and answer block its artifact line range', () => {
+    const rendered = renderWebSearchOutput(
+      webSearchOutputSchema.parse(threeResults),
+    );
+
+    expect(rendered?.blocks).toEqual([
+      { kind: 'result', start: 2, end: 5 },
+      { kind: 'result', start: 7, end: 9 },
+      { kind: 'result', start: 11, end: 14 },
+    ]);
   });
 
   it('renders an aggregate answer after the fifth result with its citations', () => {

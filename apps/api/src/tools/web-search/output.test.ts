@@ -1,6 +1,7 @@
 import { parseWebLocator } from '../web-read/locator';
 import {
   canonicalUrl as canonicalizeSearchUrl,
+  normalizeFullOutput,
   normalizeOutput as normalizeSearchOutput,
 } from './output';
 import {
@@ -724,4 +725,35 @@ it('cuts an answer outside a Markdown link', () => {
   if (output.kind !== 'answer') throw new Error('expected answer output');
   expect(output.answer).toBe(`${filler} `);
   expect(output.notes).toContain('answer cut to fit the output limit');
+});
+
+it('keeps every fetched result in the full output up to the fetch size', () => {
+  const output = normalizeFullOutput(
+    resultsSource(
+      Array.from({ length: 25 }, (_unused, index) =>
+        result(`https://example.test/${index}`, index),
+      ),
+    ),
+    20,
+  );
+
+  if (output.kind !== 'results') throw new Error('expected a results output');
+  expect(output.results).toHaveLength(20);
+  expect(output.results.at(-1)?.url).toBe('https://example.test/19');
+});
+
+it('keeps the whole serialized output that the inline fit would shorten', () => {
+  const results = Array.from({ length: 20 }, (_unused, index) => ({
+    ...result(`https://example.test/${index}/${'u'.repeat(500)}`, index),
+    title: 't'.repeat(200),
+    snippet: 's'.repeat(300),
+  }));
+
+  const full = normalizeFullOutput(resultsSource(results), 20);
+  const inline = normalizeSearchOutput(resultsSource(results), 20);
+
+  if (full.kind !== 'results' || inline.kind !== 'results')
+    throw new Error('expected results outputs');
+  expect(full.results).toHaveLength(20);
+  expect(inline.results.length).toBeLessThan(20);
 });
