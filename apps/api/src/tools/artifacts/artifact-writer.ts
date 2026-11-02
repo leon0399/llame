@@ -6,6 +6,7 @@ import {
   type NewArtifactPart,
 } from './artifacts-repository';
 import { TOOL_ID_PATTERN } from '../tool-id';
+import { writeArtifactHostFiles } from './host-files';
 import { artifactLineCount } from './lines';
 import { formatArtifactLocator } from './locator';
 
@@ -41,6 +42,8 @@ export type WrittenArtifact = {
   readonly locator: string;
   readonly lineCount: number;
   readonly byteSize: number;
+  /** The Chat's artifact directory when host files were written (D10). */
+  readonly hostDirectory?: string;
 };
 
 /**
@@ -54,18 +57,59 @@ export type WrittenArtifact = {
 export async function writeToolArtifact(
   tenantDb: TenantRunner,
   request: ArtifactWriteRequest,
-  options: { readonly maxBytes: number },
+  options: { readonly maxBytes: number; readonly hostFiles?: boolean },
 ): Promise<WrittenArtifact> {
   const parts = prepareParts(request, options.maxBytes);
+  const seq = await nextSeq(tenantDb, request);
+  const written = await commitArtifact(tenantDb, request, seq, parts);
+  const hostDirectory =
+    options.hostFiles === true
+      ? await writeArtifactHostFiles({
+          chatId: request.chatId,
+          toolName: request.toolName,
+          seq,
+          createdAt: written.createdAt,
+          parts,
+        })
+      : undefined;
+
+  return {
+    id: written.id,
+    seq,
+    locator: formatArtifactLocator(request.toolName, seq),
+    lineCount: parts.reduce((total, part) => total + part.lineCount, 0),
+    byteSize: parts.reduce((total, part) => total + part.byteSize, 0),
+    ...(hostDirectory !== undefined && { hostDirectory }),
+  };
+}
+
+/** The Chat's next number, or a write that the Chat cannot accept. */
+async function nextSeq(
+  tenantDb: TenantRunner,
+  request: ArtifactWriteRequest,
+): Promise<number> {
   const seq = await tenantDb.runAs(request.userId, (db) =>
     new ArtifactsRepository(db).nextSeq(request.chatId, request.userId),
   );
   if (seq === undefined) {
     throw new Error('The Chat cannot store an artifact.');
   }
-  const id = await tenantDb.runAs(request.userId, async (db) => {
+  return seq;
+}
+
+/**
+ * The artifact row and every part in one transaction. The caller writes host
+ * files only after this resolves, so a failed insert leaves no file either.
+ */
+function commitArtifact(
+  tenantDb: TenantRunner,
+  request: ArtifactWriteRequest,
+  seq: number,
+  parts: ReadonlyArray<NewArtifactPart>,
+): Promise<{ id: string; createdAt: Date }> {
+  return tenantDb.runAs(request.userId, async (db) => {
     const repository = new ArtifactsRepository(db);
-    const artifactId = await repository.insertArtifact({
+    const artifact = await repository.insertArtifact({
       chatId: request.chatId,
       seq,
       toolName: request.toolName,
@@ -73,17 +117,9 @@ export async function writeToolArtifact(
       runId: request.runId,
       complete: request.complete,
     });
-    await repository.insertParts(artifactId, parts);
-    return artifactId;
+    await repository.insertParts(artifact.id, parts);
+    return artifact;
   });
-
-  return {
-    id,
-    seq,
-    locator: formatArtifactLocator(request.toolName, seq),
-    lineCount: parts.reduce((total, part) => total + part.lineCount, 0),
-    byteSize: parts.reduce((total, part) => total + part.byteSize, 0),
-  };
 }
 
 /**

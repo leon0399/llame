@@ -9,6 +9,15 @@
  * markFinished's first-writer-wins guard (a no-op when the run is already
  * terminal).
  */
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -210,6 +219,41 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
       expect.objectContaining({ name: 'runs.dead' }),
       expect.any(Function),
     );
+  });
+
+  it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
+    const previousTmpdir = process.env.TMPDIR;
+    const hostRoot = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
+    process.env.TMPDIR = hostRoot;
+    const stale = path.join(
+      hostRoot,
+      'llame',
+      'chats',
+      '0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11',
+    );
+    const live = path.join(
+      hostRoot,
+      'llame',
+      'chats',
+      '5d0e9d9e-9a5f-4cbb-8a0f-6c4a1f6a2e77',
+    );
+    mkdirSync(path.join(stale, 'artifacts', 'bash-1'), { recursive: true });
+    mkdirSync(path.join(live, 'artifacts', 'bash-2'), { recursive: true });
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    utimesSync(stale, eightDaysAgo, eightDaysAgo);
+    try {
+      const tx = makeFakeTx();
+      const { service } = makeService(tx);
+
+      await service.onApplicationBootstrap();
+
+      expect(existsSync(stale)).toBe(false);
+      expect(existsSync(live)).toBe(true);
+    } finally {
+      if (previousTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previousTmpdir;
+      rmSync(hostRoot, { recursive: true, force: true });
+    }
   });
 
   it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {

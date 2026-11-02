@@ -1,5 +1,9 @@
 import { realpath, stat } from 'node:fs/promises';
 
+import {
+  reconcileArtifactFiles,
+  sweepArtifactDirectories,
+} from '../tools/artifacts/host-files';
 import { isBashTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
@@ -845,6 +849,34 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
+
+  /** `bash` allowlisted on a process with a native executor (D10). */
+  private artifactHostFilesEnabled(): boolean {
+    const { allowed, nativeExecutorId } = this.instanceConfig.config.tools;
+    return allowed.includes('bash') && nativeExecutorId !== undefined;
+  }
+
+  /**
+   * Attempt start (D10): sweep the Chat directories no attempt touched for
+   * seven days, then restore this Chat's artifact files before the first model
+   * request. A failure here never fails the Run: Postgres still holds every
+   * artifact, and the next reconcile writes the files again.
+   */
+  private async restoreArtifactFiles(
+    input: ExecuteRunInput,
+    chat: Chat | undefined,
+  ): Promise<void> {
+    if (!this.artifactHostFilesEnabled()) return;
+    await sweepArtifactDirectories();
+    if ((chat?.artifactSeq ?? 0) === 0) return;
+    await reconcileArtifactFiles({
+      tenantDb: this.tenantDb,
+      userId: input.userId,
+      chatId: input.chatId,
+    }).catch((error: unknown) => {
+      this.logger.warn(`Artifact file reconcile failed: ${String(error)}`);
+    });
+  }
   private readonly toolPromptRenderer: ToolPromptRenderer;
   /**
    * The `webSearch.engines` template collection, built once from the resolved
@@ -1131,6 +1163,7 @@ export class RunExecutionService {
     );
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
     const workspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
+    await this.restoreArtifactFiles(input, workspaceChat);
     await this.startWorkspaceMcp(input.chatId, workspaceMcpKey);
     const attemptDynamicResolver = this.attemptDynamicResolver(workspaceMcpKey);
 
@@ -3044,19 +3077,21 @@ export class RunExecutionService {
   }
 
   /**
-   * The artifact read surface of a Run (tool-result-artifacts "An artifact
-   * needs a way to read it"): the operator byte bound, and whether `read` is
-   * allowlisted. `capHeadResult` evaluates the `read` group on the locator;
-   * host files arrive with a later layer.
+   * The artifact surface of a Run (tool-result-artifacts "An artifact needs a
+   * way to read it"): the operator byte bound, whether `read` is allowlisted,
+   * and whether the Run also keeps host files. `capHeadResult` and `bash`
+   * evaluate the `read` group on the locator; the host files are written only
+   * when `artifactHostFiles` holds (design D10).
    */
   private artifactReadContext(): Pick<
     ToolContext,
-    'artifactMaxBytes' | 'artifactReadable'
+    'artifactMaxBytes' | 'artifactReadable' | 'artifactHostFiles'
   > {
     const { artifacts, allowed } = this.instanceConfig.config.tools;
     return {
       artifactMaxBytes: artifacts.maxBytes,
       artifactReadable: allowed.includes('read'),
+      artifactHostFiles: this.artifactHostFilesEnabled(),
     };
   }
 

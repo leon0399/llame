@@ -7,7 +7,9 @@
  * inline result.
  */
 
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -27,9 +29,22 @@ import { previewStream, spillBashResult, spillBashStreams } from './bash-spill';
 import { renderToolResultText } from './model-text';
 import { type MockInstance } from 'vitest';
 import { type ToolContext, type ToolResult } from './types';
+import { createWorkspaceRootCell } from './workspace-path';
 
 /** The Chat counter every write in this suite takes: seq 5. */
 const SEQ = 5;
+
+/** The creation time the mocked insert reports, and each host file's mtime. */
+const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
+
+/** Each test's own `$TMPDIR`, so a host file never reaches the real one. */
+let temporaryRoot: string;
+let previousTmpdir: string | undefined;
+
+/** The host directory of the artifact this suite's writes make. */
+function hostDirectory(): string {
+  return join(tmpdir(), 'llame', 'chats', 'chat', 'artifacts', `bash-${SEQ}`);
+}
 
 /** The three Chat-scoped calls one artifact write makes. */
 type ArtifactWrites = {
@@ -91,17 +106,26 @@ beforeEach(() => {
   // A fresh call history per test: the writer mocks below are the same objects
   // across tests, so a call from an earlier test would otherwise be counted.
   vi.clearAllMocks();
+  previousTmpdir = process.env.TMPDIR;
+  temporaryRoot = mkdtempSync(join(tmpdir(), 'bash-spill-host-'));
+  process.env.TMPDIR = temporaryRoot;
   insertWrites = {
     nextSeq: vi
       .spyOn(ArtifactsRepository.prototype, 'nextSeq')
       .mockResolvedValue(SEQ),
     insertArtifact: vi
       .spyOn(ArtifactsRepository.prototype, 'insertArtifact')
-      .mockResolvedValue('artifact-5'),
+      .mockResolvedValue({ id: 'artifact-5', createdAt: CREATED_AT }),
     insertParts: vi
       .spyOn(ArtifactsRepository.prototype, 'insertParts')
       .mockResolvedValue(undefined),
   };
+});
+
+afterEach(() => {
+  if (previousTmpdir === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = previousTmpdir;
+  rmSync(temporaryRoot, { recursive: true, force: true });
 });
 
 /** The parts of the one artifact this call wrote. */
@@ -715,5 +739,140 @@ describe('the Machine bash spill', () => {
       name: 'stderr',
       content: Buffer.from(stderr, 'utf8'),
     });
+  });
+
+  it('tells a Machine Workspace that the files are on the llame host only', async () => {
+    const peer = createProtocolPeer({
+      roots: ['/srv/app'],
+      answers: {
+        'proc.bash': {
+          value: {
+            status: 'success',
+            exitCode: 0,
+            stdout: 'a'.repeat(20_000),
+            stderr: '',
+            truncated: false,
+            wallTimeMs: 10,
+          },
+        },
+      },
+    });
+    const connector = new MachineConnector({
+      machines: {
+        ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+        hosts: { devl: { destination: 'box' } },
+      },
+      hubVersion: '9.9.9',
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 2000,
+    });
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    const result = await bashTool.execute(
+      {
+        ...testContext({ artifactHostFiles: true }),
+        machines: connector,
+        workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
+      },
+      { command: 'make' },
+    );
+
+    expect(result.artifact).toBe('artifact://bash-5');
+    expect(textOf(result)).toContain(
+      '[full result: artifact://bash-5/stdout (3 lines); host files on the llame host only]',
+    );
+  });
+});
+
+describe('the bash artifact host files', () => {
+  it('names the absolute directory of the spilled stream', async () => {
+    const result = await spillBashResult(
+      testContext({ artifactHostFiles: true }),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(result.artifact).toBe('artifact://bash-5');
+    expect(textOf(result)).toContain(
+      `[full result: artifact://bash-5/stdout (3 lines); host files in ${hostDirectory()}]`,
+    );
+    expect(readFileSync(join(hostDirectory(), 'stdout.txt'), 'utf8')).toBe(
+      'a'.repeat(20_000),
+    );
+  });
+
+  it('names both parts and the directory when both streams spill', async () => {
+    const result = await spillBashResult(
+      testContext({ artifactHostFiles: true }),
+      success('o'.repeat(20_000), { stderr: 'e'.repeat(20_000) }),
+    );
+
+    expect(textOf(result).split('\n').at(-1)).toBe(
+      `[full result: artifact://bash-5/stdout (3 lines), artifact://bash-5/stderr (3 lines); host files in ${hostDirectory()}]`,
+    );
+    expect(readFileSync(join(hostDirectory(), 'stderr.txt'), 'utf8')).toBe(
+      'e'.repeat(20_000),
+    );
+  });
+
+  it('says the files are on the llame host only away from this host', async () => {
+    const result = await spillBashResult(
+      testContext({ artifactHostFiles: true }),
+      success('a'.repeat(20_000)),
+      true,
+    );
+
+    expect(textOf(result)).toContain(
+      '[full result: artifact://bash-5/stdout (3 lines); host files on the llame host only]',
+    );
+    expect(textOf(result)).not.toContain(temporaryRoot);
+  });
+
+  it('keeps no host path when the Run writes no file', async () => {
+    const result = await spillBashResult(
+      testContext(),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(textOf(result).split('\n').at(-1)).toBe(
+      '[full result: artifact://bash-5/stdout (3 lines)]',
+    );
+  });
+
+  it('stores an artifact a Run without read opens through host files', async () => {
+    const result = await spillBashResult(
+      testContext({ artifactReadable: false, artifactHostFiles: true }),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(result.artifact).toBe('artifact://bash-5');
+    expect(readFileSync(join(hostDirectory(), 'stdout.txt'), 'utf8')).toBe(
+      'a'.repeat(20_000),
+    );
+  });
+
+  it('stores nothing when the bash group rejects the call', async () => {
+    const result = await spillBashResult(
+      testContext({
+        artifactReadable: false,
+        artifactHostFiles: true,
+        permissionPolicy: compileToolPermissionMap(
+          { bash: { reject: true } },
+          'policy',
+        ),
+      }),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(insertWrites.insertParts).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
   });
 });

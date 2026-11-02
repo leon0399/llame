@@ -9,6 +9,7 @@ import type { OpenAICompatibleProvider } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import type { MockInstance } from 'vitest';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,6 +22,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -852,6 +854,71 @@ function serveCheckpointPublication(id = publishedCheckpointId) {
 describe('RunExecutionService executeRun', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('restores the Chat artifact files before the first model request', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      artifactSeq: 3,
+    });
+    const createdAt = new Date('2026-11-02T12:00:00.000Z');
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'listChatPartFiles',
+    ).mockResolvedValue([
+      {
+        artifactId: 'artifact-1',
+        toolName: 'bash',
+        seq: 1,
+        createdAt,
+        name: 'stdout',
+        contentType: 'text/plain',
+        byteSize: 6,
+      },
+    ]);
+    vi.spyOn(ArtifactsRepository.prototype, 'findPart').mockResolvedValue({
+      name: 'stdout',
+      contentType: 'text/plain',
+      content: Buffer.from('hello\n'),
+      lineCount: 1,
+      byteSize: 6,
+      findings: null,
+    });
+    const hostRoot = mkdtempSync(path.join(tmpdir(), 'artifact-attempt-'));
+    const previousTmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = hostRoot;
+    const restored = path.join(
+      hostRoot,
+      'llame',
+      'chats',
+      chatId,
+      'artifacts',
+      'bash-1',
+      'stdout.txt',
+    );
+    try {
+      const execution = makeExecutionService(undefined, undefined, 'host-a', {
+        allowed: ['bash'],
+      });
+      // A second fake client supplies the original stream, so the spy wraps
+      // rather than replaces it.
+      const replay = createFakeModelClient(['answer']);
+      let presentAtRequest: boolean | undefined;
+      vi.spyOn(execution.client, 'streamText').mockImplementation((request) => {
+        presentAtRequest = existsSync(restored);
+        return replay.streamText(request);
+      });
+
+      await execution.service.executeRun(executionInput(execution.client));
+
+      expect(presentAtRequest).toBe(true);
+      expect(readFileSync(restored, 'utf8')).toBe('hello\n');
+    } finally {
+      if (previousTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previousTmpdir;
+      rmSync(hostRoot, { recursive: true, force: true });
+    }
   });
 
   it('terminates a retried Run with a previous native mutation before invoking the model', async () => {

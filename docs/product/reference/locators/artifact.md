@@ -80,6 +80,26 @@ Host files keep the content as admitted. Only `read` on `artifact://` checks
 findings again, so a command that reads a host file sees what the artifact
 stored.
 
+## Host files
+
+When `bash` is allowlisted and the process has a native executor, every part is
+also a file on the llame host under
+`$TMPDIR/llame/chats/<chatId>/artifacts/`: `<toolName>-<n>.<ext>` for a tool's
+single part, and `bash-<n>/<stream>.<ext>` for a `bash` stream. The extension
+of the content type is `.md`, `.json`, or `.txt`, so the ordinary readers apply.
+The notice names the directory (`; host files in <directory>`), or says
+`; host files on the llame host only` in a Machine Workspace and when `bash`
+runs on an `ssh://` host, because neither opens a llame host path.
+
+A host file holds the content as it was admitted; only `read` on
+`artifact://` checks findings again, so a `bash` command that opens the file
+sees what the artifact stored. Postgres stays the authority: at the start of
+each attempt and before each `bash` call, the system compares the Chat's files
+with their stored size and modification time and rewrites what is absent or
+changed. Files are not isolated per owner, because `bash` runs as the worker's
+OS user; the [operator runbook](../../operator/native-files.md#host-files) owns
+`$TMPDIR`, the seven-day sweep, and that trust boundary.
+
 ## Bounds
 
 A part serves the ordinary result bound, so a long part is cut and its

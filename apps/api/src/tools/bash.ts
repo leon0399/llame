@@ -7,6 +7,7 @@ import { isNativeFileTool } from './native-files';
 import { isWorkspaceTool } from './workspace';
 import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
+import { reconcileArtifactFiles } from './artifacts/host-files';
 import { spillBashResult } from './bash-spill';
 import { executeSshBash } from './ssh-bash';
 import { isSshLocator } from '../ssh/ssh-locator';
@@ -197,9 +198,10 @@ async function runMachineBash(
         { signal: context.abortSignal },
       );
       const result = readProcBashResult(raw);
-      return result === undefined
-        ? machineUnusableResult(name)
-        : spillBashResult(context, result);
+      if (result === undefined) return machineUnusableResult(name);
+      // The Machine opens its own paths; the llame host files are a cache this
+      // command cannot reach (tool-result-artifacts D10).
+      return spillBashResult(context, result, { hostFilesOnly: true });
     },
   );
 }
@@ -249,7 +251,10 @@ async function runAdmittedBash(
       }),
     );
     if (prior) return prior;
-    const result = await spillBashResult(context, await admitted.run());
+    const result = await spillBashResult(context, await admitted.run(), {
+      hostFilesOnly:
+        machineWorkspaceRoot(context.workspaceRoot?.current()) !== undefined,
+    });
     await context.tenantDb.runAs(userId, async (db) => {
       await new RunEventsRepository(db).append(runId, 'native.result', {
         toolCallId,
@@ -277,49 +282,69 @@ export const bashTool: Tool<BashInput> = {
     env: z.record(z.string(), z.string()).optional(),
   }),
   execute: async (context, input): Promise<ToolResult> => {
-    const { runId, userId, nativeExecutorId, toolCallId } = context;
     const projectedInput = projectBashInput(context, input);
     if ('status' in projectedInput) return projectedInput;
-    const machineExecution = machineBashExecution(context, projectedInput);
-    if (machineExecution !== undefined) return machineExecution;
-    // An `ssh://` cwd runs before the local executor gate: it needs no local
-    // executor, and a local cwd on the same process still refuses below.
-    if (projectedInput.cwd !== undefined && isSshLocator(projectedInput.cwd))
-      return executeSshBash(context, {
-        ...projectedInput,
-        cwd: projectedInput.cwd,
-      });
-    if (!runId || !nativeExecutorId || !toolCallId) {
-      return {
-        status: 'error',
-        type: 'executor_unavailable',
-        message: 'Native host authority is unavailable.',
-      };
+    // Repair the Chat's artifact files before the command can open them; a
+    // failed reconcile leaves them as they were (tool-result-artifacts D10).
+    if (context.artifactHostFiles === true) {
+      await reconcileArtifactFiles(context).catch(() => undefined);
     }
-    // Always wrap in bash -c: the managed allowlist only admits basenames like
-    // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
-    const admitted = admitManagedBash(
-      {
-        command: 'bash',
-        args: ['-c', projectedInput.command],
-        cwd: projectedInput.cwd,
-        env: projectedInput.env,
-      },
-      managedBashContext(context),
-      {
-        signal: context.abortSignal,
-        timeoutSignal: context.timeoutSignal,
-        timeoutMs: context.timeoutMs,
-        toolCallId,
-      },
-    );
-    if ('type' in admitted) return toToolResult(admitted);
-    return runAdmittedBash(
-      { ...context, runId, userId, nativeExecutorId, toolCallId },
-      admitted,
-    );
+    const routed = routedBashExecution(context, projectedInput);
+    return routed ?? runHostBash(context, projectedInput);
   },
 };
+
+/**
+ * A Machine cwd runs on that Machine, and an `ssh://` cwd runs before the
+ * local executor gate: it needs no local executor, and a local cwd on the same
+ * process still refuses below. `undefined` means the llame host.
+ */
+function routedBashExecution(
+  context: ToolContext,
+  input: BashInput,
+): ToolResult | Promise<ToolResult> | undefined {
+  const machineExecution = machineBashExecution(context, input);
+  if (machineExecution !== undefined) return machineExecution;
+  if (input.cwd === undefined || !isSshLocator(input.cwd)) return undefined;
+  return executeSshBash(context, { ...input, cwd: input.cwd });
+}
+
+/** The llame host branch, fenced as a native attempt. */
+async function runHostBash(
+  context: ToolContext,
+  input: BashInput,
+): Promise<ToolResult> {
+  const { runId, userId, nativeExecutorId, toolCallId } = context;
+  if (!runId || !nativeExecutorId || !toolCallId) {
+    return {
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'Native host authority is unavailable.',
+    };
+  }
+  // Always wrap in bash -c: the managed allowlist only admits basenames like
+  // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
+  const admitted = admitManagedBash(
+    {
+      command: 'bash',
+      args: ['-c', input.command],
+      cwd: input.cwd,
+      env: input.env,
+    },
+    managedBashContext(context),
+    {
+      signal: context.abortSignal,
+      timeoutSignal: context.timeoutSignal,
+      timeoutMs: context.timeoutMs,
+      toolCallId,
+    },
+  );
+  if ('type' in admitted) return toToolResult(admitted);
+  return runAdmittedBash(
+    { ...context, runId, userId, nativeExecutorId, toolCallId },
+    admitted,
+  );
+}
 
 export function isBashTool(tool: Tool): boolean {
   return tool === bashTool;

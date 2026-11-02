@@ -42,6 +42,20 @@ export type NewArtifact = {
   readonly complete: boolean;
 };
 
+/**
+ * One part as a host-file reconcile reads it: the file's identity and the
+ * stored size and time, without the bytes (tool-result-artifacts D10).
+ */
+export type ChatPartFile = {
+  readonly artifactId: string;
+  readonly toolName: string;
+  readonly seq: number;
+  readonly createdAt: Date;
+  readonly name: string;
+  readonly contentType: string;
+  readonly byteSize: number;
+};
+
 export type NewArtifactPart = {
   readonly name: string;
   readonly contentType: string;
@@ -77,12 +91,14 @@ export class ArtifactsRepository {
     return row?.seq;
   }
 
-  async insertArtifact(artifact: NewArtifact): Promise<string> {
+  async insertArtifact(
+    artifact: NewArtifact,
+  ): Promise<{ id: string; createdAt: Date }> {
     const [row] = await this.db
       .insert(toolArtifacts)
       .values(artifact)
-      .returning({ id: toolArtifacts.id });
-    return row.id;
+      .returning({ id: toolArtifacts.id, createdAt: toolArtifacts.createdAt });
+    return row;
   }
 
   /** Every part of one artifact, inserted in the caller's transaction. */
@@ -187,5 +203,29 @@ export class ArtifactsRepository {
         ),
       );
     return row;
+  }
+
+  /**
+   * Every part of the Chat's artifacts with its size and time but no bytes, so
+   * a reconcile fetches only the content of a file it must rewrite (D10).
+   */
+  async listChatPartFiles(chatId: string): Promise<Array<ChatPartFile>> {
+    return this.db
+      .select({
+        artifactId: toolArtifacts.id,
+        toolName: toolArtifacts.toolName,
+        seq: toolArtifacts.seq,
+        createdAt: toolArtifacts.createdAt,
+        name: toolArtifactParts.name,
+        contentType: toolArtifactParts.contentType,
+        byteSize: toolArtifactParts.byteSize,
+      })
+      .from(toolArtifacts)
+      .innerJoin(
+        toolArtifactParts,
+        eq(toolArtifactParts.artifactId, toolArtifacts.id),
+      )
+      .where(eq(toolArtifacts.chatId, chatId))
+      .orderBy(asc(toolArtifacts.seq), asc(toolArtifactParts.name));
   }
 }

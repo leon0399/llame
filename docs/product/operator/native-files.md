@@ -284,6 +284,41 @@ Machine stream readable and the ceiling keeps a part small enough to read back.
 }
 ```
 
+The locator still resolves only inside the Chat that made it, under its
+owner's row-level security, so the clause widens which locators the model may
+try, never which rows it may see.
+
+### Host files
+
+When `bash` is in `tools.allowed` and the process has a `nativeExecutorId`,
+each artifact part is also a file on the llame host, under
+`$TMPDIR/llame/chats/<chatId>/artifacts/`. A tool's single part is
+`<toolName>-<n>.<ext>`; a `bash` stream is `bash-<n>/<stream>.<ext>`. The
+extension follows the content type: `.md` for Markdown, `.json` for JSON, and
+`.txt` otherwise. The notice of a spilled result names that directory, so the
+model can open the file with `bash`, `head`, `rg`, or `sed`.
+
+`$TMPDIR` is the worker process's temporary directory (`/tmp` unless the
+environment sets another one). It is not shared between hosts, and a Run that
+moves to another worker or host finds no file: at the start of each attempt the
+system compares the Chat's files with their stored size and modification time
+and writes back what is absent or changed, and it does the same before every
+`bash` call. The files are a cache; Postgres holds every artifact, and a file
+that a command changed is rewritten from the store, not edited.
+
+The files are not isolated per owner. `bash` runs as the worker's own OS user,
+so any Run on that host can read or rewrite them, and a person with a shell on
+the host can too. Treat them as working copies, not as a secret store: `read`
+on an `artifact://` locator applies the `read` group, but a file opened through
+`bash` does not. A Machine Workspace and an `ssh://` `bash` cannot open a llame
+host path; their notice says `host files on the llame host only`, and `read`
+is the way to the artifact there.
+
+At worker start and at each attempt start, the worker removes every Chat
+directory on that host that no attempt reconciled for seven days. That is how
+the directory of a deleted Chat goes away; a live Chat gets its files back at
+its next reconcile.
+
 ## Instruction files
 
 Per-directory project instruction files are loaded into the model's context by
