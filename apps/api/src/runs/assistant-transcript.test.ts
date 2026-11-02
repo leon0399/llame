@@ -377,6 +377,38 @@ describe('toolActivityPart', () => {
     ).not.toContain('permission');
   });
 
+  it('stores a web search success as its normalized output, not its text', () => {
+    const result: ToolResult = {
+      status: 'success',
+      kind: 'results',
+      engine: 'brave',
+      query: 'deployment decision',
+      results: [
+        { title: 'Example', url: 'https://example.com/docs', snippet: 'S.' },
+      ],
+    };
+    const part = toolActivityPart({
+      toolCallId: 'call-web',
+      toolName: 'web_search',
+      input: { query: 'deployment decision' },
+      result,
+      classification: 'read_only',
+    });
+
+    // The stored part is what the web chat renderer reads after a reload, so
+    // the model-facing text shape of another layer cannot replace it
+    // (web-search "Reload reproduces the output").
+    expect(part).toEqual({
+      type: 'tool-web_search',
+      toolCallId: 'call-web',
+      state: 'output-available',
+      input: { query: 'deployment decision' },
+      output: result,
+      outcome: 'success',
+      classification: 'read_only',
+    });
+  });
+
   it('omits an empty derived-decision list', () => {
     const part = toolActivityPart({
       toolCallId: 'call-1',

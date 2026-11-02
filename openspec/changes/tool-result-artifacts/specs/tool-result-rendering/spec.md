@@ -250,7 +250,8 @@ note MUST render as one bracketed line after the answers.
 Title, snippet, and answer text MUST NOT start a line that the text shape
 gives meaning to. The renderer MUST replace each line break inside a title
 with one space. Every snippet and answer line MUST begin with a `>` mark and one space. A URL MUST
-render as stored.
+render as stored, except that the renderer MUST replace each line break inside
+it with one space.
 
 #### Scenario: A snippet cannot start a result
 

@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
+- `web_search` results and answers now reach the model as plain text instead of
+  JSON, while the stored part and the web chat renderer are unchanged. See
+  [web_search](docs/product/reference/tools/web-search.md).
+
 - `grep` now reads `.ignore` beside `.gitignore` and applies both above the
   scope: `.ignore` up to `/` on the host or the registered root on a Machine,
   and `.gitignore` only from the nearest repository directory down. A rule
