@@ -111,8 +111,7 @@ at line `nextOffset + 1`. It ends at the stored requested end while that end
 is not reached. It is open-ended `<n>-` in three cases: the requested end is
 reached, the line reaches the stored `lineCount`, or the result stores no
 line count. A directory listing stores no line count. A locator that takes no
-selector states the remainder alone. A result with an artifact MUST carry the
-artifact notice line instead of a continuation line.
+selector states the remainder alone.
 
 #### Scenario: A truncated read tells how to continue
 
@@ -167,8 +166,9 @@ A `bash` success MUST begin with `exit <code>`. When the result carries
 `wallTimeMs`, `, <seconds> s` with one decimal MUST follow. The stdout MUST
 follow verbatim, and a non-empty stderr MUST follow under a `[stderr]` line.
 When both streams are empty, the text MUST be the header and `(no output)`.
-A stream with an artifact part MUST render its head lines, one omitted-range
-line, and its tail lines. The artifact notice line MUST end the text. A
+A stream that does not fit inline MUST render its head lines, one
+omitted-range line, and its tail lines. A line longer than its share MUST be
+cut by code units. The artifact notice line, when present, MUST end the text. A
 `command_failed` or `timed_out` message MUST have the same shape.
 
 A result whose executor bound cut a stream MUST carry `[output cut at the
@@ -266,7 +266,8 @@ render as stored.
 
 The artifact notice MUST be one bracketed line that names each part as
 `<locator> (<lines> lines)`, with a comma between two parts. A `grep` or
-`web_search` notice MUST add `; continue with <locator>:<next>-`. A notice for
+`web_search` notice MUST add `; continue with <locator>:<next>-`. `<next>` is
+the artifact line after the last inline passage or result. A notice for
 host files MUST add `; host files in <directory>`, or `; host files on the
 llame host only`.
 
@@ -274,6 +275,16 @@ llame host only`.
 
 - **WHEN** `artifact://grep-7` has 4,812 lines, the inline part ends at line 200, and no file exists
 - **THEN** the notice is `[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:201-]`
+
+#### Scenario: A web notice continues after the inline results
+
+- **WHEN** `artifact://web_search-4` holds 20 results and one answer, and the inline text shows results 1 to 10, which end at artifact line 40
+- **THEN** the notice ends with `; continue with artifact://web_search-4:41-]`
+
+#### Scenario: A bash notice without a host file
+
+- **WHEN** only the stdout of `bash-5` spills, its artifact has 5,000 lines, and no file exists
+- **THEN** the notice is `[full result: artifact://bash-5/stdout (5000 lines)]`
 
 #### Scenario: A notice with a host file
 
@@ -322,6 +333,23 @@ on one line".
 
 - **WHEN** a `web_search` query holds a line break
 - **THEN** the `[engine: …; query: …]` line holds a space in its place
+
+### Requirement: A left-out line counts what no artifact holds
+
+When a result does not fit and no artifact stores it, the text MUST end with
+one `[left out: <count> <noun>; full result not stored]` line. `<noun>` is
+`lines`, `files`, or `results`. An omitted-range line without an artifact MUST
+read `[lines <a>-<b> omitted; full result not stored]`.
+
+#### Scenario: A failed write keeps the bash tail inline
+
+- **WHEN** a `bash` stdout of 5,000 lines does not fit and its artifact write fails
+- **THEN** the text holds its head, `[lines 41-4880 omitted; full result not stored]`, and its tail
+
+#### Scenario: A grep result without a reader counts its files
+
+- **WHEN** a `grep` result leaves 140 files out and the Run cannot read artifacts
+- **THEN** the text ends with `[left out: 140 files; full result not stored]`
 
 ## REMOVED Requirements
 

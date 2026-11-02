@@ -98,8 +98,8 @@ result, it is empty when a child was empty. In other cases it MUST fail.
 
 Lengths count JavaScript UTF-16 code units, cut at a code-point boundary.
 Titles MUST be at most 200 units, snippets 300, and answers 8,000. `published`
-MUST be present only as an ISO 8601 date. Results MUST be cut to the fetch
-size and citations to 20. `notes` MUST hold at most 10 notes of at most 200
+MUST be present only as an ISO 8601 date. The output MUST hold at most the
+fetch size of results and 20 citations. `notes` MUST hold at most 10 notes of at most 200
 units each. When more notes are due, the tenth MUST record the rest as
 `<n> more engines`.
 
@@ -119,7 +119,7 @@ The inline text MUST hold at most `limit` results and MUST fit in 15,000 UTF-16
 units, with its other lines. When a result does not fit, the inline text MUST
 end before it. The artifact MUST hold every result of the call. An `answer`
 output MUST keep at least its first citation inline. When it still does not
-fit, the answer text MUST be cut further until it does. The tool MUST NOT cut
+fit, the tool MUST cut the answer text further until it does. The tool MUST NOT cut
 a URL.
 
 #### Scenario: Oversized output drops trailing entries
@@ -276,8 +276,8 @@ a link to a removed URL, and MUST drop its target and each bare copy.
 Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20
 citations. When the inline text is over 15,000 units, results MUST leave the
 inline text from the end first. Then citations MUST leave from the end of each
-answer, last answer first, and each answer MUST keep one. Then answer text MUST
-be cut, last answer first. Then whole answers MUST leave from the end. The
+answer, last answer first, and each answer MUST keep one. Then the tool MUST
+cut answer text, last answer first. Then whole answers MUST leave from the end. The
 artifact MUST hold every result, answer, and citation. Each step MUST add one
 inline note with its count.
 
@@ -301,10 +301,11 @@ inline note with its count.
 
 ### Requirement: Results past the inline part go to an artifact
 
-When the inline text leaves out a result, an answer, or a citation, the
-system MUST store the whole output as one artifact. The artifact
-uses the `web_search` text shape. The inline text MUST end with the artifact notice. A call whose results
-all fit inline MUST NOT create an artifact.
+The inline text can leave out a result, an answer, or a citation. When it
+does, and the Run can read artifacts, the system MUST store the whole output
+as one artifact. The artifact uses the `web_search` text shape. The inline text MUST
+end with the artifact notice. A call whose whole output fits inline MUST NOT
+create an artifact.
 
 #### Scenario: Twenty results with a limit of ten
 
@@ -312,7 +313,7 @@ all fit inline MUST NOT create an artifact.
 - **THEN** ten results render inline
 - **AND** `artifact://web_search-<n>` holds all 20 results in rank order
 
-#### Scenario: Reading the artifact sends no request
+#### Scenario: A read of the artifact sends no request
 
 - **WHEN** the model reads `artifact://web_search-<n>`
 - **THEN** no engine sends an outbound request

@@ -47,7 +47,7 @@ it.
 
 - **WHEN** a command runs for 1,240 ms and exits 0
 - **THEN** the result carries `wallTimeMs` 1240
-- **AND** the header that the model reads `exit 0, 1.2 s`
+- **AND** the header that the model reads is `exit 0, 1.2 s`
 
 #### Scenario: A timeout names the elapsed time
 

@@ -36,7 +36,7 @@ and name the path.
 #### Scenario: The default bound applies
 
 - **WHEN** the configuration has no `tools.artifacts` object
-- **THEN** each artifact is bounded at 8,388,608 bytes
+- **THEN** each artifact part is bounded at 8,388,608 bytes
 
 #### Scenario: A bound below the floor fails startup
 

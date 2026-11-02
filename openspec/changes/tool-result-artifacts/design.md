@@ -111,12 +111,15 @@ the files are a cache that can be restored (D1, D10).
 
 - **`tool_artifacts`.** One row per tool call.
   - Columns: `id`, `chat_id` (foreign key to `chats`, `ON DELETE CASCADE`),
-    `seq`, `tool_name`, `tool_call_id`, `run_id`, `created_turn_seq`,
-    `complete`, and `created_at`.
+    `seq`, `tool_name`, `tool_call_id`, `run_id`, `complete`, and
+    `created_at`. The Chat list shows `created_at`.
   - `run_id` is a plain column with no foreign key. A fork copies artifacts
     but no Runs, and a foreign key to `runs` would tie the fork's rows to the
     source Chat.
-  - Unique on `(chat_id, seq)` and on `(chat_id, tool_call_id)`.
+  - Unique on `(chat_id, seq)` and on `(chat_id, run_id, tool_call_id)`.
+    Providers and scripted test models can reuse a tool call id across Runs,
+    so the id alone is not a key. A conflict is a failed write, never a
+    lookup of another call's artifact.
 - **`tool_artifact_parts`.** One row per part. Columns: `artifact_id`
   (foreign key, cascade), `name` (the stream name for `bash`, otherwise
   empty), `content_type`, `content bytea`, `sha256`, `byte_size`,
@@ -153,8 +156,14 @@ needs no native executor.
   - `grep` and `web_search` parts are `text/markdown`.
   - A `bash` stream is `application/json` when it parses as JSON, else
     `text/plain`.
-  - A `head` spill of a JSON rendering is stored as `JSON.stringify(value, null, 2)`,
-    so line selectors page it. A text rendering is stored as rendered.
+  - A `head` spill of a JSON rendering is stored as `JSON.stringify(value, null, 2)`.
+    A text rendering is stored as rendered.
+- **Long lines.** `read` skips a line longer than its bound
+  (`packages/native-file-tools/src/stream-read.ts:422-424`), and an MCP `text`
+  item or a one-line JSON stdout stays one line. The reader therefore numbers
+  artifact lines by 8,000-unit pieces: a longer source line counts as several
+  lines. Notices, ranges, and the `bash` preview use the same count. Host files
+  keep the raw lines, so a `sed -n` count can differ on long lines only.
 - **Refusals.** `edit` and `write` refuse the scheme with `invalid_path`.
 
 ### D3: Spill shapes on the tool definition (Q18)
@@ -178,8 +187,13 @@ A tool definition gets an optional `spill` field, `'head'` (the default) or
   `tools.artifacts.maxBytes`, counted in UTF-8 bytes. The `ssh://` buffer
   multiplier becomes 1, because the bound is now in bytes. A Machine keeps the
   protocol constant ([#1528](https://github.com/leon0399/llame/issues/1528)).
+- **Byte bound only on the hub.** `packages/bash-executor` gains a byte bound
+  option that the hub context uses. The Machine daemon shares the package and
+  keeps its unit bound from the protocol constant.
 - **Order of steps.** After the executor returns and before `toToolResult`,
-  `bash`:
+  `bash` does these steps. The host and `ssh://` paths run them in `bash.ts`
+  and `ssh-bash.ts`. The Machine path runs them before `machine-call.ts:277-281`
+  appends `native.result` in `runMachineMutation`.
   1. measures each stream against its inline share;
   2. writes the artifact with a part for each stream that does not fit;
   3. builds the head, the omitted-range line, and the tail for those streams;
@@ -187,8 +201,12 @@ A tool definition gets an optional `spill` field, `'head'` (the default) or
      `timed_out` is now bounded;
   5. appends `native.result` with that inline result and the locator.
 
-  A retry replays the event and creates nothing. The unique
-  `(chat_id, tool_call_id)` turns a duplicate write into a lookup.
+  A Run with a `native.attempt` is never retried; it ends as `outcome_unknown`
+  (`apps/api/src/runs/run-execution.service.ts:1067-1104`). The only replay is
+  `settleOpenToolCalls`, through `priorOutcome`, which rebuilds an error as
+  status, type, and message only (`native-files-repository.ts:157-164`).
+  `priorOutcome` therefore copies `artifact` too, and the error variant of
+  `ToolResult` in `packages/runtime-safety` gains an optional `artifact`.
 
 - **Preview.** The streams that spill share the inline budget equally. A
   quarter of each share is the head, the rest is the tail (A5).
@@ -200,9 +218,14 @@ A tool definition gets an optional `spill` field, `'head'` (the default) or
 ### D5: Read-time authority (Q3, Q11)
 
 - **Findings.** At write time, `grep` and `web_search` record one finding for
-  each file or result: its source locator, its rule (`allow_only` for
-  `grep`, `reject_only` for `web_search`), and its artifact line range. The
-  range includes the heading line.
+  each file, result, or answer: its source locators, its rule (`allow_only`
+  for `grep`, `reject_only` for `web_search`), and its artifact line range.
+  The range includes the heading line. An answer lists its citation URLs, and
+  any rejected one withholds the whole answer.
+- **Trailing lines stay inline.** The `grep` artifact holds headings and
+  passages only. The `[warnings]`, `[ignored]`, `[not searched to the end]`,
+  remainder, and notice lines exist only in the inline text, so they never
+  need a re-check.
 - **Evaluation.** On a read, the reader evaluates the `read` group only for
   the findings that overlap the served lines, once for each locator. It
   withholds by the rule of each finding:
@@ -218,8 +241,10 @@ A tool definition gets an optional `spill` field, `'head'` (the default) or
 
 ### D6: The `artifact` field travels with the result
 
-- **The field.** A spilled `ToolResult` carries `artifact` as a side field
-  beside `status`, the way `retainedMedia` travels.
+- **The field.** A spilled `ToolResult`, success or error, carries `artifact`
+  inside the result object. Side data such as `retainedMedia` travels in a
+  per-attempt Map keyed by tool call id; the locator does not need that,
+  because it is small and belongs to the result.
 - **The seams.** These change to carry it:
   - `runTool` and the `tool.completed` payload;
   - `toolActivityPart` and `assistant-transcript.ts`, which copy side fields;
@@ -236,12 +261,16 @@ A tool definition gets an optional `spill` field, `'head'` (the default) or
 
 - **Engine.** It keeps its page stop and its cursor, because the daemon uses
   them.
-- **Host scopes.** The API drives engine pages internally, with the engine
-  cursor, until the scopes end, a bound, the artifact bound, or the deadline.
-  It renders each passage into the artifact text as it arrives.
+- **Host scopes.** The API runs the engine once for each scope, with no file
+  limit and a page budget equal to the artifact bytes left, so read-ahead is
+  not thrown away at a page boundary. It renders each passage into the
+  artifact text as it arrives.
 - **Machine scopes.** These page over `fs.grep`.
-  - The API sets `pageUnits` to a page that fits one protocol message (about
-    256,000 units, below 1 MiB after JSON escaping).
+  - The API sets `pageUnits` to a page whose worst-case wire encoding fits one
+    protocol message. The wire repeats `path`, line numbers, and `matches` for
+    each passage, and escaping can cost 6 bytes for one unit. So the page is
+    120,000 units, at most 8 bytes each, below `MAX_MESSAGE_BYTES`. A
+    serialization test pins the ratio.
   - It loops on the daemon cursor in the same way.
   - The wire is unchanged, so no daemon release is needed.
 - **Progress.** `progressed` and `unfinished` keep their meaning within one
@@ -294,8 +323,10 @@ cannot shrink. It adds about 30 units to each pair with an artifact.
   2. list the directory;
   3. fetch and write only what is absent or has another size or time.
 - **Sweep.** Reconcile touches the directory, which marks it as seen. At
-  worker start and attempt start, the worker removes Chat directories not
-  seen for 7 days.
+  worker start (`RunsWorkerService.onApplicationBootstrap`) and attempt start,
+  the worker removes Chat directories not seen for 7 days. A sweep that races
+  a reconcile in another process can remove a fresh file; the next reconcile
+  writes it again.
 - **Notice.** It names the directory. For a Machine Workspace or `ssh://`
   `bash`, it says "on the llame host only".
 - **Rejected: rewriting `artifact://` tokens in command text, as OMP does.**
@@ -305,7 +336,8 @@ cannot shrink. It adds about 30 units to each pair with an artifact.
 ### D11: Forks copy what they cite (Q7)
 
 `copyOwnedChat` copies the `tool_artifacts` rows, with their parts, that the
-copied tool parts name in the same Chat. It also copies `artifact_seq`. A
+copied tool parts name in the same Chat. It copies with `INSERT … SELECT`, so
+the bytes never pass through Node. It also copies `artifact_seq`. A
 shared fork copies no tool part, so it copies no artifact.
 
 ### D12: Prompt imports opt out (Q15)
@@ -349,11 +381,27 @@ its example allow list name it.
 
 ## Open Questions
 
-- The `bash` inline budget split (A5) and the `fs.grep` page size (D7) can
-  change in implementation without a spec change.
+- The `bash` inline budget split (A5) can change in implementation without a
+  spec change.
 
 ## Revision history
 
+- **v3 (2026-11-02):** Review round 2 (two reviewers: 0 P0, 13 P1, 20 P2).
+  - **`bash` without an artifact.** Head and tail apply whenever a stream does
+    not fit; a left-out line covers results with no artifact.
+  - **Long lines.** Numbered by 8,000-unit pieces; MCP and one-line JSON stay
+    readable.
+  - **Machine.** A skipped file is reported. The page size comes from a
+    worst-case byte ratio. Machine `bash` spills on the hub.
+  - **`bash` settle path.** `priorOutcome` and the error variant carry the
+    locator. The key is `(chat_id, run_id, tool_call_id)`.
+  - **Contracts.** Line identity covers passages and results only, and
+    `<next>` is defined. The `web_search` artifact rule no longer contradicts
+    itself. Answers are findings. `grep` trailing lines stay inline.
+  - **Spec gaps.** `tool-call-permissions` "Grep scopes are admitted per scope
+    and files per hit" drops `cursor`. Three more deviations are listed.
+  - **Layers.** `store` and the `grep` walk are each split in two, and every
+    task cites a scenario that its layer can produce.
 - **v2 (2026-11-02):** Review round 1 (two reviewers: 5 P0, 28 P1, 25 P2).
   - **`bash` spill.** Moved inside the native fence, for failures too (P0).
   - **Machine paging.** Pages stay under one protocol message; the engine

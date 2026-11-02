@@ -36,8 +36,9 @@ artifact half, in walk order and engine order, with no ranking.
   - `read("artifact://")` lists the Chat's artifacts, and
     `read("artifact://bash-12")` lists the streams of one artifact.
   - `edit` and `write` refuse the scheme.
-  - A part that renders as JSON is stored with one member per line, so line
-    selectors page it.
+  - A part that renders as JSON is stored with one member per line. Line
+    numbers count a line over 8,000 units as several lines, so a long MCP
+    text or a one-line JSON stdout is still readable by range.
 - **Read-time authority.** Each artifact read re-checks the current `read`
   group on each `grep` or `web_search` finding that it serves. It uses the
   rule that admitted that finding. A refused finding renders as `[withheld]`
@@ -169,6 +170,17 @@ Assumptions that follow from these but were never asked:
   without host files gets the inline result with a count of what it left out.
   This differs from Q20, where every result that does not fit has an
   artifact.
+- **Line numbers are shared for passages and results only (D23).** The record
+  says every producer shares line numbers with the inline part and gives a
+  continuation selector. That holds for `grep` and `web_search` passages and
+  results. A `head` spill keeps a compact inline cut and stores pretty JSON,
+  so its notice gives `<locator>:1-`. `bash` parts hold raw streams.
+- **A stream part exists only when that stream does not fit (D16).** The
+  record says each non-empty stream gets a file. A short stderr beside a
+  spilled stdout stays inline, with no part and no file.
+- **Host files are compared by size and modification time (D8).** The record
+  says hashes. A hash needs a read of every file before each `bash` call; size
+  and time need none.
 - **A result larger than the byte bound is not stored (Q13).** Producers that
   stream, `grep` and `bash`, stop at the bound. A whole result that arrives
   larger, such as an MCP response, cannot be cut into valid JSON, so the
@@ -237,8 +249,11 @@ Assumptions that follow from these but were never asked:
   scheme", which excludes `artifact://`.
 - **`owner-chat-forks`.** ADDED: a fork copies the artifacts that its copied
   parts name.
-- **`tool-call-permissions`.** ADDED: `artifact://` locators match as their
-  logical text, and the sixth named exception covers each served finding.
+- **`tool-call-permissions`.**
+  - MODIFIED: "Grep scopes are admitted per scope and files per hit", which
+    drops `cursor` from the all-fields traversal.
+  - ADDED: `artifact://` locators match as their logical text, and the sixth
+    named exception covers each served finding.
 - **`instance-config`.**
   - MODIFIED: "Operator configuration declares web search engines and a
     chain", which adds `fetchLimit`.
@@ -286,7 +301,9 @@ Deliberately unchanged:
     `run-execution.service.ts`, `assistant-transcript.ts`,
     `tool-observation-part.ts`, and `continue-projection.ts`.
   - The `bash` spill before `native.result`: `bash.ts`, `ssh-bash.ts`,
-    `bash-result.ts`, and `packages/bash-executor`.
+    `bash-result.ts`, `machine-call.ts`, `packages/bash-executor`, the
+    `ToolResult` error variant in `packages/runtime-safety`, and
+    `priorOutcome` in `native-files-repository.ts`.
   - The `grep` layout and internal paging: `apps/api/src/tools/grep*.ts`. The
     engine cursor stays for `fs.grep`.
   - The `web_search` text shape and fetch size: `web-search/*`.

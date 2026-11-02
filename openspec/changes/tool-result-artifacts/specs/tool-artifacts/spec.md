@@ -29,7 +29,8 @@ locator. It MUST NOT store the content after the inline part.
 ### Requirement: An artifact needs a way to read it
 
 The system MUST store an artifact only when the Run can read it. The Run can
-read it when `read` is in `tools.allowed`, or when it gets host files. Otherwise the
+read it when `read` is in `tools.allowed`, or when its `bash` runs on the
+llame host and gets host files. Otherwise the
 tool MUST return its bounded inline result. The result MUST then state how
 many lines or results it left out.
 
@@ -70,11 +71,11 @@ one part MUST have no part segment.
 
 ### Requirement: An artifact part holds the full text of its source
 
-A `grep` or `web_search` artifact MUST hold the text shape that the model
-reads, the inline part included. Each line then has the same number inline
-and in the artifact. A `bash` part MUST hold the stream as the command wrote
-it. A result that renders as JSON MUST be stored as JSON with one member or
-item on each line.
+A `grep` or `web_search` artifact MUST hold each passage or result in the text
+shape of the model, inline ones included. These lines MUST come first. Each
+inline passage or result line has the same number in the artifact. A `bash`
+part MUST hold the stream as the command wrote it. The system MUST store a
+JSON result with one member or item on each line.
 
 #### Scenario: Inline lines keep their numbers in the artifact
 
@@ -88,8 +89,20 @@ item on each line.
 
 #### Scenario: A long JSON result is read by lines
 
-- **WHEN** an MCP result of 400 KB spills and the model reads `artifact://mcp__docs__fetch-<n>:1-200`
-- **THEN** the read returns the first 200 lines of the JSON
+- **WHEN** an MCP result holds one `text` item of 400 KB and the model reads `artifact://mcp__docs__fetch-<n>:1-200`
+- **THEN** the read returns the first 200 numbered lines, the long text value included
+
+### Requirement: Artifact lines are at most 8,000 units long
+
+Artifact line numbers MUST count a source line longer than 8,000 UTF-16 code
+units as one line for each 8,000 units. Every read, notice, and range MUST
+use that count. A host file MUST keep the source lines as the source wrote
+them.
+
+#### Scenario: A one-line JSON stdout is read in pieces
+
+- **WHEN** a `bash` stdout is one JSON line of 3 MB and spills
+- **THEN** `read("artifact://bash-<n>/stdout:1-10")` returns the first 80,000 units in ten lines
 
 ### Requirement: One byte bound limits every artifact part
 
@@ -143,7 +156,7 @@ locator as `invalid_path`.
 
 `read("artifact://")` MUST list every artifact of the Chat, oldest first. Each
 line MUST give the locator, the tool name, the size in lines and bytes, and
-the turn that made it. `read` of a `bash` artifact MUST list its parts in the
+the creation time. `read` of a `bash` artifact MUST list its parts in the
 same form. The list MUST include an artifact that a failed or replaced attempt
 made.
 
@@ -152,6 +165,11 @@ made.
 - **WHEN** a Chat has the artifacts `grep-1` and `bash-2` and the model reads `artifact://`
 - **THEN** the result has one line for `artifact://grep-1` and one line for `artifact://bash-2`
 
+#### Scenario: An artifact of a replaced reply stays listed
+
+- **WHEN** a Regenerate replaces a reply whose `grep` call made `artifact://grep-4`
+- **THEN** `read("artifact://")` still lists `artifact://grep-4`
+
 #### Scenario: A bash artifact lists its streams
 
 - **WHEN** the model reads `artifact://bash-2` and both streams did not fit
@@ -159,9 +177,9 @@ made.
 
 ### Requirement: An artifact read checks each finding again
 
-A `grep` or `web_search` part MUST record the source locator and the line
-range of each file or result that it holds. The range MUST include its heading
-line. Each read MUST evaluate the current `read` group on each finding that
+A `grep` or `web_search` part MUST record the source locators and the line
+range of each file, result, or answer that it holds. The range MUST include
+its heading line. An answer records each of its citation URLs. Each read MUST evaluate the current `read` group on each finding that
 the read serves. A refused finding MUST render each of its lines as
 `[withheld]`, and every line number MUST stay the same.
 
@@ -207,8 +225,8 @@ finding.
 
 An artifact MUST be readable only in its own Chat and only by its owner. The
 store MUST enforce this with row-level security, and it MUST fail closed
-without identity. Another Chat MUST receive `not_found`. Deleting the Chat or
-its owner MUST delete its artifact rows.
+without identity. Another Chat MUST receive `not_found`. When the owner deletes the Chat, or
+the owner is deleted, the system MUST delete its artifact rows.
 
 #### Scenario: Another Chat of the same owner cannot read it
 
@@ -275,8 +293,8 @@ choose a shape by tool name.
 ### Requirement: A head result names the artifact in its cap notice
 
 When a `head` result spills, its cap notice MUST name the artifact, its line
-count, and `<locator>:1-`. The notice MUST still state that narrower
-arguments recover the omitted content.
+count, `<locator>:1-`, and its host files when they exist. The notice MUST
+still state that narrower arguments recover the omitted content.
 
 #### Scenario: A spilled MCP result names its artifact
 
@@ -286,10 +304,10 @@ arguments recover the omitted content.
 ### Requirement: A bash call spills each stream before it is recorded
 
 `bash` MUST keep the head and the tail of each stream that does not fit
-inline, and store that stream as a part. A `command_failed` or `timed_out`
+inline. When the Run can read artifacts, it MUST store that stream as a part. A `command_failed` or `timed_out`
 result MUST spill like a success. The run event of the call MUST hold the
-inline result and the locator, not the full streams. A replayed fenced call
-MUST NOT create a second artifact.
+inline result and the locator, not the full streams. The result of a settled
+open call MUST keep its locator.
 
 #### Scenario: A build that fails keeps its log tail inline
 
@@ -303,11 +321,17 @@ MUST NOT create a second artifact.
 - **THEN** the `timed_out` message holds the head and the tail of stdout
 - **AND** `artifact://bash-<n>/stdout` holds all 3 MB
 
-#### Scenario: A retried bash call reuses its artifact
+#### Scenario: A settled open bash call keeps its artifact
 
-- **WHEN** an attempt retries a `bash` call whose recorded result names `artifact://bash-4`
-- **THEN** the retry returns the recorded result with `artifact://bash-4`
+- **WHEN** a worker dies after a `bash` call recorded a `command_failed` result with `artifact://bash-4`, and the next attempt settles the open call
+- **THEN** the settled result names `artifact://bash-4`
 - **AND** the Chat has no new artifact
+
+#### Scenario: A Machine command that fails keeps its tail
+
+- **WHEN** a Machine `bash` call exits 1 with 32,000 units of stderr, and `read` is allowlisted
+- **THEN** the error message holds the head and the tail of stderr
+- **AND** `artifact://bash-<n>/stderr` holds the whole stderr
 
 ### Requirement: Artifacts are host files when bash can run
 
@@ -376,7 +400,7 @@ the notice MUST name no host path.
 
 #### Scenario: A Machine Workspace is told where the files are
 
-- **WHEN** the Chat is in a Machine Workspace and a call spills
+- **WHEN** `bash` is allowlisted, the process has a native executor, the Chat is in a Machine Workspace, and a call spills
 - **THEN** the notice says that the files are on the llame host only
 - **AND** `read("artifact://…")` returns the artifact in that Workspace
 

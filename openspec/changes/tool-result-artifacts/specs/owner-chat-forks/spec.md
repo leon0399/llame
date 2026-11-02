@@ -13,7 +13,7 @@ rows. The fork MUST NOT copy an artifact that no copied part names.
 - **THEN** `read("artifact://grep-7")` in the fork returns the same content
 - **AND** the next artifact of the fork takes the number after the source counter
 
-#### Scenario: Deleting the source keeps the fork artifacts
+#### Scenario: A deleted source keeps the fork artifacts
 
 - **WHEN** the owner deletes the source Chat after the fork
 - **THEN** `artifact://grep-7` still reads in the fork

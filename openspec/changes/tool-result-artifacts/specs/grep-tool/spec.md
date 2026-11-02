@@ -168,7 +168,7 @@ MUST NOT count as reached.
 
 #### Scenario: Files before an entry bound are still searched
 
-- **WHEN** the entry bound trips while three earlier candidates with no match are open
+- **WHEN** the entry bound trips while three earlier candidates are open
 - **THEN** the walk takes those three files before it stops
 - **AND** the result holds the passages of those three files, if any
 
@@ -482,7 +482,8 @@ The inline part MUST hold whole passages in result order while the next one
 fits. It MUST hold at most `limit` files. Its rendered text MUST stay at or
 below 15,000 UTF-16 code units, every line of the result included. When the
 first passage does not fit, the tool MUST cut it at a line boundary and mark
-it `cut: true`.
+it `cut: true`. Without an artifact, a left-out line MUST count what the
+inline part does not hold.
 
 #### Scenario: The budget ends the inline part early
 
@@ -542,11 +543,14 @@ the `read` group refuses.
 
 When a Machine response names an unfinished file, the API MUST ask for the
 next response after that file. It MUST NOT open that file again in the call.
+The result MUST carry `complete: false`, and it MUST name that file in
+`unfinishedFile` when the `read` group admits it.
 
 #### Scenario: A daemon time budget skips one file
 
 - **WHEN** the daemon time budget stops a Machine walk in its first file, before progress
 - **THEN** the next `fs.grep` request of the call starts after that file
+- **AND** the result names that file in `unfinishedFile` with `complete: false`
 
 ## REMOVED Requirements
 
