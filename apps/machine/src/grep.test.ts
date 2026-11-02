@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   FS_GREP_METHOD,
@@ -38,6 +40,8 @@ const BUDGET: FsGrepBudget & GrepBudget = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
+  // The wire carries no file-size bound.
+  maxFileBytes: null,
   deadlineMs: 30_000,
   limit: 20,
   pageUnits: 15_000,
@@ -195,6 +199,24 @@ function pathsOf(page: GrepPage): ReadonlyArray<string> {
   return page.results.map((passage) => passage.path);
 }
 
+/** A FIFO at `target`; `mkfifo` is the one reliable way to make one. */
+async function makeFifo(target: string): Promise<void> {
+  await promisify(execFile)("mkfifo", [target]);
+}
+
+/** Every byte a streamed open yields, in order. */
+async function collectChunks(
+  chunks: AsyncIterable<Uint8Array | { readonly kind: string }>,
+): Promise<Buffer> {
+  const parts: Array<Uint8Array> = [];
+  for await (const chunk of chunks) {
+    if (!(chunk instanceof Uint8Array))
+      throw new Error(`refused: ${chunk.kind}`);
+    parts.push(chunk);
+  }
+  return Buffer.concat(parts);
+}
+
 describe("fs.grep", () => {
   it("walks a glob scope and names paths relative to its prefix", async () => {
     await writeAt("project/a.go", "package a\n// needle\n");
@@ -305,6 +327,34 @@ describe("fs.grep", () => {
     expect(page.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
   });
 
+  it("searches a file larger than the bytes left and stops the next one at the byte bound", async () => {
+    await writeAt("project/a.go", "needle one\n");
+    await writeAt("project/b.go", "needle two\n");
+    const prefix = join(fixture.root, "project");
+    const page = await grep(
+      request(prefix, { budget: { ...BUDGET, bytes: 1 } }),
+    );
+    expect(pathsOf(page)).toEqual(["a.go"]);
+    expect(page.complete).toBe(false);
+    expect(page.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
+    if (page.cursor === undefined) throw new Error("the page carries a cursor");
+    expect(
+      decodeGrepCursor(
+        page.cursor,
+        fsGrepCursorKey({
+          path: prefix,
+          patterns: ["needle"],
+          literal: false,
+          ignoreCase: false,
+        }),
+      ),
+    ).toMatchObject({ kind: "passage", rel: "a.go" });
+
+    const second = await grep(request(prefix, { cursor: page.cursor }));
+    expect(pathsOf(second)).toEqual(["b.go"]);
+    expect(second.complete).toBe(true);
+  });
+
   it("resumes after the entry a position cursor names", async () => {
     await writeAt("project/a.md", "nothing here\n");
     await writeAt("project/b.md", "needle\n");
@@ -407,26 +457,51 @@ describe("fs.grep", () => {
     expect(rest.results[0]).toMatchObject({ startLine: cutEnd + 1 });
   });
 
-  it("reads a file exactly at the bound and refuses one byte more", async () => {
+  it("announces a file's size and streams its bytes", async () => {
     await writeAt("exact.md", "0123456789");
-    await writeAt("over.md", "0123456789a");
     const port = createGrepWalkPort(
       await realpath(fixture.root),
       createRootGuard([fixture.root]),
       undefined,
     );
-    const exact = await port.read("exact.md", 10);
-    if (!(exact instanceof Uint8Array))
-      throw new Error("a file at the bound is read");
-    expect(new TextDecoder().decode(exact)).toBe("0123456789");
-    expect(await port.read("over.md", 10)).toEqual({ kind: "oversized" });
+    const opened = await port.open("exact.md");
+    if (!("chunks" in opened)) throw new Error("a regular file opens");
+    expect(opened.size).toBe(10);
+    expect(await collectChunks(opened.chunks)).toEqual(
+      Buffer.from("0123456789"),
+    );
   });
 
-  it("skips a file over the walk's file bound and counts it", async () => {
-    await writeAt("project/big.go", `${"x".repeat(1024 * 1024)}\nneedle\n`);
+  it("refuses a symbolic link at the opened path", async () => {
+    await writeAt("real.md", "needle\n");
+    await symlink(join(fixture.root, "real.md"), join(fixture.root, "link.md"));
+    const port = createGrepWalkPort(
+      await realpath(fixture.root),
+      createRootGuard([fixture.root]),
+      undefined,
+    );
+    await expect(port.open("link.md")).resolves.toStrictEqual({
+      kind: "unreadable",
+    });
+  });
+
+  it("refuses a FIFO without blocking the walk", async () => {
+    await makeFifo(join(fixture.root, "pipe"));
+    const port = createGrepWalkPort(
+      await realpath(fixture.root),
+      createRootGuard([fixture.root]),
+      undefined,
+    );
+    await expect(port.open("pipe")).resolves.toStrictEqual({
+      kind: "unreadable",
+    });
+  });
+
+  it("searches a file larger than the old one-mebibyte cut", async () => {
+    await writeAt("project/big.go", `${"x".repeat(2 * 1024 * 1024)}\nneedle\n`);
     const page = await grep(request(join(fixture.root, "project")));
-    expect(page.results).toEqual([]);
-    expect(page.warnings).toEqual([{ kind: "oversized", count: 1 }]);
+    expect(pathsOf(page)).toEqual(["big.go"]);
+    expect(page.warnings).toEqual([]);
   });
 
   it("applies no rules from an ignore file the walk will not read", async () => {
@@ -446,6 +521,35 @@ describe("fs.grep", () => {
       "a.go",
       "ignored/b.go",
     ]);
+  });
+
+  it("ends a stream with a refusal when its directory is swapped during the read", async () => {
+    await writeAt(
+      "project/sub/inside.md",
+      `${"x".repeat(128 * 1024)}\nneedle\n`,
+    );
+    const guard = createRootGuard([fixture.root]);
+    const guarded = await guard.resolvePath(join(fixture.root, "project"));
+    const port = createGrepWalkPort(guarded.canonical, guard, undefined);
+    const opened = await port.open("sub/inside.md");
+    if (!("chunks" in opened)) throw new Error("a regular file opens");
+    const iterator = opened.chunks[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    expect(first.value).toBeInstanceOf(Uint8Array);
+    // The listing named a real directory; the swap lands mid-read.
+    await rm(join(fixture.root, "project", "sub"), {
+      recursive: true,
+      force: true,
+    });
+    await symlink(fixture.outside, join(fixture.root, "project", "sub"));
+    const rest: Array<unknown> = [];
+    for (;;) {
+      const next = await iterator.next();
+      if (next.done === true) break;
+      rest.push(next.value);
+    }
+    expect(rest.at(-1)).toStrictEqual({ kind: "unreadable" });
+    await opened.close();
   });
 
   it("drops a subtree swapped for a link outside the roots between list and read", async () => {
@@ -524,8 +628,10 @@ describe("fs.grep", () => {
     // The ancestor the request named now points outside every root.
     await rm(join(fixture.root, "alias"));
     await symlink(fixture.outside, join(fixture.root, "alias"));
-    const bytes = await port.read("a.md", 1024);
-    if (!(bytes instanceof Uint8Array)) throw new Error("the file is read");
-    expect(new TextDecoder().decode(bytes)).toBe("needle inside\n");
+    const opened = await port.open("a.md");
+    if (!("chunks" in opened)) throw new Error("the file is read");
+    expect((await collectChunks(opened.chunks)).toString()).toBe(
+      "needle inside\n",
+    );
   });
 });

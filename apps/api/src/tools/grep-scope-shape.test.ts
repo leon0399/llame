@@ -29,6 +29,15 @@ function admission(allow = true): GrepReadAdmission & {
   };
 }
 
+/** A byte stream that ends at once, as an opened file that holds nothing. */
+function emptyStream(): AsyncIterable<Uint8Array> {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => Promise.resolve({ done: true, value: undefined }),
+    }),
+  };
+}
+
 function draft(overrides: Partial<ScopeDraft> = {}): ScopeDraft {
   return {
     index: 3,
@@ -37,7 +46,12 @@ function draft(overrides: Partial<ScopeDraft> = {}): ScopeDraft {
     port: () => ({
       followsLinks: false,
       list: () => Promise.resolve(NO_ENTRIES),
-      read: () => Promise.resolve(new Uint8Array()),
+      open: () =>
+        Promise.resolve({
+          size: 0,
+          chunks: emptyStream(),
+          close: () => Promise.resolve(),
+        }),
     }),
     probe: () => Promise.resolve({ kind: 'directory' }),
     endsWithSeparator: false,

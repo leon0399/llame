@@ -65,6 +65,8 @@ const BUDGET: FsGrepBudget & GrepBudget = {
   files: 5000,
   entries: 20_000,
   bytes: 32 * 1024 * 1024,
+  // The wire carries no file-size bound.
+  maxFileBytes: null,
   deadlineMs: 30_000,
   limit: 20,
   pageUnits: 15_000,

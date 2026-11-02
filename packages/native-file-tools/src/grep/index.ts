@@ -1,4 +1,5 @@
 export { GREP_LIMITS } from "./limits";
+export { fileStream, openFileStream } from "./file-stream";
 export { compileGrepPatterns } from "./patterns";
 export type {
   CompiledGrepPatterns,
@@ -37,8 +38,10 @@ export { GREP_WARNING_KINDS, GrepPortError } from "./types";
 export type {
   GrepBudget,
   GrepEntry,
+  GrepFileStream,
   GrepPageEnd,
   GrepPassage,
+  GrepReadRefusal,
   GrepScanInput,
   GrepScanResult,
   GrepScope,

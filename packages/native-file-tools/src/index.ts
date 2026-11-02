@@ -61,6 +61,7 @@ export {
   renderReadText,
   renderWriteText,
 } from "./model-text";
+export { openFlags } from "./path";
 export { statHostPath } from "./stat";
 export type { HostPathStat } from "./stat";
 

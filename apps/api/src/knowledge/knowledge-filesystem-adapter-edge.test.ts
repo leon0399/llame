@@ -1,3 +1,4 @@
+import { collectStreamBytes, drainStream } from '../testing/stream-collect';
 import {
   KnowledgeFilesystemAdapter,
   KNOWLEDGE_MAX_ENTRIES,
@@ -112,6 +113,16 @@ function port(options: PortOptions = {}): KnowledgeFilesystemPort {
 
 function binding() {
   return { id: SPACE_ID, name: 'Personal', root: ROOT, directory: DIRECTORY };
+}
+
+/** Every byte one walk open streams, or the refusal it answered with. */
+async function walkBytes(
+  opened: Awaited<ReturnType<KnowledgeFilesystemAdapter['openWalk']>>,
+): Promise<Buffer | { readonly kind: string }> {
+  if (!('chunks' in opened)) return opened;
+  const bytes = await collectStreamBytes(opened.chunks);
+  await opened.close();
+  return bytes;
 }
 
 describe('Knowledge filesystem adapter edge branches', () => {
@@ -386,19 +397,111 @@ describe('Knowledge filesystem walk probes', () => {
     ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
   });
 
-  it('reads a walk file, and reports an over-bound read as oversized', async () => {
-    const bytes = Buffer.from('needle\n');
+  it("streams a walk file's bytes in order", async () => {
+    const bytes = Buffer.from(
+      Array.from({ length: 200 * 1024 }, (_value, index) => index % 251),
+    );
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({ bytes }),
     );
 
-    await expect(adapter.readWalk('note.md', bytes.length)).resolves.toEqual(
-      bytes,
+    const opened = await adapter.openWalk('note.md');
+    if (!('chunks' in opened)) throw new Error('a walk file opens');
+    expect(opened.size).toBe(bytes.length);
+    await expect(walkBytes(opened)).resolves.toEqual(bytes);
+  });
+
+  it('refuses a file whose fstat fails, and closes it', async () => {
+    const closed = vi.fn(() => Promise.resolve());
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        openFile: () =>
+          Promise.resolve({
+            stat: () =>
+              Promise.reject(Object.assign(new Error('io'), { code: 'EIO' })),
+            read: () => Promise.resolve({ bytesRead: 0 }),
+            close: closed,
+          }),
+      }),
     );
-    await expect(adapter.readWalk('note.md', 2)).resolves.toStrictEqual({
-      kind: 'oversized',
+
+    await expect(adapter.openWalk('note.md')).resolves.toStrictEqual({
+      kind: 'unreadable',
     });
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a file that is not a regular file after the open, and closes it', async () => {
+    const closed = vi.fn(() => Promise.resolve());
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        openFile: () =>
+          Promise.resolve({
+            stat: () => Promise.resolve(directoryStats),
+            read: () => Promise.resolve({ bytesRead: 0 }),
+            close: closed,
+          }),
+      }),
+    );
+
+    await expect(adapter.openWalk('note.md')).resolves.toStrictEqual({
+      kind: 'unreadable',
+    });
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends a stream with a refusal when a later read fails, and closes it', async () => {
+    const closed = vi.fn(() => Promise.resolve());
+    const adapter = new KnowledgeFilesystemAdapter(
+      binding(),
+      walkPort({
+        openFile: () =>
+          Promise.resolve({
+            stat: () => Promise.resolve(fileStats(6)),
+            read: vi.fn((_buffer, _offset, _length, position) =>
+              position === 0
+                ? Promise.resolve({ bytesRead: 3 })
+                : Promise.reject(
+                    Object.assign(new Error('io'), { code: 'EIO' }),
+                  ),
+            ),
+            close: closed,
+          }),
+      }),
+    );
+
+    const opened = await adapter.openWalk('note.md');
+    if (!('chunks' in opened)) throw new Error('a walk file opens');
+    const seen = await drainStream(opened.chunks, 4);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBeInstanceOf(Uint8Array);
+    expect(seen[1]).toStrictEqual({ kind: 'unreadable' });
+    await opened.close();
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends a stream with a refusal when a read reports an impossible length', async () => {
+    for (const bytesRead of [-1, 1.5, 64 * 1024 + 1]) {
+      const adapter = new KnowledgeFilesystemAdapter(
+        binding(),
+        walkPort({
+          openFile: () =>
+            Promise.resolve({
+              stat: () => Promise.resolve(fileStats(6)),
+              read: () => Promise.resolve({ bytesRead }),
+              close: () => Promise.resolve(),
+            }),
+        }),
+      );
+
+      const opened = await adapter.openWalk('note.md');
+      if (!('chunks' in opened)) throw new Error('a walk file opens');
+      const seen = await drainStream(opened.chunks, 4);
+      expect(seen).toStrictEqual([{ kind: 'unreadable' }]);
+    }
   });
 
   it('reports a file the walk cannot open as unreadable', async () => {
@@ -412,7 +515,7 @@ describe('Knowledge filesystem walk probes', () => {
       }),
     );
 
-    await expect(adapter.readWalk('note.md', 64)).resolves.toStrictEqual({
+    await expect(adapter.openWalk('note.md')).resolves.toStrictEqual({
       kind: 'unreadable',
     });
   });
@@ -432,7 +535,7 @@ describe('Knowledge filesystem walk probes', () => {
 
     // The walk was already walking this file: its disappearance is one skip,
     // not a result that ends the call for every other file.
-    await expect(adapter.readWalk('note.md', 64)).resolves.toStrictEqual({
+    await expect(adapter.openWalk('note.md')).resolves.toStrictEqual({
       kind: 'unreadable',
     });
   });
@@ -455,9 +558,10 @@ describe('Knowledge filesystem walk probes', () => {
       }),
     );
 
-    await expect(
-      adapter.readWalk('note.md', 64, controller.signal),
-    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
+    const opened = await adapter.openWalk('note.md', controller.signal);
+    await expect(walkBytes(opened)).rejects.toMatchObject({
+      code: 'knowledge_cancelled',
+    });
   });
 
   it('interrupts a component stat when the signal aborts mid-walk', async () => {
@@ -475,7 +579,7 @@ describe('Knowledge filesystem walk probes', () => {
     const adapter = new KnowledgeFilesystemAdapter(binding(), fileSystem);
     const open = vi.spyOn(fileSystem, 'open');
 
-    const pending = adapter.readWalk('notes/a.md', 64, controller.signal);
+    const pending = adapter.openWalk('notes/a.md', controller.signal);
     await started.promise;
     controller.abort();
     // The in-flight stat settles after the abort: only the pass-through of the

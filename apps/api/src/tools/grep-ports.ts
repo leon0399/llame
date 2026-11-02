@@ -6,12 +6,14 @@
  * exactly as agent-skills does. Only the host port honors `.gitignore`.
  */
 
-import { constants, type Dirent } from 'node:fs';
+import { type Dirent } from 'node:fs';
 import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
 import { type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  openFileStream,
+  openFlags,
   type GrepEntry,
   type GrepWalkPort,
 } from '@workspace/native-file-tools';
@@ -34,9 +36,6 @@ export type ScopeProbe =
   | { readonly kind: 'file' | 'directory' | 'missing' }
   | { readonly result: GrepToolError };
 
-/** What the host port returns instead of bytes it will not hand over. */
-type HostReadRefusal = { readonly kind: 'oversized' | 'unreadable' };
-
 /** The path two relative parts join to, with no separator for an empty part. */
 export function joinedPath(prefix: string, rel: string): string {
   if (prefix.length === 0) return rel;
@@ -44,7 +43,7 @@ export function joinedPath(prefix: string, rel: string): string {
   return `${prefix}/${rel}`;
 }
 
-/** The chunk a bounded read asks a handle for, so no file is held whole. */
+/** The chunk a bounded ignore read asks a handle for, so no file is held whole. */
 const READ_CHUNK_BYTES = 64 * 1024;
 
 /** The one file-handle operation a bounded read needs. */
@@ -120,7 +119,7 @@ export function createHostWalkPort(
   return {
     followsLinks: false,
     list: (rel) => listHostDirectory(root, rel, signal),
-    read: (rel, maxBytes) => readHostFile(root, rel, maxBytes, signal),
+    open: (rel) => openFileStream(hostPath(root, rel), false, signal),
     ignoreFile: (rel) => readIgnoreFile(root, rel, signal),
   };
 }
@@ -177,34 +176,6 @@ async function refuseNonDirectoryRoot(target: string): Promise<void> {
   if (!ownDirectory) throw new GrepScopeFailure(notFoundResult());
 }
 
-/** One host file, opened without following a link or blocking on a FIFO. */
-async function readHostFile(
-  root: string,
-  rel: string,
-  maxBytes: number,
-  signal: AbortSignal | undefined,
-): Promise<Uint8Array | HostReadRefusal> {
-  signal?.throwIfAborted();
-  let handle: FileHandle | undefined;
-  try {
-    handle = await open(
-      hostPath(root, rel),
-      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-    );
-    const stats = await handle.stat();
-    if (!stats.isFile()) return { kind: 'unreadable' };
-    if (stats.size > maxBytes) return { kind: 'oversized' };
-    // Only the bound reaches memory: a file that grew past its declared size
-    // is refused on the extra byte instead of being buffered whole.
-    const bytes = await readBoundedFileBytes(handle, maxBytes, signal);
-    return bytes.byteLength > maxBytes ? { kind: 'oversized' } : bytes;
-  } catch {
-    return { kind: 'unreadable' };
-  } finally {
-    await handle?.close();
-  }
-}
-
 function hostPath(root: string, rel: string): string {
   return rel.length === 0 ? root : path.join(root, rel);
 }
@@ -220,10 +191,7 @@ async function readIgnoreFile(
   try {
     // Policy comes from a real file only, opened by the walk's own rule: a
     // link is never followed and a FIFO never blocks the walk.
-    handle = await open(
-      file,
-      constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-    );
+    handle = await open(file, openFlags(false));
     const stats = await handle.stat();
     if (!stats.isFile()) return undefined;
     // The cap applies to the bytes read, so a file that announced the wrong
@@ -254,13 +222,9 @@ export function createKnowledgeWalkPort(
         throw new GrepScopeFailure(mapKnowledgeResolutionFailure(error));
       }
     },
-    async read(rel, maxBytes) {
+    async open(rel) {
       try {
-        return await adapter.readWalk(
-          joinedPath(prefixPath, rel),
-          maxBytes,
-          signal,
-        );
+        return await adapter.openWalk(joinedPath(prefixPath, rel), signal);
       } catch (error) {
         throw new GrepScopeFailure(mapKnowledgeResolutionFailure(error));
       }
@@ -311,25 +275,7 @@ export function createSkillWalkPort(
   return {
     followsLinks: true,
     list: (rel) => listSkillDirectory(root, rel, signal),
-    async read(rel, maxBytes) {
-      signal?.throwIfAborted();
-      const file = rel.length === 0 ? root : path.join(root, rel);
-      let handle: FileHandle | undefined;
-      try {
-        handle = await open(file, 'r');
-        const stats = await handle.stat();
-        if (!stats.isFile()) return { kind: 'unreadable' as const };
-        if (stats.size > maxBytes) return { kind: 'oversized' as const };
-        const bytes = await readBoundedFileBytes(handle, maxBytes, signal);
-        return bytes.byteLength > maxBytes
-          ? { kind: 'oversized' as const }
-          : bytes;
-      } catch {
-        return { kind: 'unreadable' as const };
-      } finally {
-        await handle?.close();
-      }
-    },
+    open: (rel) => openFileStream(hostPath(root, rel), true, signal),
   };
 }
 

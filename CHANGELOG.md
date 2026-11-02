@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-01
 
+- `grep` searches files as a stream: the fixed 1 MiB per-file cut becomes the
+  call's 32 MiB byte bound, so a file up to 32 MiB is searched. It reads a file
+  to its end before that file's passages reach the page, so a late invalid byte
+  or an over-long line drops every passage of the file, and a line longer than
+  4 MiB of UTF-8 bytes skips its file as `oversized`. A passage the page cannot
+  show whole is cut at a line it holds and continues on the next call, losing
+  no line. See [grep](docs/product/reference/tools/grep.md).
 - Tool-result text uses the singular for a count of one, fixing
   [#1506](https://github.com/leon0399/llame/issues/1506): `(1 line)`,
   `1 -> 1 line (1 line total)`, `of 1 line`, `[1 more line. …]`, and

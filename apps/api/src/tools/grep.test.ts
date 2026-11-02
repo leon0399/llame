@@ -756,7 +756,7 @@ describe('paging', () => {
           lineNumbered(...lines),
         );
 
-      const reads = vi.spyOn(KnowledgeFilesystemAdapter.prototype, 'readWalk');
+      const reads = vi.spyOn(KnowledgeFilesystemAdapter.prototype, 'openWalk');
       try {
         const result = await run(
           contextOf({
