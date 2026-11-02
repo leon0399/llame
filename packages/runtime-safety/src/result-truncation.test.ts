@@ -657,14 +657,21 @@ describe("truncateOversizedResult artifact results", () => {
     expect(result).toMatchObject({ artifact: ARTIFACT, truncated: true });
   });
 
-  it("caps an artifact field that is not a string", () => {
+  it("keeps the artifact locator ahead of fields the fitting limit drops", () => {
+    const fields = Object.fromEntries(
+      Array.from({ length: 1500 }, (_entry, index) => [
+        `field-${index}`,
+        "y".repeat(40),
+      ]),
+    );
     const result = truncateOversizedResult({
       status: "success",
-      artifact: { text: "x".repeat(50_000) },
+      artifact: ARTIFACT,
+      ...fields,
     });
 
-    expect(result).toMatchObject({ truncated: true });
-    expect(JSON.stringify(result)).not.toContain("x".repeat(50_000));
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({ artifact: ARTIFACT, truncated: true });
   });
 
   it("leaves an error result's artifact untouched", () => {

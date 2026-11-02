@@ -718,9 +718,10 @@ describe('artifact locator permission projection', () => {
     expect(nativeFileProjection('read')('path', ARTIFACT)).toBe(
       'artifact://bash-3/stdout',
     );
-    // Without a selector the projection has nothing to remove.
-    expect(projectNativeFilePath('artifact://bash-3/stdout:1-50')).toBe(
-      ARTIFACT,
+    // `projectNativeFilePath` keeps the selector; only the `read` projection
+    // removes it.
+    expect(projectNativeFilePath('artifact://bash-3/stderr:1-50')).toBe(
+      'artifact://bash-3/stderr:1-50',
     );
   });
 

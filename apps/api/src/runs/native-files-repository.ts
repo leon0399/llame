@@ -177,13 +177,14 @@ export class NativeFilesRepository {
  */
 function recordedResult(result: UnknownRecord): ToolResult | undefined {
   if (result.status === 'success') return { ...result, status: 'success' };
+  if (result.status !== 'error') return undefined;
   if (!isString(result.type) || !isString(result.message)) return undefined;
   const artifact = result.artifact;
   return {
     status: 'error',
     type: result.type,
     message: result.message,
-    ...(isString(artifact) && isArtifactLocator(artifact) && { artifact }),
+    ...(isArtifactLocator(artifact) && { artifact }),
   };
 }
 

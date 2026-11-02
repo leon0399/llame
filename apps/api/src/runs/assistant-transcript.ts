@@ -625,7 +625,7 @@ function toolResultFromPayload(
     message,
     ...(isHopRejection(toolName, type) &&
       isRejectedHopUrl(rejectedUrl) && { rejectedUrl }),
-    ...(isString(artifact) && isArtifactLocator(artifact) && { artifact }),
+    ...(isString(artifact) && { artifact }),
   };
 }
 

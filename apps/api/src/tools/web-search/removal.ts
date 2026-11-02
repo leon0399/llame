@@ -3,6 +3,21 @@ import { evaluateWebLocatorRead } from '../web-read/admission';
 import { canonicalUrl } from './output';
 
 /**
+ * Whether the `read` group rejects a URL: only a reject clause with an index
+ * removes an entry, so a whole-tool reject and a missing allow keep it. Used
+ * at fetch time and when an artifact read re-checks a stored result.
+ */
+export function rejectsWebLocatorRead(
+  context: ToolContext,
+  url: string,
+): boolean {
+  const decision = evaluateWebLocatorRead(context, url);
+  return (
+    decision?.decision === 'reject' && decision.reference?.clauseIndex != null
+  );
+}
+
+/**
  * One call's entry removal rule: whether it excludes an entry, and the
  * distinct entries it removed for the one count note.
  */
@@ -48,11 +63,7 @@ export function createResultRemoval(
         hosts.some(
           (candidate) => host === candidate || host.endsWith(`.${candidate}`),
         );
-      const decision = evaluateWebLocatorRead(context, key);
-      const rejected =
-        decision?.decision === 'reject' &&
-        decision.reference?.clauseIndex != null;
-      const removed = excluded || rejected;
+      const removed = excluded || rejectsWebLocatorRead(context, key);
       decided.set(key, removed);
       return removed;
     },

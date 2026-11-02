@@ -157,7 +157,7 @@ function toolResultFromRecord(value: unknown): ToolResult | undefined {
     type,
     message,
     ...(isString(rejectedUrl) && { rejectedUrl }),
-    ...(isString(artifact) && isArtifactLocator(artifact) && { artifact }),
+    ...(isArtifactLocator(artifact) && { artifact }),
   };
 }
 

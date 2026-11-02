@@ -89,6 +89,20 @@ describe('NativeFilesRepository prior outcomes', () => {
     });
   });
 
+  it('treats any other recorded status as the unknown outcome', async () => {
+    const repository = repositoryOf({
+      eventType: 'native.result',
+      payload: {
+        toolCallId: 'bash-call',
+        result: { status: 'pending', artifact: 'artifact://bash-4/stdout' },
+      },
+    });
+
+    await expect(
+      repository.priorOutcome('run-1', 'bash-call'),
+    ).resolves.toMatchObject({ status: 'error', type: 'outcome_unknown' });
+  });
+
   it('keeps the artifact locator of a settled success result', async () => {
     const repository = repositoryOf({
       eventType: 'native.result',

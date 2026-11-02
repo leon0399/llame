@@ -14,22 +14,20 @@
  */
 
 import {
+  boundedReadLineCount,
   splitSourceLines,
   type ReadTarget,
 } from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
-import { admitPermission, type PermissionContext } from '../permissions/admit';
+import { readDecision } from '../grep-admission';
 import { nativeFileProjection } from '../permissions/locator-projection';
 import { type ToolContext } from '../types';
-import { evaluateWebLocatorRead } from '../web-read/admission';
+import { rejectsWebLocatorRead } from '../web-search/removal';
+import { type StoredPart } from './artifacts-repository';
 
 /** The document version a writer stamps; a reader accepts no other. */
 const FINDINGS_VERSION = 1;
-/** A part's finding list, its locators, and one locator's length are bounded. */
-const MAX_FINDINGS = 20_000;
-const MAX_LOCATORS = 200;
-const MAX_LOCATOR_LENGTH = 2048;
 
 const WITHHELD_LINE = '[withheld]';
 
@@ -65,7 +63,9 @@ export function artifactFindings(
 
 /**
  * A stored part's finding document, or `undefined` when it is not one this
- * build wrote. Stored jsonb is untrusted on the way back in.
+ * build wrote. Stored jsonb is untrusted on the way back in. The byte bound on
+ * a part is the only size limit: a broad walk may write as many findings as it
+ * has files.
  */
 export function parseArtifactFindings(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- the boundary parser for the part's untrusted `findings` jsonb column; every field is checked before the document is trusted.
@@ -75,9 +75,7 @@ export function parseArtifactFindings(
     return undefined;
   }
   const findings = value['findings'];
-  if (!Array.isArray(findings) || findings.length > MAX_FINDINGS) {
-    return undefined;
-  }
+  if (!Array.isArray(findings)) return undefined;
   const parsed: Array<ArtifactFinding> = [];
   for (const entry of findings) {
     const finding = parseFinding(entry);
@@ -98,53 +96,50 @@ function parseFinding(value: unknown): ArtifactFinding | undefined {
     !isLineNumber(start) ||
     !isLineNumber(end) ||
     end < start ||
-    !Array.isArray(locators) ||
-    locators.length === 0 ||
-    locators.length > MAX_LOCATORS ||
-    !locators.every(isLocatorText)
+    !Array.isArray(locators)
   ) {
     return undefined;
   }
-  return { locators, rule, start, end };
+  const texts = locators.filter(isString);
+  if (
+    texts.length === 0 ||
+    texts.length !== locators.length ||
+    texts.some((locator) => locator.length === 0)
+  ) {
+    return undefined;
+  }
+  return { locators: texts, rule, start, end };
 }
 
 function isFindingRule(value: unknown): value is FindingRule {
   return value === 'allow_only' || value === 'reject_only';
 }
 
-function isLocatorText(value: unknown): value is string {
-  return (
-    isString(value) && value.length > 0 && value.length <= MAX_LOCATOR_LENGTH
-  );
-}
-
 function isLineNumber(value: unknown): value is number {
   return isNumber(value) && Number.isSafeInteger(value) && value >= 1;
 }
 
-/** The context fields the re-check reads; the reader passes its whole one. */
-export type FindingContext = PermissionContext &
-  Pick<ToolContext, 'workspaceRoot'>;
+/** The part fields the re-check reads. */
+export type FindingPart = Pick<StoredPart, 'contentType' | 'findings'>;
 
-/** The finding record of a stored part, as the reader sees it. */
-export type FindingPart = {
-  readonly findings: unknown;
-  readonly contentType: string;
-};
+/** A 1-based artifact line window, both ends inclusive. */
+type LineWindow = { readonly start: number; readonly end: number };
 
 /**
  * The part's text with every refused finding's lines replaced by
  * `[withheld]`. A part with no finding record is returned unchanged, and no
  * policy is consulted for it; a record this build cannot parse fails closed by
- * withholding every line.
+ * withholding every line. A `bypass` attempt withholds nothing and parses
+ * nothing either.
  */
 export function withholdFindings(
-  context: FindingContext,
+  context: ToolContext,
   part: FindingPart,
   text: string,
   resolved: ReadTarget,
 ): string {
   if (part.findings === null || part.findings === undefined) return text;
+  if (context.permissionMode === 'bypass') return text;
   const lines = splitSourceLines(text);
   const withheld = withheldLines(context, part, resolved, lines.length);
   if (withheld.size === 0) return text;
@@ -161,7 +156,7 @@ export function withholdFindings(
 
 /** The 1-based artifact lines this read withholds. */
 function withheldLines(
-  context: FindingContext,
+  context: ToolContext,
   part: FindingPart,
   resolved: ReadTarget,
   lineCount: number,
@@ -176,19 +171,19 @@ function withheldLines(
   }
 
   const window = servedWindow(resolved, lineCount);
+  // A Markdown read pulls in the headings above its window. Which of them are
+  // ancestors needs the Markdown parse, so every finding above the window is
+  // judged; the window itself is clamped to one read, so paging stays linear.
   const reachStart =
     part.contentType === 'text/markdown' && !resolved.raw && window.start > 1
       ? 1
       : window.start;
   const verdicts = new Map<string, boolean>();
   for (const finding of document.findings) {
-    const served =
-      reachStart <= window.end &&
-      finding.start <= window.end &&
-      finding.end >= reachStart;
+    const served = finding.start <= window.end && finding.end >= reachStart;
     if (!served || !withheldFinding(context, finding, verdicts)) continue;
     for (
-      let line = Math.max(1, finding.start);
+      let line = finding.start;
       line <= Math.min(lineCount, finding.end);
       line += 1
     ) {
@@ -198,15 +193,15 @@ function withheldLines(
   return withheld;
 }
 
-/** A 1-based artifact line window, both ends inclusive. */
-type LineWindow = { readonly start: number; readonly end: number };
-
 /**
- * The artifact lines a read can serve: the requested window, or the whole
- * text when the selector leaves it open. A comma request uses the grown
- * windows the reader actually reads.
+ * The artifact lines one read can serve. The shared readers include one line
+ * of context above and below a non-raw single range, so that growth counts as
+ * served; the window ends at the read line bound unless this is an outline,
+ * which scans the whole text. A comma request uses the grown windows the
+ * reader actually reads.
  */
 function servedWindow(resolved: ReadTarget, lineCount: number): LineWindow {
+  if (resolved.outline === true) return { start: 1, end: lineCount };
   if (resolved.ranges !== undefined) {
     const ranges = resolved.expandedRanges ?? resolved.ranges;
     const first = ranges.at(0);
@@ -217,15 +212,19 @@ function servedWindow(resolved: ReadTarget, lineCount: number): LineWindow {
       end: Math.min(lineCount, last.offset + last.limit),
     };
   }
+  const grow = resolved.raw ? 0 : 1;
   return {
-    start: resolved.offset + 1,
-    end: Math.min(lineCount, resolved.offset + (resolved.limit ?? lineCount)),
+    start: Math.max(1, resolved.offset + 1 - grow),
+    end: Math.min(
+      lineCount,
+      resolved.offset + boundedReadLineCount(resolved.limit) + grow,
+    ),
   };
 }
 
 /** Whether one finding is refused by the rule that admitted it. */
 function withheldFinding(
-  context: FindingContext,
+  context: ToolContext,
   finding: ArtifactFinding,
   verdicts: Map<string, boolean>,
 ): boolean {
@@ -235,7 +234,7 @@ function withheldFinding(
 }
 
 function withheldLocator(
-  context: FindingContext,
+  context: ToolContext,
   rule: FindingRule,
   locator: string,
   verdicts: Map<string, boolean>,
@@ -244,35 +243,24 @@ function withheldLocator(
   const known = verdicts.get(key);
   if (known !== undefined) return known;
   const withdrawn =
-    context.permissionMode === 'bypass'
-      ? false
+    context.permissionPolicy === undefined
+      ? true
       : rule === 'allow_only'
         ? !allowsLocator(context, locator)
-        : rejectsLocator(context, locator);
+        : rejectsWebLocatorRead(context, locator);
   verdicts.set(key, withdrawn);
   return withdrawn;
 }
 
-/** A `grep` finding stays visible only on an allow, as the file was admitted. */
-function allowsLocator(context: FindingContext, locator: string): boolean {
-  const project = nativeFileProjection(
-    'read',
-    context.workspaceRoot?.current(),
-  );
-  const decision = admitPermission(context, (evaluate) =>
-    evaluate({
-      toolId: 'read',
-      args: { path: locator },
-      projectFieldValue: project,
-    }),
-  );
-  return decision?.decision === 'allow';
-}
-
-/** A `web_search` finding stays visible unless a reject clause matches. */
-function rejectsLocator(context: FindingContext, locator: string): boolean {
-  const decision = evaluateWebLocatorRead(context, locator);
+/**
+ * A `grep` finding stays visible only on an allow, as the file was admitted.
+ * The locator is a stored host path, so it is judged without the Chat's
+ * current Workspace root: entering a Machine Workspace later must not remap it
+ * and dodge a rule written against the host path.
+ */
+function allowsLocator(context: ToolContext, locator: string): boolean {
   return (
-    decision?.decision === 'reject' && decision.reference?.clauseIndex != null
+    readDecision(context, nativeFileProjection('read'), locator)?.decision ===
+    'allow'
   );
 }

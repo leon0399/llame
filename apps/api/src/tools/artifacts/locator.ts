@@ -61,7 +61,8 @@ export function parseArtifactLocatorText(
  * in its canonical spelling. Stored jsonb is untrusted on the way back in, so a
  * replay, a settle, or a projection accepts a locator only through this check.
  */
-export function isArtifactLocator(value: string): boolean {
+export function isArtifactLocator(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
   const parsed = parseArtifactLocatorText(value);
   return (
     parsed !== undefined &&

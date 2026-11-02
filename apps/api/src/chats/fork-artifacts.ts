@@ -11,11 +11,10 @@ export type ArtifactCitation = {
 };
 
 /**
- * The artifacts the copied tool parts name (tool-result-artifacts D11). A
- * success part carries the locator inside its stored result, and an error part
- * carries it beside the error text; either field is read, so the copy does not
- * depend on which variant produced the part. Everything else in a part —
- * model input, prose, and tool arguments — is never a citation.
+ * The artifacts the copied tool parts name (tool-result-artifacts D11). Every
+ * settled part carries the locator beside its result, whatever the variant.
+ * Everything else in a part — model input, prose, and tool arguments — is
+ * never a citation.
  */
 export function citedArtifacts(
   parts: ReadonlyArray<unknown>,
@@ -25,20 +24,14 @@ export function citedArtifacts(
     if (!isRecord(part)) continue;
     const type = part['type'];
     if (!isString(type) || !type.startsWith('tool-')) continue;
-    const output = part['output'];
-    const locators = [
-      part['artifact'],
-      isRecord(output) ? output['artifact'] : undefined,
-    ];
-    for (const locator of locators) {
-      if (!isString(locator)) continue;
-      const parsed = parseArtifactLocatorText(locator);
-      if (parsed === undefined) continue;
-      cited.set(`${parsed.toolName}-${parsed.seq}`, {
-        toolName: parsed.toolName,
-        seq: parsed.seq,
-      });
-    }
+    const locator = part['artifact'];
+    if (!isString(locator)) continue;
+    const parsed = parseArtifactLocatorText(locator);
+    if (parsed === undefined) continue;
+    cited.set(`${parsed.toolName}-${parsed.seq}`, {
+      toolName: parsed.toolName,
+      seq: parsed.seq,
+    });
   }
   return [...cited.values()];
 }

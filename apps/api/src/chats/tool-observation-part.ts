@@ -59,7 +59,6 @@ export function renderToolObservationOmission(count: number): string {
 const renderToolOutputUntrusted = loadPackagedTemplate<{
   outcome: string;
   artifact: string | null;
-  hasArtifact: boolean;
   payload: string | null;
   hasPayload: boolean;
 }>(__dirname, 'tool-output-untrusted');
@@ -299,7 +298,6 @@ function resultText(
   return renderToolOutputUntrusted({
     outcome,
     artifact: artifact ?? null,
-    hasArtifact: artifact !== undefined,
     payload: body,
     hasPayload: body !== null,
   });
@@ -570,17 +568,11 @@ function storedObservation(
         : outcome,
     input: part.input,
     resultBody: resolveResultBody(part, toolName, outcome),
-    artifact: storedArtifact(part.artifact),
+    artifact: isArtifactLocator(part.artifact) ? part.artifact : undefined,
     ...(toolName === READ_TOOL_NAME && part.state === 'output-available'
       ? readObservationRef(part, mediaKey)
       : { media: undefined, retained: undefined }),
   };
-}
-
-/** The part's artifact locator, when the stored value is one this build wrote. */
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- the stored jsonb `artifact` field, which `isString` and the locator grammar check before it is trusted.
-function storedArtifact(value: unknown): string | undefined {
-  return isString(value) && isArtifactLocator(value) ? value : undefined;
 }
 
 /** The retained entries the given observations name, keyed by marker. */

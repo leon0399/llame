@@ -417,6 +417,7 @@ describe('readArtifact', () => {
       contentType: 'text/plain',
       content: Buffer.from('x'.repeat(20_000)),
       lineCount: 3,
+      findings: null,
     });
 
     const result = await readArtifact(
@@ -427,5 +428,32 @@ describe('readArtifact', () => {
 
     expect(contentOf(result)).toBe(`1: ${'x'.repeat(8000)}\n`);
     expect(result).toMatchObject({ truncated: true, nextOffset: 1 });
+  });
+
+  it('passes the Chat, tool, seq, and part name to the repository', async () => {
+    const scripted = scriptRepository();
+    scripted.findParts.mockResolvedValue({
+      createdAt: CREATED_AT,
+      parts: [{ name: '', lineCount: 2, byteSize: 4 }],
+    });
+    scripted.readPart.mockResolvedValue(part('a\nb\n', 2, 'text/plain'));
+
+    const result = await readArtifact(
+      contextOf(),
+      'read',
+      'artifact://grep-1:2',
+    );
+
+    expect(scripted.readPart).toHaveBeenCalledWith(CHAT_ID, 'grep', 1, '');
+    expect(contentOf(result)).toBe('1: a\n2: b\n');
+  });
+
+  it('returns not_found for a missing named part', async () => {
+    const scripted = scriptRepository();
+    scripted.readPart.mockResolvedValue(undefined);
+
+    expect(
+      await readArtifact(contextOf(), 'read', 'artifact://grep-1/stdout'),
+    ).toMatchObject({ status: 'error', type: 'not_found' });
   });
 });

@@ -1,7 +1,6 @@
 import {
   admitPermission,
   evaluateSubmittedThenProjected,
-  type PermissionContext,
 } from '../permissions/admit';
 import { projectNativeFilePath } from '../permissions/locator-projection';
 import { type PermissionDecision } from '../permissions/types';
@@ -95,7 +94,7 @@ const PROJECT_DERIVED_LOCATOR = (_field: string, value: string): string =>
  * `undefined` means no compiled policy, as for every other admission.
  */
 export function evaluateWebLocatorRead(
-  context: PermissionContext,
+  context: ToolContext,
   url: string,
 ): PermissionDecision | undefined {
   const options = { toolId: 'read', args: { path: url } };
