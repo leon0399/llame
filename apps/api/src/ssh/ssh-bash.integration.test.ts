@@ -219,12 +219,15 @@ describe('ssh bash over a real sshd', () => {
   });
 
   it('bounds the output as a local command is bounded', async () => {
+    // A small artifact bound keeps this test above the bound it configures,
+    // whatever the built-in tools.artifacts.maxBytes is.
     const result = await bash(
       {
         command: String.raw`head -c 40000 /dev/zero | tr '\0' 'x'`,
         cwd: 'ssh://box/tmp',
       },
       client(),
+      { artifactMaxBytes: OUTPUT_BOUND },
     );
 
     expect(result).toMatchObject({ status: 'success', cut: true });

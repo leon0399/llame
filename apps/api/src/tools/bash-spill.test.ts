@@ -88,6 +88,9 @@ function textOf(result: ToolResult): string {
 }
 
 beforeEach(() => {
+  // A fresh call history per test: the writer mocks below are the same objects
+  // across tests, so a call from an earlier test would otherwise be counted.
+  vi.clearAllMocks();
   insertWrites = {
     nextSeq: vi
       .spyOn(ArtifactsRepository.prototype, 'nextSeq')
