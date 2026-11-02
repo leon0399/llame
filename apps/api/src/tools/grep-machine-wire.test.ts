@@ -67,7 +67,7 @@ describe('mergePage', () => {
       'machine://devl/srv/dist',
     ]);
     expect(ignored.rels).toEqual(['node_modules', 'dist']);
-    expect(ignored.recorded).toBe(2);
+    expect(ignored.seen.size).toBe(2);
     expect(ignored.atLeast).toBe(false);
   });
 });

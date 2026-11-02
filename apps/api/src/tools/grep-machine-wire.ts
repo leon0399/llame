@@ -164,7 +164,6 @@ export type IgnoredAccumulator = {
   readonly rels: Array<string>;
   /** The paths already counted, so a repeated page counts its exclusions once. */
   readonly seen: Set<string>;
-  recorded: number;
   atLeast: boolean;
 };
 
@@ -176,7 +175,6 @@ export function ignoredAccumulator(
     paths: [],
     rels: [],
     seen: new Set(),
-    recorded: 0,
     atLeast: false,
   };
 }
@@ -207,12 +205,11 @@ export function mergePage(
   if (page.ignored.atLeast) ignored.atLeast = true;
   for (const rel of page.ignored.paths) {
     if (ignored.seen.has(rel)) continue;
-    if (ignored.recorded >= GREP_LIMITS.ignoredReported) {
+    if (ignored.seen.size >= GREP_LIMITS.ignoredReported) {
       ignored.atLeast = true;
       break;
     }
     ignored.seen.add(rel);
-    ignored.recorded += 1;
     const locator = machineScopeLocator(ignored.scope, rel);
     if (locator === undefined) continue;
     ignored.paths.push(locator);

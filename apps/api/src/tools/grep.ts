@@ -146,10 +146,11 @@ type ScanRequest = {
   readonly deadlineAt: number;
 };
 
-/** One ordered unit of work: one host scope the engine walks, or one Machine. */
-type GrepSegment =
-  | { readonly index: number; readonly scope: GrepScope }
-  | { readonly index: number; readonly machine: MachineGrepScope };
+/**
+ * One ordered unit of work, in scope order: a host scope the engine walks, or
+ * a Machine scope whose own `fs.grep` pages run on its box.
+ */
+type GrepSegment = GrepScope | MachineGrepScope;
 
 /** Page the call's scopes in submitted order; the caller records what policy hid. */
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
@@ -182,7 +183,9 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
       inputHash,
       segment,
       budget: remaining,
-      cursor: resume,
+      // A cursor continues only the scope it names: an earlier one is skipped
+      // above, and a later one starts at its own beginning.
+      cursor: resume?.scopeIndex === segment.index ? resume : undefined,
       progressed: state.progressed,
     });
     if ('result' in outcome) return outcome.result;
@@ -226,13 +229,8 @@ function endAtDeadline(state: PageState): void {
  * its own `fs.grep` pages (design D7).
  */
 function segmentsOf(resolved: ResolvedScopes): ReadonlyArray<GrepSegment> {
-  const ordered = [...resolved.scopes, ...(resolved.machines ?? [])].sort(
+  return [...resolved.scopes, ...(resolved.machines ?? [])].sort(
     (left, right) => left.index - right.index,
-  );
-  return ordered.map((scope) =>
-    isMachineGrepScope(scope)
-      ? { index: scope.index, machine: scope }
-      : { index: scope.index, scope },
   );
 }
 
@@ -247,16 +245,17 @@ type SegmentRun = {
   readonly inputHash: string;
   readonly segment: GrepSegment;
   readonly budget: GrepBudget;
+  /** The call's cursor, only when it names this segment's own scope. */
   readonly cursor: DecodedGrepCursor | undefined;
   /** Whether the call already progressed in an earlier segment. */
   readonly progressed: boolean;
 };
 
-/** Run one segment: the engine walks one host scope, the Machine walks its own. */
+/** Run one segment: the engine walks a host scope, the Machine walks its own. */
 async function runSegment(run: SegmentRun): Promise<SegmentOutcome> {
-  return 'scope' in run.segment
-    ? runLocalSegment(run, run.segment.scope)
-    : runMachineSegment(run, run.segment.machine);
+  return isMachineGrepScope(run.segment)
+    ? runMachineSegment(run, run.segment)
+    : runLocalSegment(run, run.segment);
 }
 
 /** One Machine scope, sent as one `fs.grep` request through its connector. */
@@ -269,10 +268,7 @@ async function runMachineSegment(
     scope,
     args: searchArgumentsOf(run.request.input),
     budget: run.budget,
-    resume:
-      run.cursor !== undefined && run.cursor.scopeIndex === scope.index
-        ? run.cursor
-        : undefined,
+    resume: run.cursor,
     progressed: run.progressed,
     admission: run.request.admission,
   });
@@ -299,9 +295,7 @@ async function runMachineSegment(
 
 /**
  * One host scope, walked by the shared engine in one call under the page
- * budget the call has left (design D7). The engine resumes only from a cursor
- * that names this scope: an earlier scope is skipped by the caller, and a
- * later one starts at its own beginning.
+ * budget the call has left (design D7).
  *
  * The engine still stops its page at `limit` files, because that page *is* the
  * model-facing page until the artifact holds the walk: `appendSegment` trusts
@@ -324,8 +318,7 @@ async function runLocalSegment(
     now: Date.now,
     progressed: run.progressed,
   };
-  if (run.cursor !== undefined && run.cursor.scopeIndex === scope.index)
-    scanInput.cursor = run.cursor;
+  if (run.cursor !== undefined) scanInput.cursor = run.cursor;
   try {
     return { page: localPage(await runGrepScan(scanInput)) };
   } catch (error) {

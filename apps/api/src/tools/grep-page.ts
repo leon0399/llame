@@ -39,6 +39,12 @@ function spellIgnoredLocator(locator: string): string {
     : spellGrepHostScopeLocator(locator);
 }
 
+/** Where a walk stopped inside one scope: its ordinal and a relative path. */
+export type ScopePosition = {
+  readonly scopeIndex: number;
+  readonly rel: string;
+};
+
 /** One passage the call may emit, with the cursor point it ends at. */
 export type SegmentEntry = {
   readonly passage: GrepPassage;
@@ -64,7 +70,7 @@ export type SegmentPage = {
   /** The walk's own page end, when every entry of the segment is a kept one. */
   readonly last?: GrepPageEnd;
   /** Where a segment that emitted nothing stopped, for a bound-stop cursor. */
-  readonly position?: { readonly scopeIndex: number; readonly rel: string };
+  readonly position?: ScopePosition;
 };
 
 /** Where the call resumes: the last passage it emitted, or the last entry. */

@@ -10,12 +10,14 @@ import {
 import { tmpdir } from 'node:os';
 import path, { dirname } from 'node:path';
 
+import { encodeGrepCursor, hashGrepInputs } from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi } from 'vitest';
 
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { grepInputSchema, nativeGrepTool } from './grep';
+import { projectGrepScope } from './grep-admission';
 import { machineUnsupportedResult } from './grep-results';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
@@ -978,16 +980,20 @@ describe('host scope pages', () => {
   it('hands a later host scope only what the page left', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a/one.md', 'needle\n');
+      await writeAt(root, 'b/one.md', 'needle\n');
       await writeAt(root, 'b/two.md', 'needle\n');
       const scopes = [`${root}/a/**`, `${root}/b/**`];
       const first = await run(contextOf(), {
         patterns: ['needle'],
         scopes,
-        limit: 1,
+        limit: 2,
       });
-      // The first scope filled the page, so the second one waits for a cursor
-      // that names its own start.
-      expect(locatorsOf(first)).toEqual([`${root}/a/one.md:1-1`]);
+      // The first scope takes one of the page's two files, so the second scope
+      // runs in the same call with one file left, and its second file waits.
+      expect(locatorsOf(first)).toEqual([
+        `${root}/a/one.md:1-1`,
+        `${root}/b/one.md:1-1`,
+      ]);
       expect(success(first).complete).toBe(false);
       const cursor = cursorOf(first);
       if (cursor === undefined) throw new Error('the page carries a cursor');
@@ -995,11 +1001,43 @@ describe('host scope pages', () => {
       const second = await run(contextOf(), {
         patterns: ['needle'],
         scopes,
-        limit: 1,
+        limit: 2,
         cursor,
       });
       expect(locatorsOf(second)).toEqual([`${root}/b/two.md:1-1`]);
       expect(success(second).complete).toBe(true);
+    });
+  });
+
+  it('does not walk a host scope before the cursor it was given', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a/one.md', 'needle\n');
+      await writeAt(root, 'b/one.md', 'needle\n');
+      await writeAt(root, 'b/two.md', 'needle\n');
+      const scopes = [`${root}/a/**`, `${root}/b/**`];
+      // A cursor from an earlier call that ended inside the second scope: the
+      // first scope is never walked again, and its match stays out.
+      const cursor = encodeGrepCursor({
+        scopeIndex: 1,
+        rel: 'one.md',
+        startLine: 1,
+        inputHash: hashGrepInputs({
+          patterns: ['needle'],
+          literal: false,
+          ignoreCase: false,
+          projectedScopes: scopes.map(
+            (scope) => projectGrepScope(scope, undefined).prefix,
+          ),
+          resolvedRoots: [`${root}/a`, `${root}/b`],
+        }),
+      });
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes,
+        cursor,
+      });
+      expect(locatorsOf(result)).toEqual([`${root}/b/two.md:1-1`]);
+      expect(success(result).complete).toBe(true);
     });
   });
 });
