@@ -103,22 +103,52 @@ function verdictResult(
 type EndedRun = Extract<SshRunOutcome, { readonly outcome: 'ended' }>;
 
 /**
- * Decode the retained bytes, dropping an incomplete trailing sequence: the
- * byte bound can cut a UTF-8 character, and half of one must not become a
- * replacement character in the result or the artifact.
+ * Decode the retained bytes, dropping only an incomplete trailing sequence:
+ * the byte bound can cut a UTF-8 character, and half of one must not become a
+ * replacement character in the result or the artifact. Any other invalid byte
+ * — a remote command writing raw 0xff, say — decodes as the replacement
+ * character the stream itself produced, and never costs the text after it.
  */
-function decodeUtf8(bytes: Buffer): string {
-  let end = bytes.length;
-  for (let attempt = 0; attempt < 4 && end > 0; attempt += 1) {
-    try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(
-        bytes.subarray(0, end),
-      );
-    } catch {
-      end -= 1;
-    }
+export function decodeUtf8(bytes: Buffer): string {
+  return new TextDecoder('utf-8').decode(
+    bytes.subarray(0, completeSequenceEnd(bytes)),
+  );
+}
+
+const CONTINUATION_FLOOR = 0x80;
+const CONTINUATION_CEILING = 0xbf;
+const TWO_BYTE_LEAD = 0xc0;
+const THREE_BYTE_LEAD = 0xe0;
+const FOUR_BYTE_LEAD = 0xf0;
+
+/**
+ * The offset where the last complete UTF-8 sequence ends. A trailing run of
+ * continuation bytes under a lead byte that promises more of them is an
+ * incomplete character and is dropped; every other trailing byte stands.
+ */
+function completeSequenceEnd(bytes: Buffer): number {
+  let start = bytes.length - 1;
+  let continuations = 0;
+  while (start >= 0 && continuations < 3) {
+    const byte = bytes[start];
+    if (byte < CONTINUATION_FLOOR || byte > CONTINUATION_CEILING) break;
+    start -= 1;
+    continuations += 1;
   }
-  return new TextDecoder('utf-8').decode(bytes.subarray(0, end));
+  if (start < 0) return bytes.length;
+  const lead = bytes[start];
+  // Only a valid UTF-8 lead promises more bytes; 0x80–0xC1 and 0xF5+ are
+  // invalid instead of incomplete, so they stay for the decoder to replace.
+  const expected =
+    lead >= FOUR_BYTE_LEAD && lead <= 0xf4
+      ? 4
+      : lead >= THREE_BYTE_LEAD && lead <= 0xef
+        ? 3
+        : lead >= TWO_BYTE_LEAD && lead <= 0xdf && lead >= 0xc2
+          ? 2
+          : 0;
+  if (expected === 0) return bytes.length;
+  return start + expected <= bytes.length ? bytes.length : start;
 }
 
 /** The finished command as the local result shape, under the local bounds. */

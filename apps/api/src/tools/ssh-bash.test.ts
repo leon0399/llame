@@ -16,7 +16,7 @@ import {
   type SshRunRequest,
 } from '../ssh/ssh-client';
 import { managedBashContext } from './bash-limits';
-import { executeSshBash } from './ssh-bash';
+import { decodeUtf8, executeSshBash } from './ssh-bash';
 import { type ToolContext } from './types';
 
 const BINDING: SshBinding = {
@@ -129,6 +129,21 @@ function stubFence() {
     });
   return { begin, append };
 }
+
+describe('the ssh utf-8 decode', () => {
+  it('keeps text after an invalid byte as a replacement character', () => {
+    const bytes = Buffer.from([0x61, 0xff, 0x62]);
+    expect(decodeUtf8(bytes)).toBe('a\uFFFDb');
+  });
+
+  it('drops only an incomplete trailing sequence', () => {
+    // The first byte of an emoji with no continuation bytes.
+    expect(decodeUtf8(Buffer.from('a😀', 'utf8').subarray(0, 2))).toBe('a');
+    // Two of its three continuation bytes.
+    expect(decodeUtf8(Buffer.from('a😀', 'utf8').subarray(0, 4))).toBe('a');
+    expect(decodeUtf8(Buffer.from('a😀', 'utf8'))).toBe('a😀');
+  });
+});
 
 describe('ssh bash execution', () => {
   afterEach(() => {
