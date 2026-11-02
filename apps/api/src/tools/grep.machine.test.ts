@@ -2358,7 +2358,9 @@ describe('daemon page stop conditions', () => {
           value:
             searches === 1
               ? page([], { consumed: { files: 0, entries: 1, bytes: 0 } })
-              : page([passage('', 1, 1)]),
+              : page([passage('', 1, 1)], {
+                  consumed: { files: 1, entries: 0, bytes: 7 },
+                }),
         };
       },
     });
