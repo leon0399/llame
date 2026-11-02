@@ -237,9 +237,9 @@ API MUST stop the request at the call deadline.
 The daemon MUST return passages, excluded directories, and an unfinished
 file as paths relative to its display prefix only. The request carries a page
 budget that fits one protocol message. The API MUST ask for the next response
-after the last passage it kept, never after a daemon passage it dropped. It
-MUST ask again until the scope ends, the call stops, or the artifact bound
-cuts a daemon page. The API MUST apply the `read` group to each path that the
+after the daemon position of the previous response. A page of refused
+passages thus still advances the walk. It MUST ask again until the scope ends, the
+call stops, or the artifact bound cuts a daemon page. The API MUST apply the `read` group to each path that the
 daemon returns before the result names it.
 
 An unreachable or unknown Machine MUST fail the call with the Machine failure
@@ -293,7 +293,7 @@ the call as Machine unusable.
 #### Scenario: A dropped Machine passage never names the cursor
 
 - **WHEN** the last passage of the daemon belongs to a file that the `read` group refuses
-- **THEN** the next `fs.grep` request resumes after the last passage that the API kept
+- **THEN** the next `fs.grep` request resumes after the daemon position of that response
 - **AND** the refused path is not in the result
 
 #### Scenario: Budgets span Machines

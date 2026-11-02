@@ -131,7 +131,7 @@ without its first consumers. Every implementation layer stays inside about
 
 ## 8. grep-paging
 
-- [ ] 8.1 Run each host scope as one engine call with no file limit and a page budget of the artifact bytes left, and loop `fs.grep` pages of 120,000 units on the daemon cursor (design D7). Keep the model-facing `cursor` in this layer. Pin the wire ratio with a serialization test. Verify "Budgets span Machines" and "A dropped Machine passage never names the cursor".
+- [ ] 8.1 Run each host scope as one engine call with no file limit and a page budget of the artifact bytes left, and loop `fs.grep` pages of 15,000 units on the daemon position (design D7). Keep the model-facing `cursor` in this layer. Verify "Budgets span Machines" and "A dropped Machine passage never names the cursor".
 - [ ] 8.2 Apply progress within the call and report a skipped Machine file. Verify "A file larger than the call is named", "A stop after progress names no file", "A refused unfinished file is not named", "A daemon time budget skips one file", "A byte bound in the first file skips it", and "A resumed page does not repeat earlier exclusions".
 - [ ] 8.3 Verify the layer: `pnpm --filter @workspace/native-file-tools test` and `test:coverage`, `pnpm --filter machine test`, `pnpm --filter @workspace/machine-protocol test`, focused `apps/api` grep tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`.
 - [ ] 8.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
@@ -145,10 +145,11 @@ without its first consumers. Every implementation layer stays inside about
   - the changed deadline, operator-bound, and byte-bound scenarios;
   - the scenarios of the changed `tool-call-permissions` "Grep scopes are admitted per scope and files per hit".
 - [ ] 9.2 Verify the unchanged skip and stream rules: "Binary file is skipped and counted", "A line longer than 4 MiB skips its file", "A late invalid byte drops the file", "Oversized file is skipped and counted", "A large log is searched", and "A late skip drops the passages".
-- [ ] 9.3 Measure, with a throwaway script, a broad walk of this repository and of `/mnt/d/Projects`: time, result size, and the stop. Put the numbers in the PR body. Do not commit the script.
-- [ ] 9.4 Verify the layer: as task 8.3.
-- [ ] 9.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 9.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [ ] 9.3 Update `apps/api/src/prompts/tools/grep.md` and `docs/product/reference/tools/grep.md` so the model no longer pages with a cursor, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+- [ ] 9.4 Measure, with a throwaway script, a broad walk of this repository and of `/mnt/d/Projects`: time, result size, and the stop. Put the numbers in the PR body. Do not commit the script.
+- [ ] 9.5 Verify the layer: as task 8.3.
+- [ ] 9.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+- [ ] 9.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 10. grep-artifact
 

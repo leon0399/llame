@@ -64,8 +64,7 @@ and no file decision.
 
 For `read`, an `artifact://` locator MUST match as its submitted text with any
 read selector removed. Policy matching MUST NOT see a host file path for it.
-Each artifact read MUST also apply the `read` group to the source locators of
-its findings, as `tool-artifacts` defines.
+"Artifact reads evaluate each served finding" defines the finding re-check.
 
 #### Scenario: A reject on an artifact locator refuses the read
 

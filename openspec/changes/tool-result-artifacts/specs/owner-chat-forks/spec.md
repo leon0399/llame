@@ -2,8 +2,8 @@
 
 ### Requirement: A fork copies the artifacts that its copied parts name
 
-The fork MUST copy each artifact that a copied tool part names into the fork,
-with the same locator. It MUST set the artifact counter of the fork to the
+The fork MUST copy each artifact of the source Chat that a copied tool part
+names, with the same locator. It MUST set the artifact counter of the fork to the
 counter of the source. The copy MUST happen in the transaction that copies the
 rows. The fork MUST NOT copy an artifact that no copied part names.
 
@@ -30,5 +30,5 @@ rows. The fork MUST NOT copy an artifact that no copied part names.
 
 #### Scenario: A part cannot copy an artifact of another Chat
 
-- **WHEN** a copied tool part names `artifact://grep-9` and the source Chat has no such artifact
+- **WHEN** a copied tool part names `artifact://grep-9`, another Chat of the same owner has `artifact://grep-9`, and the source Chat has none
 - **THEN** the fork copies no artifact for that locator

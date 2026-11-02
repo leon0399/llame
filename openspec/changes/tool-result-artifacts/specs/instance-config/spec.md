@@ -28,7 +28,7 @@ MUST be absent.
 
 ### Requirement: Operator configuration bounds tool-result artifacts
 
-`tools.artifacts.maxBytes` MUST accept an integer of at least 65,536, or a
+`tools.artifacts.maxBytes` MUST accept an integer of at least 131,072, or a
 whole-value interpolation token. Its default is 8,388,608 (8 MiB). A smaller
 value, a fraction, or an unknown key in `tools.artifacts` MUST fail startup
 and name the path.

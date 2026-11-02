@@ -112,7 +112,9 @@ the files are a cache that can be restored (D1, D10).
 - **`tool_artifacts`.** One row per tool call.
   - Columns: `id`, `chat_id` (foreign key to `chats`, `ON DELETE CASCADE`),
     `seq`, `tool_name`, `tool_call_id`, `run_id`, `complete`, and
-    `created_at`. The Chat list shows `created_at`.
+    `created_at`. The Chat list shows `created_at`. The writer runs after the
+    producer stops, so `complete` is known when the row is inserted, in the
+    same transaction as its parts.
   - `run_id` is a plain column with no foreign key. A fork copies artifacts
     but no Runs, and a foreign key to `runs` would tie the fork's rows to the
     source Chat.
@@ -266,11 +268,14 @@ A tool definition gets an optional `spill` field, `'head'` (the default) or
   not thrown away at a page boundary. It renders each passage into the
   artifact text as it arrives.
 - **Machine scopes.** These page over `fs.grep`.
-  - The API sets `pageUnits` to a page whose worst-case wire encoding fits one
-    protocol message. The wire repeats `path`, line numbers, and `matches` for
-    each passage, and escaping can cost 6 bytes for one unit. So the page is
-    120,000 units, at most 8 bytes each, below `MAX_MESSAGE_BYTES`. A
-    serialization test pins the ratio.
+  - The API keeps today's `pageUnits` of 15,000 units for each response. The
+    wire repeats `path`, line numbers, and `matches` for each passage, so no
+    fixed unit-to-byte ratio is safe for a larger page; 15,000 units is the
+    page size that ships today without frame failures. A broad Machine walk
+    makes more round trips instead.
+  - The API asks for the next response after the daemon position of the
+    previous one, not after the last passage it kept. A page of refused
+    passages still advances the walk, as `runDaemonPages` does today.
   - It loops on the daemon cursor in the same way.
   - The wire is unchanged, so no daemon release is needed.
 - **Progress.** `progressed` and `unfinished` keep their meaning within one
@@ -386,6 +391,17 @@ its example allow list name it.
 
 ## Revision history
 
+- **v4 (2026-11-02):** GitHub review round 1 (29 threads).
+  - **Machine paging.** Today's 15,000-unit page; resume after the daemon
+    position, so refused pages still advance.
+  - **Spec fixes.** `bash` parts hold the redacted stream. The artifact keeps
+    the lines that start the inline text. Pieces end on a code point, and a
+    read returns pieces up to the read bound. Fork copies are limited to the
+    source Chat. `Prompt targets resolve as native read locators` excludes
+    `artifact://`. A `tool` result never carries a cap notice. Counts of one
+    are singular. The bound floor is 128 KiB, so a Machine stream always fits.
+  - **Tasks.** The `grep-cursorless` layer updates the `grep` prompt,
+    reference, and changelog.
 - **v3 (2026-11-02):** Review round 2 (two reviewers: 0 P0, 13 P1, 20 P2).
   - **`bash` without an artifact.** Head and tail apply whenever a stream does
     not fit; a left-out line covers results with no artifact.

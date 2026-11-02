@@ -60,7 +60,7 @@ it.
 - **THEN** the hub result carries no `wallTimeMs`
 - **AND** the call settles with its other fields unchanged
 
-#### Scenario: A host stream larger than the old bound is kept
+#### Scenario: A host stream within the default bound is kept
 
-- **WHEN** a command on the llame host prints 3 MB to stdout
+- **WHEN** `tools.artifacts.maxBytes` is its default 8 MiB and a command on the llame host prints 3 MB to stdout
 - **THEN** the executor keeps all 3 MB, and the result is not marked truncated

@@ -91,7 +91,7 @@ artifact half, in walk order and engine order, with no ranking.
 - **Forks copy the artifacts that their copied parts cite**, with the same
   locators. Prompt imports do not accept `artifact://`.
 - **Configuration.** `tools.artifacts.maxBytes` bounds each part: default
-  8 MiB, minimum 64 KiB. `webSearch.fetchLimit` sets the wider web fetch:
+  8 MiB, minimum 128 KiB, so a Machine stream of 32,000 units always fits. `webSearch.fetchLimit` sets the wider web fetch:
   default 20, range 1-100.
 
 ## Assumptions, confirmed with Leo

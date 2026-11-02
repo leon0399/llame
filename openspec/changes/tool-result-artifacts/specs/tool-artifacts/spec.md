@@ -32,7 +32,7 @@ The system MUST store an artifact only when the Run can read it. The Run can
 read it when `read` is in `tools.allowed`, or when its `bash` runs on the
 llame host and gets host files. Otherwise the
 tool MUST return its bounded inline result. The result MUST then state how
-many lines or results it left out.
+many lines, files, or results it left out.
 
 #### Scenario: A grep-only Run gets no artifact
 
@@ -71,10 +71,11 @@ one part MUST have no part segment.
 
 ### Requirement: An artifact part holds the full text of its source
 
-A `grep` or `web_search` artifact MUST hold each passage or result in the text
-shape of the model, inline ones included. These lines MUST come first. Each
+A `grep` or `web_search` artifact MUST begin with the lines that start its
+inline text, such as a notice or the `[engine: …]` line. Each passage or
+result MUST follow in the text shape of the model, inline ones included. Each
 inline passage or result line has the same number in the artifact. A `bash`
-part MUST hold the stream as the command wrote it. The system MUST store a
+part MUST hold the stream as the executor returned it, after redaction. The system MUST store a
 JSON result with one member or item on each line.
 
 #### Scenario: Inline lines keep their numbers in the artifact
@@ -90,19 +91,21 @@ JSON result with one member or item on each line.
 #### Scenario: A long JSON result is read by lines
 
 - **WHEN** an MCP result holds one `text` item of 400 KB and the model reads `artifact://mcp__docs__fetch-<n>:1-200`
-- **THEN** the read returns the first 200 numbered lines, the long text value included
+- **THEN** the read returns the first numbered lines up to the read bound, the start of the long text value included
+- **AND** its continuation line names the next line
 
 ### Requirement: Artifact lines are at most 8,000 units long
 
 Artifact line numbers MUST count a source line longer than 8,000 UTF-16 code
-units as one line for each 8,000 units. Every read, notice, and range MUST
-use that count. A host file MUST keep the source lines as the source wrote
+units as one line for each 8,000 units. A piece MUST end on a code-point
+boundary. Every read, notice, and range MUST use that count. A host file MUST keep the source lines as the source wrote
 them.
 
 #### Scenario: A one-line JSON stdout is read in pieces
 
 - **WHEN** a `bash` stdout is one JSON line of 3 MB and spills
-- **THEN** `read("artifact://bash-<n>/stdout:1-10")` returns the first 80,000 units in ten lines
+- **THEN** `read("artifact://bash-<n>/stdout:1-10")` returns its first pieces up to the read bound
+- **AND** its continuation line names the next piece
 
 ### Requirement: One byte bound limits every artifact part
 
@@ -281,8 +284,8 @@ content. The model MUST reach that content only through `read` or a host file.
 Each tool MUST declare one spill shape, `head` or `tool`. A tool without a
 declaration MUST use `head`. A `head` result keeps the head of its rendering
 inline. A `tool` result builds its inline part and its artifact itself.
-`bash`, `grep`, and `web_search` MUST declare `tool`. The system MUST NOT
-choose a shape by tool name.
+`bash`, `grep`, and `web_search` MUST declare `tool`. The result cap MUST NOT
+shorten a `tool` result. The system MUST NOT choose a shape by tool name.
 
 #### Scenario: An MCP result keeps its head
 

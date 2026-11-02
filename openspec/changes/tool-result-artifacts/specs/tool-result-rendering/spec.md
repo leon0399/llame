@@ -265,7 +265,8 @@ render as stored.
 ### Requirement: An artifact notice is one bracketed line
 
 The artifact notice MUST be one bracketed line that names each part as
-`<locator> (<lines> lines)`, with a comma between two parts. A `grep` or
+`<locator> (<lines> lines)`, with a comma between two parts. A count of one
+MUST read `1 line`. A `grep` or
 `web_search` notice MUST add `; continue with <locator>:<next>-`. `<next>` is
 the artifact line after the last inline passage or result. A notice for
 host files MUST add `; host files in <directory>`, or `; host files on the
@@ -296,7 +297,8 @@ llame host only`.
 A passage that the inline bound cut carries `cut: true`. It MUST carry
 `[passage cut; the artifact holds the rest]` after its last line. A cut
 twentieth passage MUST carry `[more passages in this file; read it to see
-them]` in the next line. That notice MUST NOT appear in any other case.
+them]` in the next line. A cut passage that is not a twentieth passage MUST
+NOT carry that notice.
 
 #### Scenario: A cut passage does not claim a capped file
 
@@ -339,7 +341,8 @@ on one line".
 When a result does not fit and no artifact stores it, the text MUST end with
 one `[left out: <count> <noun>; full result not stored]` line. `<noun>` is
 `lines`, `files`, or `results`. An omitted-range line without an artifact MUST
-read `[lines <a>-<b> omitted; full result not stored]`.
+read `[lines <a>-<b> omitted; full result not stored]`. A result with that
+line needs no left-out line.
 
 #### Scenario: A failed write keeps the bash tail inline
 

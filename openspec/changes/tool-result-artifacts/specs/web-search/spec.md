@@ -302,8 +302,8 @@ inline note with its count.
 ### Requirement: Results past the inline part go to an artifact
 
 The inline text can leave out a result, an answer, or a citation. When it
-does, and the Run can read artifacts, the system MUST store the whole output
-as one artifact. The artifact uses the `web_search` text shape. The inline text MUST
+does, the Run can read artifacts, and the output fits `tools.artifacts.maxBytes`,
+the system MUST store the whole output as one artifact. The artifact uses the `web_search` text shape. The inline text MUST
 end with the artifact notice. A call whose whole output fits inline MUST NOT
 create an artifact.
 
