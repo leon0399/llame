@@ -45,6 +45,9 @@ sources:
   - id: ws-replay-l956-l1008
     resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/apps/server/src/ws.ts#L956-L1008"
     title: "Thread resume snapshots on cursor, count, raw bytes, or encoded bytes"
+  - id: connection-runtime-l43-l50
+    resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/connection-runtime.md#L43-L50"
+    title: "HTTP refresh does not replace a healthy socket"
   - id: connection-runtime-l78-l120
     resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/connection-runtime.md#L78-L120"
     title: "Shell omissions, five-minute detail cache, desktop keep-alive"
@@ -90,9 +93,9 @@ sources:
   - id: env-auth-l127-l133
     resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/environment-auth.md#L127-L133"
     title: "filesystem:read can leave the project"
-  - id: permissions-l1-l41
-    resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/permission-modes.md#L1-L41"
-    title: "Permission modes and provider fallbacks"
+  - id: permissions-l1-l49
+    resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/permission-modes.md#L1-L49"
+    title: "Permission modes, registry approvals, and Claude full-access asks"
   - id: acp-run-l42-l52
     resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/providers-acp.md#L42-L52"
     title: "Registry agents run on the server host"
@@ -150,6 +153,15 @@ sources:
   - id: acp-user-l13-l15
     resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/providers-acp.md#L13-L15"
     title: "ACP v2 preview with v1 negotiation"
+  - id: source-control-l10-l17
+    resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/apps/server/src/sourceControl/sourceControlDefinitions.ts#L10-L17"
+    title: "Built-in source-control drivers"
+  - id: secrets-l5
+    resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/apps/server/src/secrets/secretProviderDefinitions.ts#L5"
+    title: "Built-in secret provider is 1Password"
+  - id: outside-agents-l1-l7
+    resource: "https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/outside-agents.md#L1-L7"
+    title: "Outside agents sign in to /mcp"
 ---
 
 # T3 Code
@@ -162,13 +174,7 @@ sources:
   Inc.[^license-l1-l5]
 
 **Status:** Source and documentation inspection of
-`82b10d546c1041d8eff40425f076d61f608d518f` (2026-11-01). Nothing was run. That
-commit is 180 commits after tag `v0.1.6`
-(`2359643cffa6ba9ee84d6f2694b935de54a8013e`); `apps/server/package.json` still
-says `0.1.6`. GitHub's latest stable release that day was `v0.1.6`; a
-`0.1.7` nightly also existed. The previous llame note inspected
-`1de563c1491c7d82563e4553bf5bf689ce6adbb9` (2026-09-21). `git rev-list --count`
-reports 4,621 commits between them.
+`82b10d546c1041d8eff40425f076d61f608d518f`. Nothing was run.
 
 **Study**
 
@@ -182,9 +188,10 @@ reports 4,621 commits between them.
    it.[^remote-l9-l29][^server-env-l120-l143] Saved client routes are
    reachability hints. A beta peer link lets one environment's agents call
    another environment's `/mcp` when the tool takes an environment target.
-   With `linkedEnvironmentsEnabled` off, new links and `PeerForwarding.call`
-   are refused, while `readThread`, `waitForThread`, and `interruptThread`
-   still run. Forwarded calls carry a mode ceiling. This is not a multi-box
+   Off on the linking side, new links and `PeerForwarding.call` are refused,
+   while `readThread`, `waitForThread`, and `interruptThread` still run. Off
+   on the receiving side, link registration is refused and link sessions get
+   HTTP 403. Forwarded calls carry a mode ceiling. This is not a multi-box
    registry.[^remote-l71-l105]
 2. **Orchestration v2 commits intent, then publishes.** The v2 orchestrator
    serializes commands and decides events without provider or filesystem I/O.
@@ -215,7 +222,7 @@ reports 4,621 commits between them.
    authoritative.[^adding-provider-l9-l20][^provider-registry-l160-l188]
    Built-in drivers, in registry order:[^builtin-drivers-l31-l42]
 
-   | Driver       | Kind          | How the server attaches                                                  | Starts   |
+   | Driver       | Kind          | How the server attaches                                                  | Default  |
    | ------------ | ------------- | ------------------------------------------------------------------------ | -------- |
    | Codex        | `codex`       | Child `codex app-server`[^codex-args-l12-l15]                            | enabled  |
    | Claude       | `claudeAgent` | Agent SDK `query` (`claude-agent-sdk.query`)[^claude-protocol-l213-l214] | enabled  |
@@ -226,7 +233,7 @@ reports 4,621 commits between them.
    | Antigravity  | `antigravity` | ACP; T3 installs and leases the binary                                   | disabled |
    | Pi           | `pi`          | Child `pi --mode rpc`[^pi-rpc-l262-l264]                                 | disabled |
    | Muse Code    | `muse`        | `@muse-code/sdk` spawn of `serve`[^muse-serve-l130-l160]                 | disabled |
-   | ACP Registry | `acpRegistry` | Generic ACP; no default instance                                         | added    |
+   | ACP Registry | `acpRegistry` | Generic ACP; no default instance                                         | none     |
 
    Grok and fx both call `makeAcpAdapterV2`.[^grok-acp-l346][^fx-acp-l195]
    Codex and Claude are the enabled default instances. Cursor, Grok, fx,
@@ -243,21 +250,31 @@ reports 4,621 commits between them.
    `antigravity-acp`). fx and Muse Code omit that list, so they stay in the
    results.[^acp-search-l38-l153] Codex, Claude, and Antigravity
    still live under `apps/server/src/provider`; the other drivers are
-   `packages/provider-*`.
+   `packages/provider-*`. OpenCode Go usage is
+   `GET https://opencode.ai/zen/go/v1/usage` with a bearer token. HTTP 403
+   means the key is valid and has no Go subscription, so the probe reports
+   unavailable. A five-second timeout covers credential lookup and the HTTP
+   call. Key order is the SQLite `opencode` row, then SQLite `opencode-go`,
+   then the `auth.json` `opencode-go` key or `OPENCODE_API_KEY`. Later keys
+   are tried after HTTP 401 or 403. `OPENCODE_AUTH_CONTENT` replaces the auth
+   file and skips the SQLite read.[^usage-l75-l185]
 
 4. **The client wire is Effect RPC with JSON frames on a WebSocket.** `GET /ws` requires
    `orchestrationProtocol=2` and answers HTTP 426
    `orchestration_protocol_incompatible` otherwise. The socket is Effect
    `RpcServer` with `RpcSerialization.layerJson`. The upgrade prefers a
-   short-lived `wsTicket` query parameter. A DPoP-bound ticket also requires
-   the proof in the query. With no ticket, the upgrade uses the HTTP
+   short-lived `wsTicket` query parameter. A DPoP-bound ticket requires a
+   proof. The server reads the `dpop` header first, then the `dpop` query
+   parameter, because a browser WebSocket cannot set that header. With no
+   ticket, the upgrade uses the HTTP
    credential (cookie, then bearer, then DPoP).[^ws-auth-l1241-l1285][^ws-cred-l642-l657] Every RPC
    declares a scope, so a successful handshake does not authorize every
    method.[^protocol-l13-l15][^ws-l3342-l3405][^overview-l1-l19]
    Dispatch returns the last committed event sequence. Duplicate command ids
    return the receipt without re-running provider side effects. HTTP remains
    for assets, filesystem reads, and similar requests; it uses the same
-   scoped session and does not replace a healthy socket to refresh a token.
+   scoped session and does not replace a healthy socket to refresh a
+   token.[^connection-runtime-l43-l50]
 5. **Thread streams resume from a sequence, then fall back to a snapshot.**
    `orchestration.subscribeThread` takes optional `afterSequence`. The socket
    handler sends a snapshot when the cursor is ahead of the store, when the
@@ -292,7 +309,7 @@ reports 4,621 commits between them.
    and Antigravity fall back to asking. Muse offers only Supervised and Full
    access. fx offers neither Auto-accept edits nor Full access. Grok offers
    no Auto-accept edits. A stored mode the provider does not offer runs as
-   Supervised.[^permissions-l1-l41] `adding-a-provider.md` says T3 must not
+   Supervised.[^permissions-l1-l49] `adding-a-provider.md` says T3 must not
    imitate a missing mode by answering approvals itself. ACP Registry agents
    still have their approvals answered from the thread mode. Claude can ask
    even in Full access when its own settings require it.
@@ -309,17 +326,19 @@ reports 4,621 commits between them.
    driver is for behavior ACP does not cover, implemented as
    `ProviderAdapterV2`.[^adding-provider-l9-l20] Source-control drivers ship
    for GitHub, GitLab, GitCafe, Forgejo, Bitbucket, and Azure DevOps
-   (`apps/server/src/sourceControl/sourceControlDefinitions.ts`). The built-in
-   secret provider is 1Password
-   (`apps/server/src/secrets/secretProviderDefinitions.ts`). Outside agents
-   sign in to `/mcp` (`docs/user/outside-agents.md`). No UI or arbitrary
+   (`apps/server/src/sourceControl/sourceControlDefinitions.ts`).[^source-control-l10-l17]
+   The built-in secret provider is 1Password
+   (`apps/server/src/secrets/secretProviderDefinitions.ts`).[^secrets-l5]
+   Outside agents sign in to `/mcp`
+   (`docs/user/outside-agents.md`).[^outside-agents-l1-l7] No UI or arbitrary
    server plugin SDK showed up in `docs/` or the provider wiring.
 10. **Maturity is pre-1.0 with a large shipped surface.** README says the
-    project is very early and mostly not accepting contributions. The same
-    tree ships desktop packages, store apps, `app.t3.codes`, T3 Connect, and
-    daily nightlies. GitHub reported 36,907 stars on 2026-11-01; the
-    repository was created 2026-02-08. Stars are not a quality measure.
-    Confidence on the architecture above is high because it is in both the
+    project is very early and mostly not accepting contributions.[^readme-l1-l102]
+    The same tree ships desktop packages, store apps, `app.t3.codes`, T3
+    Connect, and nightly tags. `apps/server/package.json` at this revision
+    says `0.1.6` while a `0.1.7` nightly tag series exists. Uncertain how
+    nightly stamps relate to that version field. The repository was created
+    2026-02-08. Confidence on the architecture above is high because it is in both the
     internals docs and the cited modules. Confidence on product claims that
     exist only in user docs (store listings, T3 Chat machine limits) is
     moderate: those pages were read and not exercised.
@@ -333,10 +352,11 @@ reports 4,621 commits between them.
   Uncertain whether the README omission is intentional marketing lag.
 - `docs/orchestration-v2/README.md` still opens as a target architecture and
   lists a durable effect outbox as a follow-up. `docs/internals/overview.md`
-  and `EventSink.commitCommand` implement that outbox, and v2 is the live
-  orchestrator. The v1 `apps/server/src/orchestration/Layers/` tree from
-  `1de563c` is gone. Treat overview plus `apps/server/src/orchestration-v2/`
-  as current, and treat the v2 doc set's "target" framing as stale.[^v2-doc-l1-l124]
+  and `EventSink.commitCommand` implement that outbox, and v2 under
+  `apps/server/src/orchestration-v2/` is the live orchestrator. This revision
+  has no `apps/server/src/orchestration/Layers/` tree. Treat overview plus
+  that directory as current, and treat the v2 doc set's "target" framing as
+  stale.[^v2-doc-l1-l124]
 - The capability sketch in `docs/orchestration-v2/provider-capability-system.md`
   matches the groups on `OrchestrationV2ProviderCapabilities`. That sketch
   says capabilities should be versioned. The schema has no version field.
@@ -345,39 +365,22 @@ reports 4,621 commits between them.
 - Package version `0.1.6` at this commit is behind the `0.1.7` nightly tag
   series. Uncertain how nightly version stamps relate to `package.json`.
 
-**Changes since the 2026-09-21 inspection (`1de563c`)**
-
-- Orchestration v2 landed in `de34391427` (2026-10-02, #2829). The live path
-  is `apps/server/src/orchestration-v2/`. Receipts, commit-before-publish, and
-  instance-scoped providers remain. Side effects now go through the outbox
-  inside the same transaction.
-- The 2026-09-21 `apps/server/src/provider/Drivers/` tree had Codex, Claude,
-  Cursor, Grok, OpenCode, and Antigravity. It had no Pi, Muse, or fx driver.
-  fx's package commit is `6df241d23a` (2026-10-26, #18277). Provider packages
-  were extracted around 2026-10-08 (`#17302` Pi, `#17331` Muse, `#17345`
-  OpenCode, `#17349` Cursor, `#17354` shared ACP, `#17357` Grok, `#17405`
-  ACP Registry).
-- Cursor at `1de563c` had `apps/server/src/provider/acp/CursorAcpSupport.ts`.
-  This tree has no `CursorAcp` module. Sessions use `@cursor/sdk`.
-- OpenCode Go usage moved from `apps/server/src/provider/Layers/openCodeUsageLimits.ts`
-  to `packages/provider-opencode/src/server/usageLimits.ts`. It still calls
-  `GET https://opencode.ai/zen/go/v1/usage` with a bearer token, treats HTTP
-  403 as unavailable. A five-second timeout covers credential lookup and the
-  HTTP call. Key order is the SQLite `opencode` row, then SQLite
-  `opencode-go`, then the `auth.json` `opencode-go` key or `OPENCODE_API_KEY`.
-  Later keys are tried after HTTP 401 or 403. `OPENCODE_AUTH_CONTENT` replaces
-  the auth file and skips the SQLite read.[^usage-l75-l185]
-- Peer links (`docs/internals/remote.md`) are new relative to that note's
-  "one environment, no cross-node routing" caution. They forward selected
-  MCP calls. They do not place the provider process on the phone.
-
 **Relevance to llame**
 
-llame's API owns Chat and Run identity, streams run events over SSE with
-cursor replay, and keeps the web client thin. The planned CLI treats
-`realpath` of `PWD` as the workspace root and executes tools on the client
-over a WebSocket JSON-RPC channel. TUI is the primary interface. T3 is a
-useful control-plane comparison and a poor tool-placement model.
+[VISION.md](../../../VISION.md) treats a Surface (web, CLI, desktop, Android)
+as an interaction point. A personal Node is an independently operable
+installation with local identity, durable state, and executors. It stays
+useful offline and is not a thin client of a hub. A CLI Run advertises only
+the directory where the CLI was started, and that start may grant native
+execution there. [ROADMAP.md](../../../ROADMAP.md) keeps the
+standalone Node and CLI in the backlog. That cut may execute natively in the
+advertised directory and excludes remote Workspace dispatch.
+llame's shipped API still owns Chat and Run identity and streams run events
+over SSE with cursor replay. The web client stays thin.
+
+T3 is a useful comparison for those control-plane mechanics. Its phone and
+browser are steering clients of one environment that owns provider processes
+and the workspace.
 
 - **High:** environment id separate from the transport URL; commit events,
   projections, and the receipt before notifying clients; return the receipt
@@ -385,19 +388,22 @@ useful control-plane comparison and a poor tool-placement model.
   per adapter; a protocol version on the socket with a hard reject on skew;
   bound replay and replace an oversized gap with one snapshot. Those fit
   llame's SSE cursor without an event-sourcing rewrite or a SQLite swap.
-- **Moderate:** server-owned PTY with a disposable client renderer, for a
-  terminal surface beside the TUI; hidden Git refs for workspace checkpoints,
-  only together with an explicit provider-history rollback capability.
-  OpenCode's Go usage endpoint remains a documented JSON read behind the
-  user's key, with "valid key, no subscription" distinct from failure.
-- **Low:** T3's graphical clients. There is no TUI to copy. The `t3` CLI
-  launches the server and a browser.
+- **Moderate:** server-owned PTY with a disposable client renderer; hidden
+  Git refs for workspace checkpoints, only together with an explicit
+  provider-history rollback capability. OpenCode's Go usage endpoint remains
+  a documented JSON read behind the user's key, with "valid key, no
+  subscription" distinct from failure.
+- **Low:** T3's graphical clients and its `t3` CLI, which launches the server
+  and a browser.
 - **Different placement:** T3 tools and the workspace cwd run on the
-  environment host. llame's planned CLI executes tools on the client and
-  canonicalizes the workspace with `realpath`. T3's `path.resolve` keeps
-  symlinks. Copying T3's server-side cwd into the CLI would fight that
-  design. Peer links are a beta MCP forward between two trusted
-  environments, not a Node that dials out to execute llame tools.
+  environment host. `path.resolve` keeps symlinks on that host. llame's Node
+  owns local execution, and a CLI Run advertises only its start directory.
+  Peer links are a beta MCP forward between two environments the user already
+  runs. They are not a llame Node.
+- **Proposal, not a canonical contract:** a CLI sketch outside VISION and
+  ROADMAP would execute tools on the client over a WebSocket JSON-RPC channel
+  and take `realpath` of `PWD` as the workspace root. That sketch is not a
+  reason to copy T3's server-side cwd, and it is not the Node direction.
 - **Avoid:** Full access as the default for new work; `filesystem:read`
   reaching outside the workspace; treating a T3 environment or provider
   thread as llame Chat or Run authority; assuming provider-instance
@@ -406,9 +412,10 @@ useful control-plane comparison and a poor tool-placement model.
 **Caution:** Pairing's default grant includes `terminal:operate` (a shell as
 the server user) and `orchestration:operate` (can start a full-access agent).[^env-auth-scopes-l9-l16]
 Remote control still joins a client to one environment. Peer links add a
-second hop for agents. New links and forwarded calls wait for
-`linkedEnvironmentsEnabled`. A task already running can still be read,
-waited on, or interrupted while the flag is off.[^remote-l71-l105] Provider
+second hop for agents. Off on the linking side, new links and forwarded calls
+are refused, while read, wait, and interrupt of a task already running still
+work. Off on the receiving side, link registration is refused and link
+sessions get HTTP 403.[^remote-l71-l105] Provider
 rollback does not undo external side effects.
 
 [^overview-l1-l19]: [Environment owns execution; clients speak authenticated RPC](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/overview.md#L1-L19)
@@ -433,6 +440,8 @@ rollback does not undo external side effects.
 
 [^ws-replay-l956-l1008]: [Thread resume snapshots on cursor, count, raw bytes, or encoded bytes](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/apps/server/src/ws.ts#L956-L1008)
 
+[^connection-runtime-l43-l50]: [HTTP refresh does not replace a healthy socket](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/connection-runtime.md#L43-L50)
+
 [^connection-runtime-l78-l120]: [Shell omissions, five-minute detail cache, desktop keep-alive](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/connection-runtime.md#L78-L120)
 
 [^env-auth-scopes-l9-l16]: [Default pairing grant includes shell and full-access orchestration](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/environment-auth.md#L9-L16)
@@ -453,7 +462,7 @@ rollback does not undo external side effects.
 
 [^env-auth-l127-l133]: [filesystem:read can leave the project](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/internals/environment-auth.md#L127-L133)
 
-[^permissions-l1-l41]: [Permission modes and provider fallbacks](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/permission-modes.md#L1-L41)
+[^permissions-l1-l49]: [Permission modes, registry approvals, and Claude full-access asks](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/permission-modes.md#L1-L49)
 
 [^acp-run-l42-l52]: [Registry agents run on the server host](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/providers-acp.md#L42-L52)
 
@@ -492,6 +501,12 @@ rollback does not undo external side effects.
 [^acp-registry-driver-l471-l473]: [ACP Registry has no default instance](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/packages/provider-acp-registry/src/server/driver.ts#L471-L473)
 
 [^acp-user-l13-l15]: [ACP v2 preview with v1 negotiation](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/providers-acp.md#L13-L15)
+
+[^source-control-l10-l17]: [Built-in source-control drivers](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/apps/server/src/sourceControl/sourceControlDefinitions.ts#L10-L17)
+
+[^secrets-l5]: [Built-in secret provider is 1Password](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/apps/server/src/secrets/secretProviderDefinitions.ts#L5)
+
+[^outside-agents-l1-l7]: [Outside agents sign in to /mcp](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/docs/user/outside-agents.md#L1-L7)
 
 [^config-db-l144-l148]: [Live database path is userdata/statev2.sqlite](https://github.com/pingdotgg/t3code/blob/82b10d546c1041d8eff40425f076d61f608d518f/apps/server/src/config.ts#L144-L148)
 

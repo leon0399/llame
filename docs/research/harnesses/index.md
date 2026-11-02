@@ -232,8 +232,8 @@ even with a single laptop UI):
 
 **Single remote only** (optional one SSH/daemon host, not a multi-box registry):
 [super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
-[T3 Code](./t3-code.md) (one environment per connection; a beta peer link can
-forward MCP calls into a second environment), [CodeBuddy Code](./codebuddy.md) (daemon `--host`,
+[T3 Code](./t3-code.md) (one environment per connection; peer-link MCP
+forwarding stays off unless `linkedEnvironmentsEnabled` is on), [CodeBuddy Code](./codebuddy.md) (daemon `--host`,
 docs only), [DeepSeek Harness](./deepseek-harness.md) (optional POSIX SSH
 providers; shipped profiles leave them unmounted).
 
