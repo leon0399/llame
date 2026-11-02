@@ -5,8 +5,9 @@
 Gives a Run bounded regular-expression content search over the locators that
 it can walk: host paths, `machine://`, `kb://`, and `skill://`. The tool admits
 each scope against the `grep` group and each file against the `read` group. It
-returns line-ranged passages whose locators are valid `read` arguments, paged
-by a stateless keyset cursor.
+returns line-ranged passages whose locators are valid `read` arguments. It
+bounds the inline part and stores the whole result as an artifact. It does not
+page by a keyset cursor.
 
 ## Requirements
 
@@ -25,8 +26,7 @@ input MUST be one strict object. The tool MUST reject an unknown property as
   match each pattern as literal text.
 - `ignoreCase`: an optional boolean, default `false`.
 - `limit`: an optional integer from 1 to 20, default 20. It bounds the files
-  on one page.
-- `cursor`: an optional opaque string from an earlier result.
+  in the inline part of the result.
 
 The tool MUST compile each pattern with RE2 syntax through a linear-time
 engine. When the engine rejects a pattern, the tool MUST fail the call as
@@ -55,6 +55,11 @@ mutates nothing.
 #### Scenario: Nine patterns are refused
 
 - **WHEN** `patterns` holds nine strings
+- **THEN** the tool returns `invalid_input`
+
+#### Scenario: A cursor is refused
+
+- **WHEN** the model submits `{ "patterns": ["x"], "cursor": "abc" }`
 - **THEN** the tool returns `invalid_input`
 
 #### Scenario: No native attempt is recorded
@@ -317,84 +322,6 @@ passage MUST NOT carry `notice`.
 - **THEN** the tool returns `knowledge_space_not_found`
 - **AND** no directory of that Space is probed
 
-### Requirement: Walks are bounded
-
-For every scheme, the walk MUST obey these rules:
-
-- The walk MUST skip a file with a NUL byte in its first 8 KiB.
-- The walk MUST skip a file that is not valid UTF-8. An invalid byte at any
-  offset skips the file.
-- The walk MUST skip a file with a line longer than 4 MiB of UTF-8 bytes as
-  `oversized`.
-- The result MUST count each skip in a `warnings` entry by kind.
-
-The walk has no file, entry, byte, or file-size bound by default. The
-operator-bound requirement defines the bounds that an operator can set. The
-call-deadline requirement defines when the walk stops for time.
-
-When a bound or the call deadline stops the walk, the result MUST carry
-`complete: false`. It MUST also carry a `warnings` entry that names the stop,
-and a `cursor`.
-
-When the page emitted a passage, the cursor MUST be a passage cursor, as the
-keyset-cursor requirement defines. Otherwise the cursor MUST be a position
-cursor that names the last entry the walk reached in canonical order. A later
-call MUST list the entries before that entry and that entry itself, and it
-MUST NOT open them. It MUST then continue the walk after that entry.
-
-A position cursor can instead name the start of a scope. It does so when the
-walk reached no entry in that scope, or when it skips an unfinished
-single-file scope and names the next scope. A later call MUST then start that
-scope from its first entry.
-
-#### Scenario: Binary file is skipped and counted
-
-- **WHEN** a candidate contains a NUL byte in its first 8 KiB
-- **THEN** it contributes no hit
-- **AND** `warnings` counts one binary skip
-
-#### Scenario: File bound stops the walk
-
-- **WHEN** `tools.grep.maxFilesExamined` is 5,000, a scope holds 6,000 candidate files, and the first 5,000 give no match
-- **THEN** the walk stops at 5,000 examined files
-- **AND** the result carries `complete: false`, a `warnings` entry that names the file bound, and a `cursor`
-- **AND** a later call with that `cursor` starts after the last file that the first call examined
-
-#### Scenario: A bound before the first match returns a cursor
-
-- **WHEN** the configured entry bound stops the walk before the page emits a passage
-- **THEN** the result carries `complete: false`, the entry bound warning, and a `cursor`
-- **AND** a later call with that `cursor` opens no entry that the first call listed
-
-#### Scenario: Deadline returns a partial page
-
-- **WHEN** the walk reaches the call deadline after it emitted three passages
-- **THEN** the result carries those three passages, `complete: false`, a `deadline` entry, and a `cursor`
-
-#### Scenario: Oversized file is skipped and counted
-
-- **WHEN** `tools.grep.maxFileBytes` is 1 MiB and a candidate is 2 MiB
-- **THEN** it contributes no hit
-- **AND** `warnings` counts one oversized skip
-
-#### Scenario: A line longer than 4 MiB skips its file
-
-- **WHEN** no bound is configured and a candidate holds one line of 5 MiB
-- **THEN** the file contributes no hit
-- **AND** `warnings` counts one oversized skip
-
-#### Scenario: A stop before the first entry resumes at the scope start
-
-- **WHEN** the call deadline stops the walk before it reached an entry of the first scope
-- **THEN** the result carries `complete: false` and a position cursor on the start of that scope
-- **AND** a later call with that `cursor` starts at the first entry of that scope
-
-#### Scenario: A late invalid byte drops the file
-
-- **WHEN** line 3 of a candidate matches and its byte at offset 900,000 is not valid UTF-8
-- **THEN** the file contributes no passage
-- **AND** `warnings` counts one `invalid_utf8` skip
-
 ### Requirement: Walk order and links are defined per scheme
 
 The walk MUST visit each directory depth-first. In one directory, the walk
@@ -505,139 +432,6 @@ the window. The tool MUST NOT report match columns, scores, or counts beyond
 - **WHEN** `ignoreCase` is `true` and a pattern is `todo`
 - **THEN** a line that contains `TODO` matches
 
-### Requirement: Results are ordered, bounded, and paged by a keyset cursor
-
-The tool MUST order passages by resolved scope ordinal, then by canonical
-order of the walk, then by passage start line. One page MUST hold at most
-`limit` files and at most 20 passages for each file. A file with more than 20
-passages MUST give its first 20 in canonical order. Its twentieth passage
-MUST carry `truncated: true`. A cursor does not reach the passages after the
-twentieth. A later `read` of the file reaches them. A cursor that names a
-twentieth passage resumes at the next file in canonical order.
-
-The ordinal of a scope is its position in the resolved scope list. Submitted
-scopes keep their submitted order. A bare `kb://` scope expands in byte order
-of the Space identifier. A bare `skill://` scope expands in byte order of the
-package name. Each expansion takes its own ordinal. A Machine scope takes its
-ordinal from the same counter.
-
-The tool MUST keep the rendered model text of the whole result at or below
-15,000 UTF-16 code units, as `tool-result-rendering` defines that text. The
-continuation line, the `[warnings: …]` line, the notice, and every other line
-of the result count. The tool MUST emit whole passages in order while the next
-passage fits. When the first passage of a page does not fit, the tool MUST cut
-that passage at a line boundary and mark it `cut: true`. That passage ends the
-page. The page MUST end before the budget, so the tool loop never cuts the
-result.
-
-When the tool cuts a passage, the cursor MUST name that passage and its last
-emitted line. A later call with that cursor MUST emit the rest of that passage
-first. It MUST start at the line after the last emitted line. It MUST repeat
-no line. It MUST then continue in canonical order.
-
-The tool drops a rest with no matched line, as the partition rule drops one. A
-cut passage that is also the twentieth passage of its file carries
-`truncated: true` beside its cut. The twentieth rule holds after the call that
-emits its rest.
-
-When passages are left after a page, the result MUST carry `complete: false`
-and an opaque keyset `cursor`. The cursor names the last emitted passage by
-resolved scope ordinal, canonical file locator, and start line. It also
-carries a hash of the resolved search inputs. These inputs are the patterns,
-the projected scopes, `literal`, and `ignoreCase`. They also include the Space
-identifiers and package names that a bare scope resolved to. A later call with
-that `cursor` MUST resume after the named passage.
-
-The tool MUST refuse a `cursor` whose hash differs from the current resolved
-inputs as `invalid_input`. A Workspace change thus makes an old cursor
-invalid. The tool MUST NOT store state between calls.
-
-On resume, the walk MUST list the entries before the cursor and MUST NOT open
-them. Those entries do not count toward a configured entry bound. Entries at or
-after the cursor count. Each file that the walk takes counts toward a
-configured file bound. A file that a `read` reject refuses is listed and not
-examined, except on a Machine.
-
-A position cursor names the last entry the walk reached. On resume, the walk
-MUST list the entries before that entry and that entry itself, and it MUST NOT
-open them. Those entries do not count toward a configured entry bound. The walk MUST
-enter a directory that the entry names. It MUST NOT examine again the file
-that the entry names. A position cursor on the start of a scope, as "Walks are
-bounded" defines it, names no entry. The walk then lists nothing before the
-first entry of that scope and examines that first entry.
-
-The entry that a position cursor names can be an entry that the `read` group
-refused. The cursor names it only as the point to resume after. It never names
-a passage of that entry.
-
-A result with no passage MUST return `results: []` and `complete: true` when
-no bound and no call deadline stopped the walk.
-
-#### Scenario: Second page resumes after the cursor
-
-- **WHEN** a first call returns 20 files and a `cursor`
-- **THEN** a second call with that `cursor` returns the next files in the same order
-- **AND** the second page repeats no file of the first page
-
-#### Scenario: Cursor with changed patterns is refused
-
-- **WHEN** a call with `patterns: ["b"]` submits a `cursor` from a call with `patterns: ["a"]`
-- **THEN** the tool returns `invalid_input`
-
-#### Scenario: Cursor from another Workspace is refused
-
-- **WHEN** the tool issued a `cursor` while `/home/u/a` was the Workspace, and the Chat then entered `/home/u/b`
-- **THEN** a call with that `cursor` and the same submitted inputs returns `invalid_input`
-
-#### Scenario: Twenty-first passage is marked, not paged
-
-- **WHEN** one file holds 25 passages
-- **THEN** the page holds its first 20, and the twentieth carries `truncated: true`
-- **AND** the cursor names the twentieth passage, so the next page starts at the next file
-
-#### Scenario: A new Space invalidates a bare cursor
-
-- **WHEN** the tool issued a `cursor` for scope `kb://`, and the owner then created a Space
-- **THEN** a call with that `cursor` returns `invalid_input`
-
-#### Scenario: The budget ends a page early
-
-- **WHEN** the eleventh passage of a page does not fit in 15,000 code units
-- **THEN** the page holds ten passages and a `cursor` that names the tenth
-- **AND** the tool measured the 15,000 code units on the rendered text, with the continuation line
-
-#### Scenario: A cut passage continues on the next call
-
-- **WHEN** the first passage of a page does not fit and the tool cuts it at line 40
-- **THEN** the cursor names that passage and line 40
-- **AND** the next call emits the rest of that passage from line 41
-- **AND** the next call repeats no line of that passage
-
-#### Scenario: A position cursor names a refused entry
-
-- **WHEN** a bound stops the walk on an entry that the `read` group refused, and the page emitted no passage after it
-- **THEN** the position cursor names that entry as the point to resume after
-- **AND** the result holds no passage of that entry
-- **AND** the next call does not count that entry toward the configured entry bound
-
-#### Scenario: A rest of context only is dropped
-
-- **WHEN** the tool cuts a passage at line 40 and each line after line 40 is context
-- **THEN** the next call emits no rest of that passage
-- **AND** it starts at the next file in canonical order
-
-#### Scenario: Each expansion of a bare scope takes its own ordinal
-
-- **WHEN** `kb://` resolves to Spaces `a` and `b`, and `/home/u/repo/**` follows
-- **THEN** the Spaces take ordinals 0 and 1, and the host scope takes ordinal 2
-- **AND** the passage order and the cursor use those ordinals
-
-#### Scenario: No match
-
-- **WHEN** no line in an admitted file matches
-- **THEN** the result is `results: []`, `complete: true`
-- **AND** `warnings` still reports skipped files
-
 ### Requirement: Scope backends fail closed per scheme
 
 A host scope on a process without accepted native host authority MUST fail as
@@ -663,20 +457,21 @@ the rules of this capability.
 The request carries the file, entry, byte, and file-size bounds that are left
 for the call. An unset bound MUST travel as `null`, and the daemon then MUST
 apply no such bound. The daemon MUST stay inside each bound that the request
-sets. The request also carries whether the call progressed, and the response
-carries whether the daemon walk progressed, as the unfinished-file
-requirements define progress.
+sets. The request also carries whether the call progressed. The response
+carries whether the daemon walk progressed, as "A stop inside a file before
+progress names that file" defines progress.
 
 The request MUST give the daemon nine tenths of the time left to the call
 deadline. The daemon answer then arrives before the API stops the request. The
 API MUST stop the request at the call deadline.
 
 The daemon MUST return passages, excluded directories, and an unfinished
-file as paths relative to its display prefix only. The request also carries
-the page budget that is left. The API MUST cut a daemon page that is larger
-than that budget. The API MUST build the cursor from the last passage it
-emitted, never from a daemon passage it dropped. The API MUST apply the `read`
-group to each path that the daemon returns before the result names it.
+file as paths relative to its display prefix only. The request carries a page
+budget that fits one protocol message. The API MUST ask for the next response
+after the daemon position of the previous response. A page of refused
+passages thus still advances the walk. It MUST ask again until the scope ends, the
+call stops, or the artifact bound cuts a daemon page. The API MUST apply the `read` group to each path that the
+daemon returns before the result names it.
 
 An unreachable or unknown Machine MUST fail the call with the Machine failure
 results that `read` uses. A daemon without the method MUST fail the call as
@@ -729,7 +524,7 @@ the call as Machine unusable.
 #### Scenario: A dropped Machine passage never names the cursor
 
 - **WHEN** the last passage of the daemon belongs to a file that the `read` group refuses
-- **THEN** the cursor names the last passage that the API emitted
+- **THEN** the next `fs.grep` request resumes after the daemon position of that response
 - **AND** the refused path is not in the result
 
 #### Scenario: Budgets span Machines
@@ -786,7 +581,7 @@ bound applies across every scope of one call.
 #### Scenario: A configured file bound stops the walk early
 
 - **WHEN** `tools.grep.maxFilesExamined` is 3 and a scope holds 10 files with no match
-- **THEN** the walk takes 3 files and stops with a `file_bound` warning and a `cursor`
+- **THEN** the walk takes 3 files and stops with a `file_bound` warning and `complete: false`
 
 ### Requirement: Byte bounds count the bytes that the walk takes
 
@@ -800,7 +595,7 @@ from it, exceed the bound.
 #### Scenario: A configured byte bound stops the walk
 
 - **WHEN** `tools.grep.maxBytesRead` is 10 MiB and a scope holds 50 text files of 1 MiB each with no match
-- **THEN** the walk takes 10 files and stops with a `byte_bound` warning and a `cursor`
+- **THEN** the walk takes 10 files and stops with a `byte_bound` warning and `complete: false`
 
 #### Scenario: A file that grows past the file-size bound is skipped
 
@@ -812,7 +607,7 @@ from it, exceed the bound.
 
 - **WHEN** `tools.grep.maxBytesRead` is 10 MiB and the first file of a scope is a 50 MiB text log with no match
 - **THEN** the result names that log in `unfinishedFile` and carries a `byte_bound` warning
-- **AND** a later call with the `cursor` starts after that log
+- **AND** the result holds no passage of that log
 
 ### Requirement: The grep deadline derives from the tool call timeout
 
@@ -821,13 +616,13 @@ plus the tool call timeout, minus a margin. The margin is the larger of 5
 seconds and one tenth of the timeout, but at most half of it. Without a
 timeout in the call context, the timeout is `tools.callTimeoutSeconds`. At the
 call deadline, the result MUST carry the passages found so far,
-`complete: false`, a `deadline` warning, and a `cursor`.
+`complete: false`, and a `deadline` warning.
 
 #### Scenario: The default timeout leaves a margin
 
 - **WHEN** `tools.callTimeoutSeconds` is 120 and the walk does not end
 - **THEN** the walk stops 108 seconds after the call starts
-- **AND** the tool returns its passages and a `cursor`, not a `timeout` error
+- **AND** the tool returns its passages and a `deadline` warning, not a `timeout` error
 
 #### Scenario: A longer timeout gives a longer walk
 
@@ -847,14 +642,14 @@ call deadline, the result MUST carry the passages found so far,
 #### Scenario: A deadline with no match stays incomplete
 
 - **WHEN** the call deadline stops the walk before any line matched
-- **THEN** the result is `results: []` with `complete: false`, a `deadline` warning, and a `cursor`
+- **THEN** the result is `results: []` with `complete: false` and a `deadline` warning
 
 ### Requirement: A file is searched as a stream
 
 The walk MUST search a regular file of any size when `maxFileBytes` is not
 set. The walk MUST keep the passages of a file until it reaches the end of
-that file. The file then gives its passages to the page. A skip that the walk
-finds after a match MUST drop each passage of that file.
+that file. The file then gives its passages to the result. A skip that the
+walk finds after a match MUST drop each passage of that file.
 
 #### Scenario: A large log is searched
 
@@ -869,8 +664,8 @@ finds after a match MUST drop each passage of that file.
 
 #### Scenario: A cut passage longer than a page loses no line
 
-- **WHEN** a passage of a 200 MiB file spans 2,000 long lines, and the tool cuts it on two pages in a row
-- **THEN** the third call emits the rest of that passage from the line after the second cut
+- **WHEN** a passage of a 200 MiB file spans 2,000 long lines, and the inline part cuts it
+- **THEN** the artifact holds every line of that passage once
 - **AND** no line of that passage is missed or repeated
 
 ### Requirement: Reads run concurrently and keep canonical order
@@ -878,8 +673,8 @@ finds after a match MUST drop each passage of that file.
 The walk MUST NOT have more than 8 files open for a match at the same time, or
 more than a configured file bound leaves. When more candidates wait in
 canonical order, the walk MUST have 8 files open, or as many as that bound
-leaves. The page, the cursor, each bound, each skip count, and each excluded
-directory MUST take effect in canonical order. A file opened ahead of a stop
+leaves. The inline part, the artifact, each bound, each skip count, and each
+excluded directory MUST take effect in canonical order. A file opened ahead of a stop
 MUST NOT count as reached.
 
 #### Scenario: Eight reads are in flight
@@ -895,8 +690,8 @@ MUST NOT count as reached.
 #### Scenario: A stop discards files opened ahead
 
 - **WHEN** the call deadline stops the walk after `c.ts` and the walk has opened `d.ts` to `h.ts` ahead
-- **THEN** the cursor names an entry no later than `c.ts`
-- **AND** the next call opens `d.ts` to `h.ts` again
+- **THEN** the result holds no passage of `d.ts` to `h.ts`
+- **AND** the result does not count `d.ts` to `h.ts` as examined
 
 #### Scenario: Read-ahead does not exceed the file bound
 
@@ -905,84 +700,14 @@ MUST NOT count as reached.
 
 #### Scenario: Files before an entry bound are still searched
 
-- **WHEN** the entry bound trips while three earlier candidates with no match are open
+- **WHEN** the entry bound trips while three earlier candidates are open
 - **THEN** the walk takes those three files before it stops
-- **AND** a later call with the `cursor` opens none of those three files
+- **AND** the result holds the passages of those three files, if any
 
 #### Scenario: A read refusal counts only for a taken file
 
 - **WHEN** the `read` group refuses a file that the walk admitted ahead, and the call deadline stops the walk before it takes that file
 - **THEN** the completion audit does not count that refusal
-
-### Requirement: A stop in a file that blocks progress skips that file
-
-The start point of a call is the entry that the cursor of the call names, or
-the start of the first scope. A call progresses when it emits a passage, or
-when it finishes an entry after its start point. The call deadline or the byte
-bound can stop the walk in a file before the call progresses. Then the result
-MUST name that file in `unfinishedFile`, and the next call MUST start after
-that file.
-
-#### Scenario: A file larger than one call is skipped
-
-- **WHEN** a scope starts with a 3 GB log and the call deadline stops the walk in it
-- **THEN** the result names that log in `unfinishedFile`
-- **AND** a later call with the `cursor` starts after that log
-
-#### Scenario: An explicit file scope that one call cannot finish is skipped
-
-- **WHEN** the scopes are `/var/log/huge.log` and `/srv/app`, and the call deadline stops the walk in `huge.log`
-- **THEN** the result names `/var/log/huge.log` in `unfinishedFile`
-- **AND** a later call with the `cursor` starts at `/srv/app`
-
-#### Scenario: An unfinished last file scope ends on the next call
-
-- **WHEN** the only scope is `/var/log/huge.log` and the call deadline stops the walk in it
-- **THEN** the result names it in `unfinishedFile` with `complete: false` and a `cursor`
-- **AND** a later call with the `cursor` returns `results: []` and `complete: true`
-
-#### Scenario: A cursor on the parent directory is no progress
-
-- **WHEN** the cursor of the call names the directory `logs`, `logs/big.log` is the first entry in `logs`, and the call deadline stops the walk in it
-- **THEN** the result names `logs/big.log` in `unfinishedFile`
-
-#### Scenario: An unfinished Machine file scope is skipped
-
-- **WHEN** the scope is `machine://build/var/log/huge.log` and the call deadline stops the daemon walk in it
-- **THEN** the result names that locator in `unfinishedFile`
-- **AND** a later call with the `cursor` does not open that file again
-
-### Requirement: A stop after progress opens the file again
-
-When the call progressed before a stop in a file, the result MUST NOT carry
-`unfinishedFile`. A later call with the `cursor` MUST open that file again.
-Each Machine request and each later scope MUST use the progress of the whole
-call. When the `read` group refuses an unfinished file, the result MUST NOT
-name it, and the next call MUST still start after that file.
-
-#### Scenario: A stop after progress resumes at the file
-
-- **WHEN** the call finished 40 files and the call deadline stops the walk in the forty-first
-- **THEN** the result carries no `unfinishedFile`
-- **AND** a later call with the `cursor` opens the forty-first file again
-
-#### Scenario: Progress in an earlier scope counts
-
-- **WHEN** a host scope finished 10 files and the call deadline then stops a Machine scope in its first file
-- **THEN** the result carries no `unfinishedFile`
-- **AND** a later call with the `cursor` opens that Machine file again
-
-#### Scenario: An emitted passage is progress
-
-- **WHEN** the call emits the rest of a cut passage of `a.log` and the call deadline then stops the walk in `b.log`
-- **THEN** the result carries no `unfinishedFile`
-- **AND** a later call with the `cursor` opens `b.log` again
-
-#### Scenario: A refused unfinished file is not named
-
-- **WHEN** the call deadline stops a Machine walk in its first file and the `read` group refuses that file
-- **THEN** the result carries no `unfinishedFile`
-- **AND** a later call with the `cursor` starts after that file
 
 ### Requirement: Ignore files from the scope and above it apply
 
@@ -1081,8 +806,7 @@ file, the last rule that decides an entry wins.
 
 ### Requirement: Excluded directories are reported
 
-The walk MUST record each directory that an ignore rule excludes at or after
-the start point of the call. It MUST NOT record a directory below an excluded
+The walk MUST record each directory that an ignore rule excludes. It MUST NOT record a directory below an excluded
 directory, or an excluded file. When the `read` group admits at least one
 recorded locator, the result MUST carry `ignored`. `ignored.count` MUST count
 the admitted locators. `ignored.locators` MUST hold the first five of them in
@@ -1101,17 +825,17 @@ canonical order.
 
 #### Scenario: A resumed page does not repeat earlier exclusions
 
-- **WHEN** a first page excluded `/home/u/repo/a/node_modules`, and a second call resumes from a position cursor on `/home/u/repo/b`
-- **THEN** the second result does not count `/home/u/repo/a/node_modules`
+- **WHEN** a Machine scope answers in two `fs.grep` responses, and the first response excluded `/srv/app/node_modules`
+- **THEN** the result counts `/srv/app/node_modules` once
 
 ### Requirement: The excluded-directory report is filtered and bounded
 
 The `read` group MUST admit a directory locator both as written and with a
 final separator before the result counts or names it. The walk MUST record at
 most 1,000 excluded directories for one call, across every scope. When it
-excludes more, `ignored.atLeast` MUST be `true`. The page MUST reserve room for
-the `ignored` line and for the `unfinishedFile` line, so the tool loop never
-cuts the result.
+excludes more, `ignored.atLeast` MUST be `true`. The inline part MUST reserve
+room for the `ignored`, `unfinishedFile`, remainder, and artifact notice
+lines, so the tool loop never cuts the result.
 
 #### Scenario: A refused directory is not named
 
@@ -1185,3 +909,188 @@ that the walk probes. So an encoded path cannot hide from a reject.
 
 - **WHEN** the `grep` group rejects the literal `machine://build/srv/100A` and a scope is `machine://build/srv/100%41`
 - **THEN** the call is refused
+
+### Requirement: Unreadable files are skipped and counted
+
+For every scheme, the walk MUST skip a file with a NUL byte in its first 8
+KiB. It MUST skip a file that is not valid UTF-8, with an invalid byte at any
+offset. It MUST skip a file with a line longer than 4 MiB of UTF-8 bytes as
+`oversized`. The result MUST count each skip in a `warnings` entry by kind.
+
+#### Scenario: Binary file is skipped and counted
+
+- **WHEN** a candidate contains a NUL byte in its first 8 KiB
+- **THEN** it contributes no hit
+- **AND** `warnings` counts one binary skip
+
+#### Scenario: A line longer than 4 MiB skips its file
+
+- **WHEN** no bound is configured and a candidate holds one line of 5 MiB
+- **THEN** the file contributes no hit
+- **AND** `warnings` counts one oversized skip
+
+#### Scenario: A late invalid byte drops the file
+
+- **WHEN** line 3 of a candidate matches and its byte at offset 900,000 is not valid UTF-8
+- **THEN** the file contributes no passage
+- **AND** `warnings` counts one `invalid_utf8` skip
+
+### Requirement: A walk ends at its end, a bound, or the deadline
+
+The walk MUST continue until it reaches the end of the last scope, a
+configured bound, the artifact bound, or the call deadline. A full inline part
+MUST NOT stop the walk. When a bound or the deadline stops the walk, the
+result MUST carry `complete: false` and a `warnings` entry that names the stop.
+
+#### Scenario: A full inline part does not stop the walk
+
+- **WHEN** the first 20 files fill the inline part and the scope holds 300 more matching files
+- **THEN** the walk examines all 300 files
+- **AND** the artifact holds their passages
+
+#### Scenario: The artifact bound stops the walk
+
+- **WHEN** the passages of a walk reach `tools.artifacts.maxBytes`
+- **THEN** the walk stops with `complete: false` and an `artifact_bound` warning
+
+#### Scenario: File bound stops the walk
+
+- **WHEN** `tools.grep.maxFilesExamined` is 5,000, a scope holds 6,000 candidate files, and the first 5,000 give no match
+- **THEN** the walk stops at 5,000 examined files
+- **AND** the result carries `complete: false` and a `warnings` entry that names the file bound
+
+#### Scenario: A bound before the first match leaves an empty result
+
+- **WHEN** the configured entry bound stops the walk before any passage
+- **THEN** the result carries `results: []`, `complete: false`, and the entry bound warning
+
+#### Scenario: Deadline returns a partial result
+
+- **WHEN** the walk reaches the call deadline after it found three passages
+- **THEN** the result carries those three passages, `complete: false`, and a `deadline` entry
+
+#### Scenario: Oversized file is skipped and counted
+
+- **WHEN** `tools.grep.maxFileBytes` is 1 MiB and a candidate is 2 MiB
+- **THEN** it contributes no hit
+- **AND** `warnings` counts one oversized skip
+
+#### Scenario: A stopped walk returns no cursor
+
+- **WHEN** the configured file bound stops the walk
+- **THEN** the result carries `complete: false` and a `file_bound` warning
+- **AND** the result carries no `cursor`
+
+### Requirement: Passages follow scope order and walk order
+
+The tool MUST order passages by resolved scope ordinal, then by canonical
+order of the walk, then by passage start line. The inline part and the
+artifact MUST use this one order.
+
+#### Scenario: A later file that ends first keeps its place in the artifact
+
+- **WHEN** `b.ts` ends before `a.ts`, both files match, and the result has an artifact
+- **THEN** the passages of `a.ts` come before the passages of `b.ts` in the artifact
+
+### Requirement: Each scope and each expansion takes one ordinal
+
+The ordinal of a scope is its position in the resolved scope list. Submitted
+scopes MUST keep their submitted order. A bare `kb://` scope MUST expand in
+byte order of the Space identifier. A bare `skill://` scope MUST expand in
+byte order of the package name. Each expansion and each Machine scope MUST
+take its own ordinal from one counter.
+
+#### Scenario: Each expansion of a bare scope takes its own ordinal
+
+- **WHEN** `kb://` resolves to Spaces `a` and `b`, and `/home/u/repo/**` follows
+- **THEN** the Spaces take ordinals 0 and 1, and the host scope takes ordinal 2
+- **AND** the passage order uses those ordinals
+
+### Requirement: A file gives at most 20 passages
+
+A file with more than 20 passages MUST give its first 20 in canonical order,
+in the inline part and in the artifact. Its twentieth passage MUST carry
+`truncated: true`. A `read` of the file reaches the passages after the
+twentieth.
+
+#### Scenario: Twenty-first passage is marked
+
+- **WHEN** one file holds 25 passages
+- **THEN** the result holds its first 20, and the twentieth carries `truncated: true`
+- **AND** the artifact holds no twenty-first passage of that file
+
+### Requirement: The inline part is the head of the result
+
+The inline part MUST hold whole passages in result order while the next one
+fits. It MUST hold at most `limit` files. Its rendered text MUST stay at or
+below 15,000 UTF-16 code units, every line of the result included. When the
+first passage does not fit, the tool MUST cut it at a line boundary and mark
+it `cut: true`. Without an artifact, a left-out line MUST count what the
+inline part does not hold.
+
+#### Scenario: The budget ends the inline part early
+
+- **WHEN** the eleventh passage does not fit in 15,000 code units
+- **THEN** the inline part holds ten passages
+- **AND** the artifact holds the eleventh passage and every later passage
+
+#### Scenario: A cut first passage continues in the artifact
+
+- **WHEN** the first passage does not fit and the tool cuts it at line 40
+- **THEN** the inline part holds that passage up to line 40
+- **AND** the artifact holds the whole passage
+
+#### Scenario: No match
+
+- **WHEN** no line in an admitted file matches and no bound or deadline stops the walk
+- **THEN** the result is `results: []`, `complete: true`, and no artifact
+- **AND** `warnings` still reports skipped files
+
+### Requirement: The remainder line names the next files
+
+When the artifact holds passages after the inline part, the result MUST carry
+one remainder line. The line MUST give the count of files and passages after
+the inline part. It MUST name at most ten of the next files, each with its
+line range in the artifact.
+
+#### Scenario: The next files are named with their ranges
+
+- **WHEN** the inline part holds 20 files and the artifact holds 140 more files with 610 passages
+- **THEN** the remainder line counts 140 files and 610 passages
+- **AND** it names the next ten files, each with its `artifact://grep-<n>:<a>-<b>` range
+
+### Requirement: A stop inside a file before progress names that file
+
+A call progresses when it emits a passage, or when it finishes an entry. When
+the call deadline or a bound stops the walk inside a file before the call
+progressed, the result MUST name that file in `unfinishedFile`. After
+progress, the result MUST NOT name it. The result MUST NOT name a file that
+the `read` group refuses.
+
+#### Scenario: A file larger than the call is named
+
+- **WHEN** a scope starts with a 3 GB log and the call deadline stops the walk in it
+- **THEN** the result names that log in `unfinishedFile` with `complete: false`
+
+#### Scenario: A stop after progress names no file
+
+- **WHEN** the call finished 40 files and the call deadline stops the walk in the forty-first
+- **THEN** the result carries no `unfinishedFile`
+
+#### Scenario: A refused unfinished file is not named
+
+- **WHEN** the call deadline stops a Machine walk in its first file and the `read` group refuses that file
+- **THEN** the result carries no `unfinishedFile`
+
+### Requirement: A Machine response that names an unfinished file is skipped
+
+When a Machine response names an unfinished file, the API MUST ask for the
+next response after that file. It MUST NOT open that file again in the call.
+The result MUST carry `complete: false`, and it MUST name that file in
+`unfinishedFile` when the `read` group admits it.
+
+#### Scenario: A daemon time budget skips one file
+
+- **WHEN** the daemon time budget stops a Machine walk in its first file, before progress
+- **THEN** the next `fs.grep` request of the call starts after that file
+- **AND** the result names that file in `unfinishedFile` with `complete: false`

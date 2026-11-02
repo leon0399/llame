@@ -9,7 +9,13 @@ configures, falls back between, fans out across, or delegates to a provider's ho
 
 ### Requirement: The web search tool has one stable model-facing contract
 
-The code-owned inventory MUST include `web_search` as `read_only`. It MUST be eligible only through its exact `tools.allowed` entry, and `tools.permissions.web_search` MUST authorize each call. The input MUST be a strict object with a required `query` of 1 to 1,000 UTF-16 units. Optional `objective` has 1 to 2,000 units. Optional `engines` has 1 to 20 unique ids of 1 to 64 units. Optional `recency` is `day`, `week`, `month`, or `year`. Optional `limit` is an integer from 1 to 20, default 10.
+The code-owned inventory MUST include `web_search` as `read_only`. It MUST be
+eligible only through its exact `tools.allowed` entry. `tools.permissions.web_search`
+MUST authorize each call. The input MUST be a strict object with a required
+`query` of 1 to 1,000 UTF-16 units. Optional `objective` has 1 to 2,000 units.
+Optional `engines` has 1 to 20 unique ids of 1 to 64 units. Optional `recency`
+is `day`, `week`, `month`, or `year`. Optional `limit` is an integer from 1 to
+20, default 10. It bounds the results inline.
 
 #### Scenario: Unknown argument is refused
 
@@ -18,8 +24,9 @@ The code-owned inventory MUST include `web_search` as `read_only`. It MUST be el
 
 #### Scenario: Default limit
 
-- **WHEN** the model calls `web_search` with only a query and the engine that answers returns 15 results
-- **THEN** the output contains a maximum of 10 results
+- **WHEN** the model calls `web_search` with only a query, the engine that answers returns 15 results, and the Run can read artifacts
+- **THEN** the inline text shows a maximum of 10 results
+- **AND** the artifact of the call holds all 15 results
 
 #### Scenario: Permission rejection sends nothing
 
@@ -68,12 +75,17 @@ Every result and citation `url` SHALL be parsed as a WHATWG URL with scheme `htt
 
 ### Requirement: Output fields are bounded within the result cap
 
-Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20. `notes` SHALL hold at most 10 notes of at most 200 UTF-16 units each; when more are due, the tenth SHALL record the remainder as `<n> more engines`.
+Lengths count JavaScript UTF-16 code units, cut at a code-point boundary.
+Titles MUST be at most 200 units, snippets 300, and answers 8,000. `published`
+MUST be present only as an ISO 8601 date. The output MUST hold at most the
+fetch size of results and 20 citations. `notes` MUST hold at most 10 notes of at most 200
+units each. When more notes are due, the tenth MUST record the rest as
+`<n> more engines`.
 
 #### Scenario: Long snippet is cut
 
 - **WHEN** an engine returns a 2,000-character snippet
-- **THEN** the stored and model-visible snippet is at most 300 characters
+- **THEN** the stored snippet and the snippet that the model reads are at most 300 characters
 
 #### Scenario: Long answer is cut
 
@@ -82,19 +94,25 @@ Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles
 
 ### Requirement: The serialized output fits the result cap
 
-When the JSON-serialized output, `query`, `engine`, and `notes` included, would exceed 15,000 UTF-16 units, trailing results or citations SHALL be dropped with a note until it fits, so generic result truncation never cuts a URL. An `answer` output SHALL keep at least its first citation; when it still does not fit, its answer text SHALL be cut further until it does.
+The inline text MUST hold at most `limit` results and MUST fit in 15,000 UTF-16
+units, with its other lines. When a result does not fit, the inline text MUST
+end before it. An artifact of the call MUST hold every result. An `answer`
+output MUST keep at least its first citation inline. When it still does not
+fit, the tool MUST cut the answer text further until it does. The tool MUST NOT cut
+a URL.
 
 #### Scenario: Oversized output drops trailing entries
 
-- **WHEN** 20 results with maximum-length fields would serialize beyond 15,000 characters
-- **THEN** trailing results are dropped until the output fits, with a note stating how many
-- **AND** every remaining URL is complete
+- **WHEN** 20 results with fields of maximum length do not fit in 15,000 characters
+- **THEN** the inline text ends before the first result that does not fit
+- **AND** every URL inline is complete, and the artifact holds all 20 results
 
 #### Scenario: A maximal answer keeps a citation
 
-- **WHEN** a hosted engine answers with 8,000 units of text and 20 citations whose URLs are each 2,000 units long, for a 1,000-unit query
-- **THEN** trailing citations are dropped with a note until the output fits
-- **AND** at least the first citation remains
+- **WHEN** a hosted engine answers a 1,000-unit query with 8,000 units of text
+  and 20 citations of 2,000-unit URLs
+- **THEN** the last citations move out of the inline text until it fits
+- **AND** at least the first citation remains inline
 
 ### Requirement: The chain tries engines in order and advances on failure or emptiness
 
@@ -178,7 +196,13 @@ Each non-aggregate engine attempt SHALL be aborted after its `timeoutSeconds`, d
 
 ### Requirement: Aggregate engines fan out and merge by rank fusion
 
-An `aggregate` MUST run each child that accepts the query concurrently and MUST wait until each settles. It MUST group results by canonical URL, without `www.` at the host start and `/` at the path end. It MUST score each URL by `Σ 1/(60 + rank)` over the children that return it, and order by score. A group MUST use its best-ranked URL and the longest snippet. The aggregate MUST cut the merged list to `limit`. Without results, it is empty when a child was empty, else it MUST fail.
+An `aggregate` MUST run each child that accepts the query concurrently. It
+MUST wait until each child settles. It MUST group results by canonical URL,
+without `www.` at the host start and without `/` at the path end. It MUST
+score each URL by `Σ 1/(60 + rank)` over the children that return it, and
+order by score. A group MUST use its best-ranked URL and the longest snippet.
+The aggregate MUST cut the merged list to the fetch size. When it has no
+result, it is empty when a child was empty. In other cases it MUST fail.
 
 #### Scenario: Shared result ranks first
 
@@ -217,7 +241,13 @@ An `aggregate` MUST run each child that accepts the query concurrently and MUST 
 
 ### Requirement: API and keyless engines speak their vendor wire
 
-`brave`, `exa`, and `perplexity` (Search API) use a key. `searxng` uses its `baseUrl`. `exa-mcp` calls the hosted Exa MCP tool `web_search_exa` from llame code with an optional key. `duckduckgo` posts to the HTML endpoint. `deepseek`, `parallel`, `parallel-mcp`, and `yandex` are also engine types. Each engine MUST map `recency` and `limit` where its vendor supports them. Each engine MUST refuse redirects and MUST send a key only to its own host.
+`brave`, `exa`, and `perplexity` (Search API) use a key. `searxng` uses its
+`baseUrl`. `exa-mcp` calls the hosted Exa MCP tool `web_search_exa` from llame
+code with an optional key. `duckduckgo` posts to the HTML endpoint.
+`deepseek`, `parallel`, `parallel-mcp`, and `yandex` are also engine types.
+Each engine MUST map `recency` and the fetch size where its vendor supports
+them. Each engine MUST refuse redirects and MUST send a key only to its own
+host.
 
 #### Scenario: Keyless Exa MCP
 
@@ -263,16 +293,20 @@ A `model-hosted` engine MUST send one request with the hosted web search of the 
 
 ### Requirement: Stored output is the normalized result only
 
-The persisted tool part SHALL contain the normalized output and no raw vendor payload. It SHALL replay into later turns as untrusted tool output like any other tool result, and SHALL NOT appear in public chat shares.
+The persisted tool part MUST contain the normalized output of the inline
+results and no raw vendor payload. When the call has an artifact, the part
+MUST also name its locator. The part MUST replay into later turns as untrusted
+tool output, like any other tool result. It MUST NOT appear in public chat
+shares.
 
 #### Scenario: Reload reproduces the output
 
 - **WHEN** the owner reloads a chat after a `web_search` call completed
-- **THEN** the reloaded tool part equals the normalized output the model received
+- **THEN** the reloaded tool part equals the normalized output of the results that the model received inline
 
 #### Scenario: A public share omits the search
 
-- **WHEN** the owner publicly shares a chat containing a `web_search` call
+- **WHEN** the owner publicly shares a chat that contains a `web_search` call
 - **THEN** the shared view contains no `web_search` tool part, input, output, or notes
 
 ### Requirement: The chat renders web search results as links
@@ -316,16 +350,19 @@ A result or answer engine MUST NOT send a request when the submitted query is ov
 
 ### Requirement: Engines clamp the result count to their vendor maximum
 
-When `limit` is above the maximum result count of the vendor, the engine MUST send that maximum. The call MUST NOT fail for that reason. An engine without a count parameter MUST cut its results to `limit`.
+The fetch size of a call is the larger of `limit` and `webSearch.fetchLimit`.
+When the fetch size is above the maximum result count of the vendor, the
+engine MUST send that maximum. The call MUST NOT fail for that reason. An
+engine without a count parameter MUST cut its results to the fetch size.
 
 #### Scenario: The engine clamps a large limit
 
-- **WHEN** an engine with a vendor maximum of 10 receives `limit: 20`
+- **WHEN** an engine with a vendor maximum of 10 receives a fetch size of 20
 - **THEN** the engine requests 10 results and the call succeeds
 
 #### Scenario: A small limit passes unchanged
 
-- **WHEN** a `deepseek` engine receives `limit: 5`
+- **WHEN** `webSearch.fetchLimit` is 5 and a `deepseek` engine receives `limit: 5`
 - **THEN** the request has `count: 5`
 
 ### Requirement: Aggregate engines run only the children that accept the query
@@ -379,7 +416,11 @@ The call MUST remove each result and citation whose host is a `-site:` host of t
 
 ### Requirement: Removed entries can empty an engine outcome
 
-The call MUST remove entries from each engine outcome before the chain decides on it. An `aggregate` MUST remove them before the merge and the `limit` cut. An engine with no result left is empty, and the chain advances. An answer with no citation left MUST fail with `ungrounded`. Answer text MUST keep the text of a link to a removed URL and MUST drop its target and each bare copy.
+The call MUST remove entries from each engine outcome before the chain decides
+on it. An `aggregate` MUST remove them before the merge and the fetch-size cut.
+An engine with no result left is empty, and the chain advances. An answer with
+no citation left MUST fail with `ungrounded`. Answer text MUST keep the text of
+a link to a removed URL, and MUST drop its target and each bare copy.
 
 #### Scenario: A fully removed result list advances the chain
 
@@ -517,22 +558,30 @@ An `aggregate` MUST attach the answer of each grounded `model-hosted` child as a
 
 ### Requirement: Attached answers fit the result cap after results
 
-Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20 citations. When the serialized output is over 15,000 units, the output MUST drop results from the end first. Then it MUST drop citations from the end of each answer, last answer first, and each answer MUST keep one. Then it MUST cut answer text, last answer first. Then it MUST drop whole answers from the end. Each step MUST add one note with its count.
+Each attached answer MUST have a maximum of 8,000 UTF-16 units and 20
+citations. When the inline text is over 15,000 units, results MUST leave the
+inline text from the end first. Then citations MUST leave from the end of each
+answer, last answer first, and each answer MUST keep one. Then the tool MUST
+cut answer text, last answer first. Then whole answers MUST leave from the end. The
+artifact, when one is stored, MUST hold every result, answer, and citation.
+Each step MUST add one
+inline note with its count.
 
 #### Scenario: Results go before answers
 
 - **WHEN** an aggregate output with 20 results and one answer of 8,000 units is over the result cap
-- **THEN** results from the end go first, and the answer text stays complete when the output then fits
+- **THEN** results from the end leave the inline text first, and the answer text stays complete when it then fits
 
 #### Scenario: Whole answers go last
 
-- **WHEN** eight attached answers each keep one citation with a URL of 2,048 units
-- **THEN** the output drops whole answers from the end until it fits the result cap, with one note
+- **WHEN** eight attached answers each keep one citation with a URL of 2,048 units, and the Run can read artifacts
+- **THEN** whole answers leave the inline text from the end until it fits, with one note
+- **AND** the artifact holds all eight answers
 
 #### Scenario: Each answer keeps a citation
 
 - **WHEN** two attached answers of 8,000 units with 20 citations each are over the result cap
-- **THEN** each answer keeps its first citation and the output fits the result cap
+- **THEN** each answer keeps its first citation inline and the inline text fits the result cap
 
 ### Requirement: The chat renders attached answers
 
@@ -550,7 +599,13 @@ The web chat MUST render each `answers` entry of a `web_search` part after the r
 
 ### Requirement: DeepSeek engines call the DeepSeek search API
 
-A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search` with its key as a bearer token. It MUST send the query, and `limit` as `count`. It MUST add `recency` to the query as an `after:` date. When the date would put the query over its limit, the engine MUST omit the date and note that. The snippet MUST be `summary`, else `snippet`. HTTP 401 and 403 MUST map to `auth`, 429 to `rate_limited`, 408 and 504 to `timeout`, and others to `upstream_error`.
+A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search`
+with its key as a bearer token. It MUST send the query, and the fetch size as
+`count`. It MUST add `recency` to the query as an `after:` date. When the date
+would put the query over its limit, the engine MUST omit the date and note
+that. The snippet MUST be `summary`, else `snippet`. HTTP 401 and 403 MUST map
+to `auth`, 429 to `rate_limited`, 408 and 504 to `timeout`, and others to
+`upstream_error`.
 
 #### Scenario: Recency becomes an after date
 
@@ -570,7 +625,13 @@ A `deepseek` engine MUST post to `https://api.deepseek.com/v1/tools/search` with
 
 ### Requirement: Parallel engines call the Parallel search API
 
-A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its key in `x-api-key`. It MUST send the query as the only `search_queries` entry, its `mode`, `limit` as `max_results`, and the Chat id as `session_id`. It MUST move `site:` hosts to included and `-site:` hosts to excluded domains, and note ignored exclusions. It MUST send `recency` as `after_date`. The snippet MUST be the first excerpt, without a title copy at its start. HTTP statuses MUST map as for `deepseek`.
+A `parallel` engine MUST post to `https://api.parallel.ai/v1/search` with its
+key in `x-api-key`. It MUST send the query as the only `search_queries` entry,
+its `mode`, the fetch size as `max_results`, and the Chat id as `session_id`.
+It MUST move `site:` hosts to included domains and `-site:` hosts to excluded
+domains, and note ignored exclusions. It MUST send `recency` as `after_date`.
+The snippet MUST be the first excerpt, without a title copy at its start.
+HTTP statuses MUST map as for `deepseek`.
 
 #### Scenario: Site operators become the source policy
 
@@ -594,11 +655,17 @@ A `parallel-mcp` engine MUST call the `web_search` tool of the hosted Parallel M
 
 ### Requirement: Yandex engines call the Yandex web search API
 
-A `yandex` engine MUST post to `https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key` authorization. It MUST send its `searchType` and its `folderId` when set. It MUST request flat groups with one document in each group, so that `limit` counts results. It MUST decode the base64 XML response. `day` MUST map to one day and `month` to one month. `week` MUST map to two weeks, with a note. `year` MUST NOT set a period, and the engine MUST note that.
+A `yandex` engine MUST post to
+`https://searchapi.api.cloud.yandex.net/v2/web/search` with `Api-Key`
+authorization. It MUST send its `searchType`, and its `folderId` when set. It
+MUST request flat groups with one document in each group, so that the fetch
+size counts results. It MUST decode the base64 XML response. `day` MUST map to
+one day and `month` to one month. `week` MUST map to two weeks, with a note.
+`year` MUST NOT set a period, and the engine MUST note that.
 
 #### Scenario: Flat groups keep the limit
 
-- **WHEN** the call sets `limit: 5` and Yandex finds two results on one host
+- **WHEN** the fetch size is 5 and Yandex finds two results on one host
 - **THEN** the request has flat groups with one document each, and the output contains both results
 
 #### Scenario: Week recency becomes two weeks with a note
@@ -620,3 +687,22 @@ A `yandex` engine MUST read the error code in the XML response before it reads r
 
 - **WHEN** Yandex answers HTTP 200 with an XML error code 15
 - **THEN** the engine outcome is empty
+
+### Requirement: Results past the inline part go to an artifact
+
+The inline text can leave out a result, an answer, or a citation. The system MUST
+then store the whole output as one artifact in the `web_search` text shape,
+when the Run can read artifacts and the output fits `tools.artifacts.maxBytes`. The inline text MUST then end with its notice. In other cases the
+`tool-artifacts` no-artifact result applies. A call whose whole output fits
+inline MUST NOT create an artifact.
+
+#### Scenario: Twenty results with a limit of ten
+
+- **WHEN** `webSearch.fetchLimit` is 20, `limit` is 10, the engine returns 20 results, and the Run can read artifacts
+- **THEN** ten results render inline
+- **AND** `artifact://web_search-<n>` holds all 20 results in rank order
+
+#### Scenario: A read of the artifact sends no request
+
+- **WHEN** the model reads `artifact://web_search-<n>`
+- **THEN** no engine sends an outbound request
