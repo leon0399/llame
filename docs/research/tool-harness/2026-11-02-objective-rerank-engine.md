@@ -361,11 +361,11 @@ flowchart LR
   - Cards come only from findings that passed the `read` group.
   - An `artifact://` read is scoped to the owner and Chat that created it,
     under the row-level security the Chat already has.
-  - Every artifact read re-evaluates the `read` group against the recorded
-    locator of each finding it serves, so revoking a `read` grant takes
-    effect at the next artifact read. Serving the grants admitted at write
-    time instead would let a Chat read a locator the current configuration
-    refuses.
+  - Recommended, pending Q4: every artifact read re-evaluates the `read`
+    group against the recorded locator of each finding it serves, so
+    revoking a `read` grant takes effect at the next artifact read. Serving
+    the grants admitted at write time instead would let a Chat read a locator
+    the current configuration refuses.
 - **Egress.** A `chat` card never reaches a backend that has not declared
   `chat`.
 - **Staleness.** An artifact read never satisfies `edit`'s snapshot
@@ -393,8 +393,8 @@ Build artifacts before objective ranking. Moderate-high confidence.
 Tracked by #1518:
 
 1. **Artifacts (#915).** Owner- and Chat-scoped storage, `artifact://` reads
-   with the `read` tool's selectors, the `read`-group re-check at every
-   artifact read, retention tied to the Chat's replayable history, and RLS.
+   with the `read` tool's selectors, read-time authority per Q4,
+   retention tied to the Chat's replayable history, and RLS.
    `grep` is the only first consumer.
 2. **Shared layout for `grep` and `web_search`, in canonical order.** For
    both tools: the inline part, the remainder map, a result bound as the new
@@ -455,10 +455,12 @@ Artifacts hold each tool's model text shape, not JSON:
   keyset cursor goes.
 - **Q3. The artifact bound.** Choose its size and unit (bytes, findings or
   files) and how it interacts with the opt-in `tools.grep` bounds.
-- **Q4. Revocation granularity.** An artifact read re-checks the `read` group
-  against each served finding's locator (see Threats). Decide whether a
-  refused finding is cut from the page with a notice, so the rest stays
-  readable, or refuses the whole artifact read.
+- **Q4. Read-time authority.** Choose between serving the snapshot as
+  admitted at write time and re-checking each served finding's locator
+  against the current `read` group (recommended). With a re-check, choose
+  between rendering a refused finding as a fixed `[withheld]` line, which
+  keeps every later line number stable, and refusing the whole artifact
+  read.
 - **Q5. `objective`: required or optional?** Parallel and Cursor make the
   field required; on `grep` an optional field with a query-only fallback is
   the conservative start.
