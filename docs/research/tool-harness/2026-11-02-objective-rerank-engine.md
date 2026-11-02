@@ -375,10 +375,17 @@ Tracked by #1518:
 1. **Artifacts (#915).** Owner- and Chat-scoped storage, `artifact://` reads
    with the `read` tool's selectors, retention tied to the Chat's replayable
    history, and RLS. `grep` is the only first consumer.
-2. **Shared layout for `grep`, in canonical order (#1519).** The inline part,
-   the remainder map, a result bound as the new stop, and the status line;
-   the keyset cursor is removed. This replaces the cursor before any ranking
-   exists, so the artifact contract is settled on its own.
+2. **Shared layout for `grep` and `web_search`, in canonical order.** For
+   both tools: the inline part, the remainder map, a result bound as the new
+   stop, and the status line.
+   - `grep` (#1519) drops its keyset cursor.
+   - `web_search` first gets a text shape (#1525): results prefixed so page
+     text cannot forge a header or notice. Its offload (#1526) then keeps the
+     wider candidate set that #1433 already plans.
+
+   This replaces cursors and cut-offs before any ranking exists, so the
+   artifact contract is settled on its own.
+
 3. **Offline evaluation (#1520), in parallel with 1-2.** Throwaway scripts
    compare stage-1 ranking with walk order on recorded `grep` calls, measuring
    whether the files the model read later land in the first 15,000 units.
@@ -387,11 +394,31 @@ Tracked by #1518:
 4. **Ranking kernel and stage 1 with `objective` on `grep` (#1521).**
    Shadow-record the canonical and ranked inline choices, and label them by
    later artifact reads.
-5. **The other consumers.** `search_conversations` (#1522),
-   `knowledge_search` (#1523), `glob` (#1510, built on the layout from the
-   start), and `web_search` (#1433, as a consumer of the same kernel).
+5. **The other consumers.** `glob` (#1510, built on the layout from the
+   start) and `web_search` ranking (#1433, as a consumer of the same kernel).
+   `search_conversations` (#1522) and `knowledge_search` (#1523) are deferred
+   to their own later redesign.
 6. **Stage 2.** Backends with data-class declarations and accounting
    (#1434-#1436), enabled per class after shadow data shows a gain.
+
+### Artifact format
+
+Artifacts hold each tool's model text shape, not JSON:
+
+- **The same rendering inline and in the artifact.** `read` of
+  `artifact://grep-7:213-` reads exactly like the inline part.
+- **No JSON escaping.** Escaped newlines are the source-copy failure #917
+  describes, and quoting costs tokens on every passage.
+- **Line selectors are enough.** The status line names where the remainder
+  starts, every remainder-map entry carries the artifact line range it
+  covers, and a cut result reports its total line count, the gap noted on
+  #917.
+- **Structured data stays internal.** The engine may keep a structured
+  record of the findings for re-rendering and measurement.
+- **jq is not a prerequisite.** The jq selector (#932) matters for JSON
+  payloads spilled by MCP tools and `bash`, not for search.
+- **Search inside an artifact.** `artifact://` as a `grep` scope searches an
+  earlier result without walking again.
 
 ## Open decisions
 
