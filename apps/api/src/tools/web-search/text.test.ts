@@ -45,33 +45,28 @@ describe('the web search text shape', () => {
         '> Third snippet.',
       ].join('\n'),
     );
-    const lines = (renderWebSearchText(threeResults) ?? '').split('\n');
-    expect(lines.indexOf('## 1. First')).toBeLessThan(
-      lines.indexOf('## 2. Second'),
-    );
-    expect(lines.indexOf('## 2. Second')).toBeLessThan(
-      lines.indexOf('## 3. Third'),
-    );
   });
 
-  it('renders an aggregate answer after the results with its citations', () => {
+  it('renders an aggregate answer after the fifth result with its citations', () => {
+    const results = [1, 2, 3, 4, 5].map((rank) => ({
+      title: `Result ${rank}`,
+      url: `https://r${rank}.example/page`,
+      snippet: `Snippet ${rank}.`,
+    }));
     const text = renderWebSearchText({
       status: 'success',
       kind: 'results',
       engine: 'broad',
       query: 'what changed',
       notes: ['exa: rate_limited'],
-      results: [
-        { title: 'First', url: 'https://a.example/one', snippet: 'One.' },
-        { title: 'Second', url: 'https://b.example/two', snippet: 'Two.' },
-      ],
+      results,
       answers: [
         {
           engine: 'claude-search',
-          answer: 'Grounded.\nSecond line.',
+          answer: 'Grounded.',
           citations: [
-            { url: 'https://a.example/one' },
-            { url: 'https://b.example/two', title: 'Two' },
+            { url: 'https://r1.example/page' },
+            { url: 'https://r2.example/page' },
           ],
         },
       ],
@@ -79,21 +74,17 @@ describe('the web search text shape', () => {
     expect(text).toBe(
       [
         '[engine: broad; query: what changed]',
-        '## 1. First',
-        'https://a.example/one',
-        'a.example',
-        '> One.',
-        '',
-        '## 2. Second',
-        'https://b.example/two',
-        'b.example',
-        '> Two.',
-        '',
+        ...results.flatMap((result, index) => [
+          `## ${index + 1}. ${result.title}`,
+          result.url,
+          `r${index + 1}.example`,
+          `> ${result.snippet}`,
+          '',
+        ]),
         '## Answer (claude-search)',
         '> Grounded.',
-        '> Second line.',
-        '[1] https://a.example/one',
-        '[2] https://b.example/two',
+        '[1] https://r1.example/page',
+        '[2] https://r2.example/page',
         '[exa: rate_limited]',
       ].join('\n'),
     );
@@ -130,15 +121,26 @@ describe('the web search text shape', () => {
     expect((text ?? '').split('\n')).toContain('## 1. Line one line two');
   });
 
-  it('keeps a query with a line break on the engine line', () => {
+  it('keeps a framing value with a line break on its own line', () => {
     const text = renderWebSearchText({
       status: 'success',
       kind: 'results',
-      engine: 'brave',
+      engine: 'broad\nsearch',
       query: 'line one\nline two',
-      results: [],
+      notes: ['exa\nrate_limited'],
+      results: [{ title: 'R', url: 'https://a.example/one' }],
+      answers: [
+        {
+          engine: 'claude\nsearch',
+          answer: 'Grounded.',
+          citations: [{ url: 'https://a.example/one' }],
+        },
+      ],
     });
-    expect(text).toBe('[engine: brave; query: line one line two]');
+    const lines = (text ?? '').split('\n');
+    expect(lines[0]).toBe('[engine: broad search; query: line one line two]');
+    expect(lines).toContain('## Answer (claude search)');
+    expect(lines.at(-1)).toBe('[exa rate_limited]');
   });
 
   it('renders an answer output as its answer and citations', () => {
@@ -166,28 +168,67 @@ describe('the web search text shape', () => {
     );
   });
 
+  it('shows a published date only as its date', () => {
+    const text = renderWebSearchText({
+      status: 'success',
+      kind: 'results',
+      engine: 'brave',
+      query: 'date',
+      results: [
+        {
+          title: 'Dated',
+          url: 'https://a.example/one',
+          published: '2026-10-08T03:04:05Z',
+        },
+      ],
+    });
+    expect((text ?? '').split('\n')).toContain('a.example · 2026-10-08');
+  });
+
   it('renders a result without a title through its URL', () => {
     const text = renderWebSearchText({
       status: 'success',
       kind: 'results',
       engine: 'brave',
       query: 'untitled',
-      results: [{ title: '', url: 'https://a.example/one' }],
+      results: [
+        { title: '   ', url: 'https://a.example/one' },
+        { title: '', url: 'https://b.example/two' },
+      ],
     });
-    expect((text ?? '').split('\n')).toContain('## 1. https://a.example/one');
+    const lines = (text ?? '').split('\n');
+    expect(lines).toContain('## 1. https://a.example/one');
+    expect(lines).toContain('## 2. https://b.example/two');
   });
 
-  it('adds no empty quote line for a trailing snippet line break', () => {
+  it('quotes every snippet line and drops only the trailing ones', () => {
     const text = renderWebSearchText({
       status: 'success',
       kind: 'results',
       engine: 'brave',
-      query: 'snippet',
+      query: 'breaks',
       results: [
-        { title: 'T', url: 'https://a.example/one', snippet: 'One.\n' },
+        { title: 'T', url: 'https://a.example/one', snippet: 'a\r\nb\rc\n\n' },
       ],
     });
-    expect((text ?? '').split('\n').at(-1)).toBe('> One.');
+    expect((text ?? '').split('\n').slice(-3)).toEqual(['> a', '> b', '> c']);
+  });
+
+  it('ends the text with the cap notice a shortened result carries', () => {
+    const text = renderWebSearchText({
+      status: 'success',
+      kind: 'results',
+      engine: 'brave',
+      query: 'capped',
+      notes: ['exa: empty'],
+      truncated: true,
+      truncationNotice:
+        'Result truncated to fit the 16000-character tool-result cap; 42 characters omitted.',
+      results: [{ title: 'R', url: 'https://a.example/one' }],
+    });
+    expect((text ?? '').split('\n').at(-1)).toBe(
+      '[Result truncated to fit the 16000-character tool-result cap; 42 characters omitted.]',
+    );
   });
 
   it('keeps the JSON rendering of a payload outside the two shapes', () => {
@@ -213,8 +254,8 @@ describe('the web search text shape', () => {
         status: 'success',
         kind: 'results',
         engine: 'brave',
-        query: 'lan',
-        results: [{ title: 'Local', url: 'not a url' }],
+        query: 'mail',
+        results: [{ title: 'Mail', url: 'mailto:a@b' }],
       }),
     ).toBeUndefined();
   });

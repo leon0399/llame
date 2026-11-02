@@ -257,6 +257,30 @@ describe('renderToolResultForModel', () => {
     });
   });
 
+  it('ends a capped web search with the notice, inside the cap', () => {
+    const measure = measureToolResultForModel('web_search');
+    const capped = truncateOversizedResult(
+      {
+        status: 'success',
+        kind: 'results',
+        engine: 'brave',
+        query: 'oversized',
+        results: Array.from({ length: 12 }, (unused, index) => ({
+          title: `Result ${index + 1}`,
+          url: `https://r${index + 1}.example/page`,
+          snippet: 's'.repeat(2000),
+        })),
+      },
+      measure,
+    );
+    const text = renderToolResultText('web_search', capped);
+
+    expect(text.split('\n').at(-1)).toMatch(
+      /^\[Result truncated to fit the 16000-character tool-result cap; /u,
+    );
+    expect(measure(capped)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+  });
+
   it('renders a stored bash part without a wall time as the bare header', () => {
     expect(
       renderToolResultForModel('bash', {

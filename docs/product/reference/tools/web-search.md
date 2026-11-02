@@ -130,7 +130,9 @@ Each note follows the results and answers as one bracketed `[<note>]` line.
 
 Only those lines are structure. A title, a host line, and the framing values
 never break a line, and every snippet and answer line begins with a `>` mark
-and one space, so text inside a result cannot start a line of the shape.
+and one space, so text inside a result cannot start a line of the shape. When
+the generic result cap shortened the call, one bracketed line with its notice
+ends the text, after the notes.
 
 ## Behavior
 

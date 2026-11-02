@@ -49,28 +49,17 @@ import { renderWebSearchText } from './web-search/text';
 /** The text shape a tool result renders in, or `undefined` to keep its JSON. */
 type TextResultRenderer = (result: ToolResult) => string | undefined;
 
-/** The tools whose result reaches the model as text. */
-type TextResultToolName =
-  | 'read'
-  | 'edit'
-  | 'write'
-  | 'grep'
-  | 'bash'
-  | 'web_search';
-
 /**
  * The text renderers, one per tool whose result reaches the model as text; a
  * Machine variant shares its host counterpart's name. A key marks the tool as
  * one whose failure keeps the SDK output type `text`, with its JSON body. The
  * value renders a success, and `undefined` keeps that result's JSON rendering.
  */
-const TEXT_RESULT_RENDERERS: Readonly<
-  Record<TextResultToolName, TextResultRenderer>
-> = {
+const TEXT_RESULT_RENDERERS = {
   // A `read` success renders as text when it carries content: a file of any
   // representation, or a directory listing. An image, PDF, or skill-catalog
   // result carries none and keeps its JSON rendering.
-  read: (result) =>
+  read: (result: ToolResult) =>
     result.status === 'success' &&
     (result.kind === 'file' || result.kind === 'directory') &&
     isString(result.content)
@@ -81,7 +70,10 @@ const TEXT_RESULT_RENDERERS: Readonly<
   grep: renderGrepText,
   bash: renderBashText,
   web_search: renderWebSearchText,
-};
+} satisfies Record<string, TextResultRenderer>;
+
+/** The tools whose result reaches the model as text. */
+type TextResultToolName = keyof typeof TEXT_RESULT_RENDERERS;
 
 /** Whether this build renders a tool's result as text, failures included. */
 function isTextResultTool(toolName: string): toolName is TextResultToolName {
