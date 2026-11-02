@@ -56,6 +56,7 @@ export type { EditSuccess, NativeMutateOptions } from "./mutate";
 export { serializeNativeModelOutput } from "./serialization";
 export {
   measureEditRendering,
+  oneLine,
   renderAttributionLines,
   renderEditText,
   renderReadText,

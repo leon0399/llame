@@ -14,7 +14,8 @@
  * numbered content, and the continuation line; an `edit` success uses the
  * mutation shape with its post-edit region; a `write` success is one status
  * line; a `grep` page its runs of passages under one file line each and the
- * cursor that continues it; a `bash` result uses its status header and streams.
+ * cursor that continues it; a `bash` result uses its status header and streams;
+ * a `web_search` success its numbered results and the answers it carries.
  * Every other result, successes and failures alike, renders as a JSON value.
  */
 
@@ -43,12 +44,19 @@ import {
   toolResultOutput,
 } from '../media/epoch-admission';
 import { type ToolResult } from './types';
+import { renderWebSearchText } from './web-search/text';
 
 /** The text shape a tool result renders in, or `undefined` to keep its JSON. */
 type TextResultRenderer = (result: ToolResult) => string | undefined;
 
 /** The tools whose result reaches the model as text. */
-type TextResultToolName = 'read' | 'edit' | 'write' | 'grep' | 'bash';
+type TextResultToolName =
+  | 'read'
+  | 'edit'
+  | 'write'
+  | 'grep'
+  | 'bash'
+  | 'web_search';
 
 /**
  * The text renderers, one per tool whose result reaches the model as text; a
@@ -72,6 +80,7 @@ const TEXT_RESULT_RENDERERS: Readonly<
   write: renderWriteText,
   grep: renderGrepText,
   bash: renderBashText,
+  web_search: renderWebSearchText,
 };
 
 /** Whether this build renders a tool's result as text, failures included. */
@@ -115,9 +124,9 @@ interface ModelView {
 /**
  * The result as the model may see it, with its text rendering and whether that
  * rendering had to escape the serialized JSON as one text. A `read`, `edit`,
- * `write`, `grep`, or `bash` success renders in its own text shape; the one
- * reserved-name rule is applied once to the whole rendering, and that is what
- * the cap measures.
+ * `write`, `grep`, `bash`, or `web_search` success renders in its own text
+ * shape; the one reserved-name rule is applied once to the whole rendering,
+ * and that is what the cap measures.
  */
 function modelView(toolName: string, result: ToolResult): ModelView {
   const normalized = normalizedResult(result);

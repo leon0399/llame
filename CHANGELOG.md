@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
+- `web_search` renders as plain text for the model instead of JSON: one
+  `[engine: <id>; query: <query>]` line, then one block per result
+  (`## <rank>. <title>`, the URL, the host with its published date, and the
+  snippet with a `>` mark and one space before each line), then each answer as
+  `## Answer (<engine>)` with its citations as `[1] <url>` lines, then one
+  bracketed line per note. A line break in a title, a host line, or the framing
+  values renders as one space, and every snippet and answer line begins with a
+  `>` mark and one space, so web text cannot forge a line of the shape. The
+  stored tool part and the web chat renderer are unchanged. See
+  [web_search](docs/product/reference/tools/web-search.md).
+
 - `grep` now reads `.ignore` beside `.gitignore` and applies both above the
   scope: `.ignore` up to `/` on the host or the registered root on a Machine,
   and `.gitignore` only from the nearest repository directory down. A rule

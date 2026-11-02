@@ -223,6 +223,40 @@ describe('renderToolResultForModel', () => {
     });
   });
 
+  it('renders a web search success as its text shape with a text output', () => {
+    const result = {
+      status: 'success' as const,
+      kind: 'results' as const,
+      engine: 'brave',
+      query: 'deployment decision',
+      results: [
+        {
+          title: 'Example result',
+          url: 'https://example.com/docs',
+          snippet: 'A bounded description.',
+        },
+      ],
+    };
+
+    expect(renderToolResultForModel('web_search', result)).toEqual({
+      kind: 'text',
+      text: '[engine: brave; query: deployment decision]\n## 1. Example result\nhttps://example.com/docs\nexample.com\n> A bounded description.',
+    });
+  });
+
+  it('renders a web search failure as the JSON failure text', () => {
+    expect(
+      renderToolResultForModel('web_search', {
+        status: 'error',
+        type: 'web_search_failed',
+        message: 'All web search engines failed: brave: upstream_error',
+      }),
+    ).toEqual({
+      kind: 'text',
+      text: '{"status":"error","type":"web_search_failed","message":"All web search engines failed: brave: upstream_error"}',
+    });
+  });
+
   it('renders a stored bash part without a wall time as the bare header', () => {
     expect(
       renderToolResultForModel('bash', {
