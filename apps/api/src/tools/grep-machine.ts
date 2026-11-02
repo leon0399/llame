@@ -95,18 +95,23 @@ export type GrepSearchArguments = {
 export type MachineGrepSegment =
   | {
       readonly status: 'success';
-      readonly passages: ReadonlyArray<GrepPassage>;
-      readonly complete: boolean;
-      readonly warnings: ReadonlyArray<FsGrepWarning>;
-      readonly consumed: { files: number; entries: number; bytes: number };
-      /** Whether this scope's walk got past the point the call started at. */
-      readonly progressed: boolean;
-      /** The file a bound stopped the daemon walk inside, relative to the prefix. */
-      readonly unfinished?: string;
-      /** The excluded directory locators of this scope, capped across its pages. */
-      readonly ignored?: GrepIgnored;
+      /** The segment's counts; its passages went to the call as each page arrived. */
+      readonly page: MachineSegmentPageView;
     }
   | { readonly status: 'error'; readonly result: ToolResult };
+
+/** What one Machine scope's walk adds to the call besides its passages. */
+export type MachineSegmentPageView = {
+  readonly complete: boolean;
+  readonly warnings: ReadonlyArray<FsGrepWarning>;
+  readonly consumed: { files: number; entries: number; bytes: number };
+  /** Whether this scope's walk got past the point the call started at. */
+  readonly progressed: boolean;
+  /** The file a bound stopped the daemon walk inside, relative to the prefix. */
+  readonly unfinished?: string;
+  /** The excluded directory locators of this scope, capped across its pages. */
+  readonly ignored?: GrepIgnored;
+};
 
 /** Everything one Machine scope needs to run its request. */
 export type MachineGrepSearch = {
@@ -118,6 +123,11 @@ export type MachineGrepSearch = {
   /** Whether the call already progressed in an earlier scope or page. */
   readonly progressed: boolean;
   readonly admission: GrepReadAdmission;
+  /**
+   * Keep one page's passages in the call's artifact text. Returns false when
+   * the artifact bound stops the call, so the walk asks for no next page.
+   */
+  readonly keepPassages: (passages: ReadonlyArray<GrepPassage>) => boolean;
 };
 
 /** Whether a resolved scope is a Machine one, for the call's ordering. */
@@ -310,7 +320,6 @@ async function runDaemonPages(
       { files: 0, entries: 0, bytes: 0 },
       deadlineAt,
     ),
-    passages: [],
     warnings: new Map(),
     consumed: { files: 0, entries: 0, bytes: 0 },
     ignored: ignoredAccumulator(search.scope),
@@ -336,7 +345,6 @@ async function runDaemonPages(
 
 /** One Machine scope's pages, as the loop between them carries them. */
 type MachineSegmentPage = {
-  readonly passages: Array<GrepPassage>;
   readonly warnings: Map<FsGrepWarningKind, number>;
   readonly consumed: FsGrepConsumed;
   readonly ignored: IgnoredAccumulator;
@@ -363,8 +371,11 @@ function takePage(
   run.last = page;
   mergePage(run.warnings, run.consumed, run.ignored, page);
   run.progressed = run.progressed || page.progressed;
-  const refused = renderPage(search, page, run.passages);
+  const kept: Array<GrepPassage> = [];
+  const refused = renderPage(search, page, kept);
   if (refused !== undefined) return { result: refused };
+  // The artifact bound can cut a daemon page, so the walk stops asking here.
+  if (!search.keepPassages(kept)) return { ended: true };
   if (page.unfinished !== undefined) {
     // A second stop inside a file ends the scope at the first one: one call
     // names one file, and the next call opens the second with a full budget.
@@ -406,15 +417,16 @@ function segmentOfPages(
   }
   return {
     status: 'success',
-    passages: pages.passages,
-    complete,
-    warnings: [...pages.warnings].map(([kind, count]) => ({ kind, count })),
-    consumed: pages.consumed,
-    progressed: pages.progressed,
-    unfinished: pages.unfinished,
-    ignored: {
-      paths: pages.ignored.paths,
-      atLeast: pages.ignored.atLeast,
+    page: {
+      complete,
+      warnings: [...pages.warnings].map(([kind, count]) => ({ kind, count })),
+      consumed: pages.consumed,
+      progressed: pages.progressed,
+      unfinished: pages.unfinished,
+      ignored: {
+        paths: pages.ignored.paths,
+        atLeast: pages.ignored.atLeast,
+      },
     },
   };
 }

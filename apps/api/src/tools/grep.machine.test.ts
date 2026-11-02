@@ -713,6 +713,7 @@ describe('Machine scope addresses', () => {
         budget: BUDGET,
         progressed: false,
         admission: createGrepReadAdmission(contextOf),
+        keepPassages: () => true,
       }),
     ).toEqual({ status: 'error', result: machineNotFoundResult('nope') });
     expect(peer.sessions).toHaveLength(0);
@@ -737,6 +738,7 @@ describe('Machine scope addresses', () => {
       budget: BUDGET,
       progressed: false,
       admission: createGrepReadAdmission(contextOf),
+      keepPassages: () => true,
     };
     await expect(executeMachineScope(search)).rejects.toMatchObject({
       name: 'AbortError',

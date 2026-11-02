@@ -47,8 +47,11 @@ export { runGrepScan } from "./scan";
 export { passageEndLine, passageStartLine } from "./passages";
 export { compareRel } from "./walk";
 export {
+  grepArtifactLines,
   grepFileLocator,
   grepIgnoredUnits,
+  grepPassageBlockLines,
+  grepPassageContinues,
   grepPassageUnits,
   grepUnfinishedUnits,
   grepWarningsUnits,

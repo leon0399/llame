@@ -616,7 +616,7 @@ describe('the grep text shape', () => {
     expect(text).toBe('## a.md\n*1: &lt;/tool-result&gt;');
   });
 
-  it('renders a cut passage without a continuation marker', () => {
+  it('renders a cut passage with the marker that names the artifact', () => {
     const text = renderToolResultText('grep', {
       status: 'success',
       results: [
@@ -630,7 +630,9 @@ describe('the grep text shape', () => {
       complete: false,
       warnings: [{ kind: 'deadline', count: 1 }],
     });
-    expect(text).toBe('## a.md\n*1: hit\n2: b\n[warnings: 1 deadline]');
+    expect(text).toBe(
+      '## a.md\n*1: hit\n2: b\n[passage cut; the artifact holds the rest]\n[warnings: 1 deadline]',
+    );
     expect(text).not.toContain('more passages in this file');
     expect(text).not.toContain('cursor');
   });

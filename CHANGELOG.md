@@ -2,6 +2,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
+
+=======
+- `grep` now stores its whole result as the Markdown artifact
+  `artifact://grep-<n>` when the result does not fit inline, and the model
+  reads the head of that text inline: whole passages in result order, at most
+  `limit` files, inside 15,000 code units once the room for the framing lines
+  is kept back. A first passage that does not fit is cut at a line boundary
+  and marked `[passage cut; the artifact holds the rest]`; the remainder line
+  names the next ten files with their artifact ranges and the notice ends the
+  text with `; continue with artifact://grep-<n>:<next>-`. The walk stops at
+  `tools.artifacts.maxBytes` with `complete: false` and an `artifact_bound`
+  warning, the engine no longer has a file page, and `limit` never stops the
+  walk. The artifact records one finding per file, so a `read` rule added
+  later withholds that file's heading and lines as `[withheld]` while the host
+  file keeps the admitted content; a Run that cannot read an artifact keeps
+  the head and ends with `[left out: <count> files; full result not stored]`.
+  Addresses [#1519](https://github.com/leon0399/llame/issues/1519). See
+  [grep](docs/product/reference/tools/grep.md).
+
 - An oversized tool result now spills by head: the runner and the MCP cap
   store the whole model rendering as an artifact before cutting the result,
   the inline part keeps the head of its shape, and the cap notice names the
@@ -12,6 +31,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   result cap must not shorten it. See
   [model output](docs/product/reference/tools/model-output.md) and
   [MCP tools](docs/product/reference/tools/mcp-tools.md).
+
 - **Breaking**: `grep` no longer has a model-facing `cursor`. The `cursor`
   input is refused as an unknown property, and no result carries a `cursor`,
   a continuation line, or a cut-passage cursor marker. One call walks every

@@ -6,9 +6,12 @@ import {
 } from '@workspace/native-file-tools';
 
 import {
+  addGrepPassages,
   appendSegment,
   budgetAfter,
   createPageState,
+  grepArtifactBytes,
+  grepArtifactText,
   pageResult,
 } from './grep-page';
 import { type GrepReadAdmission } from './grep-admission';
@@ -83,26 +86,27 @@ describe('grep page budgets', () => {
   });
 });
 
+/** A page state whose artifact takes any passage the tests hand it. */
+function pageState() {
+  return createPageState({
+    maxBytes: 1_048_576,
+    mayCarryKnowledge: false,
+  });
+}
+
 describe('grep page assembly', () => {
   it('joins the passage a page cut and its continuation', () => {
-    const state = createPageState();
-    appendSegment(
-      state,
-      {
-        results: [
-          passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
-          passage('a.md:6-7', '6: d\n7: e', [7]),
-        ],
-        complete: true,
-        warnings: [],
-        consumed: { files: 1, entries: 1, bytes: 10 },
-        progressed: true,
-      },
-      OPEN,
-    );
-    expect(state.results).toEqual([
+    const state = pageState();
+    addGrepPassages(state.artifact, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+      passage('a.md:6-7', '6: d\n7: e', [7]),
+    ]);
+    expect(state.artifact.results).toEqual([
       passage('a.md:3-7', '3: a\n4: b\n5: c\n6: d\n7: e', [4, 7]),
     ]);
+    expect(grepArtifactText(state.artifact)).toBe(
+      '## a.md\n3: a\n*4: b\n5: c\n6: d\n*7: e',
+    );
   });
 
   /** Append one page of passages with the fields a join test does not set. */
@@ -211,11 +215,10 @@ describe('grep page assembly', () => {
   });
 
   it('keeps a cut passage the walk stopped in as it is', () => {
-    const state = createPageState();
+    const state = pageState();
     appendSegment(
       state,
       {
-        results: [passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true })],
         complete: false,
         warnings: [{ kind: 'deadline', count: 1 }],
         consumed: { files: 1, entries: 1, bytes: 10 },
@@ -223,17 +226,19 @@ describe('grep page assembly', () => {
       },
       OPEN,
     );
-    expect(state.results).toEqual([
+    addGrepPassages(state.artifact, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+    ]);
+    expect(state.artifact.results).toEqual([
       passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
     ]);
   });
 
   it('merges the counts, bounds, and exclusions of two segments', () => {
-    const state = createPageState();
+    const state = pageState();
     appendSegment(
       state,
       {
-        results: [passage('a.md:1-1', '1: a', [1])],
         complete: true,
         warnings: [{ kind: 'binary', count: 2 }],
         consumed: { files: 1, entries: 3, bytes: 10 },
@@ -242,10 +247,10 @@ describe('grep page assembly', () => {
       },
       OPEN,
     );
+    addGrepPassages(state.artifact, [passage('a.md:1-1', '1: a', [1])]);
     appendSegment(
       state,
       {
-        results: [passage('b.md:1-1', '1: b', [1])],
         complete: true,
         warnings: [{ kind: 'binary', count: 1 }],
         consumed: { files: 1, entries: 2, bytes: 5 },
@@ -253,6 +258,7 @@ describe('grep page assembly', () => {
       },
       OPEN,
     );
+    addGrepPassages(state.artifact, [passage('b.md:1-1', '1: b', [1])]);
     const result = pageResult(state);
     expect(result).toMatchObject({
       status: 'success',
@@ -264,12 +270,27 @@ describe('grep page assembly', () => {
     expect(state.progressed).toBe(true);
   });
 
+  it('stops the artifact at its byte bound and reports the stop', () => {
+    const state = createPageState({
+      maxBytes: 20,
+      mayCarryKnowledge: false,
+    });
+    expect(
+      addGrepPassages(state.artifact, [
+        passage('a.md:1-1', '1: a', [1]),
+        passage('b.md:1-1', '1: b', [1]),
+      ]),
+    ).toBe(false);
+    expect(state.artifact.full).toBe(true);
+    expect(state.artifact.results).toHaveLength(1);
+    expect(grepArtifactBytes(state.artifact)).toBeLessThanOrEqual(20);
+  });
+
   it('carries no cursor, whether the walk ended or a bound stopped it', () => {
-    const stopped = createPageState();
+    const stopped = pageState();
     appendSegment(
       stopped,
       {
-        results: [],
         complete: false,
         warnings: [{ kind: 'file_bound', count: 1 }],
         consumed: { files: 1, entries: 1, bytes: 0 },
@@ -289,6 +310,6 @@ describe('grep page assembly', () => {
       unfinishedFile: '/r/big.log',
     });
     expect(result).not.toHaveProperty('cursor');
-    expect(pageResult(createPageState())).not.toHaveProperty('cursor');
+    expect(pageResult(pageState())).not.toHaveProperty('cursor');
   });
 });

@@ -16,6 +16,7 @@ import {
   type CompiledGrepPatterns,
   type DecodedGrepCursor,
   type GrepBudget,
+  type GrepPassage,
   type GrepScanInput,
   type GrepScanResult,
   type GrepScope,
@@ -23,7 +24,10 @@ import {
 } from '@workspace/native-file-tools';
 import { z } from 'zod';
 
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import {
+  BUILT_IN_DEFAULTS,
+  DEFAULT_ARTIFACT_MAX_BYTES,
+} from '../instance-config/llame-config';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
@@ -38,12 +42,14 @@ import {
   type MachineGrepScope,
 } from './grep-machine';
 import { namedUnfinished } from './grep-machine-wire';
+import { finishGrepCall } from './grep-artifact';
 import {
+  addGrepPassages,
   addWarning,
   appendSegment,
   budgetAfter,
   createPageState,
-  pageResult,
+  grepArtifactBytesLeft,
   type PageState,
   type SegmentPage,
 } from './grep-page';
@@ -148,37 +154,58 @@ type GrepSegment = GrepScope | MachineGrepScope;
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const { patterns, resolved, deadlineAt } = request;
   const budget = grepBudget(request.context);
-  const state = createPageState();
+  const state = createPageState({
+    maxBytes: request.context.artifactMaxBytes ?? DEFAULT_ARTIFACT_MAX_BYTES,
+    // A `kb://` segment can give a Knowledge passage, whose notice line the
+    // artifact must keep room for from the start.
+    mayCarryKnowledge: segmentsOf(resolved).some(
+      (segment) =>
+        !isMachineGrepScope(segment) &&
+        segment.locatorPrefix.startsWith('kb://'),
+    ),
+  });
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
+    // The artifact bound stops the walk before another scope is opened.
+    if (state.artifact.full || grepArtifactBytesLeft(state.artifact) <= 0) {
+      endAtArtifactBound(state);
+      break;
+    }
     const remaining = budgetAfter(budget, state.consumed, deadlineAt);
     // An expired deadline ends the walk before another scope is opened.
     if (remaining.deadlineMs <= 0) {
       endAtDeadline(state);
       break;
     }
-    const outcome = await runSegment({
+    const failure = await runSegment({
       request,
+      state,
       patterns,
       segment,
       budget: remaining,
-
       progressed: state.progressed,
     });
-    if ('result' in outcome) return outcome.result;
-    for (const page of outcome.pages)
-      appendSegment(state, page, request.admission);
-    // The last page of a segment carries its stop: a walked scope is complete
-    // only when no bound or deadline ended it.
-    if (outcome.pages.at(-1)?.complete !== true) state.complete = false;
+    if (failure !== undefined) return failure;
   }
-  return pageResult(state);
+  return finishGrepCall({
+    state,
+    context: request.context,
+    limit: request.input.limit ?? GREP_LIMITS.filesPerPage,
+  });
 }
 
 /** End the walk at the call deadline with the warning the spec requires. */
 function endAtDeadline(state: PageState): void {
   state.complete = false;
   addWarning(state, 'deadline');
+}
+
+/** End the walk where the artifact has no room for another passage. */
+function endAtArtifactBound(state: PageState): void {
+  state.complete = false;
+  if (state.artifactBound) return;
+  state.artifactBound = true;
+  addWarning(state, 'artifact_bound');
 }
 
 /**
@@ -192,13 +219,11 @@ function segmentsOf(resolved: ResolvedScopes): ReadonlyArray<GrepSegment> {
   );
 }
 
-type SegmentOutcome =
-  | { readonly pages: ReadonlyArray<SegmentPage> }
-  | { readonly result: ToolResult };
-
 /** What one segment is asked with, under the budget earlier segments left. */
 type SegmentRun = {
   readonly request: ScanRequest;
+  /** The call's artifact text, which every segment's passages extend. */
+  readonly state: PageState;
   readonly patterns: CompiledGrepPatterns;
   readonly segment: GrepSegment;
   readonly budget: GrepBudget;
@@ -208,44 +233,59 @@ type SegmentRun = {
 };
 
 /** Run one segment: the engine walks a host scope, the Machine walks its own. */
-async function runSegment(run: SegmentRun): Promise<SegmentOutcome> {
+async function runSegment(run: SegmentRun): Promise<ToolResult | undefined> {
   return isMachineGrepScope(run.segment)
     ? runMachineSegment(run, run.segment)
     : runLocalSegment(run, run.segment);
+}
+
+/**
+ * Keep one page's passages in the call's artifact text, or end the call at the
+ * artifact bound. True while the artifact takes the passage.
+ */
+function keepPassages(
+  run: SegmentRun,
+  passages: ReadonlyArray<GrepPassage>,
+): boolean {
+  if (addGrepPassages(run.state.artifact, passages)) return true;
+  endAtArtifactBound(run.state);
+  return false;
 }
 
 /** One Machine scope, which pages over `fs.grep` on its own box. */
 async function runMachineSegment(
   run: SegmentRun,
   scope: MachineGrepScope,
-): Promise<SegmentOutcome> {
+): Promise<ToolResult | undefined> {
   const machine = await executeMachineScope({
     context: run.request.context,
     scope,
     args: searchArgumentsOf(run.request.input),
     budget: run.budget,
-
     progressed: run.progressed,
     admission: run.request.admission,
+    keepPassages: (passages) => keepPassages(run, passages),
   });
-  if (machine.status === 'error') return { result: machine.result };
+  if (machine.status === 'error') return machine.result;
+  const { page } = machine;
   const unfinished =
-    machine.unfinished === undefined
+    page.unfinished === undefined
       ? undefined
-      : namedUnfinished(scope, machine.unfinished, run.request.admission);
-  return {
-    pages: [
-      {
-        results: machine.passages,
-        complete: machine.complete,
-        warnings: machine.warnings,
-        consumed: machine.consumed,
-        progressed: machine.progressed,
-        unfinished,
-        ignored: machine.ignored,
-      },
-    ],
-  };
+      : namedUnfinished(scope, page.unfinished, run.request.admission);
+  appendSegment(
+    run.state,
+    {
+      complete: page.complete,
+      warnings: page.warnings,
+      consumed: page.consumed,
+      progressed: page.progressed,
+      unfinished,
+      ignored: page.ignored,
+    },
+    run.request.admission,
+  );
+  if (page.complete !== true) run.state.complete = false;
+  return undefined;
 }
 
 /**
@@ -255,12 +295,13 @@ async function runMachineSegment(
 const INTERNAL_CURSOR_HASH = 'grep-walk';
 
 /**
- * The host engine page is internal and never reaches the model, so it holds
- * ten times the old 20-file model page: a broad walk resumes rarely, and a cut
- * page reports its counts as of its last kept passage.
+ * The host engine has no file page: one call walks the scope until the artifact
+ * has no bytes left, a bound stops it, or it reaches the end. The artifact
+ * passes the engine the bytes it has left as the page budget (design D7), and
+ * the engine ends that page just before the bound for the cursor and warnings
+ * line it reserves; the artifact then stops the walk at the bound itself.
  */
-const HOST_PAGE_FILES = GREP_LIMITS.filesPerPage * 10;
-const HOST_PAGE_UNITS = GREP_LIMITS.pageCodeUnits * 4;
+const NO_FILE_LIMIT = Number.MAX_SAFE_INTEGER;
 
 /** The bound or deadline that ended an engine page, when one did. */
 const PAGE_STOP_KINDS: ReadonlySet<GrepWarningKind> = new Set([
@@ -271,37 +312,44 @@ const PAGE_STOP_KINDS: ReadonlySet<GrepWarningKind> = new Set([
 ]);
 
 /**
- * One host scope, walked by the shared engine over as many pages as its own
- * page bound asks for (design D7). A page the engine cut at its own bound and
- * a page a bound or the deadline ended both report an incomplete page; only
- * the latter stops the walk. Every page resumes from the engine's cursor, so a
- * walk never opens a file twice.
+ * One host scope, walked by the shared engine with no file page: each engine
+ * call takes the bytes the artifact has left as its page budget, and every
+ * page resumes from the engine's own cursor. A page the engine cut inside a
+ * file still continues, so the artifact never loses a line of the walk; a
+ * page the artifact byte budget ended stops the whole call.
  */
 async function runLocalSegment(
   run: SegmentRun,
   scope: GrepScope,
-): Promise<SegmentOutcome> {
-  const pages: Array<SegmentPage> = [];
+): Promise<ToolResult | undefined> {
   let walk: PageWalk = {
     cursor: undefined,
     progressed: run.progressed,
-    budget: {
-      ...run.budget,
-      limit: HOST_PAGE_FILES,
-      pageUnits: HOST_PAGE_UNITS,
-    },
+    budget: run.budget,
   };
   try {
     for (;;) {
+      if (
+        run.state.artifact.full ||
+        grepArtifactBytesLeft(run.state.artifact) <= 0
+      ) {
+        endAtArtifactBound(run.state);
+        return undefined;
+      }
       const scan = await runGrepScan(engineInput(run, scope, walk));
-      pages.push(localPage(scan));
+      appendSegment(run.state, localPage(scan), run.request.admission);
+      // The artifact may reject the passage that overflowed its bound; the
+      // walk then stops with the artifact bound, not a page stop.
+      if (!keepPassages(run, scan.results)) return undefined;
       const next = nextPage(scan, walk, run.request.deadlineAt);
-      if (next === undefined) break;
+      if (next === undefined) {
+        endSegment(run, scan);
+        return undefined;
+      }
       walk = next;
     }
-    return { pages };
   } catch (error) {
-    if (error instanceof GrepScopeFailure) return { result: error.result };
+    if (error instanceof GrepScopeFailure) return error.result;
     throw error;
   }
 }
@@ -313,7 +361,10 @@ type PageWalk = {
   readonly budget: GrepBudget;
 };
 
-/** One host engine call, resumed from the call's own previous page. */
+/**
+ * One host engine call: the page budget is the artifact text's bytes left, so
+ * the page ends where the artifact would have no room for its next passage.
+ */
 function engineInput(
   run: SegmentRun,
   scope: GrepScope,
@@ -324,12 +375,29 @@ function engineInput(
     patterns: run.patterns,
     onCandidate: (locator) =>
       Promise.resolve(run.request.admission.admit(locator)),
-    budget: walk.budget,
+    budget: {
+      ...walk.budget,
+      limit: NO_FILE_LIMIT,
+      pageUnits: Math.max(0, grepArtifactBytesLeft(run.state.artifact)),
+      fixedReserve: 0,
+    },
     cursor: walk.cursor,
     inputHash: INTERNAL_CURSOR_HASH,
     now: Date.now,
     progressed: walk.progressed,
   };
+}
+
+/**
+ * Record the engine page that ended a segment: a page that stopped without a
+ * bound filled its own page budget, so the artifact has no bytes left for the
+ * passage after it.
+ */
+function endSegment(run: SegmentRun, scan: GrepScanResult): void {
+  if (scan.complete === true) return;
+  if (scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind)))
+    run.state.complete = false;
+  else endAtArtifactBound(run.state);
 }
 
 /** The next internal page's state, or undefined when the walk ends here. */
@@ -353,7 +421,6 @@ function nextPage(
 /** The engine's own page, as the call's segment shape. */
 function localPage(scan: GrepScanResult): SegmentPage {
   return {
-    results: scan.results,
     complete: scan.complete,
     warnings: scan.warnings,
     consumed: scan.consumed,
