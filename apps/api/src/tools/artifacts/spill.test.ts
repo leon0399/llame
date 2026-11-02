@@ -14,7 +14,7 @@ import * as schema from '../../db/schema';
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { ArtifactsRepository } from './artifacts-repository';
 import { artifactMaxBytes, capHeadResult, runCanReadArtifacts } from './spill';
-import { isNumber, isString } from '@workspace/runtime-safety';
+import { isString, RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 const TOOL = 'mcp__docs__fetch';
 const LOCATOR = 'artifact://mcp__docs__fetch-4';
@@ -58,14 +58,18 @@ function noticeOf(result: ToolResult): string {
   return result.truncationNotice;
 }
 
-/** The artifact line count the writer derived from the stored part. */
-function storedLineCount(storage: StorageSpies): number {
-  const call = storage.insertParts.mock.calls[0];
-  const lineCount = call?.[1][0]?.lineCount;
-  if (call === undefined || !isNumber(lineCount)) {
-    throw new Error('Expected a stored artifact part.');
-  }
-  return lineCount;
+/**
+ * The artifact line count of a stored text, counted here rather than read back
+ * from the writer: each source line is one artifact line, and a line over
+ * 8,000 units is one line per piece (tool-result-artifacts D2).
+ */
+function artifactLines(text: string): number {
+  return text
+    .split('\n')
+    .reduce(
+      (total, line) => total + Math.max(1, Math.ceil(line.length / 8000)),
+      0,
+    );
 }
 
 function spyStorage(seq = 4): StorageSpies {
@@ -98,7 +102,9 @@ describe('capHeadResult', () => {
     if (result.status !== 'success' || !isString(result.output)) {
       throw new Error('Expected a capped success result.');
     }
-    expect(result.output.length).toBeLessThan(40_000);
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
     expect(result.output.startsWith('xxxx')).toBe(true);
     expect(result.output.startsWith('x'.repeat(40_000))).toBe(false);
   });
@@ -127,17 +133,15 @@ describe('capHeadResult', () => {
         complete: true,
       }),
     );
-    const lineCount = storedLineCount(storage);
     const stored = storage.insertParts.mock.calls[0]?.[1][0];
     if (stored === undefined) throw new Error('Expected a stored part.');
     expect(stored.contentType).toBe('application/json');
-    // A JSON rendering is stored pretty-printed, one member on each line.
-    expect(stored.content.toString('utf8')).toContain(
-      '{\n  "status": "success",\n  "output": "xxxxxxxx',
-    );
+    // The part holds the whole rendering, pretty-printed, not the cut result.
+    const text = stored.content.toString('utf8');
+    expect(text).toBe(JSON.stringify(hugeResult(), null, 2));
     expect(result).toMatchObject({ artifact: LOCATOR, truncated: true });
     expect(noticeOf(result)).toContain(
-      `[full result: ${LOCATOR} (${lineCount} lines); continue with ${LOCATOR}:1-]`,
+      `[full result: ${LOCATOR} (${artifactLines(text)} lines); continue with ${LOCATOR}:1-]`,
     );
   });
 
@@ -211,6 +215,56 @@ describe('capHeadResult', () => {
     expect(text).toContain('passage');
     expect(text).not.toContain('"status"');
     expect(result).toMatchObject({ artifact: 'artifact://read-4' });
+  });
+
+  it('never spills an error result', async () => {
+    const storage = spyStorage();
+    const errorResult: ToolResult = {
+      status: 'error',
+      type: 'command_failed',
+      message: 'x'.repeat(20_000),
+    };
+    const result = await capHeadResult(context(), 'bash', errorResult);
+
+    expect(result).toBe(errorResult);
+    expect(storage.insertArtifact).not.toHaveBeenCalled();
+  });
+
+  it('does not advertise a locator the read group refuses after allocation', async () => {
+    const storage = spyStorage(4);
+    const result = await capHeadResult(
+      context({
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: [
+                { field: 'path', literal: 'artifact://mcp__docs__fetch-1' },
+              ],
+            },
+          },
+          'test-policy',
+        ),
+      }),
+      TOOL,
+      hugeResult(),
+    );
+
+    // The probe (sequence 1) admitted the write, but sequence 4 is refused.
+    expect(storage.insertArtifact).toHaveBeenCalledOnce();
+    expect(result).not.toHaveProperty('artifact');
+    expect(noticeOf(result)).toContain('[full result not stored]');
+  });
+
+  it('does not write past the deadline', async () => {
+    const storage = spyStorage();
+    const result = await capHeadResult(
+      context({ abortSignal: AbortSignal.abort() }),
+      TOOL,
+      hugeResult(),
+    );
+
+    expect(storage.insertArtifact).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
   });
 });
 

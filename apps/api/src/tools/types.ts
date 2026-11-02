@@ -160,9 +160,11 @@ export interface ToolContext {
    */
   readonly artifactMaxBytes?: number;
   /**
-   * `read` is in `tools.allowed`, so a Run can read an artifact back
-   * (tool-result-artifacts "An artifact needs a way to read it"). The per
-   * locator `read`-group admission is evaluated where the artifact is written.
+   * `read` is in `tools.allowed`. In default mode, a Run can read artifacts
+   * when this is true and the per-locator `read` group admits the locator;
+   * bypass mode admits without evaluating policy. The admission is checked
+   * where the artifact is written (tool-result-artifacts "An artifact needs a
+   * way to read it").
    */
   readonly artifactReadable?: boolean;
   /**

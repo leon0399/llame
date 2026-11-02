@@ -54,7 +54,10 @@ export function artifactNotice(
   return `[full result: ${named}${continuation}]`;
 }
 
-/** Collapse every line break so a value cannot start a notice line. */
+/**
+ * Collapse every line break, including the Unicode line and paragraph
+ * separators, so a value cannot start a notice line.
+ */
 function oneLine(value: string): string {
-  return value.replaceAll(/[\r\n]+/gu, " ");
+  return value.replaceAll(/[\r\n\u2028\u2029]+/gu, " ");
 }

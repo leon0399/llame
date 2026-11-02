@@ -35,20 +35,21 @@ export function artifactMaxBytes(context: ToolContext): number {
 }
 
 /**
- * Whether the Run can read back a `<toolName>` artifact. The `read` group is
- * evaluated on the artifact's canonical locator shape, because the counter
- * value is allocated by the write itself; a rule that names one sequence is
- * not predicted here. No compiled policy, or no allow, means no reader.
+ * Whether the Run can read back a `<toolName>` artifact at `seq` (default 1, the
+ * probe before a write allocates the real counter value). A sequence-specific
+ * `read` rule is checked against the allocated locator before the result
+ * advertises it. No compiled policy, or no allow, means no reader.
  */
 export function runCanReadArtifacts(
   context: ToolContext,
   toolName: string,
+  seq = 1,
 ): boolean {
   if (context.artifactReadable !== true) return false;
   const decision = admitPermission(context, (evaluate) =>
     evaluate({
       toolId: 'read',
-      args: { path: formatArtifactLocator(toolName, 1) },
+      args: { path: formatArtifactLocator(toolName, seq) },
       projectFieldValue: nativeFileProjection('read'),
     }),
   );
@@ -80,6 +81,9 @@ export async function capHeadResult(
   toolName: string,
   result: ToolResult,
 ): Promise<ToolResult> {
+  // A `head` result is a success cut in place; an error keeps its message and
+  // never spills. A `tool` result owns its own error artifacts.
+  if (result.status !== 'success') return result;
   const measure = measureToolResultForModel(toolName);
   const hasDisplay = Object.hasOwn(result, 'display');
   const rendered = hasDisplay
@@ -91,17 +95,48 @@ export async function capHeadResult(
       : rendered.text.length > RESULT_TRUNCATE_CHARS;
   if (!oversized) return result;
   const rendering = rendered ?? renderToolResultForSpill(toolName, result);
-  const spill = await storeHeadRendering(context, toolName, rendering);
+  const spill = await boundedSpill(context, toolName, rendering);
   const spilled =
     spill?.kind === 'stored' ? { ...result, artifact: spill.locator } : result;
   return truncateOversizedResult(spilled, measure, spill);
 }
 
 /**
+ * Store the rendering, bounded by the Run and call deadline. A database that
+ * cannot answer leaves the inline result only; a write that lands after the
+ * deadline is an artifact no result names.
+ */
+async function boundedSpill(
+  context: ToolContext,
+  toolName: string,
+  rendering: SpillRendering,
+): Promise<CappedResultSpill | undefined> {
+  const signal = context.abortSignal;
+  if (signal === undefined) {
+    return await storeHeadRendering(context, toolName, rendering);
+  }
+  if (signal.aborted) return { kind: 'not-stored' };
+  return await new Promise<CappedResultSpill | undefined>((resolve) => {
+    const onAbort = () => resolve({ kind: 'not-stored' });
+    signal.addEventListener('abort', onAbort, { once: true });
+    const settle = (spill: CappedResultSpill | undefined): void => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(spill);
+    };
+    void storeHeadRendering(context, toolName, rendering).then(settle, () =>
+      settle({ kind: 'not-stored' }),
+    );
+  });
+}
+
+/**
  * The full model rendering as one artifact part. `undefined` means the Run has
  * no reader, so nothing is promised; a failed write — including a part over
  * `tools.artifacts.maxBytes`, which the writer refuses before allocating a
- * number — is `not-stored`.
+ * number — is `not-stored`. The allocated locator is checked against the
+ * `read` group again, because the probe before the write cannot know the
+ * counter value; a denied locator is not advertised, and its already-written
+ * row stays an orphan the store has no delete for.
  */
 async function storeHeadRendering(
   context: ToolContext,
@@ -131,6 +166,9 @@ async function storeHeadRendering(
       },
       { maxBytes: artifactMaxBytes(context) },
     );
+    if (!runCanReadArtifacts(context, toolName, written.seq)) {
+      return { kind: 'not-stored' };
+    }
     return {
       kind: 'stored',
       locator: written.locator,

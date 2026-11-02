@@ -51,4 +51,10 @@ describe("artifactNotice", () => {
       "[full result: artifact://a-1 b (2 lines)]",
     );
   });
+
+  it("renders the Unicode line and paragraph separators as spaces", () => {
+    expect(
+      artifactNotice([{ locator: "artifact://a-1\u2028b\u2029c", lines: 2 }]),
+    ).toBe("[full result: artifact://a-1 b c (2 lines)]");
+  });
 });

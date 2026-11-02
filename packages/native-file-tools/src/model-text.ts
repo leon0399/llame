@@ -65,16 +65,6 @@ export function oneLine(value: string): string {
   return value.replaceAll(/[\r\n\u2028\u2029]+/gu, " ");
 }
 
-/**
- * A cap-notice line. A head spill's notice already carries the bracketed
- * artifact notice, whose selector a model must copy verbatim, so wrapping that
- * notice again would nest brackets around it.
- */
-function capNoticeLine(notice: string): string {
-  const line = oneLine(notice);
-  return line.includes("[full result") ? line : `[${line}]`;
-}
-
 function asRange(value: unknown): LineRange | undefined {
   if (!isRecord(value)) return undefined;
   const { startLine, endLine } = value;
@@ -294,7 +284,7 @@ export function renderReadText(result: UnknownRecord): string {
   if (continuation !== undefined) lines.push(continuation);
   const { truncationNotice } = result;
   if (isNonEmptyString(truncationNotice))
-    lines.push(capNoticeLine(truncationNotice));
+    lines.push(`[${oneLine(truncationNotice)}]`);
   return lines.join("\n");
 }
 
@@ -376,7 +366,7 @@ export function renderEditText(result: UnknownRecord): string {
   const capCut = isNonEmptyString(truncationNotice);
   if (result.cut === true || (result.truncated === true && !capCut))
     lines.push(REGION_CUT_MARKER);
-  if (capCut) lines.push(capNoticeLine(truncationNotice));
+  if (capCut) lines.push(`[${oneLine(truncationNotice)}]`);
   return lines.join("\n");
 }
 
