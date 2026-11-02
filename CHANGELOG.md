@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-02
 
+- An oversized tool result now spills by head: the runner and the MCP cap
+  store the whole model rendering as an artifact before cutting the result,
+  the inline part keeps the head of its shape, and the cap notice names the
+  artifact, its line count, and `artifact://<tool>-<n>:1-`. A rendering above
+  `tools.artifacts.maxBytes`, a failed write, or a write without a reader
+  leaves `[full result not stored]` or today's bounded result. A tool that
+  declares `spill: 'tool'` builds its own inline part and artifact, so the
+  result cap must not shorten it. See
+  [model output](docs/product/reference/tools/model-output.md) and
+  [MCP tools](docs/product/reference/tools/mcp-tools.md).
+
 - Tool-result artifacts now check each `grep` and `web_search` finding again
   when `read` serves it: a `read` rule added after the artifact was stored
   withholds a refused file, result, or answer as `[withheld]` lines with
@@ -26,8 +37,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   stays prose instead of importing, and `tools.artifacts.maxBytes` (default
   8,388,608, floor 131,072) bounds each stored part. A part over the bound is
   a failed write, and a reused `(chat, run, tool call)` key is a failed write
-  rather than a lookup. No tool writes an artifact yet: the producers,
-  read-time finding re-checks, and host files arrive with later layers. See
+  rather than a lookup. Tool-specific producers and host files arrive with
+  later layers. See
   [artifact](docs/product/reference/locators/artifact.md).
 
 - `web_search` results and answers now reach the model as plain text instead of

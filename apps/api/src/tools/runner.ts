@@ -5,10 +5,9 @@ import { Logger } from '@nestjs/common';
 import {
   isRecord,
   isString,
-  truncateOversizedResult,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-import { measureToolResultForModel } from './model-text';
+import { capToolResult } from './artifacts/spill';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -444,8 +443,6 @@ async function settleAdmittedExecution(
   prepared: PreparedToolExecution,
 ): Promise<ToolResult> {
   let mcpDispatchRecorded = false;
-  // The cap measures what the model reads, not the stored object.
-  const measure = measureToolResultForModel(tool.id);
   const executionContext = {
     ...prepared.context,
     onMcpDispatchRecorded: () => {
@@ -459,7 +456,7 @@ async function settleAdmittedExecution(
       isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
     );
     notifyUnknownOutcome(tool, context, result);
-    return truncateOversizedResult(result, measure);
+    return await capToolResult(tool, context, result);
   } catch (error) {
     const result = classifyToolExecutionError(
       error,
@@ -469,7 +466,7 @@ async function settleAdmittedExecution(
       mcpDispatchRecorded,
     );
     notifyUnknownOutcome(tool, context, result);
-    return truncateOversizedResult(result, measure);
+    return await capToolResult(tool, context, result);
   }
 }
 

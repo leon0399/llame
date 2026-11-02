@@ -1434,6 +1434,7 @@ export class RunExecutionService {
       webAdapters: this.instanceConfig.config.tools.webAdapters,
       webSearch: this.instanceConfig.config.webSearch,
       grepBounds: this.instanceConfig.config.tools.grep,
+      ...this.artifactReadContext(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       modelClients: this.models,
       permissionMode: effectivePermissionMode,
@@ -3030,6 +3031,7 @@ export class RunExecutionService {
       webAdapters: this.instanceConfig.config.tools.webAdapters,
       webSearch: this.instanceConfig.config.webSearch,
       grepBounds: this.instanceConfig.config.tools.grep,
+      ...this.artifactReadContext(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       modelClients: this.models,
       permissionMode: effectivePermissionMode,
@@ -3038,6 +3040,25 @@ export class RunExecutionService {
       machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
       sshClient: this.sshClient,
       executorGit: this.executorGit,
+    };
+  }
+
+  /**
+   * The artifact read surface of a Run (tool-result-artifacts "An artifact
+   * needs a way to read it"): `read` is allowlisted with its per-locator group
+   * admission, or `bash` runs on the llame host with host files.
+   */
+  private artifactReadContext(): Pick<
+    ToolContext,
+    'artifactMaxBytes' | 'artifactReadable' | 'artifactHostFiles'
+  > {
+    const { artifacts, allowed, nativeExecutorId } =
+      this.instanceConfig.config.tools;
+    return {
+      artifactMaxBytes: artifacts.maxBytes,
+      artifactReadable: allowed.includes('read'),
+      artifactHostFiles:
+        allowed.includes('bash') && nativeExecutorId !== undefined,
     };
   }
 

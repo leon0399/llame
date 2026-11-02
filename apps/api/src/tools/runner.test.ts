@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
@@ -15,6 +16,8 @@ import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
 import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { ArtifactsRepository } from './artifacts/artifacts-repository';
+import * as schema from '../db/schema';
 
 function fakeContext(userId = 'user-A'): ToolContext {
   const tenantDb: TenantRunner = {
@@ -633,6 +636,61 @@ describe('runTool', () => {
     // it's the tool's own passthrough field (#294) — shape preservation is
     // covered in result-truncation.test.ts, this just pins the runner wiring.
     expect((result as UnknownRecord).blob).toEqual(expect.any(String));
+  });
+
+  it('stores an oversized head result and names the artifact', async () => {
+    const writeDb = drizzle.mock({ schema });
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(3);
+    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
+      'artifact-id',
+    );
+    const insertParts = vi
+      .spyOn(ArtifactsRepository.prototype, 'insertParts')
+      .mockResolvedValue(undefined);
+    const bigTool: Tool = {
+      ...echoTool,
+      execute: () => ({ status: 'success', blob: 'x'.repeat(20_000) }),
+    };
+    const result = await runTool(
+      bigTool,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        runId: 'run-1',
+        toolCallId: 'call-1',
+        artifactReadable: true,
+        tenantDb: {
+          runAs: (_userId, write) => Promise.resolve(write(writeDb)),
+        },
+      },
+      15,
+    );
+
+    expect(insertParts).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      status: 'success',
+      truncated: true,
+      artifact: 'artifact://echo-3',
+    });
+    // SAFETY: toMatchObject does not narrow; the notice is the tool's own
+    // passthrough field (see the truncation test above).
+    expect((result as UnknownRecord).truncationNotice).toContain(
+      'The full result is artifact://echo-3',
+    );
+  });
+
+  it('does not cap a tool-shaped spill result', async () => {
+    const toolSpill: Tool = {
+      ...echoTool,
+      spill: 'tool',
+      execute: () => ({ status: 'success', blob: 'x'.repeat(20_000) }),
+    };
+    const result = await runTool(toolSpill, { value: 'x' }, fakeContext(), 15);
+
+    expect(result).not.toMatchObject({ truncated: true });
+    expect(JSON.stringify(result).length).toBeGreaterThan(
+      RESULT_TRUNCATE_CHARS,
+    );
   });
 
   it('fails closed when truncation receives a malformed oversized projection', async () => {

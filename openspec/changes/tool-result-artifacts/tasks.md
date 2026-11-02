@@ -118,10 +118,14 @@ without its first consumers. Every implementation layer stays inside about
 
 ## 5. spill
 
-- [ ] 5.1 Add the `spill` field and `head` spill at the runner and the MCP cap sites (design D3, D6). Verify "An MCP result keeps its head", "A spilled MCP result names its artifact", and "A long JSON result is read by lines".
-- [ ] 5.2 Handle results above the bound. Verify "An MCP result above the bound is not stored".
-- [ ] 5.3 Update `docs/product/reference/tools/mcp-tools.md` and `model-output.md`, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 5.4 Verify the layer: affected `lint`, `typecheck`, `test:coverage` for `packages/runtime-safety`, focused `apps/api` runner and MCP tests, `pnpm format:check`, `git diff --check`.
+- [x] 5.1 Add the `spill` field and `head` spill at the runner and the MCP cap sites (design D3, D6). Verify "An MCP result keeps its head", "A spilled MCP result names its artifact", and "A long JSON result is read by lines".
+  - Evidence: `Tool.spill` (`head` default) in `tools/types.ts`; the runner and the MCP `executeMcpDispatch` call `capToolResult`/`capHeadResult` (`tools/artifacts/spill.ts`), which stores the full rendering through `writeToolArtifact` and returns `truncateOversizedResult` with the artifact clause (`packages/runtime-safety/src/result-truncation.ts`). "An MCP result keeps its head" and "A spilled MCP result names its artifact": `mcp-runtime.service.test.ts` ("persists the truncated result observed by the Run loop", "spills an oversized MCP result and names its artifact") and `tools/artifacts/spill.test.ts`; runner wiring in `runner.test.ts` ("stores an oversized head result and names the artifact", "does not cap a tool-shaped spill result"). "A long JSON result is read by lines": `tools/artifacts/head-spill.integration.test.ts` (Testcontainers) reads `artifact://mcp__docs__fetch-1:1-200`, asserts the numbered head includes the long value and a continuation line.
+- [x] 5.2 Handle results above the bound. Verify "An MCP result above the bound is not stored".
+  - Evidence: `tools/artifacts/spill.test.ts` ("does not store a rendering above the byte bound", "keeps the inline result when the write fails") and `mcp-runtime.service.test.ts` ("does not store an MCP result above the artifact bound"): no artifact row, no `artifact` field, notice carries `[full result not stored]`.
+- [x] 5.3 Update `docs/product/reference/tools/mcp-tools.md` and `model-output.md`, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `mcp-tools.md` Result (head spill, `read("artifact://...:<line>-")`, above-bound marker), `model-output.md` "Oversized results" (`head` vs `tool`, pretty JSON, the notices), and the 2026-11-02 CHANGELOG bullet; `pnpm lint:markdown` passes (0 issues).
+- [x] 5.4 Verify the layer: affected `lint`, `typecheck`, `test:coverage` for `packages/runtime-safety`, focused `apps/api` runner and MCP tests, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter @workspace/runtime-safety lint` and `test:coverage` (124 tests, CRAP gate), `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused unit suites (`spill.test.ts`, `runner.test.ts`, `mcp-runtime.service.test.ts` — 159 tests), the integration file above, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check` all pass.
 - [ ] 5.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 5.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

@@ -32,6 +32,16 @@ an ordinary argument.
 
 Tool-defined: the result is whatever the server returns.
 
+An MCP tool declares no spill shape, so a result above the 16,000-character
+model-facing cap spills by head: the system stores the whole rendering as an
+artifact, keeps the head inline, and the cap notice names the artifact, its
+line count, and the line to continue from. The model reads the rest with
+`read("artifact://mcp__<server>__<tool>-<n>:<line>-")`. A rendering above
+`tools.artifacts.maxBytes`, a failed write, or a Run that cannot read artifacts
+returns the cut inline JSON, with `[full result not stored]` when a write was
+attempted. See [artifacts](artifacts.md) and
+[model output](model-output.md).
+
 ## Behavior
 
 Tools are named `mcp__<server>__<tool>`.
