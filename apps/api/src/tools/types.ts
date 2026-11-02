@@ -155,6 +155,19 @@ export interface ToolContext {
    */
   readonly grepBounds?: GrepBoundsConfig;
   /**
+   * Operator `tools.artifacts.maxBytes`, the one byte bound on every stored
+   * artifact part (tool-result-artifacts D13). Absent means the built-in bound.
+   */
+  readonly artifactMaxBytes?: number;
+  /**
+   * `read` is in `tools.allowed`. In default mode, a Run can read artifacts
+   * when this is true and the per-locator `read` group admits the locator;
+   * bypass mode admits without evaluating policy. The admission is checked
+   * where the artifact is written (tool-result-artifacts "An artifact needs a
+   * way to read it").
+   */
+  readonly artifactReadable?: boolean;
+  /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.
    */
@@ -242,6 +255,15 @@ export type { ToolResult } from '@workspace/runtime-safety';
 export type ToolErrorResult = Extract<ToolResult, { status: 'error' }>;
 
 /**
+ * How a tool's result spills when it does not fit the model-facing bound
+ * (tool-result-artifacts D3). `head` is the default: the runner and the MCP cap
+ * site store the whole rendering, then keep today's shape-preserving cut
+ * inline. `tool` means the tool builds its own inline part and artifact, so the
+ * result cap does not shorten it. No code chooses a shape by tool name.
+ */
+export type ToolSpill = 'head' | 'tool';
+
+/**
  * A registered tool (design D2): `{ id, description, inputSchema,
  * classification, execute(ctx, args) }`. `classification` is required —
  * an unclassified tool is unrepresentable in the type, and the registry
@@ -254,6 +276,8 @@ export interface Tool<TArgs = UnknownRecord> {
   readonly description: string;
   readonly classification: ToolClassification;
   readonly timeoutSeconds?: number;
+  /** Absent means `head` (tool-result-artifacts D3). */
+  readonly spill?: ToolSpill;
   readonly inputSchema: z.ZodType | JsonSchemaDocument;
   execute(context: ToolContext, args: TArgs): ToolResult | Promise<ToolResult>;
 }

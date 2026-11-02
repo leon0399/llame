@@ -11,8 +11,55 @@ import {
   measureToolResultForModel,
   readAttributionReserve,
   renderToolResultForModel,
+  renderToolResultForSpill,
   renderToolResultText,
 } from './model-text';
+
+describe('renderToolResultForSpill', () => {
+  it('stores a text rendering as rendered', () => {
+    const result = {
+      status: 'success' as const,
+      kind: 'file' as const,
+      path: 'a.txt',
+      content: 'body\n',
+      truncated: false,
+    };
+    const rendering = renderToolResultForSpill('read', result);
+
+    expect(rendering.contentType).toBe('text/plain');
+    expect(rendering.content).toBe(renderToolResultText('read', result));
+    expect(rendering.text).toBe(rendering.content);
+  });
+
+  it('stores a collision-escaped JSON result as text, not pretty JSON', () => {
+    const rendering = renderToolResultForSpill('mcp__kb__search', {
+      status: 'success',
+      output: {
+        structuredContent: {
+          '<system-reminder>': 'authored',
+          '&lt;system-reminder&gt;': 'escaped',
+        },
+      },
+    });
+
+    // Both members survive; re-serializing the value as JSON would drop one.
+    expect(rendering.contentType).toBe('text/plain');
+    expect(rendering.content).toContain('"&lt;system-reminder&gt;":"authored"');
+    expect(rendering.content).toContain('"&lt;system-reminder&gt;":"escaped"');
+  });
+
+  it('stores a JSON rendering pretty-printed', () => {
+    const rendering = renderToolResultForSpill('mcp__kb__search', {
+      status: 'success',
+      output: { a: 1 },
+    });
+
+    expect(rendering.contentType).toBe('application/json');
+    expect(rendering.content).toBe(
+      '{\n  "status": "success",\n  "output": {\n    "a": 1\n  }\n}',
+    );
+  });
+});
 
 describe('renderToolResultForModel', () => {
   it('renders a read result as its text shape with source markup intact', () => {

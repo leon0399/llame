@@ -1,4 +1,5 @@
 import { cutStringAtCodePointBoundary } from "./code-point-boundary";
+import { ARTIFACT_NOT_STORED, artifactNotice } from "./artifact-notice";
 import {
   isBoolean,
   isNumber,
@@ -10,6 +11,21 @@ import { type ToolResult } from "./types";
 
 /** ~16KB result cap (D5/D6): oversized tool output is truncated, visibly. */
 export const RESULT_TRUNCATE_CHARS = 16_000;
+
+/**
+ * What happened to the artifact of a `head` result (tool-result-artifacts D3,
+ * D6): `stored` names the locator the cap notice points at, and `not-stored`
+ * marks a rendering that was too large to keep, or a failed write, so the
+ * notice carries {@link ARTIFACT_NOT_STORED} and the result carries no field.
+ */
+export type CappedResultSpill =
+  | {
+      readonly kind: "stored";
+      readonly locator: string;
+      /** The artifact's line count, in the reader's 8,000-unit pieces. */
+      readonly lineCount: number;
+    }
+  | { readonly kind: "not-stored" };
 
 /**
  * The default measure: a result's JSON serialization, in UTF-16 code units.
@@ -152,18 +168,39 @@ function omittedFieldPhrase(
   return ` ${omittedFields} of ${totalFields} result fields omitted entirely.`;
 }
 
-function truncationNotice(
-  omittedUnits: number,
-  lists: ReadonlyArray<ShortenedList>,
-  omittedFields: number,
-  totalFields: number,
-): string {
+interface TruncationNoticeInput {
+  readonly omittedUnits: number;
+  readonly lists: ReadonlyArray<ShortenedList>;
+  readonly omittedFields: number;
+  readonly totalFields: number;
+  readonly spill: CappedResultSpill | undefined;
+}
+
+function truncationNotice(input: TruncationNoticeInput): string {
+  const { omittedUnits, lists, omittedFields, totalFields, spill } = input;
   return (
     `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +
     `${omittedUnits} characters omitted.${omittedFieldPhrase(omittedFields, totalFields)}` +
-    `${shortenedListPhrase(lists)} ` +
+    `${shortenedListPhrase(lists)}${spillPhrase(spill)} ` +
     `Re-run this tool with narrower arguments if you need the omitted content.`
   );
+}
+
+/**
+ * Where the head result's artifact is: the same bracketed notice a
+ * `tool`-shaped spill ends with, continuing from the first artifact line. A
+ * rendering that could not be stored says so and leaves the artifact field off
+ * the result.
+ */
+function spillPhrase(spill: CappedResultSpill | undefined): string {
+  if (spill === undefined) return "";
+  if (spill.kind === "not-stored") return ` ${ARTIFACT_NOT_STORED}`;
+  return ` ${artifactNotice(
+    [{ locator: spill.locator, lines: spill.lineCount }],
+    {
+      continueWith: { locator: spill.locator, next: 1 },
+    },
+  )}`;
 }
 
 /**
@@ -184,6 +221,58 @@ function displayAwareMeasure(
 }
 
 /**
+ * A result with its `display` data split off, and the measure that sees it. A
+ * display-carrying result is never serialized with its display into the capped
+ * result, so both the predicate and the cut read the display-free form while
+ * the caller's measure still counts the rendering display builds.
+ */
+type DisplaySplit =
+  | {
+      readonly split: false;
+      readonly shown: ToolResult;
+      readonly measure: (candidate: ToolResult) => number;
+    }
+  | {
+      readonly split: true;
+      readonly shown: ToolResult;
+      readonly measure: (candidate: ToolResult) => number;
+      readonly display: unknown;
+    };
+
+function splitDisplay(
+  result: ToolResult,
+  measure: (candidate: ToolResult) => number,
+): DisplaySplit {
+  if (result.status !== "success" || !Object.hasOwn(result, "display")) {
+    return { split: false, shown: result, measure };
+  }
+  const { display, ...shown } = result;
+  return {
+    split: true,
+    shown,
+    display,
+    measure: isRecord(display)
+      ? displayAwareMeasure(measure, display)
+      : measure,
+  };
+}
+
+/**
+ * Whether the cap would shorten this result. The predicate shares
+ * {@link splitDisplay} with the truncation, so a caller that stores the whole
+ * rendering first (a `head` spill) never writes an artifact for a result that
+ * fits.
+ */
+export function isOversizedResult(
+  result: ToolResult,
+  measure: (candidate: ToolResult) => number = measureJson,
+): boolean {
+  if (result.status !== "success") return false;
+  const split = splitDisplay(result, measure);
+  return split.measure(split.shown) > RESULT_TRUNCATE_CHARS;
+}
+
+/**
  * Truncate an oversized SUCCESS result to the cap, keeping the shape the tool
  * declared (#294). The `status` discriminant and every top-level field survive
  * with their values shrunk in place; the model never receives a fragment of
@@ -200,6 +289,9 @@ function displayAwareMeasure(
  * starts at and the counts it replaced — so a caller's `measure` sees the
  * candidate with `display` re-attached.
  *
+ * `spill` is the artifact a `head` result was stored as, if any; the notice
+ * names it, and the artifact field is already pinned on `result`.
+ *
  * Error results are never truncated — every error message this registry
  * produces is a short, statically-authored string (see refusalResult /
  * invalidCallResult and the runner's catch branches), so an oversized error
@@ -208,15 +300,15 @@ function displayAwareMeasure(
 export function truncateOversizedResult(
   result: ToolResult,
   measure: (candidate: ToolResult) => number = measureJson,
+  spill?: CappedResultSpill,
 ): ToolResult {
   if (result.status !== "success") return result;
-  if (Object.hasOwn(result, "display")) {
-    const { display, ...shown } = result;
-    const capped = truncateOversizedResult(
-      shown,
-      isRecord(display) ? displayAwareMeasure(measure, display) : measure,
-    );
-    return capped.status === "success" ? { ...capped, display } : capped;
+  const split = splitDisplay(result, measure);
+  if (split.split) {
+    const capped = truncateOversizedResult(split.shown, split.measure, spill);
+    return capped.status === "success"
+      ? { ...capped, display: split.display }
+      : capped;
   }
   const measured = measure(result);
   if (measured <= RESULT_TRUNCATE_CHARS) return result;
@@ -237,6 +329,7 @@ export function truncateOversizedResult(
     json,
     measured,
     measure,
+    spill,
   };
 
   // First pass keeps every top-level field, which is the shape guarantee. Its
@@ -300,6 +393,8 @@ interface TruncationSource {
   readonly measured: number;
   /** The caller's measure: what the model reads, in its own units. */
   readonly measure: (candidate: ToolResult) => number;
+  /** The artifact this result was stored as, when it spilled. */
+  readonly spill: CappedResultSpill | undefined;
 }
 
 function buildTruncatedResult(
@@ -320,12 +415,13 @@ function buildTruncatedResult(
     status: "success",
     ...kept,
     [TRUNCATED_FIELD]: true,
-    [NOTICE_FIELD]: truncationNotice(
+    [NOTICE_FIELD]: truncationNotice({
       omittedUnits,
       lists,
-      source.totalFields - Object.keys(kept).length,
-      source.totalFields,
-    ),
+      omittedFields: source.totalFields - Object.keys(kept).length,
+      totalFields: source.totalFields,
+      spill: source.spill,
+    }),
   };
 }
 

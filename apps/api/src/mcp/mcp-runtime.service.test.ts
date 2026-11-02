@@ -22,10 +22,13 @@ import {
 } from './mcp-server-client';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { type ToolContext } from '../tools/types';
 import * as schema from '../db/schema';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
-import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { RESULT_TRUNCATE_CHARS, isString } from '@workspace/runtime-safety';
 
 const MINUTE_MS = 60_000;
 
@@ -448,6 +451,12 @@ describe('McpRuntimeService', () => {
     );
 
     expect(result).toMatchObject({ status: 'success', truncated: true });
+    if (result.status !== 'success' || !isString(result.output)) {
+      throw new Error('Expected a capped success result.');
+    }
+    // MCP tools declare no spill shape, so the inline text keeps the head.
+    expect(result.output.startsWith('x'.repeat(1000))).toBe(true);
+    expect(result.output.length).toBeLessThan(huge.length);
     const persistedResult: unknown = expect.objectContaining({
       status: 'success',
       truncated: true,
@@ -457,6 +466,145 @@ describe('McpRuntimeService', () => {
       'native.result',
       expect.objectContaining({ result: persistedResult }),
     );
+    await runtime.onModuleDestroy();
+  });
+
+  /** A context the MCP runtime can spill from: the Run can read artifacts. */
+  const spillingContext = (runId: string): ToolContext => ({
+    runId,
+    nativeDeliverySequence: 1,
+    userId: 'user-1',
+    chatId: 'chat-1',
+    artifactReadable: true,
+    permissionPolicy: compileToolPermissionMap(
+      { read: { allow: true } },
+      'test-policy',
+    ),
+    tenantDb: {
+      runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
+    },
+    toolCallId: 'call-spill',
+  });
+
+  it('spills an oversized MCP result and names its artifact', async () => {
+    const huge = 'x'.repeat(RESULT_TRUNCATE_CHARS * 2);
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((runId, eventType, payload) =>
+        Promise.resolve({
+          sequence: 0,
+          runId,
+          eventType,
+          payload: payload ?? null,
+          createdAt: new Date(),
+        }),
+      );
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(4);
+    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
+      'artifact-id',
+    );
+    vi.spyOn(ArtifactsRepository.prototype, 'insertParts').mockResolvedValue(
+      undefined,
+    );
+    const discovered: McpDiscoveredTool = {
+      ...discoveredTool('docs', 'fetch'),
+      execute: vi.fn(() =>
+        Promise.resolve({
+          disposition: 'none' as const,
+          result: { status: 'success' as const, output: huge },
+        }),
+      ),
+    };
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('docs'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool('mcp__docs__fetch');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const result = await resolution.executor.execute(
+      spillingContext('run-spill'),
+      {},
+    );
+
+    const locator = 'artifact://mcp__docs__fetch-4';
+    expect(result).toMatchObject({ status: 'success', artifact: locator });
+    if (result.status !== 'success' || !isString(result.truncationNotice)) {
+      throw new Error('Expected a spilled success result.');
+    }
+    expect(result.truncationNotice).toContain(locator);
+    expect(result.truncationNotice).toContain(':1-');
+    expect(append.mock.calls[0]?.[2]).toMatchObject({
+      result: { artifact: locator },
+    });
+    await runtime.onModuleDestroy();
+  });
+
+  it('does not store an MCP result above the artifact bound', async () => {
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((runId, eventType, payload) =>
+        Promise.resolve({
+          sequence: 0,
+          runId,
+          eventType,
+          payload: payload ?? null,
+          createdAt: new Date(),
+        }),
+      );
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    const insertArtifact = vi.spyOn(
+      ArtifactsRepository.prototype,
+      'insertArtifact',
+    );
+    const discovered: McpDiscoveredTool = {
+      ...discoveredTool('docs', 'big'),
+      execute: vi.fn(() =>
+        Promise.resolve({
+          disposition: 'none' as const,
+          result: {
+            status: 'success' as const,
+            output: 'x'.repeat(400_000),
+          },
+        }),
+      ),
+    };
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('docs'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool('mcp__docs__big');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const result = await resolution.executor.execute(
+      { ...spillingContext('run-bound'), artifactMaxBytes: 131_072 },
+      {},
+    );
+
+    expect(insertArtifact).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
+    if (result.status !== 'success' || !isString(result.truncationNotice)) {
+      throw new Error('Expected a capped success result.');
+    }
+    expect(result.truncationNotice).toContain('[full result not stored]');
+    expect(append).toHaveBeenCalledOnce();
     await runtime.onModuleDestroy();
   });
 

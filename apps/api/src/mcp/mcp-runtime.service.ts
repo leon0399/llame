@@ -26,14 +26,11 @@ import {
   type ToolUnavailableReason,
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
-import { measureToolResultForModel } from '../tools/model-text';
+import { capHeadResult } from '../tools/artifacts/spill';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
-import { type Tool, type ToolContext, type ToolResult } from '../tools/types';
-import {
-  truncateOversizedResult,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { type Tool, type ToolContext } from '../tools/types';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 import {
   frozenRuntimeDefinition,
   isStdio,
@@ -599,7 +596,7 @@ export class McpRuntimeService
     });
     const observed = {
       ...outcome,
-      result: capMcpResult(toolId, outcome.result),
+      result: await capHeadResult(context, toolId, outcome.result),
     };
     if (runId === undefined) return observed;
     return this.persistMcpResult(context, runId, toolCallId, observed);
@@ -893,9 +890,4 @@ export class McpRuntimeService
       if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
     }
   }
-}
-
-/** The global cap, measured on the rendering the model reads. */
-function capMcpResult(toolId: string, result: ToolResult): ToolResult {
-  return truncateOversizedResult(result, measureToolResultForModel(toolId));
 }

@@ -30,3 +30,27 @@ A `display` key on a result is stored with the tool part for the chat UI and is
 never rendered to a model. An image read's inline thumbnail lives at
 `display.thumbnail`; a part stored before that key moved keeps a top-level
 `thumbnail` that the UI still shows.
+
+### Oversized results
+
+A successful result using the default `head` spill whose rendering is longer
+than 16,000 code units is normally cut in place, so the shape the tool declared
+survives and the result carries `truncated: true` plus a `truncationNotice`
+saying how much was omitted and that narrower arguments recover it. Errors and
+`spill: 'tool'` results are not shortened, and an object whose field names alone
+exceed the cap can lose trailing fields.
+
+A tool declares how its result spills. `head` is the default: the system
+stores the whole rendering as an artifact, then keeps the head of the shape
+inline. The `artifact` field on the result is the locator, and the cap notice
+names it, its line count, and `artifact://<tool>-<n>:1-`. A JSON rendering is
+stored pretty-printed, one member or item on each line, so a long text value
+stays readable by line. A rendering above the operator-configured artifact
+bound is not stored, because cutting JSON would make it invalid; the notice
+then carries `[full result not stored]`, as it does after a failed write, and
+the result names no artifact. A Run that cannot read artifacts keeps today's bounded
+result and no locator.
+
+A tool that declares `spill: 'tool'` builds its own inline part and artifact, so
+the result cap does not shorten it. See [artifact](../locators/artifact.md) and
+[native files](../../operator/native-files.md#artifact-reads) for the bound.
