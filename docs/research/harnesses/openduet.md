@@ -54,6 +54,12 @@ sources:
   - id: openduet-review-l206-l208
     resource: "https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/openbot/server/src/approvals/policy.ts#L206-L208"
     title: "The reviewer fails closed"
+  - id: openduet-readme-leaves-l54
+    resource: "https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/README.md#L54"
+    title: "README says outgoing messages are checked for sensitive information"
+  - id: openduet-readme-helm-l150
+    resource: "https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/README.md#L150"
+    title: "README says Docker and Helm guides deploy plain OpenBot"
   - id: openduet-private-share-l10-l14
     resource: "https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/openbot/server/src/proactive/private-share.ts#L10-L14"
     title: "Sharing with other people asks even when general approvals are off"
@@ -101,7 +107,7 @@ This is [CopilotKit OpenDuet](https://github.com/CopilotKit/OpenDuet), a proacti
 5. **Each Bot's computer is a container, with a shared-kernel default.** `OPENBOT_ONE_COMPUTER_EACH` defaults to true.[^openduet-one-computer-l59] The workspace volume is `/workspace`. The process runs as root inside the container, and path confinement refuses absolute paths, `..`, and symlink escape.[^openduet-workspace-l4-l19] `COMPUTER_RUNTIME=runsc` selects gVisor; unset, the container shares the host kernel.[^openduet-gvisor-l219-l220] Useful beside [local Sandbox execution](../../../ROADMAP.md#then-local-sandbox-execution): isolation is a runtime choice, and root-in-container plus path checks are the baseline.
 6. **Threads and memory live in CopilotKit Intelligence.** The runtime has one mode. Intelligence owns durable threads, and boot throws if the API URL, gateway WebSocket URL, or API key is missing.[^openduet-copilot-l80-l91][^openduet-intelligence-required-l992-l1010] Memory calls ask for the person's user scope and set project scope to none, then filter results to `scope === "user"`, because project memory is shared inside the Intelligence project.[^openduet-memory-grant-l27-l30] External Bots are AG-UI `HttpAgent`s.[^openduet-copilot-l80-l91] The remote thread and memory bodies are outside this repository.
 7. **Channels bind to an owner.** The tenant lists product channels, including one whose job is an agent the operator brings over AG-UI.[^openduet-channels-l1-l11] Slack and Microsoft Teams arrive through OpenTag. The shared secret is checked in constant time, and the message text cannot choose an owner.[^openduet-opentag-l1-l8] OpenTag is configuration, not something `scripts/start.sh` launches by itself.
-8. **Owner checks are application predicates.** An approval lookup requires `ownerUserId`.[^openduet-approval-owner-l43-l44] A search of `openbot/server` found no `ROW LEVEL SECURITY` statements. That is application tenancy, the gap [Paperclip](./paperclip.md) also records, and it is weaker than llame's datastore RLS.
+8. **Owner checks are application predicates.** An approval lookup requires `ownerUserId`.[^openduet-approval-owner-l43-l44] At revision `677e0fcd`, a search of `openbot/server` for `ROW LEVEL SECURITY` and `CREATE POLICY` returned no matches. That is application tenancy, the gap [Paperclip](./paperclip.md) also records, and it is weaker than llame's datastore RLS.
 
 **llame fit**
 
@@ -110,7 +116,7 @@ This is [CopilotKit OpenDuet](https://github.com/CopilotKit/OpenDuet), a proacti
 - Low: item 6 as a dependency. Durable history here is a required hosted Intelligence service.
 - Avoid: treating Postgres rows as tenant isolation, or treating a skill file as an execution grant.
 
-**Caution:** Default computers share the host kernel and run as root inside the container.[^openduet-workspace-l4-l19][^openduet-gvisor-l219-l220] Intelligence is required to boot, and its stored threads were not inspected.[^openduet-intelligence-required-l992-l1010] The README's "checks what leaves" is broader than the private-share gate, which is about audience, not a general health-data scanner.[^openduet-private-share-l10-l14] Docker and Helm docs in `openbot/docs` deploy plain OpenBot images; the README says they are not an OpenDuet image.
+**Caution:** Default computers share the host kernel and run as root inside the container.[^openduet-workspace-l4-l19][^openduet-gvisor-l219-l220] Intelligence is required to boot, and its stored threads were not inspected.[^openduet-intelligence-required-l992-l1010] The README says every outgoing message is checked for sensitive information, including a card number or a health detail.[^openduet-readme-leaves-l54] The private-share gate is about audience, not that scan.[^openduet-private-share-l10-l14] The same README says the Docker and Helm guides in `openbot/docs` deploy plain OpenBot from OpenBot's own image, not OpenDuet.[^openduet-readme-helm-l150]
 
 [^openduet-start-sh-l3-l12]: [Root start delegates to the vendored OpenBot tree](https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/scripts/start.sh#L3-L12)
 
@@ -139,6 +145,10 @@ This is [CopilotKit OpenDuet](https://github.com/CopilotKit/OpenDuet), a proacti
 [^openduet-safety-l75-l107]: [Built-in safety hand-offs are not configurable](https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/openbot/server/src/approvals/policy.ts#L75-L107)
 
 [^openduet-review-l206-l208]: [The reviewer fails closed](https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/openbot/server/src/approvals/policy.ts#L206-L208)
+
+[^openduet-readme-leaves-l54]: [README says outgoing messages are checked for sensitive information](https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/README.md#L54)
+
+[^openduet-readme-helm-l150]: [README says Docker and Helm guides deploy plain OpenBot](https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/README.md#L150)
 
 [^openduet-private-share-l10-l14]: [Sharing with other people asks even when general approvals are off](https://github.com/CopilotKit/OpenDuet/blob/677e0fcd148d80b99dd788c6d6f9c1c9f40a72db/openbot/server/src/proactive/private-share.ts#L10-L14)
 

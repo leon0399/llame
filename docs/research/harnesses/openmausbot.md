@@ -85,7 +85,9 @@ Study selected boundaries rather than importing its bots/rooms/runtime model.
    Connection URLs[^shared-package-format-ts-l406-l417]
    must be `https`, or `http` on loopback. Parsing a package[^server-bot-package-ts-l43-l46]
    strips unknown fields, so ids, grants, credentials, paths, model selections, and
-   runtime state do not cross the boundary.
+   runtime state do not cross the boundary. Routine enablement is the exception
+   that strip does not remove: `enabledAfterInstall` is a declared field, and the
+   v2 file import above can leave it `true`.
    This directly informs future llame Profiles/Skills import: setup intent and
    human-readable instructions cannot carry an execution grant.
 

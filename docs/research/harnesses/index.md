@@ -241,7 +241,7 @@ even with a single laptop UI):
 docs only), [DeepSeek Harness](./deepseek-harness.md) (optional POSIX SSH
 providers; shipped profiles leave them unmounted),
 [PiNomad](./pinomad.md) (one host runs the agent; Mac, web, and iOS clients attach),
-[ThinkRail](./thinkrail.md) (CLI can bind one host; the desktop launcher stays on loopback).
+[ThinkRail](./thinkrail.md) (the CLI defaults to localhost and can bind another host).
 
 The [multi-device placement study](../product-vision/2026-10-18-multi-device-execution-placement.md)
 compares these mechanisms with OpenClaw nodes, Home Assistant voice satellites,

@@ -95,7 +95,7 @@ PiNomad is a self-hosted coding product on the experimental Pi Durable runtime d
 - Low: item 5's credential file layout.
 - Avoid: item 2. A paired phone with unbounded host shell is personal-device trust, not llame's approval and RLS boundary. Pi Durable's codemode and virtual models stay in [Earendil Pi](./earendil-pi.md); this note does not restate them.
 
-**Caution:** There is no per-tool approval and no OS sandbox around bash in the host code reviewed here.[^pinomad-coding-l26-l27] The relay sees ciphertext payloads and plaintext control frames.[^pinomad-relay-l1-l5] Hosts do not sync conversations with each other. ADR-0009's older sentence about `~/.pi/agent` credentials is superseded by ADR-0031.[^pinomad-adr-0031-l20-l22]
+**Caution:** There is no per-tool approval and no OS sandbox around bash in the host code reviewed here.[^pinomad-coding-l26-l27] The relay sees ciphertext payloads and plaintext control frames.[^pinomad-relay-l1-l5] Hosts do not sync conversations with each other. Credentials stay in `<dataDir>/auth.json` and `models.json`.[^pinomad-credentials-l152-l157][^pinomad-adr-0031-l20-l22]
 
 [^pinomad-license-l1-l4]: [Apache License 2.0 heading](https://github.com/bubbleptr/pinomad/blob/ea50587ea0ad10b484b4a17c8e521b0706a3db42/LICENSE#L1-L4)
 
