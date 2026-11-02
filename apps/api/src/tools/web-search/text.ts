@@ -88,8 +88,8 @@ const ISO_DATE_WIDTH = 10;
 /** One stored text as `> ` lines; a trailing line break adds no empty line. */
 function quoteLines(text: string): Array<string> {
   return text
-    .replace(/[\r\n]+$/u, '')
-    .split(/\r\n|\r|\n/u)
+    .replace(/[\r\n\u2028\u2029]+$/u, '')
+    .split(/\r\n|[\r\n\u2028\u2029]/u)
     .map((line) => `> ${line}`);
 }
 
@@ -105,8 +105,8 @@ function resultBlock(
   if (!host) return undefined;
   const published = result.published?.slice(0, ISO_DATE_WIDTH);
   return [
-    `## ${rank}. ${oneLine(result.title).trim() || result.url}`,
-    result.url,
+    `## ${rank}. ${oneLine(result.title).trim() || oneLine(result.url)}`,
+    oneLine(result.url),
     published === undefined ? host : `${host} · ${oneLine(published)}`,
     ...(result.snippet === undefined ? [] : quoteLines(result.snippet)),
   ];
@@ -118,7 +118,7 @@ function answerBlock(answer: RawAnswer): Array<string> {
     `## Answer (${oneLine(answer.engine)})`,
     ...quoteLines(answer.answer),
     ...answer.citations.map(
-      (citation, index) => `[${index + 1}] ${citation.url}`,
+      (citation, index) => `[${index + 1}] ${oneLine(citation.url)}`,
     ),
   ];
 }
