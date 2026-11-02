@@ -384,7 +384,7 @@ describe("fs.grep", () => {
     await writeAt("project/b.go", "needle two\n");
     const prefix = join(fixture.root, "project");
     const page = await grep(
-      request(prefix, { budget: { ...BUDGET, bytes: 1 } }),
+      request(prefix, { bounds: { ...BOUNDS, bytes: 1 } }),
     );
     // A file of any size is searched: `a.go` is one chunk, so the 1-byte bound
     // is crossed after its bytes and never cuts it. The bound then stops the
