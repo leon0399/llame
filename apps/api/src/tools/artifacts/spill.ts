@@ -24,7 +24,6 @@ import {
   type SpillRendering,
 } from '../model-text';
 import { admitPermission } from '../permissions/admit';
-import { nativeFileProjection } from '../permissions/locator-projection';
 import { type Tool, type ToolContext } from '../types';
 import { writeToolArtifact } from './artifact-writer';
 import { formatArtifactLocator } from './locator';
@@ -46,11 +45,12 @@ export function runCanReadArtifacts(
   seq = 1,
 ): boolean {
   if (context.artifactReadable !== true) return false;
+  // An `artifact://` path is already its own canonical projection, so the
+  // `read` group matches the locator exactly as the reader submits it.
   const decision = admitPermission(context, (evaluate) =>
     evaluate({
       toolId: 'read',
       args: { path: formatArtifactLocator(toolName, seq) },
-      projectFieldValue: nativeFileProjection('read'),
     }),
   );
   return decision?.decision === 'allow';
@@ -113,16 +113,18 @@ async function boundedSpill(
 ): Promise<CappedResultSpill | undefined> {
   const signal = context.abortSignal;
   if (signal === undefined) {
-    return await storeHeadRendering(context, toolName, rendering);
+    return await storeHeadRendering(context, toolName, rendering).catch(() => ({
+      kind: 'not-stored',
+    }));
   }
   if (signal.aborted) return { kind: 'not-stored' };
   return await new Promise<CappedResultSpill | undefined>((resolve) => {
     const onAbort = () => resolve({ kind: 'not-stored' });
-    signal.addEventListener('abort', onAbort, { once: true });
     const settle = (spill: CappedResultSpill | undefined): void => {
       signal.removeEventListener('abort', onAbort);
       resolve(spill);
     };
+    signal.addEventListener('abort', onAbort, { once: true });
     void storeHeadRendering(context, toolName, rendering).then(settle, () =>
       settle({ kind: 'not-stored' }),
     );
@@ -147,34 +149,30 @@ async function storeHeadRendering(
   if (runId === undefined || !runCanReadArtifacts(context, toolName)) {
     return undefined;
   }
-  try {
-    const written = await writeToolArtifact(
-      context.tenantDb,
-      {
-        chatId: context.chatId,
-        userId: context.userId,
-        runId,
-        toolCallId: context.toolCallId ?? toolName,
-        toolName,
-        complete: true,
-        parts: [
-          {
-            contentType: rendering.contentType,
-            content: Buffer.from(rendering.content, 'utf8'),
-          },
-        ],
-      },
-      { maxBytes: artifactMaxBytes(context) },
-    );
-    if (!runCanReadArtifacts(context, toolName, written.seq)) {
-      return { kind: 'not-stored' };
-    }
-    return {
-      kind: 'stored',
-      locator: written.locator,
-      lineCount: written.lineCount,
-    };
-  } catch {
+  const written = await writeToolArtifact(
+    context.tenantDb,
+    {
+      chatId: context.chatId,
+      userId: context.userId,
+      runId,
+      toolCallId: context.toolCallId ?? toolName,
+      toolName,
+      complete: true,
+      parts: [
+        {
+          contentType: rendering.contentType,
+          content: Buffer.from(rendering.content, 'utf8'),
+        },
+      ],
+    },
+    { maxBytes: artifactMaxBytes(context) },
+  );
+  if (!runCanReadArtifacts(context, toolName, written.seq)) {
     return { kind: 'not-stored' };
   }
+  return {
+    kind: 'stored',
+    locator: written.locator,
+    lineCount: written.lineCount,
+  };
 }

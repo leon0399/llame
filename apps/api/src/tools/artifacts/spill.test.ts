@@ -5,6 +5,7 @@
  * no reader keeps today's bounded result.
  */
 
+import { getEventListeners } from 'node:events';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
@@ -253,6 +254,73 @@ describe('capHeadResult', () => {
     expect(storage.insertArtifact).toHaveBeenCalledOnce();
     expect(result).not.toHaveProperty('artifact');
     expect(noticeOf(result)).toContain('[full result not stored]');
+  });
+
+  it('keeps a rendering exactly at the cap inline', async () => {
+    const storage = spyStorage();
+    const framing = JSON.stringify({ status: 'success', output: '' }).length;
+    const result = await capHeadResult(context(), TOOL, {
+      status: 'success',
+      output: 'x'.repeat(RESULT_TRUNCATE_CHARS - framing),
+    });
+
+    expect(JSON.stringify(result).length).toBe(RESULT_TRUNCATE_CHARS);
+    expect(storage.insertArtifact).not.toHaveBeenCalled();
+    expect(result).not.toMatchObject({ truncated: true });
+  });
+
+  it('resolves not-stored when the deadline aborts mid-write', async () => {
+    const storage = spyStorage();
+    let releaseSeq!: (seq: number) => void;
+    storage.nextSeq.mockImplementation(
+      () =>
+        new Promise<number>((resolve) => {
+          releaseSeq = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const pending = capHeadResult(
+      context({ abortSignal: controller.signal }),
+      TOOL,
+      hugeResult(),
+    );
+    controller.abort();
+    const result = await pending;
+
+    expect(storage.insertArtifact).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
+    expect(noticeOf(result)).toContain('[full result not stored]');
+    releaseSeq(4);
+    await Promise.resolve();
+  });
+
+  it('resolves not-stored when the write rejects', async () => {
+    spyStorage();
+    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockRejectedValue(
+      new Error('refused'),
+    );
+    const controller = new AbortController();
+    const result = await capHeadResult(
+      context({ abortSignal: controller.signal }),
+      TOOL,
+      hugeResult(),
+    );
+
+    expect(result).not.toHaveProperty('artifact');
+    expect(noticeOf(result)).toContain('[full result not stored]');
+  });
+
+  it('removes the abort listener once the write settles', async () => {
+    spyStorage(4);
+    const controller = new AbortController();
+    const result = await capHeadResult(
+      context({ abortSignal: controller.signal }),
+      TOOL,
+      hugeResult(),
+    );
+
+    expect(result).toMatchObject({ artifact: LOCATOR });
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
   });
 
   it('does not write past the deadline', async () => {
