@@ -398,6 +398,10 @@ function takePage(
     base: search.budget.fixedReserve,
     counts: run.warnings,
     ignored: run.ignored,
+    unfinished:
+      run.unfinished === undefined
+        ? undefined
+        : machineScopeLocator(search.scope, run.unfinished),
   });
   return { ended: false };
 }

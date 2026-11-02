@@ -16,6 +16,7 @@ import {
   encodeGrepCursor,
   GREP_LIMITS,
   grepIgnoredUnits,
+  grepUnfinishedUnits,
   grepWarningsUnits,
   spellGrepHostScopeLocator,
   type DecodedGrepCursor,
@@ -252,12 +253,17 @@ export function spent(
     readonly base: number;
     readonly counts: ReadonlyMap<FsGrepWarningKind, number>;
     readonly ignored: IgnoredAccumulator;
+    /** The file the scope's walk stopped inside, as the result spells it. */
+    readonly unfinished: string | undefined;
   },
 ): GrepBudget {
   const consumed = page.consumed;
   const reserve =
     lines.base +
     grepWarningsUnits(lines.counts) +
+    (lines.unfinished === undefined
+      ? 0
+      : grepUnfinishedUnits(lines.unfinished)) +
     (lines.ignored.paths.length === 0 && !lines.ignored.atLeast
       ? 0
       : grepIgnoredUnits(
