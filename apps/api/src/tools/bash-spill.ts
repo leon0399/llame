@@ -317,7 +317,7 @@ async function writeStreamParts(
   if (runId === undefined || toolCallId === undefined) return undefined;
   if (!runCanReadArtifacts(context, 'bash')) return undefined;
   try {
-    return await writeToolArtifact(
+    const written = await writeToolArtifact(
       context.tenantDb,
       {
         chatId,
@@ -337,6 +337,12 @@ async function writeStreamParts(
       },
       { maxBytes: artifactMaxBytes(context) },
     );
+    // The probe before the write cannot know the counter value, so the
+    // allocated locator is judged again: a denied one is never advertised, and
+    // its row stays an orphan the store has no delete for (D4).
+    return runCanReadArtifacts(context, 'bash', written.seq)
+      ? written
+      : undefined;
   } catch {
     return undefined;
   }
