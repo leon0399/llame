@@ -146,9 +146,9 @@ type ScanRequest = {
   readonly deadlineAt: number;
 };
 
-/** One ordered unit of work: local scopes the engine walks, or one Machine. */
+/** One ordered unit of work: one host scope the engine walks, or one Machine. */
 type GrepSegment =
-  | { readonly index: number; readonly scopes: ReadonlyArray<GrepScope> }
+  | { readonly index: number; readonly scope: GrepScope }
   | { readonly index: number; readonly machine: MachineGrepScope };
 
 /** Page the call's scopes in submitted order; the caller records what policy hid. */
@@ -164,14 +164,10 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const segments = segmentsOf(resolved);
   for (const segment of segments) {
     if (!state.complete) break;
-    // The engine skips local scopes before the cursor itself; a Machine scope
-    // is skipped here, before any request leaves for its box.
-    if (
-      resume !== undefined &&
-      'machine' in segment &&
-      segment.index < resume.scopeIndex
-    )
-      continue;
+    // A resumed call starts at the cursor's own segment: an earlier host scope
+    // is never walked again, and a Machine scope is skipped before any request
+    // leaves for its box.
+    if (resume !== undefined && segment.index < resume.scopeIndex) continue;
     const remaining = remainingBudget(budget, state, deadlineAt);
     // A full page continues on the next call; an expired deadline ends here.
     if (pageIsFull(state, budget) || remaining.deadlineMs <= 0) {
@@ -225,29 +221,19 @@ function endAtDeadline(state: PageState): void {
 }
 
 /**
- * The submitted scopes in index order. Consecutive local scopes stay one
- * segment, so one engine call walks them; a Machine scope is its own segment.
+ * The submitted scopes in index order, one segment each: the engine walks one
+ * host scope under the page budget the call has left, and a Machine scope runs
+ * its own `fs.grep` pages (design D7).
  */
 function segmentsOf(resolved: ResolvedScopes): ReadonlyArray<GrepSegment> {
   const ordered = [...resolved.scopes, ...(resolved.machines ?? [])].sort(
     (left, right) => left.index - right.index,
   );
-  const segments: Array<GrepSegment> = [];
-  let locals: Array<GrepScope> = [];
-  for (const scope of ordered) {
-    if (isMachineGrepScope(scope)) {
-      if (locals.length > 0) {
-        segments.push({ index: locals[0].index, scopes: locals });
-        locals = [];
-      }
-      segments.push({ index: scope.index, machine: scope });
-      continue;
-    }
-    locals.push(scope);
-  }
-  if (locals.length > 0)
-    segments.push({ index: locals[0].index, scopes: locals });
-  return segments;
+  return ordered.map((scope) =>
+    isMachineGrepScope(scope)
+      ? { index: scope.index, machine: scope }
+      : { index: scope.index, scope },
+  );
 }
 
 type SegmentOutcome =
@@ -266,10 +252,10 @@ type SegmentRun = {
   readonly progressed: boolean;
 };
 
-/** Run one segment: the engine walks local scopes, the Machine walks its own. */
+/** Run one segment: the engine walks one host scope, the Machine walks its own. */
 async function runSegment(run: SegmentRun): Promise<SegmentOutcome> {
-  return 'scopes' in run.segment
-    ? runLocalSegment(run, run.segment.scopes)
+  return 'scope' in run.segment
+    ? runLocalSegment(run, run.segment.scope)
     : runMachineSegment(run, run.segment.machine);
 }
 
@@ -311,13 +297,25 @@ async function runMachineSegment(
   };
 }
 
-/** The local scopes of one run, walked by the shared engine under one budget. */
+/**
+ * One host scope, walked by the shared engine in one call under the page
+ * budget the call has left (design D7). The engine resumes only from a cursor
+ * that names this scope: an earlier scope is skipped by the caller, and a
+ * later one starts at its own beginning.
+ *
+ * The engine still stops its page at `limit` files, because that page *is* the
+ * model-facing page until the artifact holds the walk: `appendSegment` trusts
+ * the engine's own page end as the resume point, so an engine page the hub
+ * then cut at `limit` would resume past the matches it dropped. The artifact
+ * layer drops both stops together, when the page becomes the head of the
+ * artifact text.
+ */
 async function runLocalSegment(
   run: SegmentRun,
-  scopes: ReadonlyArray<GrepScope>,
+  scope: GrepScope,
 ): Promise<SegmentOutcome> {
   const scanInput: GrepScanInput = {
-    scopes,
+    scopes: [scope],
     patterns: run.patterns,
     onCandidate: (locator) =>
       Promise.resolve(run.request.admission.admit(locator)),
@@ -326,7 +324,8 @@ async function runLocalSegment(
     now: Date.now,
     progressed: run.progressed,
   };
-  if (run.cursor !== undefined) scanInput.cursor = run.cursor;
+  if (run.cursor !== undefined && run.cursor.scopeIndex === scope.index)
+    scanInput.cursor = run.cursor;
   try {
     return { page: localPage(await runGrepScan(scanInput)) };
   } catch (error) {

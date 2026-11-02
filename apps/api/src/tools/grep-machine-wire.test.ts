@@ -57,4 +57,17 @@ describe('mergePage', () => {
     expect(ignored.rels).toHaveLength(1000);
     expect(ignored.atLeast).toBe(true);
   });
+
+  it('counts a directory a later page reported again once', () => {
+    const ignored = ignoredAccumulator(SCOPE);
+    fold(ignored, ['node_modules']);
+    fold(ignored, ['node_modules', 'dist']);
+    expect(ignored.paths).toEqual([
+      'machine://devl/srv/node_modules',
+      'machine://devl/srv/dist',
+    ]);
+    expect(ignored.rels).toEqual(['node_modules', 'dist']);
+    expect(ignored.recorded).toBe(2);
+    expect(ignored.atLeast).toBe(false);
+  });
 });

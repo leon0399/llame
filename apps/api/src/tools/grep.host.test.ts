@@ -956,3 +956,50 @@ describe('operator bounds', () => {
     });
   });
 });
+
+describe('host scope pages', () => {
+  it('walks two submitted host scopes in one call in scope order', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a/two.md', 'needle\n');
+      await writeAt(root, 'b/one.md', 'needle\n');
+      const result = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/b/**`, `${root}/a/**`],
+      });
+      // One engine call per scope, appended in the submitted order.
+      expect(locatorsOf(result)).toEqual([
+        `${root}/b/one.md:1-1`,
+        `${root}/a/two.md:1-1`,
+      ]);
+      expect(success(result).complete).toBe(true);
+    });
+  });
+
+  it('hands a later host scope only what the page left', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a/one.md', 'needle\n');
+      await writeAt(root, 'b/two.md', 'needle\n');
+      const scopes = [`${root}/a/**`, `${root}/b/**`];
+      const first = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes,
+        limit: 1,
+      });
+      // The first scope filled the page, so the second one waits for a cursor
+      // that names its own start.
+      expect(locatorsOf(first)).toEqual([`${root}/a/one.md:1-1`]);
+      expect(success(first).complete).toBe(false);
+      const cursor = cursorOf(first);
+      if (cursor === undefined) throw new Error('the page carries a cursor');
+
+      const second = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes,
+        limit: 1,
+        cursor,
+      });
+      expect(locatorsOf(second)).toEqual([`${root}/b/two.md:1-1`]);
+      expect(success(second).complete).toBe(true);
+    });
+  });
+});

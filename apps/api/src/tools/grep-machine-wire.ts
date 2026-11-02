@@ -162,6 +162,8 @@ export type IgnoredAccumulator = {
   readonly paths: Array<string>;
   /** Each locator's scope-relative path, so a page cut can filter them. */
   readonly rels: Array<string>;
+  /** The paths already counted, so a repeated page counts its exclusions once. */
+  readonly seen: Set<string>;
   recorded: number;
   atLeast: boolean;
 };
@@ -169,13 +171,23 @@ export type IgnoredAccumulator = {
 export function ignoredAccumulator(
   scope: MachineGrepScope,
 ): IgnoredAccumulator {
-  return { scope, paths: [], rels: [], recorded: 0, atLeast: false };
+  return {
+    scope,
+    paths: [],
+    rels: [],
+    seen: new Set(),
+    recorded: 0,
+    atLeast: false,
+  };
 }
 
 /**
  * Fold one daemon page's warnings, budget, and excluded directories into the
  * scope's totals. The daemon's own cap and this one both count recorded
- * directories, before the hub's `read` filter.
+ * directories, before the hub's `read` filter. A directory an earlier page of
+ * the same scope already reported is counted once: a page asked again after a
+ * position it shares lists the exclusion again, and the result names each
+ * directory once per call.
  */
 export function mergePage(
   warnings: Map<FsGrepWarningKind, number>,
@@ -194,10 +206,12 @@ export function mergePage(
   if (page.ignored === undefined) return;
   if (page.ignored.atLeast) ignored.atLeast = true;
   for (const rel of page.ignored.paths) {
+    if (ignored.seen.has(rel)) continue;
     if (ignored.recorded >= GREP_LIMITS.ignoredReported) {
       ignored.atLeast = true;
       break;
     }
+    ignored.seen.add(rel);
     ignored.recorded += 1;
     const locator = machineScopeLocator(ignored.scope, rel);
     if (locator === undefined) continue;
