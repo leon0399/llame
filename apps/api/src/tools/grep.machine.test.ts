@@ -16,6 +16,7 @@ import {
 import {
   encodeGrepCursor,
   grepContinuationUnits,
+  grepPassageUnits,
   grepWarningsUnits,
   hashGrepInputs,
   measureGrepRendering,
@@ -73,6 +74,9 @@ const BUDGET: GrepBudget = {
   // The hub's own result fields travel outside the daemon's page.
   fixedReserve: 0,
 };
+
+/** Room the hub keeps for the deadline line it may add when the call ends. */
+const DEADLINE_UNITS = grepWarningsUnits(new Map([['deadline', 1]]));
 
 type Fixture = {
   readonly connector: MachineConnector;
@@ -446,6 +450,81 @@ describe('Machine grep', () => {
     });
   });
 
+  it('always carries the deadline warning on a page filled to the bound', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(0);
+      const rel = 'a.go';
+      const locator = 'machine://devl/srv/a/a.go:1-1';
+      // Fill the page to its new bound: the passage, the cursor's continuation
+      // line, the hub's own lines, and the deadline line it reserves up front.
+      const room =
+        15_000 -
+        pageFixedReserve() -
+        grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+        grepWarningsUnits(new Map([['deadline', 1]])) -
+        grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] });
+      const filled = {
+        ...passage(rel, 1, 1),
+        content: `1: ${'x'.repeat(room)}`,
+        matches: [1],
+      };
+      const { connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.grep') return undefined;
+          // The answer spends the rest of the walk.
+          vi.setSystemTime(109_000);
+          return { value: page([filled]) };
+        },
+      });
+      const result = await run(
+        context(connector, { timeoutMs: undefined, callTimeoutSeconds: 120 }),
+        {
+          patterns: ['needle'],
+          scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+        },
+      );
+      expect(locatorsOf(result)).toEqual([locator]);
+      expect(success(result).complete).toBe(false);
+      // The spec requires this warning at the call deadline, so it is never
+      // dropped to keep the page inside its bound.
+      expect(success(result).warnings).toEqual([
+        { kind: 'deadline', count: 1 },
+      ]);
+      expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses a passage that leaves no room for the deadline line', async () => {
+    // The same page filled without keeping the deadline line's room: the hub
+    // admits no entry there, so the warning it must report always fits.
+    const rel = 'a.go';
+    const locator = 'machine://devl/srv/a/a.go:1-1';
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+      grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] });
+    const oversized = {
+      ...passage(rel, 1, 1),
+      content: `1: ${'x'.repeat(room)}`,
+      matches: [1],
+    };
+    const { connector } = fixture({
+      answer: (call) =>
+        call.method === 'fs.grep' ? { value: page([oversized]) } : undefined,
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/a/**'],
+    });
+    expect(locatorsOf(result)).toEqual([]);
+    expect(success(result).complete).toBe(false);
+    expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+  });
+
   it('reserves the accumulated warnings line on a second daemon page', async () => {
     const scope = 'machine://devl/srv/app/**';
     let searches = 0;
@@ -481,6 +560,7 @@ describe('Machine grep', () => {
       pageUnits:
         15_000 -
         pageFixedReserve() -
+        DEADLINE_UNITS -
         grepWarningsUnits(new Map([['binary', 5]])),
     });
   });
@@ -1156,7 +1236,7 @@ describe('Machine page bounds', () => {
         entries: 19_998,
         bytes: 32 * 1024 * 1024 - 100,
         limit: 19,
-        pageUnits: 15_000 - rendered - pageFixedReserve(),
+        pageUnits: 15_000 - rendered - pageFixedReserve() - DEADLINE_UNITS,
       },
     });
     const bounds = boundsOf(session.calls[1].params);
@@ -1184,7 +1264,7 @@ describe('Machine page bounds', () => {
       complete: true,
     });
     expect(boundsOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 15_000 - rendered - 1 - pageFixedReserve(),
+      pageUnits: 15_000 - rendered - 1 - pageFixedReserve() - DEADLINE_UNITS,
     });
   });
 
@@ -1198,7 +1278,7 @@ describe('Machine page bounds', () => {
     });
     const session = await peer.session(0);
     expect(boundsOf(session.calls[1].params)).toMatchObject({
-      pageUnits: 15_000 - pageFixedReserve(),
+      pageUnits: 15_000 - pageFixedReserve() - DEADLINE_UNITS,
       limit: 20,
     });
   });
@@ -1450,6 +1530,7 @@ describe('Machine page bounds', () => {
     const room =
       15_000 -
       pageFixedReserve() -
+      DEADLINE_UNITS -
       grepContinuationUnits({ scopeIndex: 0, rel: 'a.go', startLine: 1 });
     const filled = fixture({
       answers: {
@@ -1540,7 +1621,12 @@ describe('Machine page bounds', () => {
     const second = {
       ...passage('a.go', 3, 3, []),
       content: 'a'.repeat(
-        15_000 - pageFixedReserve() - continuation - firstWidth - 2,
+        15_000 -
+          pageFixedReserve() -
+          DEADLINE_UNITS -
+          continuation -
+          firstWidth -
+          2,
       ),
     };
     const { connector } = fixture({
@@ -1586,7 +1672,12 @@ describe('Machine page bounds', () => {
     const third = {
       ...passage('a.go', 5, 5, []),
       content: 'c'.repeat(
-        15_000 - pageFixedReserve() - continuation - pairWidth - 2,
+        15_000 -
+          pageFixedReserve() -
+          DEADLINE_UNITS -
+          continuation -
+          pairWidth -
+          2,
       ),
     };
     const { connector } = fixture({
@@ -1628,7 +1719,9 @@ describe('Machine page bounds', () => {
     });
     const cut = {
       ...passage('a.go', 10, 40, []),
-      content: 'a'.repeat(15_000 - pageFixedReserve() - continuation - bare),
+      content: 'a'.repeat(
+        15_000 - pageFixedReserve() - DEADLINE_UNITS - continuation - bare,
+      ),
       cut: true as const,
     };
     const { connector } = fixture({

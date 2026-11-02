@@ -120,10 +120,30 @@ export function remainingBudget(
       budget.pageUnits -
         state.units -
         separator -
-        grepWarningsUnits(state.warnings),
+        grepWarningsUnits(state.warnings) -
+        deadlineUnits(state.warnings),
     ),
     fixedReserve: budget.fixedReserve,
   };
+}
+
+/** The hub's own warning when a call ends at its deadline: one fixed count. */
+const HUB_DEADLINE_WARNINGS: ReadonlyMap<string, number> = new Map([
+  ['deadline', 1],
+]);
+
+/**
+ * Rendered width the merged warnings line gains when the hub adds its own
+ * `deadline` count. The hub reserves it before any entry is admitted, so the
+ * stop's line always fits: the spec requires the warning, so unlike a skip's
+ * count it can never be deferred to the next call.
+ */
+export function deadlineUnits(warnings: ReadonlyMap<string, number>): number {
+  if (warnings.has('deadline')) return 0;
+  return (
+    grepWarningsUnits(new Map([...warnings, ...HUB_DEADLINE_WARNINGS])) -
+    grepWarningsUnits(warnings)
+  );
 }
 
 /** What one bound has left; an unset (`null`) bound stays unset. */
@@ -144,7 +164,10 @@ export function appendSegment(
   mergeWarnings(state, page.warnings);
   // The page's own lines are fixed once its warnings are merged, so measure
   // them once, not per entry.
-  const reserve = budget.fixedReserve + grepWarningsUnits(state.warnings);
+  const reserve =
+    budget.fixedReserve +
+    grepWarningsUnits(state.warnings) +
+    deadlineUnits(state.warnings);
   state.consumed.files += page.consumed.files;
   state.consumed.entries += page.consumed.entries;
   state.consumed.bytes += page.consumed.bytes;

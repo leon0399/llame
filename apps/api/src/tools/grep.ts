@@ -173,7 +173,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     const remaining = remainingBudget(budget, state, deadlineAt);
     // A full page continues on the next call; an expired deadline ends here.
     if (pageIsFull(state, budget) || remaining.deadlineMs <= 0) {
-      if (remaining.deadlineMs <= 0) endAtDeadline(state, budget, inputHash);
+      if (remaining.deadlineMs <= 0) endAtDeadline(state);
       else state.complete = false;
       break;
     }
@@ -194,19 +194,13 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
 }
 
 /**
- * End the page at the deadline. The deadline is the hub's own warning, so its
- * line must fit beside the passages already kept; otherwise the page ends
- * here and the next call reports the stop (design D7).
+ * End the page at the deadline. The hub reserved the deadline line's room
+ * before any entry was admitted, so the stop the spec requires is always
+ * reported, never deferred (design D7).
  */
-function endAtDeadline(
-  state: PageState,
-  budget: GrepBudget,
-  inputHash: string,
-): void {
+function endAtDeadline(state: PageState): void {
   state.complete = false;
   addWarning(state, 'deadline');
-  if (measureGrepRendering(pageResult(state, inputHash)) > budget.pageUnits)
-    state.warnings.delete('deadline');
 }
 
 /**
