@@ -206,6 +206,25 @@ One shared engine ranks, splits and renders for every tool. Cursors such as
   score (`openspec/specs/chat-search/spec.md`). The permission study scored a
   useful "no measurements were provided" passage at 0.27 against a relevant
   label.
+- **F14. Stage 1 does not need an AST; code structure is a shared provider
+  it can use later.**
+  - Most stage-1 signals come from text and paths: test, vendored and
+    generated paths, term overlap, match density, and literal anchors.
+  - "A declaration outranks a usage" can start as a per-language line
+    heuristic, the way ctags-style tools work.
+  - An AST (tree-sitter, as in jevgrep and XERJ) adds the enclosing
+    declaration of each hit, which lets the layout group hits by symbol and
+    lets the remainder map list symbols instead of files.
+  - #801 (code outlines and block reads) and #1505 (outline-first reads) need
+    the same declaration index, so it belongs in one code-structure provider
+    beside the existing Markdown outline (#572). Ranking would be its third
+    consumer, not its owner. #801 itself defers any common framework until
+    its first example exists.
+  - The streamed scan never holds a whole file, so the provider must re-read
+    only the files that make the inline part. It must also run where the
+    file lives, which on a Machine means the daemon.
+  - #1520 measures what the AST adds: no declaration signal, against the
+    line heuristic, against tree-sitter.
 
 ## Ideation pass
 
