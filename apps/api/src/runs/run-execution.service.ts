@@ -2550,7 +2550,9 @@ export class RunExecutionService {
     listing: WorkspaceMcpListingCell,
   ): Promise<WorkspaceMcpKey | undefined> {
     const clients = this.workspaceMcp;
-    if (clients === undefined) return mode === 'read-only' ? undefined : key;
+    // Without clients no key reaches anything downstream: the resolver, the
+    // attempt hold, and the catalog all require `this.workspaceMcp`.
+    if (clients === undefined) return undefined;
     if (key === undefined) {
       await clients.stopForChat(chatId);
       return undefined;
@@ -2585,16 +2587,9 @@ export class RunExecutionService {
   }
 
   /**
-   * The Workspace MCP key this attempt may compose tools from. A `read-only`
-   * attempt gets none, so no client, resolver, or hold is reached.
+   * The Chat's bound Workspace identity, absent unless the preparation carries
+   * a root, the Chat row, and its binding generation.
    */
-  private attemptWorkspaceMcpKey(
-    preparation: WorkspacePreparation,
-    mode: PermissionMode,
-  ): WorkspaceMcpKey | undefined {
-    return mode === 'read-only' ? undefined : this.workspaceMcpKey(preparation);
-  }
-
   private workspaceMcpKey(
     preparation: WorkspacePreparation,
   ): WorkspaceMcpKey | undefined {
