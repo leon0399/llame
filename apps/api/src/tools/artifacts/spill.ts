@@ -124,14 +124,13 @@ async function storeHeadRendering(
   toolName: string,
   rendering: SpillRendering,
 ): Promise<CappedResultSpill | undefined> {
+  // A failed write rejects here, and `boundedSpill` turns that rejection into
+  // `not-stored`.
   const write = await writeSinglePart(context, toolName, {
     contentType: rendering.contentType,
     content: rendering.content,
   });
   if (write.kind === 'no-reader') return undefined;
-  // The head spill settles one outcome: a failed write rejects here, and
-  // `boundedSpill` turns that rejection into `not-stored`.
-  if (write.kind === 'failed') throw new Error('The artifact write failed.');
   const written = write.written;
   const hostFiles = artifactHostFiles(context, toolName, written);
   return {
@@ -164,17 +163,24 @@ export async function storeSinglePartArtifact(
   toolName: string,
   part: SinglePartArtifact,
 ): Promise<WrittenArtifact | undefined> {
-  const write = await writeSinglePart(context, toolName, part);
-  return write.kind === 'written' ? write.written : undefined;
+  try {
+    const write = await writeSinglePart(context, toolName, part);
+    return write.kind === 'written' ? write.written : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-/** The shared one-part write's outcome: no reader, a failure, or the row. */
+/** The shared one-part write's outcome: no reader, or the stored row. */
 type SinglePartWrite =
   | { readonly kind: 'no-reader' }
-  | { readonly kind: 'failed' }
   | { readonly kind: 'written'; readonly written: WrittenArtifact };
 
-/** Write one part after probing the Run, then re-check the allocated locator. */
+/**
+ * Write one part after probing the Run, then re-check the allocated locator.
+ * A failed write or an unreachable locator throws, so the caller settles one
+ * outcome.
+ */
 async function writeSinglePart(
   context: ToolContext,
   toolName: string,
@@ -184,18 +190,15 @@ async function writeSinglePart(
   if (runId === undefined || !canReadArtifacts(context, toolName)) {
     return { kind: 'no-reader' };
   }
-  try {
-    const written = await writePart(context, runId, toolName, part);
-    // A host route needs the file it would name: when the writer made none,
-    // only `read` reaches the artifact.
-    const reachable =
-      written.hostDirectory === undefined
-        ? readAdmitsArtifact(context, toolName, written.seq)
-        : canReadArtifacts(context, toolName, written.seq);
-    return reachable ? { kind: 'written', written } : { kind: 'failed' };
-  } catch {
-    return { kind: 'failed' };
-  }
+  const written = await writePart(context, runId, toolName, part);
+  // A host route needs the file it would name: when the writer made none,
+  // only `read` reaches the artifact.
+  const reachable =
+    written.hostDirectory === undefined
+      ? readAdmitsArtifact(context, toolName, written.seq)
+      : canReadArtifacts(context, toolName, written.seq);
+  if (!reachable) throw new Error('The artifact is not reachable.');
+  return { kind: 'written', written };
 }
 
 /** The writer request of one part, host files and the call's signals included. */

@@ -165,11 +165,6 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   });
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
-    // The artifact bound stops the walk before another scope is opened.
-    if (artifactSpent(state)) {
-      endAtArtifactBound(state);
-      break;
-    }
     const remaining = budgetAfter(budget, state.consumed, deadlineAt);
     // An expired deadline ends the walk before another scope is opened.
     if (remaining.deadlineMs <= 0) {
@@ -204,14 +199,6 @@ function endAtArtifactBound(state: PageState): void {
   state.complete = false;
   if (!state.warnings.has('artifact_bound'))
     addWarning(state, 'artifact_bound');
-}
-
-/** Whether the artifact can take no further passage. */
-function artifactSpent(state: PageState): boolean {
-  return (
-    state.artifact.full ||
-    grepArtifactBytes(state.artifact) >= state.artifact.maxBytes
-  );
 }
 
 /**
@@ -335,10 +322,6 @@ async function runLocalSegment(
   };
   try {
     for (;;) {
-      if (artifactSpent(run.state)) {
-        endAtArtifactBound(run.state);
-        return undefined;
-      }
       const scan = await runGrepScan(engineInput(run, scope, walk));
       appendSegment(run.state, localPage(scan), run.request.admission);
       // The artifact may reject the passage that overflowed its bound; the

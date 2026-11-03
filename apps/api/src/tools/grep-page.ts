@@ -61,8 +61,8 @@ export type GrepArtifact = {
   readonly blocks: Array<ArtifactBlock>;
   /** The body's UTF-8 bytes, each line with its terminator. */
   lineBytes: number;
-  /** The body's artifact-numbered lines, 8,000-unit pieces included. */
-  lineCount: number;
+  /** A Knowledge passage arrived, so the notice line starts the text. */
+  knowledge: boolean;
   /**
    * Bytes the notice line and its terminator take once a Knowledge passage
    * arrives. Kept back from the bound from the first passage, because a
@@ -86,7 +86,7 @@ export function createGrepArtifact(options: GrepArtifactOptions): GrepArtifact {
     results: [],
     blocks: [],
     lineBytes: 0,
-    lineCount: 0,
+    knowledge: false,
     noticeBytes: options.mayCarryKnowledge
       ? Buffer.byteLength(`notice: ${KNOWLEDGE_CONTENT_NOTICE}`, 'utf8') + 1
       : 0,
@@ -102,7 +102,8 @@ export function createGrepArtifact(options: GrepArtifactOptions): GrepArtifact {
  * bytes back, so its first passage cannot push the text over the bound.
  */
 export function grepArtifactBytes(artifact: GrepArtifact): number {
-  if (artifact.lineCount === 0) return Math.max(0, artifact.noticeBytes - 1);
+  if (artifact.results.length === 0)
+    return Math.max(0, artifact.noticeBytes - 1);
   return artifact.lineBytes - 1 + artifact.noticeBytes;
 }
 
@@ -139,7 +140,8 @@ function appendBlock(artifact: GrepArtifact, passage: GrepPassage): boolean {
   artifact.results.push(passage);
   artifact.blocks.push(block);
   artifact.lineBytes += block.bytes;
-  artifact.lineCount += block.pieces;
+  if (passage.locator.startsWith(`${KNOWLEDGE_LOCATOR_SCHEME}://`))
+    artifact.knowledge = true;
   return true;
 }
 
@@ -200,13 +202,12 @@ function replaceCutPassage(
     newRun: old.newRun,
   };
   artifact.lineBytes += added;
-  artifact.lineCount += pieces;
   return true;
 }
 
 /** Whether the whole result carries the Knowledge notice. */
 export function grepArtifactHasNotice(artifact: GrepArtifact): boolean {
-  return artifact.noticeBytes > 0 && carriesKnowledgePassage(artifact.results);
+  return artifact.knowledge;
 }
 
 /** The stored text of the artifact: the notice line, then the passages. */

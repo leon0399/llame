@@ -10,6 +10,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import {
+  grepLeftOutUnits,
+  measureGrepRendering,
+  type GrepPassage,
+} from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import {
   afterEach,
@@ -24,6 +29,8 @@ import {
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
+import { finishGrepCall } from './grep-artifact';
+import { addGrepPassages, createPageState, pageResult } from './grep-page';
 import { grepInputSchema, nativeGrepTool } from './grep';
 import { renderToolResultText } from './model-text';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
@@ -525,5 +532,107 @@ describe('grep artifacts', () => {
     const remainderAt = lines.findIndex((line) => line.startsWith('[more: '));
     expect(ignoredAt).toBeGreaterThan(warningAt);
     expect(remainderAt).toBeGreaterThan(ignoredAt);
+  });
+});
+
+describe('grep inline boundaries', () => {
+  function stateOf(passages: ReadonlyArray<GrepPassage>, maxBytes = 1_000_000) {
+    const state = createPageState({ maxBytes, mayCarryKnowledge: false });
+    addGrepPassages(state.artifact, passages);
+    return state;
+  }
+
+  const unreadable = () => contextOf({ artifactReadable: false });
+
+  it('keeps a result that renders in exactly the inline bound', async () => {
+    // `## a.md` + `*1: ` + text, joined lines: 25 units of framing for two
+    // files, so 7,487 and 7,488 units of text render exactly 15,000.
+    const two = stateOf([
+      { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
+      { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7488)}`, matches: [1] },
+    ]);
+    // The fixture renders the whole result in exactly the inline bound.
+    expect(measureGrepRendering(pageResult(two))).toBe(15_000);
+    const exact = await finishGrepCall(two, unreadable(), 20);
+    expect(exact).not.toHaveProperty('leftOut');
+    expect(success(exact).results).toHaveLength(2);
+
+    // One unit less cannot fit both files, so the head keeps one file.
+    const over = stateOf([
+      { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
+      { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7489)}`, matches: [1] },
+    ]);
+    const capped = await finishGrepCall(over, unreadable(), 20);
+    expect(leftOutOf(capped)).toMatchObject({ of: 'files', count: 1 });
+  });
+
+  it('keeps the first file that exactly fills the inline head', async () => {
+    const budget = 15_000 - grepLeftOutUnits(999_999_999, 'results');
+    // Two lines, so a stricter comparison loses a line rather than lands on
+    // the same single-line floor: the block takes `budget` code units.
+    const first = budget - 17 - 10;
+    const result = await finishGrepCall(
+      stateOf([
+        {
+          locator: 'a.md:1-2',
+          content: `1: ${'x'.repeat(first)}\n2: ${'x'.repeat(10)}`,
+          matches: [1],
+        },
+        { locator: 'b.md:1-1', content: '1: y', matches: [1] },
+      ]),
+      unreadable(),
+      1,
+    );
+
+    // The first file fits to the unit, so only the second file is left out.
+    // A stricter comparison would cut the first file and count lines.
+    expect(resultsOf(result)[0]?.cut).toBe(false);
+    expect(leftOutOf(result)).toMatchObject({ of: 'files', count: 1 });
+  });
+
+  it('cuts a long passage at its largest whole-line prefix', async () => {
+    const content = Array.from(
+      { length: 40 },
+      (_, index) => `${String(index + 1)}: ${'y'.repeat(400)}`,
+    ).join('\n');
+    const result = await finishGrepCall(
+      stateOf([{ locator: 'a.md:1-40', content, matches: [1] }]),
+      unreadable(),
+      20,
+    );
+
+    const cut = resultsOf(result)[0];
+    const end = Number(/:\d+-(\d+)$/u.exec(cut?.locator ?? '')?.[1]);
+    // The head holds the lines it can, not a degenerate one-line floor.
+    expect(end).toBeGreaterThanOrEqual(30);
+    expect(leftOutOf(result)).toMatchObject({ of: 'lines', count: 40 - end });
+  });
+
+  it('drops a dangling cut without losing its cap mark', async () => {
+    const state = stateOf([
+      { locator: 'a.md:1-2', content: '1: a\n2: b', matches: [1], cut: true },
+    ]);
+    const result = await finishGrepCall(state, unreadable(), 20);
+    const plain = resultsOf(result)[0];
+    expect(plain?.cut).toBe(false);
+    expect(plain?.truncated).toBe(false);
+    expect(renderToolResultText('grep', result)).not.toContain(
+      'more passages in this file',
+    );
+
+    const capped = stateOf([
+      {
+        locator: 'a.md:1-2',
+        content: '1: a\n2: b',
+        matches: [1],
+        cut: true,
+        truncated: true,
+      },
+    ]);
+    const cappedResult = await finishGrepCall(capped, unreadable(), 20);
+    expect(resultsOf(cappedResult)[0]?.truncated).toBe(true);
+    expect(renderToolResultText('grep', cappedResult)).toContain(
+      '[more passages in this file; read it to see them]',
+    );
   });
 });

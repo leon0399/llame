@@ -120,18 +120,15 @@ function leftOutResult(
   const head = inlineHead(state.artifact, limit, reserve, false);
   const leftFiles = total - head.files;
   const leftPassages = passages - head.results.length;
+  // One of the three is always what the head lacks: a whole file, the rest of
+  // a cut passage, or later passages of the file the head ends in.
   const leftOut =
     leftFiles > 0
       ? { count: leftFiles, of: 'files' as const }
       : head.cut !== undefined
         ? { count: head.cut, of: 'lines' as const }
-        : leftPassages > 0
-          ? { count: leftPassages, of: 'results' as const }
-          : undefined;
-  return {
-    ...pageResult(state, head.results),
-    ...(leftOut !== undefined && { leftOut }),
-  };
+        : { count: leftPassages, of: 'results' as const };
+  return { ...pageResult(state, head.results), leftOut };
 }
 
 /** The result of a stored artifact: its head, the remainder line, the notice. */
@@ -226,9 +223,12 @@ function inlineHead(
       // A cut only ever happens as the first passage, which opens its file
       // run: the file is shown, so only its remaining lines are left out.
       files += 1;
-      const left =
-        passageEndLine(passage.locator) - passageEndLine(cut.locator);
-      if (left > 0) return { results, artifactLines, files, cut: left };
+      return {
+        results,
+        artifactLines,
+        files,
+        cut: passageEndLine(passage.locator) - passageEndLine(cut.locator),
+      };
     }
     break;
   }
@@ -257,13 +257,15 @@ function cutToInline(
 ): GrepPassage {
   const start = passageStartLine(passage.locator);
   const end = passageEndLine(passage.locator);
-  const lines = passage.content.replace(/\n$/u, '').split('\n');
+  const lines = passage.content.split('\n');
+  if (lines.at(-1) === '') lines.pop();
   const cutAt = (last: number): GrepPassage => ({
     locator: `${fileOf(passage)}:${String(start)}-${String(last)}`,
     content: lines.slice(0, last - start + 1).join('\n'),
     matches: passage.matches.filter((match) => match <= last),
+    // A cut is always the first passage, so it is never the file's twentieth:
+    // only the cut mark can apply.
     ...(markCut && { cut: true as const }),
-    ...(passage.truncated === true && { truncated: true as const }),
   });
   // The width only grows with more lines, so the largest fitting end is a
   // binary search, not one full render per line.
