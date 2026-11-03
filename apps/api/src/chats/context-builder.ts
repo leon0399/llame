@@ -54,9 +54,10 @@ export interface TextPart {
    * Opaque provider metadata the adapter attached to this text part (design
    * A7), stored verbatim beside the text: on the Responses wire the item's
    * `itemId`. Same contract as `ReasoningPart`'s field — llame never reads a
-   * key inside it, and a later request for the same Chat replays it so the
-   * wire recognizes its own part. Absent when the adapter supplied none, and
-   * it changes neither the part's display text nor its order. The owner
+   * key inside it. This layer only stores it; the replay layer of
+   * exact-turn-replay sends it back so the wire recognizes its own part.
+   * Absent when the adapter supplied none, and it changes neither the part's
+   * display text nor its order. The owner
    * history response and owner event stream strip it; exports, public shares,
    * search, logs, and telemetry never carry it.
    */

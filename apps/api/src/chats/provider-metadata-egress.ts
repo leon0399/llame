@@ -2,7 +2,7 @@
  * The single strip that keeps a text part's or a tool call's opaque provider
  * metadata on the server (design A7). A stored text part keeps the item id the
  * Responses wire handed it, and a stored tool part keeps its call's metadata,
- * because a later request for the same Chat replays them. The owner's chat
+ * so that the later replay layer of exact-turn-replay can send them back. The owner's chat
  * history response and run event stream apply these strips; exports, public
  * shares, search, logs, and telemetry read only text or typed fields and never
  * reach the metadata.
