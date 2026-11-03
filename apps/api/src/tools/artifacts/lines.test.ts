@@ -1,6 +1,7 @@
 import {
   ARTIFACT_LINE_UNITS,
   artifactLineCount,
+  artifactLinePieceCount,
   artifactLinePieces,
   artifactText,
 } from './lines';
@@ -108,5 +109,22 @@ describe('artifact line numbering', () => {
     expect(artifactText('a\nb')).toBe('a\nb');
     expect(artifactLineCount('\n')).toBe(1);
     expect(artifactLineCount('')).toBe(0);
+  });
+});
+
+describe('one rendered line as artifact lines', () => {
+  it('counts an empty line as one line', () => {
+    // The blank line between two passages of one file is a rendered line, and
+    // the reader numbers it like any other.
+    expect(artifactLinePieceCount('')).toBe(1);
+  });
+
+  it('counts a line up to the bound as one line', () => {
+    expect(artifactLinePieceCount(units('a', ARTIFACT_LINE_UNITS))).toBe(1);
+  });
+
+  it('counts one more line for each piece past the bound', () => {
+    expect(artifactLinePieceCount(units('a', ARTIFACT_LINE_UNITS + 1))).toBe(2);
+    expect(artifactLinePieceCount(units('a', ARTIFACT_LINE_UNITS * 3))).toBe(3);
   });
 });

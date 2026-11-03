@@ -116,14 +116,26 @@ function artifactText(): string {
 }
 
 /** The inline passages, reduced to the marks the tests assert. */
-function resultsOf(
-  result: ToolResult,
-): ReadonlyArray<{ readonly cut: boolean; readonly truncated: boolean }> {
+type InlinePassage = {
+  readonly cut: boolean;
+  readonly truncated: boolean;
+  readonly locator: string;
+  readonly content: string;
+  readonly matches: ReadonlyArray<number>;
+};
+
+/** The inline passages, with only the fields the tests assert. */
+function resultsOf(result: ToolResult): ReadonlyArray<InlinePassage> {
   const results = success(result).results;
   if (!Array.isArray(results)) return [];
   return results.filter(isRecord).map((entry) => ({
     cut: entry['cut'] === true,
     truncated: entry['truncated'] === true,
+    locator: isString(entry['locator']) ? entry['locator'] : '',
+    content: isString(entry['content']) ? entry['content'] : '',
+    matches: Array.isArray(entry['matches'])
+      ? entry['matches'].filter((match): match is number => isNumber(match))
+      : [],
   }));
 }
 
@@ -136,6 +148,18 @@ function leftOutOf(
   const { count, of } = leftOut;
   if (!isNumber(count) || !isString(of)) return undefined;
   return { count, of };
+}
+
+/** The one-based last line the inline part shows of its single passage. */
+function endLineOf(result: ToolResult): number {
+  const locator = resultsOf(result)[0]?.locator ?? '';
+  return Number(/:\d+-(\d+)$/u.exec(locator)?.[1]);
+}
+
+/** The stored notice text of a result, without its brackets. */
+function bodyText(result: ToolResult): string {
+  const notice = success(result).truncationNotice;
+  return isString(notice) ? notice : '';
 }
 
 function headings(text: string): ReadonlyArray<string> {
@@ -344,6 +368,30 @@ describe('grep artifacts', () => {
     const text = renderToolResultText('grep', result);
     expect(text).toContain('[passage cut; the artifact holds the rest]');
     expect(text.length).toBeLessThanOrEqual(15_000);
+    const cut = resultsOf(result)[0];
+    const range = /:(\d+)-(\d+)$/u.exec(cut?.locator ?? '');
+    expect(range).not.toBeNull();
+    const [start, end] = [Number(range?.[1]), Number(range?.[2])];
+    // The inline passage is the artifact's first lines, and its marks follow
+    // the lines it kept.
+    const contentLines = (cut?.content ?? '').split('\n');
+    expect(contentLines).toHaveLength(end - start + 1);
+    expect(contentLines[0]).toMatch(/^1: needle 1 /u);
+    const matches = cut?.matches ?? [];
+    expect(matches.length).toBe(end - start + 1);
+    expect(matches.at(-1)).toBe(end);
+    // A cut passage is not a capped file: the marker belongs to a twentieth
+    // passage alone.
+    expect(inline[0]?.truncated).toBe(false);
+    expect(text).not.toContain('more passages in this file');
+    // Only the rest of the cut passage remains, and the notice continues at
+    // the artifact line right after the inline lines.
+    const remainder = remainderOf(result);
+    expect(remainder).toMatchObject({ files: 1, passages: 1 });
+    expect(remainder?.next[0]?.start).toBe(contentLines.length + 2);
+    expect(bodyText(result)).toContain(
+      `; continue with artifact://grep-1:${String(remainder?.next[0]?.start)}-`,
+    );
     const artifact = artifactText().split('\n');
     expect(artifact).toHaveLength(401);
     expect(artifact[0]).toBe(`## ${path.join(root, 'd/big.ts')}`);
@@ -372,10 +420,51 @@ describe('grep artifacts', () => {
     expect(text).not.toContain('[passage cut; the artifact holds the rest]');
     expect(text.length).toBeLessThanOrEqual(15_000);
     expect(leftOutOf(result)?.of).toBe('lines');
-    expect(leftOutOf(result)?.count).toBeGreaterThan(0);
+    // Every source line after the cut one is counted.
+    expect(leftOutOf(result)?.count).toBe(400 - endLineOf(result));
     expect(text.split('\n').at(-1)).toBe(
       `[left out: ${String(leftOutOf(result)?.count)} lines; full result not stored]`,
     );
+  });
+
+  it('keeps the whole result inline when exactly `limit` files fit', async () => {
+    await writeAt('d/a.ts', '1: needle\n');
+    await writeAt('d/b.ts', '1: needle\n');
+    await writeAt('d/c.ts', '1: needle\n');
+    const result = await run(contextOf(), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+      limit: 3,
+    });
+
+    expect(resultsOf(result)).toHaveLength(3);
+    expect(success(result)).not.toHaveProperty('artifact');
+    expect(success(result)).not.toHaveProperty('remainder');
+    expect(success(result)).not.toHaveProperty('leftOut');
+    expect(writes.insertParts).not.toHaveBeenCalled();
+  });
+
+  it('counts the results a head left out without a whole file', async () => {
+    const lines: Array<string> = [];
+    for (let match = 0; match < 20; match += 1)
+      lines.push(longLine('a'), longLine('needle '), longLine('b'), '', '');
+    await writeAt('d/one.ts', lines.join('\n'));
+    const result = await run(contextOf({ artifactReadable: false }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+    });
+
+    const inline = resultsOf(result);
+    expect(inline.length).toBeLessThan(20);
+    // The single file is shown, so files are not what was left out.
+    const leftOut = leftOutOf(result);
+    expect(leftOut?.of).toBe('results');
+    expect(leftOut?.count).toBe(20 - inline.length);
+    const text = renderToolResultText('grep', result);
+    expect(text.split('\n').at(-1)).toBe(
+      `[left out: ${String(20 - inline.length)} results; full result not stored]`,
+    );
+    expect(text.length).toBeLessThanOrEqual(15_000);
   });
 
   it('marks a file twentieth passage and stores no twenty-first', async () => {

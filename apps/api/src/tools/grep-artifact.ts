@@ -28,7 +28,6 @@ import {
 } from '@workspace/native-file-tools';
 import {
   artifactNotice,
-  cutStringAtCodePointBoundary,
   type ArtifactNoticeHostFiles,
 } from '@workspace/runtime-safety';
 
@@ -84,6 +83,13 @@ export async function finishGrepCall(
   });
 }
 
+/**
+ * The room the inline head keeps back for the left-out line. The line counts
+ * at most a nine-digit number of files, results, or lines, which is wider than
+ * any real sum, so the reserve is computed once.
+ */
+const LEFT_OUT_RESERVE = grepLeftOutUnits(999_999_999, 'results');
+
 /** The inline result without an artifact: the head and what it left out. */
 function leftOutResult(
   state: PageState,
@@ -92,14 +98,7 @@ function leftOutResult(
 ): ToolResult {
   const total = filesOf(state.artifact);
   const passages = state.artifact.results.length;
-  // The line counts files, or the lines of a single cut passage; keep room for
-  // the wider of the two.
-  const reserve =
-    trailing +
-    Math.max(
-      grepLeftOutUnits(total, 'files'),
-      grepLeftOutUnits(passages, 'lines'),
-    );
+  const reserve = trailing + LEFT_OUT_RESERVE;
   const head = inlineHead(state.artifact, limit, reserve, false);
   const leftFiles = total - head.files;
   const leftPassages = passages - head.results.length;
@@ -152,7 +151,7 @@ function storedNotice(
     [{ locator: written.locator, lines: written.lineCount }],
     {
       continueWith: { locator: written.locator, next },
-      ...(hostFiles !== undefined && { hostFiles }),
+      hostFiles,
     },
   ).slice(1, -1);
 }
@@ -206,8 +205,9 @@ function inlineHead(
       const cut = cutToInline(passage, budget - used, markCut);
       results.push(cut);
       artifactLines += blockPieces(cut);
-      // The cut passage still shows its file, so the file is not left out.
-      if (block.newRun) files += 1;
+      // A cut only ever happens as the first passage, which opens its file
+      // run: the file is shown, so only its remaining lines are left out.
+      files += 1;
       const left =
         passageEndLine(passage.locator) - passageEndLine(cut.locator);
       if (left > 0) return { results, artifactLines, files, cut: left };
@@ -226,10 +226,11 @@ function blockPieces(passage: GrepPassage): number {
 }
 
 /**
- * The first `available` code units of a passage, as whole lines; when not even
- * one line fits, that line is cut by code points. `markCut` records that the
- * artifact holds the rest; without an artifact nothing is marked, because
- * nothing holds it.
+ * The first `available` code units of a passage, as whole lines. A rendered
+ * content line is at most the engine's 512-unit line cut, and the inline
+ * reserve leaves thousands of units, so one whole line always fits: the floor
+ * is that line, never a partial one. `markCut` records that the artifact holds
+ * the rest; without an artifact nothing is marked, because nothing holds it.
  */
 function cutToInline(
   passage: GrepPassage,
@@ -239,9 +240,9 @@ function cutToInline(
   const start = passageStartLine(passage.locator);
   const end = passageEndLine(passage.locator);
   const lines = passage.content.replace(/\n$/u, '').split('\n');
-  const cutAt = (last: number, first?: string): GrepPassage => ({
+  const cutAt = (last: number): GrepPassage => ({
     locator: `${fileOf(passage)}:${String(start)}-${String(last)}`,
-    content: first ?? lines.slice(0, last - start + 1).join('\n'),
+    content: lines.slice(0, last - start + 1).join('\n'),
     matches: passage.matches.filter((match) => match <= last),
     ...(markCut && { cut: true as const }),
     ...(passage.truncated === true && { truncated: true as const }),
@@ -261,34 +262,8 @@ function cutToInline(
       high = middle - 1;
     }
   }
-  if (best !== undefined) return best;
-  return cutFirstLineIn(cutAt)(lines[0] ?? '', start, available);
-}
-
-/**
- * The first line of the cut passage, shortened by code points until it fits.
- * It is the floor when not even one whole line fits the inline part.
- */
-function cutFirstLineIn(cutAt: (last: number, first: string) => GrepPassage) {
-  return (line: string, start: number, available: number): GrepPassage => {
-    let low = 0;
-    let high = line.length;
-    let best: GrepPassage | undefined;
-    while (low <= high) {
-      const middle = Math.floor((low + high) / 2);
-      const candidate = cutAt(
-        start,
-        cutStringAtCodePointBoundary(line, middle),
-      );
-      if (grepPassageUnits(undefined, candidate) <= available) {
-        best = candidate;
-        low = middle + 1;
-      } else {
-        high = middle - 1;
-      }
-    }
-    return best ?? cutAt(start, '');
-  };
+  // One line is the floor: a match never yields an empty inline part.
+  return best ?? cutAt(start);
 }
 
 /** The files the artifact lists, by run of consecutive passages. */

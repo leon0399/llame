@@ -18,7 +18,11 @@ import * as schema from '../../db/schema';
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { ArtifactsRepository } from './artifacts-repository';
 import { artifactDirectory } from './host-files';
-import { artifactMaxBytes, capHeadResult } from './spill';
+import {
+  artifactMaxBytes,
+  capHeadResult,
+  storeSinglePartArtifact,
+} from './spill';
 import { isString, RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 import { createWorkspaceRootCell } from '../workspace-path';
 
@@ -451,5 +455,38 @@ describe('artifactMaxBytes', () => {
   it('uses the configured bound, or the built-in one', () => {
     expect(artifactMaxBytes(context({ artifactMaxBytes: 1024 }))).toBe(1024);
     expect(artifactMaxBytes(context())).toBe(8_388_608);
+  });
+});
+
+describe('the shared single-part store', () => {
+  const findings = {
+    version: 1,
+    findings: [{ locators: ['/r/a.ts'], rule: 'allow_only', start: 1, end: 2 }],
+  };
+
+  it('stores the findings document of a part that carries one', async () => {
+    const spies = spyStorage(4);
+    const written = await storeSinglePartArtifact(context(), 'grep', {
+      contentType: 'text/markdown',
+      content: '## /r/a.ts\n*1: x\n',
+      findings,
+      complete: false,
+    });
+
+    expect(written?.locator).toBe('artifact://grep-4');
+    const part = spies.insertParts.mock.calls[0]?.[1]?.[0];
+    expect(part?.findings).toEqual(findings);
+    expect(part?.contentType).toBe('text/markdown');
+  });
+
+  it('stores no findings record for a part that carries none', async () => {
+    const spies = spyStorage(5);
+    await storeSinglePartArtifact(context(), 'mcp__docs__fetch', {
+      contentType: 'text/plain',
+      content: 'plain',
+    });
+
+    const part = spies.insertParts.mock.calls[0]?.[1]?.[0];
+    expect(part?.findings).toBeNull();
   });
 });

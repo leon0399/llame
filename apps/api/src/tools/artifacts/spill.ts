@@ -221,7 +221,7 @@ function writePart(
         {
           contentType: part.contentType,
           content: Buffer.from(part.content, 'utf8'),
-          ...(part.findings !== undefined && { findings: part.findings }),
+          findings: part.findings,
         },
       ],
     },
