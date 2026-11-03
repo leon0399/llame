@@ -38,6 +38,7 @@ import {
 } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { grepInputSchema, nativeGrepTool, pageFixedReserve } from './grep';
+import { renderToolResultText } from './model-text';
 import { createGrepReadAdmission } from './grep-admission';
 import { executeMachineScope, type MachineGrepSearch } from './grep-machine';
 import { machineNotFoundResult } from './machine-call';
@@ -976,6 +977,31 @@ describe('Machine request shape', () => {
 });
 
 describe('Machine page bounds', () => {
+  it('marks no artifact for a cut passage the walk never continued', async () => {
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([{ ...passage('a.go', 1, 2), cut: true }], {
+            complete: false,
+            warnings: [{ kind: 'deadline', count: 1 }],
+          }),
+        },
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv'],
+    });
+
+    // No artifact stores the rest of the passage, so the marker would lie; the
+    // stop is reported by `complete` and its warning instead.
+    const text = renderToolResultText('grep', result);
+    expect(text).not.toContain('[passage cut; the artifact holds the rest]');
+    expect(text).toContain('[warnings: 1 deadline]');
+    expect(success(result)).not.toHaveProperty('artifact');
+    expect(success(result).complete).toBe(false);
+  });
+
   it('stops the walked Machine scope at the artifact bound', async () => {
     const { peer, connector } = fixture({
       answers: {

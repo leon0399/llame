@@ -95,7 +95,7 @@ reads the stored object:
 | `notice`           | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the result    |
 | `artifact`         | the `artifact://grep-<n>` locator of the whole stored result, when one was stored         |
 | `remainder`        | the counts and first ten next files of the passages after the inline part                 |
-| `leftOut`          | the count of files or passages no artifact holds, when the Run cannot read artifacts      |
+| `leftOut`          | the count and noun (`files`, `results`, or `lines`) no artifact holds, without a reader   |
 | `truncationNotice` | the one-line `[full result: …; continue with …]` notice that ends the text                |
 
 The `## <file locator>` line names the file with no line range. Each passage
@@ -145,8 +145,10 @@ also made host files, the notice adds `host files in <directory>`, or
 [native files runbook](../../operator/native-files.md#host-files).
 
 A Run that cannot read an artifact keeps the head inline and ends the text with
-`[left out: <count> files; full result not stored]`, or names passages when no
-whole file is left out. `limit` bounds that inline part only; it never stops
+`[left out: <count> <noun>; full result not stored]`. The noun is `files` when
+whole files are left out, `results` when only later passages of a shown file
+are left out, and `lines` when a single passage was cut. The spec's
+`lines`/`files`/`results` vocabulary is the only one the line uses. `limit` bounds that inline part only; it never stops
 the walk.
 
 An artifact stores one finding for each file run: its locator and its artifact

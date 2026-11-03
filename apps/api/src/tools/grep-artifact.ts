@@ -59,6 +59,7 @@ export async function finishGrepCall(
   limit: number,
 ): Promise<ToolResult> {
   const artifact = state.artifact;
+  dropDanglingCut(artifact);
   // UTF-16 units are at least a third of the UTF-8 bytes, so a larger
   // artifact cannot fit and needs no render.
   const withinReach =
@@ -89,6 +90,23 @@ export async function finishGrepCall(
  * any real sum, so the reserve is computed once.
  */
 const LEFT_OUT_RESERVE = grepLeftOutUnits(999_999_999, 'results');
+
+/**
+ * A passage an engine or daemon page cut and the walk never continued holds no
+ * rest: no artifact stores one, so the result must not mark it as if it did.
+ * The stop itself is still reported by `complete` and its warning.
+ */
+function dropDanglingCut(artifact: GrepArtifact): void {
+  const index = artifact.results.length - 1;
+  const last = artifact.results[index];
+  if (last?.cut !== true) return;
+  artifact.results[index] = {
+    locator: last.locator,
+    content: last.content,
+    matches: last.matches,
+    ...(last.truncated === true && { truncated: true as const }),
+  };
+}
 
 /** The inline result without an artifact: the head and what it left out. */
 function leftOutResult(
