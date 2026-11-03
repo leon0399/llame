@@ -293,6 +293,13 @@ when it was staged before any tool result is settled by D14.
 
 ## Revision history
 
+- **v4 (2026-11-03), GitHub review round 1 (#1551).** pullfrog: 2 findings,
+  both accepted. The prefix rule after a model switch or a failed reply is now
+  its own requirement ("A model switch keeps the previous request less the
+  omitted parts"), so the model-switch scenario no longer contradicts the
+  same-model rule. The `tool-result-artifacts` amendment names the
+  `live-rendering` layer, which deletes the `Artifact:` line. CodeRabbit and
+  Indent were out of quota.
 - **v3 (2026-11-03), review round 2.** Two reviewers; 0 P0, 4 P1, 20 P2.
   Fixed: refused calls keep the SDK text and input in model-only fields, and
   the owner-facing error stays (A8); `forceReasoning` is passed only for entries

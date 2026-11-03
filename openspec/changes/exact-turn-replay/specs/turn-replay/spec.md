@@ -36,12 +36,27 @@ changes the history, and the rule then applies to the new history.
 - **WHEN** an earlier tool result holds an image that the epoch image window attaches
 - **THEN** a later request carries the same image content at the same position as the earlier request
 
+### Requirement: A model switch keeps the previous request less the omitted parts
+
+This rule applies when the previous reply did not complete, or completed on
+another model, with one llame version. The first request of the turn MUST then
+start with the messages of the last request of the previous turn and of the
+stored part of its response, with two differences. The parts and the provider metadata that the
+model rule of `reasoning-output` omits MUST be absent. Each image and PDF MUST
+take the form that the input of the new model selects.
+
 #### Scenario: A model switch changes only the omitted parts
 
 - **WHEN** turn 1 completes on `sonnet`, and turn 2 runs on `glm-5`
 - **THEN** the first request of turn 2 starts with the messages of the last request of turn 1 and of its response
 - **AND** those messages do not have the reasoning parts and the provider metadata that the model rule of `reasoning-output` omits
 - **AND** each image and PDF takes the form that the input of `glm-5` selects
+
+#### Scenario: A failed reply changes only the omitted parts
+
+- **WHEN** the Run of turn 1 fails on `sonnet` after a reasoning part, and turn 2 runs on `sonnet`
+- **THEN** the first request of turn 2 starts with the messages of the last request of turn 1 and of the stored part of its response
+- **AND** those messages do not have the reasoning parts and the provider metadata of turn 1
 
 ### Requirement: Replay removes nothing that a checkpoint has not absorbed
 

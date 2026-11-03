@@ -39,7 +39,7 @@ master
 
 **Named budget exception: the proposal layer is about 2,800 authored lines.**
 Measure it with `git diff --numstat origin/master` before publication. It adds
-one capability with nine requirements, modifies sixteen requirements in eleven
+one capability with ten requirements, modifies sixteen requirements in eleven
 capabilities, adds thirteen requirements to three, and removes one. Most
 MODIFIED blocks are long canonical requirements that must be copied whole, and
 nine are rewritten in full to Simplified Technical English. The `replay` layer
@@ -103,7 +103,7 @@ over. Every other layer stays inside about 2,000 lines.
 - [ ] 7.1 Build one projection from stored rows to model messages for later turns: steps from `step` with the consecutive rule for old parts, the SDK text and input of refused calls, `data-context` parts after the tool message of their step, and provider metadata under the model rule (design D5, D7, A7). Verify each scenario of "The calls of one step replay as one step", "A refused call replays as the live step sent it", and "Stored parts keep the provider metadata of the live step".
 - [ ] 7.2 Apply the model rule to earlier reasoning from `usage.modelId` and `usage.status` (design D7). Verify each scenario of "Earlier reasoning replays only for the model that produced it", "Thinking survives into a later turn", "A model switch omits earlier blocks", and "A model switch replays blocks unchanged".
 - [ ] 7.3 Delete the replay budget, payload clearing, the `input: {}` substitute, the omission marker, and the cleared `incomplete` outcome (design D2). Delete the tests that pin them; do not re-pin them. Verify "A long tool turn replays whole" with the numbers of the repro, both "after payload clearing" scenarios, and "Payload-cleared replay preserves incomplete search honesty".
-- [ ] 7.4 Add the prefix-equality integration test (design D14). Verify "The next turn extends the previous request", "A model switch changes only the omitted parts", "Request-time media keeps the prefix", "A spilled result names its artifact once", and "A JSON result replays as a JSON output". Break the projection (for example, split one step) and confirm the test fails.
+- [ ] 7.4 Add the prefix-equality integration test (design D14). Verify "The next turn extends the previous request", "A model switch changes only the omitted parts", "A failed reply changes only the omitted parts", "Request-time media keeps the prefix", "A spilled result names its artifact once", and "A JSON result replays as a JSON output". Break the projection (for example, split one step) and confirm the test fails.
 - [ ] 7.5 Verify the regression path: "A request that does not fit compacts or fails", and every `tool-calling`, `context-injection`, `media-attachments`, `durable-runs`, and `model-system-prompts` scenario this change modifies or adds for later turns.
 - [ ] 7.6 Update `docs/product/reference/tools/edit.md`, and add a dated **BREAKING** `CHANGELOG.md` entry that names the `context_incompatible` risk for long older Chats. Verify `pnpm lint:markdown`.
 - [ ] 7.7 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused context-builder, tool-observation, and run-execution tests, the new integration test, `pnpm format:check`, `git diff --check`.
