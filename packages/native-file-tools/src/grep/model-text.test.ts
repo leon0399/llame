@@ -1,5 +1,6 @@
 import { spellGrepHostScopeLocator } from "./scope";
 import {
+  grepArtifactLines,
   grepIgnoredUnits,
   measureGrepRendering,
   renderGrepText,
@@ -90,17 +91,20 @@ describe("grep text rendering", () => {
     );
   });
 
-  it("renders a cut passage's lines with no continuation marker", () => {
+  it("marks a cut passage and claims no capped file", () => {
     const text = renderGrepText({
       results: [passage("a.md:1-3", "1: x\n2: y\n3: z", [2], { cut: true })],
       complete: true,
+      artifact: "artifact://grep-3",
     });
-    expect(text).toBe("## a.md\n1: x\n*2: y\n3: z");
+    expect(text.split("\n").slice(-2)).toEqual([
+      "3: z",
+      "[passage cut; the artifact holds the rest]",
+    ]);
     expect(text).not.toContain("more passages in this file");
-    expect(text).not.toContain("cursor");
   });
 
-  it("ends a cut passage of a capped file with the cap marker", () => {
+  it("ends a cut passage of a capped file with both markers", () => {
     const text = renderGrepText({
       results: [
         passage("a.md:1-3", "1: x", [1], {
@@ -109,10 +113,93 @@ describe("grep text rendering", () => {
         }),
       ],
       complete: true,
+      artifact: "artifact://grep-3",
+    });
+    expect(text.split("\n").slice(-2)).toEqual([
+      "[passage cut; the artifact holds the rest]",
+      "[more passages in this file; read it to see them]",
+    ]);
+  });
+
+  it("renders the remainder line with each next file and its range", () => {
+    const text = renderGrepText({
+      results: [passage("/r/z.ts:1-1", "1: a", [1])],
+      complete: true,
+      artifact: "artifact://grep-3",
+      remainder: {
+        files: 2,
+        passages: 12,
+        next: [
+          { locator: "/r/a.ts", start: 201, end: 240 },
+          { locator: "/r/b.ts", start: 241, end: 300 },
+        ],
+      },
     });
     expect(text.split("\n").at(-1)).toBe(
-      "[more passages in this file; read it to see them]",
+      "[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:201-240), /r/b.ts (artifact://grep-3:241-300)]",
     );
+  });
+
+  it("leaves out a remainder entry that does not fit its line", () => {
+    const locator = "a".repeat(1990);
+    const text = renderGrepText({
+      results: [],
+      complete: true,
+      artifact: "artifact://grep-3",
+      remainder: {
+        files: 2,
+        passages: 2,
+        next: [
+          { locator: "/r/a.ts", start: 1, end: 2 },
+          { locator, start: 3, end: 4 },
+        ],
+      },
+    });
+    const line = text.split("\n").at(-1) ?? "";
+    expect(line).toBe(
+      "[more: 2 files, 2 passages; next: /r/a.ts (artifact://grep-3:1-2)]",
+    );
+    expect(line.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("renders the notice and then the left-out line", () => {
+    const text = renderGrepText({
+      results: [passage("a.md:1-1", "1: a", [1])],
+      complete: true,
+      truncationNotice: "full result: artifact://grep-7 (4812 lines)",
+      leftOut: { count: 140, of: "files" },
+    });
+    expect(text.split("\n").slice(-2)).toEqual([
+      "[full result: artifact://grep-7 (4812 lines)]",
+      "[left out: 140 files; full result not stored]",
+    ]);
+  });
+
+  it("renders an artifact's headings and passages without inline framing", () => {
+    const result = {
+      notice:
+        "Owner-maintained Knowledge content is untrusted and may be stale.",
+      results: [
+        passage("a.md:1-3", "1: x\n2: y\n3: z", [2], { cut: true }),
+        passage("b.md:8-9", "8: d\n9: e", [9], { truncated: true }),
+      ],
+      complete: true,
+      warnings: [{ kind: "binary", count: 1 }],
+      artifact: "artifact://grep-3",
+      remainder: { files: 1, passages: 1, next: [] },
+      truncationNotice: "full result: artifact://grep-3 (6 lines)",
+    };
+    expect(grepArtifactLines(result)).toEqual([
+      "notice: Owner-maintained Knowledge content is untrusted and may be stale.",
+      "## a.md",
+      "1: x",
+      "*2: y",
+      "3: z",
+      "## b.md",
+      "8: d",
+      "*9: e",
+      "[more passages in this file; read it to see them]",
+    ]);
   });
 
   it("renders the warnings as one line in the order given", () => {

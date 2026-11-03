@@ -687,7 +687,10 @@ describe('one walk per call', () => {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}`],
       });
-      expect(measureGrepRendering(result)).toBeGreaterThan(15_000);
+      // The inline part keeps the head of the walk; the left-out count names
+      // the files the walk still reached, so every one of the 24 is accounted
+      // for even though this Run cannot read an artifact.
+      expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
       expect(success(result).complete).toBe(true);
       expect(result).not.toHaveProperty('cursor');
       const files = new Set(
@@ -695,7 +698,10 @@ describe('one walk per call', () => {
           locator.slice(0, locator.lastIndexOf(':')),
         ),
       );
-      expect(files.size).toBe(24);
+      expect(success(result).leftOut).toMatchObject({
+        of: 'files',
+        count: 24 - files.size,
+      });
     });
   });
 
@@ -745,7 +751,17 @@ describe('one walk per call', () => {
         );
         expect(result).toMatchObject({ status: 'success', complete: true });
         expect(reads.mock.calls.length).toBeLessThanOrEqual(5000);
-        expect(locatorsOf(result).length).toBe(120);
+        // Six notes give the walk 120 passages; the head keeps what it can
+        // and the left-out count names the files it did not hold.
+        const files = new Set(
+          locatorsOf(result).map((locator) =>
+            locator.slice(0, locator.lastIndexOf(':')),
+          ),
+        );
+        expect(success(result).leftOut).toMatchObject({
+          of: 'files',
+          count: 6 - files.size,
+        });
       } finally {
         reads.mockRestore();
       }

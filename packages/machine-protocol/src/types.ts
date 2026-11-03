@@ -266,6 +266,7 @@ export type FsGrepWarningKind =
   | "file_bound"
   | "entry_bound"
   | "byte_bound"
+  | "artifact_bound"
   | "deadline";
 
 export type FsGrepWarning = {

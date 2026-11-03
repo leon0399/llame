@@ -10,11 +10,15 @@ import {
 import { tmpdir } from 'node:os';
 import path, { dirname } from 'node:path';
 
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
+import * as schema from '../db/schema';
+import { type Db } from '../db/tenant-db.service';
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
+import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { grepInputSchema, nativeGrepTool } from './grep';
 import { machineUnsupportedResult } from './grep-results';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
@@ -36,19 +40,59 @@ const NO_CATALOG: SkillCatalogPort = {
   }),
 };
 
+/** The artifact writes the tests that read one make, as their own mocks. */
+let artifactWrites:
+  | MockInstance<ArtifactsRepository['insertParts']>
+  | undefined;
+
+function stubArtifactWrites(): void {
+  // A spy installed twice keeps its earlier calls, so each stub starts clean.
+  vi.restoreAllMocks();
+  vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+  vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue({
+    id: 'artifact-1',
+    createdAt: new Date('2026-11-02T12:00:00.000Z'),
+  });
+  artifactWrites = vi
+    .spyOn(ArtifactsRepository.prototype, 'insertParts')
+    .mockResolvedValue(undefined);
+}
+
+/** The text of the one artifact the call wrote. */
+function artifactText(): string {
+  const parts = artifactWrites?.mock.calls[0]?.[1] ?? [];
+  const part = parts[0];
+  if (part === undefined) throw new Error('the call wrote no artifact');
+  return part.content.toString('utf8');
+}
+
+/** The artifact headings, one per file of the stored text. */
+function artifactHeadings(): ReadonlyArray<string> {
+  return artifactText()
+    .split('\n')
+    .filter((line) => line.startsWith('## '));
+}
+
 type ContextOptions = {
   /** The entered Workspace root; absent means none is entered. */
   readonly root?: string;
+  /** The Run can read artifacts, so a result too large for the head is stored. */
+  readonly artifacts?: boolean;
   /** `false` omits the first condition of the host authority gate. */
   readonly executor?: boolean;
   readonly run?: boolean;
   readonly map?: ToolPermissionMap;
   /** Operator `tools.grep` bounds; absent means every bound is unset. */
   readonly grepBounds?: GrepBoundsConfig;
+  /** The call's own timeout, so a spinning walk fails fast in the test. */
+  readonly timeoutMs?: number;
+  /** The stored-result bound, when a test needs a small one. */
+  readonly artifactMaxBytes?: number;
 };
 
 function contextOf(options: ContextOptions = {}): ToolContext {
   const trusted = options.executor !== false;
+  const db: Db = drizzle.mock({ schema });
   return {
     userId: 'owner-a',
     chatId: 'chat-a',
@@ -59,12 +103,25 @@ function contextOf(options: ContextOptions = {}): ToolContext {
       options.map ?? PERMISSIVE,
       'test',
     ),
-    tenantDb: {
-      runAs: () =>
-        Promise.reject(new Error('grep never opens a tenant transaction')),
-    },
+    tenantDb:
+      options.artifacts === true
+        ? {
+            runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+              callback(db),
+          }
+        : {
+            runAs: () =>
+              Promise.reject(
+                new Error('grep never opens a tenant transaction'),
+              ),
+          },
+    ...(options.artifacts === true && { artifactReadable: true }),
     skillCatalog: NO_CATALOG,
     grepBounds: options.grepBounds,
+    ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+    ...(options.artifactMaxBytes !== undefined && {
+      artifactMaxBytes: options.artifactMaxBytes,
+    }),
     workspaceRoot:
       options.root === undefined
         ? undefined
@@ -921,57 +978,85 @@ async function matchingTree(root: string, count: number): Promise<void> {
 }
 
 describe('host pages inside one call', () => {
-  // The host engine page is 200 files, so a walk of more than that resumes
-  // internally. Each case proves a bound that trips on the second page sees
-  // what the first page left.
-
-  it('subtracts the file bound across internal pages', async () => {
+  it('ends at the artifact bound when a page keeps nothing', async () => {
     await withRoot(async (root) => {
-      await matchingTree(root, 251);
+      // A long match fills the bound, and the next candidate is a binary file
+      // whose skip warning no longer fits the engine's own reserve: the empty
+      // page must end the walk at the artifact bound, not spin to the timeout.
+      await writeAt(root, 'a.ts', `needle ${'x'.repeat(120)}\n`);
+      await writeAt(root, 'b.bin', '\u0000\u0001');
       const result = await run(
-        contextOf({ grepBounds: bounds({ maxFilesExamined: 250 }) }),
+        contextOf({
+          artifacts: true,
+          timeoutMs: 300,
+          artifactMaxBytes: 180,
+        }),
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
-      // The second page starts with 50 files left, so the walk stops at the
-      // 250th and never takes the 251st.
-      // Page two re-takes the file its cursor names, so 250 examined files
-      // hold 249 passages: the bound counts the resumed file again.
-      expect(locatorsOf(result)).toHaveLength(249);
+      expect(warningsOf(result)).toEqual([
+        { kind: 'artifact_bound', count: 1 },
+      ]);
+      expect(success(result).complete).toBe(false);
+    });
+  });
+
+  // A walk of more than the inline head resumes inside the call. Each case
+  // proves a bound that trips after the head filled sees what the head left.
+
+  it('subtracts the file bound across engine pages', async () => {
+    await withRoot(async (root) => {
+      stubArtifactWrites();
+      await matchingTree(root, 251);
+      const result = await run(
+        contextOf({
+          artifacts: true,
+          grepBounds: bounds({ maxFilesExamined: 250 }),
+        }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // The walk stops at the 250th file and never takes the 251st, so the
+      // artifact holds one passage for each examined file.
+      expect(artifactHeadings()).toHaveLength(250);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
     });
   });
 
-  it('subtracts the byte bound across internal pages', async () => {
+  it('subtracts the byte bound across engine pages', async () => {
     await withRoot(async (root) => {
-      // Each file reads seven bytes, so the bound leaves the second page one
-      // file and stops it before the next one.
+      stubArtifactWrites();
+      // Each file reads seven bytes, so the bound is reached by the 201st
+      // file and stops the walk before the one after it.
       await matchingTree(root, 251);
       const result = await run(
-        contextOf({ grepBounds: bounds({ maxBytesRead: 200 * 7 + 7 }) }),
+        contextOf({
+          artifacts: true,
+          grepBounds: bounds({ maxBytesRead: 200 * 7 + 7 }),
+        }),
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
-      // Page two re-takes the cursor's file, which spends the last byte, so
-      // no new file is taken.
-      expect(locatorsOf(result)).toHaveLength(200);
+      expect(artifactHeadings()).toHaveLength(201);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
     });
   });
 
-  it('carries progress into the next internal page', async () => {
+  it('carries progress into the next engine page', async () => {
     await withRoot(async (root) => {
+      stubArtifactWrites();
       await matchingTree(root, 200);
       // Larger than one read chunk, so the bound stops the file between its
-      // chunks on the second page.
+      // chunks on the next page.
       await writeAt(root, 'zz-big.log', `${'x'.repeat(63)}\n`.repeat(4000));
       const result = await run(
-        contextOf({ grepBounds: bounds({ maxBytesRead: 200 * 7 + 600 }) }),
+        contextOf({
+          artifacts: true,
+          grepBounds: bounds({ maxBytesRead: 200 * 7 + 600 }),
+        }),
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
-      // The call progressed on the first page, so the stop on the second must
-      // not name the file it stopped inside.
-      expect(locatorsOf(result)).toHaveLength(200);
+      // The call progressed before the stop, so it names no unfinished file.
+      expect(artifactHeadings()).toHaveLength(200);
       expect(success(result).unfinishedFile).toBeUndefined();
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
@@ -999,20 +1084,22 @@ describe('host scope pages', () => {
 
   it('walks every submitted host scope in one call', async () => {
     await withRoot(async (root) => {
+      stubArtifactWrites();
       await writeAt(root, 'a/one.md', 'needle\n');
       await writeAt(root, 'b/one.md', 'needle\n');
       await writeAt(root, 'b/two.md', 'needle\n');
-      const result = await run(contextOf(), {
+      const result = await run(contextOf({ artifacts: true }), {
         patterns: ['needle'],
         scopes: [`${root}/a/**`, `${root}/b/**`],
         limit: 1,
       });
-      // The walk has no model-facing page, so a limit bounds nothing until the
-      // inline head arrives with the artifact.
-      expect(locatorsOf(result)).toEqual([
-        `${root}/a/one.md:1-1`,
-        `${root}/b/one.md:1-1`,
-        `${root}/b/two.md:1-1`,
+      // `limit` bounds the inline part alone: the walk still visits every
+      // scope and the artifact holds all three files.
+      expect(locatorsOf(result)).toEqual([`${root}/a/one.md:1-1`]);
+      expect(artifactHeadings()).toEqual([
+        `## ${root}/a/one.md`,
+        `## ${root}/b/one.md`,
+        `## ${root}/b/two.md`,
       ]);
       expect(success(result).complete).toBe(true);
       expect(result).not.toHaveProperty('cursor');

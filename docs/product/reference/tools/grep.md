@@ -82,16 +82,21 @@ one `## <file locator>` line, then one `[warnings: …]` line, then one
 `[ignored …]` line when the walk excluded a directory the `read` group
 admits, then the
 `[not searched to the end: <locator>]` line when the call stopped inside a
-file — while the owner's UI reads the stored object:
+file, then the remainder line and the artifact notice — while the owner's UI
+reads the stored object:
 
-| Field            | Meaning                                                                                |
-| ---------------- | -------------------------------------------------------------------------------------- |
-| `results`        | one object per passage: `locator`, `content`, `matches`, `cut`, and `truncated`        |
-| `complete`       | whether the walk reached the end of its last scope                                     |
-| `warnings`       | every skip and the bound that stopped the walk, by kind and count                      |
-| `ignored`        | the count and first five locators of the directories an ignore rule excluded           |
-| `unfinishedFile` | the file a bound stopped the walk inside before any progress, as its locator           |
-| `notice`         | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the result |
+| Field              | Meaning                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| `results`          | the inline passages, one object each: `locator`, `content`, `matches`, `cut`, `truncated` |
+| `complete`         | whether the walk reached the end of its last scope                                        |
+| `warnings`         | every skip and the bound that stopped the walk, by kind and count                         |
+| `ignored`          | the count and first five locators of the directories an ignore rule excluded              |
+| `unfinishedFile`   | the file a bound stopped the walk inside before any progress, as its locator              |
+| `notice`           | the closed Knowledge untrusted-content notice, when a `kb://` passage is in the result    |
+| `artifact`         | the `artifact://grep-<n>` locator of the whole stored result, when one was stored         |
+| `remainder`        | the counts and first ten next files of the passages after the inline part                 |
+| `leftOut`          | the count and noun (`files`, `results`, or `lines`) no artifact holds, without a reader   |
+| `truncationNotice` | the one-line `[full result: …; continue with …]` notice that ends the text                |
 
 The `## <file locator>` line names the file with no line range. Each passage
 under it prints its lines as `N: text`, `*N: text` for a matched line, and one
@@ -99,8 +104,59 @@ blank line separates the passages of one run. Overlapping scopes repeat the
 file line: each scope's run of passages has its own `##` line, in scope order.
 A file with more than 20 passages ends its twentieth passage with
 `[more passages in this file; read it to see them]`, and a later `read`
-reaches the rest. A bracketed cap notice ends the text when the shared result
-cap cut the result.
+reaches the rest.
+
+### Inline part and artifact
+
+`grep` stores its whole result as `artifact://grep-<n>` when the result does
+not fit the inline bound, and the inline text is the head of that stored text.
+The inline part holds whole passages in result order, at most `limit` files,
+inside 15,000 code units once the room for the framing lines is kept back. A
+first passage that does not fit is cut at a line boundary and ends with
+`[passage cut; the artifact holds the rest]`.
+
+The artifact holds the notice line and every passage only: the headings and
+the `N: text` lines. The warning, excluded-directory, unfinished-file,
+remainder, and notice lines exist inline only. Because the inline part is a
+prefix of the artifact text, every inline line keeps its number in the
+artifact, and `read("artifact://grep-<n>:1-<k>")` returns the inline lines.
+
+After the framing lines the remainder line names what the artifact holds after
+the inline part:
+
+```text
+[more: 140 files, 610 passages; next: /r/a.ts (artifact://grep-3:201-240), …]
+```
+
+It counts the files and passages after the inline part and names at most ten
+of the next files, each with its artifact line range. The line stays at or
+below 2,000 code units; an entry that does not fit is left out.
+
+The artifact notice is the last bracketed line:
+
+```text
+[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:201-]
+```
+
+`<next>` is the artifact line after the last inline passage. When the writer
+also made host files, the notice adds `host files in <directory>`, or
+`host files on the llame host only` in a Machine Workspace; see
+[artifact](../locators/artifact.md) and the
+[native files runbook](../../operator/native-files.md#host-files).
+
+A Run that cannot read an artifact keeps the head inline and ends the text with
+`[left out: <count> <noun>; full result not stored]`. The noun is `files` when
+whole files are left out, `results` when only later passages of a shown file
+are left out, and `lines` when a single passage was cut. The spec's
+`lines`/`files`/`results` vocabulary is the only one the line uses. `limit` bounds that inline part only; it never stops
+the walk.
+
+An artifact stores one finding for each file run: its locator and its artifact
+line range, the heading line included. A `read` re-checks the current `read`
+group on each finding, so a rule added after the search withholds a file's
+heading and lines as `[withheld]` with unchanged line numbers and leaves it
+out of the `:outline`. The host files hold the content as it was admitted; only
+`read` on `artifact://` withholds.
 
 `ignored` reports the directories the walk declined to enter, in walk order,
 so the model knows which directory to scope when a search comes back empty or
@@ -191,15 +247,17 @@ refused file.
 
 ## Bounds
 
-| Bound                | Value               |
-| -------------------- | ------------------- |
-| Files in a walk      | no bound by default |
-| Passages of one file | 20                  |
-| Lines of one passage | 2,000               |
-| Line length          | 512 code units      |
-| Excluded directories | 1,000               |
-| Longest line         | 4 MiB               |
-| Files read at once   | 8                   |
+| Bound                | Value                      |
+| -------------------- | -------------------------- |
+| Files in a walk      | no bound by default        |
+| Passages of one file | 20                         |
+| Lines of one passage | 2,000                      |
+| Line length          | 512 code units             |
+| Excluded directories | 1,000                      |
+| Longest line         | 4 MiB                      |
+| Files read at once   | 8                          |
+| Inline part          | 15,000 code units          |
+| Stored result        | `tools.artifacts.maxBytes` |
 
 The walk has no file, entry, byte, or file-size bound by default: the call
 deadline is its only stop. An
@@ -216,12 +274,16 @@ timeout in its context uses `tools.callTimeoutSeconds`. When a file, entry, or
 byte bound stops the walk, or the deadline does, the result carries
 `complete: false` and the warning that names the stop.
 
-One call walks every scope to its end, unless a bound or the deadline stops
-it. The engine and a Machine page their own walks internally, so a result
-never carries a `cursor`, and `limit` never stops the walk. When a stop
-warning names `file_bound`, `entry_bound`, `byte_bound`, or `deadline`, the
-result is partial: narrow `scopes` to the directory or file needed, or narrow
-the patterns, then call again. Re-submitting the same call changes nothing.
+One call walks every scope to its end, unless a bound, the artifact bound, or
+the deadline stops it. The engine and a Machine page their own walks
+internally, so a result never carries a `cursor`, and `limit` never stops the
+walk. The stored result is bounded by `tools.artifacts.maxBytes`, counted in
+UTF-8 bytes: the walk stops when the next passage no longer fits, with
+`complete: false` and an `artifact_bound` warning. When a stop warning names
+`file_bound`, `entry_bound`, `byte_bound`, `artifact_bound`, or `deadline`,
+the result is partial: narrow `scopes` to the directory or file needed, or
+narrow the patterns, then call again. Re-submitting the same call changes
+nothing.
 
 A file with more than 20 passages returns its first 20 and marks its
 twentieth `truncated`, which adds `[more passages in this file; read it to see
@@ -241,7 +303,7 @@ that continues it, so a passage of any length loses no line and repeats none.
 
 `warnings` counts every skip and the bound that stopped the walk. The kinds
 are `binary`, `invalid_utf8`, `oversized`, `unreadable`, `link`, `file_bound`,
-`entry_bound`, `byte_bound`, and `deadline`.
+`entry_bound`, `byte_bound`, `artifact_bound`, and `deadline`.
 
 `grep` reads up to eight files at the same time, and its bounds and skip
 counts still follow the walk order: a file that ends before an earlier one
