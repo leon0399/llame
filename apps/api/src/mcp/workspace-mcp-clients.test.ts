@@ -33,6 +33,7 @@ import {
   WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
   type WorkspaceMcpKey,
+  type WorkspaceMcpListingCell,
 } from './workspace-mcp-clients';
 import { type WorkspaceMcpServerConfig } from '@workspace/mcp-workspace';
 import {
@@ -1072,6 +1073,39 @@ describe('WorkspaceMcpClients over a Machine', () => {
       { id: 'storybook', state: 'available' },
     ]);
     expect(configurationRequests(machine.peer)).toBe(2);
+
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('lists a binding once and serves a same-root re-entry from the attempt cell', async () => {
+    const { runtime } = operatorRuntime();
+    const readConfig = vi.fn((root: string) => [config('web', root)]);
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: (root) => Promise.resolve(readConfig(root)),
+    });
+    const workspace = key('chat-1', '/workspace/listed');
+    const cell: WorkspaceMcpListingCell = {};
+
+    const first = await provider.listUnstartedOnce(cell, workspace);
+    const again = await provider.listUnstartedOnce(cell, workspace);
+
+    expect(first).toEqual([
+      {
+        id: 'web',
+        state: 'unavailable',
+        reason: 'not started in a read-only Run',
+      },
+    ]);
+    expect(again).toBe(first);
+    expect(readConfig).toHaveBeenCalledOnce();
+    // Another binding is a different listing: it reads configuration again.
+    const next = await provider.listUnstartedOnce(
+      cell,
+      key('chat-1', '/workspace/next', 2),
+    );
+    expect(next).not.toBe(first);
+    expect(readConfig).toHaveBeenCalledTimes(2);
 
     await provider.onModuleDestroy();
     await runtime.stop();

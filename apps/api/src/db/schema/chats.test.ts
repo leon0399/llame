@@ -31,6 +31,24 @@ describe('runs follow-up schema', () => {
     expect(sql).toContain("'regenerate'");
   });
 
+  it('admits every permission mode of a Run under its named CHECK', () => {
+    const check = getTableConfig(runs).checks.find(
+      (entry) => entry.name === 'runs_permission_mode_check',
+    );
+    if (check === undefined) {
+      throw new Error('runs_permission_mode_check is missing');
+    }
+    const sql = dialect
+      .sqlToQuery(check.value)
+      .sql.replaceAll(/\s+/gu, ' ')
+      .toLowerCase();
+
+    expect(sql).toContain('"runs"."permission_mode" in (');
+    for (const mode of ['default', 'bypass', 'read-only']) {
+      expect(sql).toContain(`'${mode}'`);
+    }
+  });
+
   it('names the owner-matching source Run foreign key', () => {
     const names = getTableConfig(runs).foreignKeys.map((key) => key.getName());
 

@@ -28,6 +28,7 @@ import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
   WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
+  type WorkspaceMcpListingCell,
 } from '../mcp/workspace-mcp-clients';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { resolveAdvertisedTools, TOOL_REGISTRY } from './registry';
@@ -966,6 +967,83 @@ describe('Workspace host tools', () => {
     expect(mcp.transferAttempt).toHaveBeenCalledOnce();
     await mcp.clients.onModuleDestroy();
     await mcp.operator.stop();
+  });
+
+  it('reports a read-only entry from the binding configuration and starts nothing', async () => {
+    const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    enter
+      .mockResolvedValueOnce({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      })
+      .mockResolvedValueOnce({
+        status: 'unchanged',
+        previousRoot: root,
+        generation: 1,
+      });
+    const operator = new McpRuntimeService({});
+    const clients = new WorkspaceMcpClients(operator, {
+      readConfig: () =>
+        Promise.resolve([
+          {
+            id: 'web',
+            state: 'configured' as const,
+            definition: { url: 'https://workspace.example.test/mcp' },
+            protectedValues: [],
+          },
+        ]),
+    });
+    // A start would report the server as available; a read-only entry never
+    // asks for one.
+    const startForChat = vi.spyOn(clients, 'startForChat').mockResolvedValue({
+      key: { chatId: 'chat-1', root, generation: 1 },
+      servers: [{ id: 'web', state: 'available' }],
+    });
+    const listing: WorkspaceMcpListingCell = {};
+    const readOnly = () =>
+      context({
+        workspaceRoot: createWorkspaceRootCell(undefined),
+        workspaceMcp: clients,
+        workspaceMcpListing: listing,
+        permissionMode: 'read-only',
+      });
+
+    try {
+      const first = await enterWorkspaceTool.execute(readOnly(), {
+        path: root,
+      });
+      const same = await enterWorkspaceTool.execute(readOnly(), {
+        path: root,
+      });
+
+      const servers = [
+        {
+          id: 'web',
+          state: 'unavailable',
+          reason: 'not started in a read-only Run',
+        },
+      ];
+      expect(first).toMatchObject({
+        status: 'success',
+        root,
+        mcpServers: servers,
+      });
+      expect(same).toMatchObject({
+        status: 'success',
+        root,
+        state: 'unchanged',
+        mcpServers: servers,
+      });
+      expect(startForChat).not.toHaveBeenCalled();
+      expect(listing.listing?.servers).toEqual(servers);
+      expect(
+        clients.stateForKey({ chatId: 'chat-1', root, generation: 1 }),
+      ).toBeUndefined();
+    } finally {
+      await clients.onModuleDestroy();
+      await operator.stop();
+    }
   });
 
   it('does not disable retained Workspace tools on an initial bind', async () => {

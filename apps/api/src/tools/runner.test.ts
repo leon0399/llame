@@ -582,6 +582,33 @@ describe('runTool', () => {
     expect(timeoutSpy).not.toHaveBeenCalled();
   });
 
+  it('settles a call cancelled during the admission write without dispatching it', async () => {
+    // The awaited admission write can outlive a parent abort: the abort lands
+    // after `admitToolCall` and before dispatch, so the call must settle as
+    // cancelled instead of running an executor after terminalization.
+    const abort = new AbortController();
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const recordDecision = vi.fn(() => {
+      abort.abort();
+    });
+
+    const result = await runTool(
+      { ...echoTool, execute },
+      { value: 'x' },
+      { ...fakeContext(), abortSignal: abort.signal },
+      15,
+      recordDecision,
+    );
+
+    expect(recordDecision).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      status: 'error',
+      type: 'cancelled',
+      message: 'Tool "echo" was cancelled.',
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('uses one shared timeout signal and bounds a tool that ignores it', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     let executionSignal: AbortSignal | undefined;
