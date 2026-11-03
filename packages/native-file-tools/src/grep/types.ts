@@ -165,32 +165,8 @@ export interface GrepScanResult {
    * the prefix, capped across the call; `atLeast` marks a larger count.
    */
   ignored?: GrepIgnored;
-  /**
-   * The page ends where `last` names a passage it emitted, or `position` names
-   * the last entry a bound stopped the walk at. Both serve a caller that pages
-   * across walks of its own (the tool and the Machine daemon do).
-   */
-  last?: GrepPageEnd;
-  position?: GrepPosition;
   /** The passages that are their file's twentieth, which a caller may mark. */
   capped?: ReadonlyArray<GrepCappedPassage>;
-}
-
-/** Where a page ended: the passage it emitted last, and its file's state. */
-export interface GrepPageEnd {
-  scopeIndex: number;
-  rel: string;
-  startLine: number;
-  /** Last line the page emitted of that passage; present only when it cut it. */
-  endLine?: number;
-  /** The passage was its file's twentieth, so the file is exhausted. */
-  capped: boolean;
-}
-
-/** The last entry a stopped walk reached; a resume continues after it. */
-export interface GrepPosition {
-  scopeIndex: number;
-  rel: string;
 }
 
 /** Directories an ignore rule excluded, capped, with a lower-bound mark. */

@@ -21,9 +21,10 @@
  * The grep and bash rows render their fixture objects as stored, except for the
  * bash wall time: the baseline results predate it, and the new header names the
  * elapsed time, so the row borrows the proposal's `0.0 s` (the header's width
- * does not depend on the value). The grep row keeps the fixture's cursor, so
- * the continuation line is part of its text, as the proposal measured it. The
- * replay-wrapper row mirrors no tool result and shows `—` in the after columns.
+ * does not depend on the value). The grep row's fixture still carries a cursor
+ * field, which the renderer ignores: no continuation line is part of its text.
+ * The replay-wrapper row mirrors no tool result and shows `—` in the after
+ * columns.
  *
  * Two differences from the proposal's table are expected and explained by later
  * decisions rather than by drift: the read header's ` of <total> lines` and the
@@ -90,7 +91,7 @@ function readAfter(name, result) {
 const FIXTURE_WALL_TIME_MS = 0;
 
 /** The text rendering of the grep and bash success cases, as stored; a grep
- *  result keeps its cursor, so the continuation line is part of the text. */
+ *  result's cursor field is ignored, so no continuation line renders. */
 function successAfter(name, result) {
   if (result === null) return undefined;
   if (name.startsWith("grep")) {

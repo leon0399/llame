@@ -28,7 +28,10 @@ const passageSchema = z.object({
   locator: z.string(),
   content: z.string(),
   matches: z.array(z.number()),
-  /** The page cut the passage; its cursor continues the lines it left out. */
+  /**
+   * An internal page bound cut the passage. The tool joins it with its
+   * continuation unless the walk stopped first.
+   */
   cut: z.boolean().optional(),
   /** The passage is its file's twentieth, so the page shows no more of it. */
   truncated: z.boolean().optional(),
@@ -148,7 +151,7 @@ function grepDetailRows(
     [
       "Truncated",
       output.results.some((passage) => passage.cut)
-        ? "a passage was cut to fit the page"
+        ? "a passage was cut at a page bound"
         : undefined,
     ],
     ["Note", output.truncationNotice],

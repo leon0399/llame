@@ -54,7 +54,6 @@ describe('mergePage', () => {
     expect(ignored.atLeast).toBe(false);
     fold(ignored, second);
     expect(ignored.paths).toHaveLength(1000);
-    expect(ignored.rels).toHaveLength(1000);
     expect(ignored.atLeast).toBe(true);
   });
 
@@ -66,7 +65,6 @@ describe('mergePage', () => {
       'machine://devl/srv/node_modules',
       'machine://devl/srv/dist',
     ]);
-    expect(ignored.rels).toEqual(['node_modules', 'dist']);
     expect(ignored.seen.size).toBe(2);
     expect(ignored.atLeast).toBe(false);
   });

@@ -107,7 +107,7 @@ async function resolveEverySpace(
     if ('result' in outcome || 'machine' in outcome) return outcome;
     scopes.push(...outcome.scopes);
   }
-  return { scopes, roots: spaces.ids };
+  return { scopes };
 }
 
 /** Every current Space of the owner, in byte order of the identifier. */
@@ -175,7 +175,6 @@ async function resolveKnowledgeSpace(
       probeKnowledgePath(binding, parsed.prefixPath, context.abortSignal),
     endsWithSeparator: parsed.endsWithSeparator,
     admission,
-    root: spaceId,
   });
 }
 

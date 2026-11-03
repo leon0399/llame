@@ -98,15 +98,14 @@ describe("grep page held content", () => {
 });
 
 describe("grep page reservation", () => {
-  it("sizes the reservation as the cursor's rendered continuation line", () => {
+  it("sizes the reservation as a real cursor's continuation line", () => {
+    // The reserve is the width of the line a real encoded cursor renders to,
+    // its separating newline included; the page never renders it, but the
+    // engine keeps that room back before it admits a passage.
     const cursor = encodeGrepCursor({ ...KEY, inputHash: "f".repeat(64) });
-    const complete = renderGrepText({ results: [FIRST], complete: true });
-    const continued = renderGrepText({
-      results: [FIRST],
-      complete: false,
-      cursor,
-    });
-    expect(grepContinuationUnits(KEY)).toBe(continued.length - complete.length);
+    expect(grepContinuationUnits(KEY)).toBe(
+      `[more results. Continue with cursor: ${cursor}]\n`.length,
+    );
   });
 
   it("admits a passage only when its text and the fixed fields fit", () => {
@@ -171,17 +170,12 @@ describe("grep page reservation", () => {
     expect(exact.results).toHaveLength(1);
     expect(exact.results[0].truncated).toBeUndefined();
     expect(exact.full).toBe(false);
-    const continued = renderGrepText({
-      results: exact.results,
-      complete: false,
-      cursor: encodeGrepCursor({
-        scopeIndex: 0,
-        rel: "a.md",
-        startLine: 1,
-        inputHash: "f".repeat(64),
-      }),
-    });
-    expect(continued.length).toBe(GREP_LIMITS.pageCodeUnits);
+    // The page holds its passage and keeps the reserve for its unseen resume
+    // point: together they land exactly on the bound.
+    expect(
+      renderGrepText({ results: exact.results, complete: false }).length +
+        reserve,
+    ).toBe(GREP_LIMITS.pageCodeUnits);
 
     // One more passage does not fit beside the exact page: it ends the page.
     appendGrepFile(

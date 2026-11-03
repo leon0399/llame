@@ -10,14 +10,12 @@ import {
 import { tmpdir } from 'node:os';
 import path, { dirname } from 'node:path';
 
-import { encodeGrepCursor, hashGrepInputs } from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi } from 'vitest';
 
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { grepInputSchema, nativeGrepTool } from './grep';
-import { projectGrepScope } from './grep-admission';
 import { machineUnsupportedResult } from './grep-results';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
@@ -177,11 +175,6 @@ function ignoredOf(result: ToolResult):
 function warningsOf(result: ToolResult): ReadonlyArray<unknown> {
   const warnings = success(result).warnings;
   return Array.isArray(warnings) ? warnings : [];
-}
-
-function cursorOf(result: ToolResult): string | undefined {
-  const cursor = success(result).cursor;
-  return isString(cursor) ? cursor : undefined;
 }
 
 describe('host walk policy', () => {
@@ -743,38 +736,6 @@ describe('host Workspace rule', () => {
     });
   });
 
-  it('refuses a cursor issued under another Workspace', async () => {
-    await withRoot(async (first) => {
-      await withRoot(async (second) => {
-        await writeAt(first, 'a.md', 'needle\n');
-        await writeAt(first, 'b.md', 'needle\n');
-        await writeAt(second, 'a.md', 'needle\n');
-        const page = await run(contextOf({ root: first }), {
-          patterns: ['needle'],
-          limit: 1,
-        });
-        const cursor = cursorOf(page);
-        expect(locatorsOf(page)).toEqual([`${first}/a.md:1-1`]);
-        if (cursor === undefined) throw new Error('the page carries a cursor');
-
-        expect(
-          await run(contextOf({ root: first }), {
-            patterns: ['needle'],
-            limit: 1,
-            cursor,
-          }),
-        ).toMatchObject({ status: 'success' });
-        expect(
-          await run(contextOf({ root: second }), {
-            patterns: ['needle'],
-            limit: 1,
-            cursor,
-          }),
-        ).toMatchObject({ status: 'error', type: 'invalid_input' });
-      });
-    });
-  });
-
   it('maps a host scope inside a Machine Workspace to the Machine', async () => {
     const context = contextOf({ root: 'machine://devl/home/me/shop' });
     expect(
@@ -858,25 +819,16 @@ describe('operator bounds', () => {
       const context = contextOf({
         grepBounds: bounds({ maxFilesExamined: 3 }),
       });
-      const first = await run(context, {
+      const result = await run(context, {
         patterns: ['needle'],
         scopes: [`${root}/**`],
       });
-      expect(first).toMatchObject({ status: 'success', results: [] });
-      expect(success(first).complete).toBe(false);
-      expect(warningsOf(first)).toEqual([{ kind: 'file_bound', count: 1 }]);
-      const cursor = cursorOf(first);
-      if (cursor === undefined) throw new Error('the page carries a cursor');
-
-      // The bound stopped after the third file, so the next call reaches the
-      // match without reopening a file the first call examined.
-      const second = await run(context, {
-        patterns: ['needle'],
-        scopes: [`${root}/**`],
-        cursor,
-      });
-      expect(locatorsOf(second)).toEqual([`${root}/d.md:1-1`]);
-      expect(success(second).complete).toBe(true);
+      expect(result).toMatchObject({ status: 'success', results: [] });
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
+      // The walk has one call, so a stopped one names the bound and returns
+      // no cursor the model could page with.
+      expect(result).not.toHaveProperty('cursor');
     });
   });
 
@@ -891,23 +843,14 @@ describe('operator bounds', () => {
       const context = contextOf({
         grepBounds: bounds({ maxBytesRead: 8192 }),
       });
-      const first = await run(context, {
+      const result = await run(context, {
         patterns: ['needle'],
         scopes: [`${root}/**`],
       });
-      expect(first).toMatchObject({ status: 'success', results: [] });
-      expect(success(first).complete).toBe(false);
-      expect(warningsOf(first)).toEqual([{ kind: 'byte_bound', count: 1 }]);
-      const cursor = cursorOf(first);
-      if (cursor === undefined) throw new Error('the page carries a cursor');
-
-      const second = await run(context, {
-        patterns: ['needle'],
-        scopes: [`${root}/**`],
-        cursor,
-      });
-      expect(locatorsOf(second)).toEqual([`${root}/c.md:1-1`]);
-      expect(success(second).complete).toBe(true);
+      expect(result).toMatchObject({ status: 'success', results: [] });
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
+      expect(result).not.toHaveProperty('cursor');
     });
   });
 
@@ -920,26 +863,17 @@ describe('operator bounds', () => {
       const context = contextOf({
         grepBounds: bounds({ maxBytesRead: 8192 }),
       });
-      const first = await run(context, {
+      const result = await run(context, {
         patterns: ['needle'],
         scopes: [`${root}/data/**`],
       });
-      expect(first).toMatchObject({
+      expect(result).toMatchObject({
         status: 'success',
         results: [],
         unfinishedFile: `${root}/data/big.log`,
       });
-      expect(warningsOf(first)).toEqual([{ kind: 'byte_bound', count: 1 }]);
-      const cursor = cursorOf(first);
-      if (cursor === undefined) throw new Error('the page carries a cursor');
-
-      // The cursor moves past the log the bound stopped inside.
-      const second = await run(context, {
-        patterns: ['needle'],
-        scopes: [`${root}/data/**`],
-        cursor,
-      });
-      expect(locatorsOf(second)).toEqual([`${root}/data/z.md:1-1`]);
+      expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
+      expect(result).not.toHaveProperty('cursor');
     });
   });
 
@@ -955,6 +889,92 @@ describe('operator bounds', () => {
       );
       expect(locatorsOf(result)).toEqual([`${root}/small.md:1-1`]);
       expect(warningsOf(result)).toEqual([{ kind: 'oversized', count: 1 }]);
+    });
+  });
+
+  it('keeps the passage the file bound takes last', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'miss\n');
+      await writeAt(root, 'b.md', 'miss\n');
+      await writeAt(root, 'c.md', 'needle\n');
+      await writeAt(root, 'd.md', 'needle\n');
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxFilesExamined: 3 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // The third file is the one that matches, and the bound stops the walk
+      // after it: its passage is in the result, not lost behind the stop.
+      expect(locatorsOf(result)).toEqual([`${root}/c.md:1-1`]);
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
+    });
+  });
+});
+
+/** A tree of `count` one-line matching files, in byte order. */
+async function matchingTree(root: string, count: number): Promise<void> {
+  await Promise.all(
+    Array.from({ length: count }, (_, index) =>
+      writeAt(root, `f${String(index).padStart(3, '0')}.md`, 'needle\n'),
+    ),
+  );
+}
+
+describe('host pages inside one call', () => {
+  // The host engine page is 200 files, so a walk of more than that resumes
+  // internally. Each case proves a bound that trips on the second page sees
+  // what the first page left.
+
+  it('subtracts the file bound across internal pages', async () => {
+    await withRoot(async (root) => {
+      await matchingTree(root, 251);
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxFilesExamined: 250 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // The second page starts with 50 files left, so the walk stops at the
+      // 250th and never takes the 251st.
+      // Page two re-takes the file its cursor names, so 250 examined files
+      // hold 249 passages: the bound counts the resumed file again.
+      expect(locatorsOf(result)).toHaveLength(249);
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
+    });
+  });
+
+  it('subtracts the byte bound across internal pages', async () => {
+    await withRoot(async (root) => {
+      // Each file reads seven bytes, so the bound leaves the second page one
+      // file and stops it before the next one.
+      await matchingTree(root, 251);
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxBytesRead: 200 * 7 + 7 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // Page two re-takes the cursor's file, which spends the last byte, so
+      // no new file is taken.
+      expect(locatorsOf(result)).toHaveLength(200);
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
+    });
+  });
+
+  it('carries progress into the next internal page', async () => {
+    await withRoot(async (root) => {
+      await matchingTree(root, 200);
+      // Larger than one read chunk, so the bound stops the file between its
+      // chunks on the second page.
+      await writeAt(root, 'zz-big.log', `${'x'.repeat(63)}\n`.repeat(4000));
+      const result = await run(
+        contextOf({ grepBounds: bounds({ maxBytesRead: 200 * 7 + 600 }) }),
+        { patterns: ['needle'], scopes: [`${root}/**`] },
+      );
+      // The call progressed on the first page, so the stop on the second must
+      // not name the file it stopped inside.
+      expect(locatorsOf(result)).toHaveLength(200);
+      expect(success(result).unfinishedFile).toBeUndefined();
+      expect(success(result).complete).toBe(false);
+      expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
     });
   });
 });
@@ -977,67 +997,25 @@ describe('host scope pages', () => {
     });
   });
 
-  it('hands a later host scope only what the page left', async () => {
+  it('walks every submitted host scope in one call', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a/one.md', 'needle\n');
       await writeAt(root, 'b/one.md', 'needle\n');
       await writeAt(root, 'b/two.md', 'needle\n');
-      const scopes = [`${root}/a/**`, `${root}/b/**`];
-      const first = await run(contextOf(), {
-        patterns: ['needle'],
-        scopes,
-        limit: 2,
-      });
-      // The first scope takes one of the page's two files, so the second scope
-      // runs in the same call with one file left, and its second file waits.
-      expect(locatorsOf(first)).toEqual([
-        `${root}/a/one.md:1-1`,
-        `${root}/b/one.md:1-1`,
-      ]);
-      expect(success(first).complete).toBe(false);
-      const cursor = cursorOf(first);
-      if (cursor === undefined) throw new Error('the page carries a cursor');
-
-      const second = await run(contextOf(), {
-        patterns: ['needle'],
-        scopes,
-        limit: 2,
-        cursor,
-      });
-      expect(locatorsOf(second)).toEqual([`${root}/b/two.md:1-1`]);
-      expect(success(second).complete).toBe(true);
-    });
-  });
-
-  it('does not walk a host scope before the cursor it was given', async () => {
-    await withRoot(async (root) => {
-      await writeAt(root, 'a/one.md', 'needle\n');
-      await writeAt(root, 'b/one.md', 'needle\n');
-      await writeAt(root, 'b/two.md', 'needle\n');
-      const scopes = [`${root}/a/**`, `${root}/b/**`];
-      // A cursor from an earlier call that ended inside the second scope: the
-      // first scope is never walked again, and its match stays out.
-      const cursor = encodeGrepCursor({
-        scopeIndex: 1,
-        rel: 'one.md',
-        startLine: 1,
-        inputHash: hashGrepInputs({
-          patterns: ['needle'],
-          literal: false,
-          ignoreCase: false,
-          projectedScopes: scopes.map(
-            (scope) => projectGrepScope(scope, undefined).prefix,
-          ),
-          resolvedRoots: [`${root}/a`, `${root}/b`],
-        }),
-      });
       const result = await run(contextOf(), {
         patterns: ['needle'],
-        scopes,
-        cursor,
+        scopes: [`${root}/a/**`, `${root}/b/**`],
+        limit: 1,
       });
-      expect(locatorsOf(result)).toEqual([`${root}/b/two.md:1-1`]);
+      // The walk has no model-facing page, so a limit bounds nothing until the
+      // inline head arrives with the artifact.
+      expect(locatorsOf(result)).toEqual([
+        `${root}/a/one.md:1-1`,
+        `${root}/b/one.md:1-1`,
+        `${root}/b/two.md:1-1`,
+      ]);
       expect(success(result).complete).toBe(true);
+      expect(result).not.toHaveProperty('cursor');
     });
   });
 });

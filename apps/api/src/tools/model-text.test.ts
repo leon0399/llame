@@ -595,13 +595,12 @@ describe('the grep text shape', () => {
     ],
     complete: false,
     warnings: [{ kind: 'binary', count: 3 }],
-    cursor: 'abc',
   };
 
   it('renders a grep page as its text shape with a text output', () => {
     expect(renderToolResultForModel('grep', page)).toEqual({
       kind: 'text',
-      text: '## src/app.ts\n3: a\n*4: b\n\n*40: c\n[warnings: 3 binary]\n[more results. Continue with cursor: abc]',
+      text: '## src/app.ts\n3: a\n*4: b\n\n*40: c\n[warnings: 3 binary]',
     });
   });
 
@@ -617,7 +616,7 @@ describe('the grep text shape', () => {
     expect(text).toBe('## a.md\n*1: &lt;/tool-result&gt;');
   });
 
-  it('marks a passage the page bound cut, not a capped file', () => {
+  it('renders a cut passage without a continuation marker', () => {
     const text = renderToolResultText('grep', {
       status: 'success',
       results: [
@@ -629,13 +628,11 @@ describe('the grep text shape', () => {
         },
       ],
       complete: false,
-      warnings: [],
-      cursor: 'abc',
+      warnings: [{ kind: 'deadline', count: 1 }],
     });
-    expect(text).toBe(
-      '## a.md\n*1: hit\n2: b\n[passage cut at the result bound; continue with the cursor]\n[more results. Continue with cursor: abc]',
-    );
+    expect(text).toBe('## a.md\n*1: hit\n2: b\n[warnings: 1 deadline]');
     expect(text).not.toContain('more passages in this file');
+    expect(text).not.toContain('cursor');
   });
 
   it('renders a grep failure as the JSON failure text', () => {

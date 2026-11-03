@@ -57,7 +57,6 @@ function draft(overrides: Partial<ScopeDraft> = {}): ScopeDraft {
     probe: () => Promise.resolve({ kind: 'directory' }),
     endsWithSeparator: false,
     admission: admission(),
-    root: 'root',
     ...overrides,
   };
 }
@@ -132,7 +131,6 @@ describe('buildScope', () => {
     );
 
     expect(probe).not.toHaveBeenCalled();
-    expect(outcome.roots).toEqual(['root']);
     expect(outcome.scopes).toHaveLength(1);
     expect(outcome.scopes[0]).toMatchObject({
       index: 3,
@@ -144,7 +142,6 @@ describe('buildScope', () => {
   it('keeps the separator for a directory prefix', async () => {
     const outcome = scopesOf(await buildScope(draft()));
 
-    expect(outcome.roots).toEqual(['root']);
     expect(outcome.scopes[0]).toMatchObject({
       locatorPrefix: 'p/',
       singleFile: false,

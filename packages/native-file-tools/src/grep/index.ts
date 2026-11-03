@@ -34,18 +34,17 @@ export {
   decodeGrepCursor,
   encodeGrepCursor,
   grepContinuationUnits,
-  hashGrepInputs,
 } from "./cursor";
 export type {
   DecodedGrepCursor,
   GrepCursorDecodeResult,
   GrepCursorInput,
   GrepCursorPoint,
-  GrepHashInputs,
   GrepPassageCursor,
   GrepPositionCursor,
 } from "./cursor";
 export { runGrepScan } from "./scan";
+export { passageEndLine, passageStartLine } from "./passages";
 export { compareRel } from "./walk";
 export {
   grepFileLocator,
@@ -63,7 +62,6 @@ export type {
   GrepFileStream,
   GrepIgnored,
   GrepIgnoreFile,
-  GrepPageEnd,
   GrepPassage,
   GrepReadRefusal,
   GrepScanInput,

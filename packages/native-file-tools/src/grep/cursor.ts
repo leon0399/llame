@@ -1,8 +1,4 @@
-import { createHash } from "node:crypto";
-
 import { isNumber, isRecord, isString } from "@workspace/runtime-safety";
-
-import { grepContinuationLine } from "./model-text";
 
 /**
  * A keyset cursor naming the last emitted passage and the inputs it belonged
@@ -94,24 +90,23 @@ function placeholderCursor(point: GrepCursorPoint): string {
 }
 
 /**
+ * The bracketed line an engine page reserves for the cursor it would return.
+ * The line never reaches the model: a walk pages internally, and the tool
+ * reads no cursor. The width depends only on the payload's bytes, so the
+ * placeholder cursor measures what a real one costs.
+ */
+function continuationLine(cursor: string): string {
+  return `[more results. Continue with cursor: ${cursor}]`;
+}
+
+/**
  * The rendered width of the continuation line that names this point, its
  * separating newline included, so a page keeps that room back before it admits
  * a passage (tool-result-rendering "Bounds are measured on the neutralized
- * rendering"). The encoded length depends only on the payload's bytes, and
- * every call's hash is a sha256 hex of this length, so the placeholder cursor
- * measures what a real one costs.
+ * rendering").
  */
 export function grepContinuationUnits(point: GrepCursorPoint): number {
-  return grepContinuationLine(placeholderCursor(point)).length + 1;
-}
-
-/** The resolved inputs a cursor is only valid against. */
-export interface GrepHashInputs {
-  readonly patterns: ReadonlyArray<string>;
-  readonly literal: boolean;
-  readonly ignoreCase: boolean;
-  readonly projectedScopes: ReadonlyArray<string>;
-  readonly resolvedRoots: ReadonlyArray<string>;
+  return continuationLine(placeholderCursor(point)).length + 1;
 }
 
 /** One opaque page key; base64url so it survives a query string untouched. */
@@ -152,22 +147,6 @@ export function decodeGrepCursor(
   if (cursor === undefined || cursor.inputHash !== inputHash)
     return { error: "invalid_cursor" };
   return cursor;
-}
-
-/** Hash the resolved inputs so a later call with other inputs cannot resume. */
-export function hashGrepInputs(inputs: GrepHashInputs): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        patterns: inputs.patterns,
-        literal: inputs.literal,
-        ignoreCase: inputs.ignoreCase,
-        projectedScopes: inputs.projectedScopes,
-        resolvedRoots: inputs.resolvedRoots,
-      }),
-      "utf8",
-    )
-    .digest("hex");
 }
 
 function readCursor(value: unknown): DecodedGrepCursor | undefined {

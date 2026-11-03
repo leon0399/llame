@@ -30,12 +30,6 @@ export function invalidInputResult(message: string): GrepToolError {
   return { status: 'error', type: 'invalid_input', message };
 }
 
-export function invalidCursorResult(): GrepToolError {
-  return invalidInputResult(
-    'The grep cursor is invalid for these inputs; repeat the call without it.',
-  );
-}
-
 export function invalidPatternResult(
   index: number,
   message: string,

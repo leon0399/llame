@@ -73,10 +73,9 @@ export function hostLiteralStart(
     : 0;
 }
 
-/** One scope set a call resolved, plus the roots its cursor is keyed on. */
+/** One scope set a call resolved. */
 export type ResolvedScopes = {
   readonly scopes: ReadonlyArray<GrepScope>;
-  readonly roots: ReadonlyArray<string>;
   /** Machine scopes, each executed as one request on its Machine. */
   readonly machines?: ReadonlyArray<MachineGrepScope>;
 };
@@ -84,11 +83,7 @@ export type ResolvedScopes = {
 /** Either one Machine scope, a resolved scope set, or the result that ends the call. */
 export type ScopeOutcome =
   | ResolvedScopes
-  | {
-      readonly machine: MachineGrepScope;
-      /** The Machine name, which the call's cursor is keyed on. */
-      readonly root: string;
-    }
+  | { readonly machine: MachineGrepScope }
   | { readonly result: GrepToolError };
 
 /** The characters splitGrepScope treats as glob operators. */
@@ -162,7 +157,6 @@ export type ScopeDraft = {
   readonly probe: () => Promise<ScopeProbe>;
   readonly endsWithSeparator: boolean;
   readonly admission: GrepReadAdmission;
-  readonly root: string;
 };
 
 /** Finish one scope: probe a glob-free prefix, then mark it single-file. */
@@ -176,9 +170,7 @@ export async function buildScope(draft: ScopeDraft): Promise<ScopeOutcome> {
     singleFile: false,
     locatorFor: draft.locatorFor,
   };
-  if (draft.glob !== undefined) {
-    return { scopes: [base], roots: [draft.root] };
-  }
+  if (draft.glob !== undefined) return { scopes: [base] };
   const decided = await decideScopeKind(
     prefix,
     draft.endsWithSeparator,
@@ -195,6 +187,5 @@ export async function buildScope(draft: ScopeDraft): Promise<ScopeOutcome> {
         singleFile: decided.kind === 'file',
       },
     ],
-    roots: [draft.root],
   };
 }

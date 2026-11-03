@@ -1071,6 +1071,45 @@ describe("grep paging", () => {
     ]);
   });
 
+  it("reports a cut page with the counts at its last kept passage", async () => {
+    // Page one keeps a.md, then counts a binary file and an excluded
+    // directory, then cannot hold c.md. The binary skip and the exclusion sit
+    // after the page's cursor, so the next page walks them again: only that
+    // page may count them.
+    const long = Array.from({ length: 60 }, () => "hit").join("\n");
+    const port = createMemoryPort({
+      ".gitignore": file("bdir/\n"),
+      "a.md": file("hit\n"),
+      "b.bin": binary(Uint8Array.from([0x68, 0x69, 0x74, 0x00])),
+      bdir: directory({ "c.md": file("hit\n") }),
+      "c.md": file(`${long}\n`),
+    });
+    const scope = memoryScope(0, "/repo/", port);
+    const first = await runMemoryScan([scope], ["hit"], {
+      budget: { pageUnits: reservedRoom("a.md", 100) },
+    });
+    expect(first.results.map((passage) => passage.locator)).toEqual([
+      "/repo/a.md:1-1",
+    ]);
+    expect(first.warnings).toEqual([]);
+    expect(first.ignored).toBeUndefined();
+    expect(first.complete).toBe(false);
+
+    const second = await runMemoryScan([scope], ["hit"], {
+      cursor: decode(first.cursor),
+      progressed: first.progressed,
+    });
+    expect(second.results.map((passage) => passage.locator)).toEqual([
+      "/repo/c.md:1-60",
+    ]);
+    // The counts the walk reached after the first page's cursor, counted once.
+    expect(second.warnings).toEqual([{ kind: "binary", count: 1 }]);
+    expect(second.ignored).toEqual({
+      paths: ["/repo/bdir"],
+      atLeast: false,
+    });
+  });
+
   it("ends the page before the unit budget", async () => {
     const text = Array.from({ length: 26 }, (_, index) =>
       (index + 1) % 5 === 1 ? "hit" : "x",
