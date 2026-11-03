@@ -476,7 +476,6 @@ describe('composeStepMessages', () => {
     ) => {
       const built = buildContext([message], {
         systemPrompt: 'system',
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
@@ -669,7 +668,6 @@ describe('composeStepMessages', () => {
     ) => {
       const built = buildContext(rows, {
         systemPrompt: 'system',
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
@@ -1150,7 +1148,6 @@ describe('composeStepMessages', () => {
       };
       const { messages } = buildContext([stored], {
         systemPrompt: 'system',
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const composed = await composeStepMessages(messages, {
@@ -1549,7 +1546,6 @@ describe('composeStepMessages', () => {
       const { resolver } = fakeResolver([]);
       const { messages } = buildContext([stored], {
         systemPrompt: 'system',
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const composed = await composeStepMessages(messages, {

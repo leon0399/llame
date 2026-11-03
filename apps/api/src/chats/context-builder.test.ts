@@ -136,17 +136,14 @@ describe('buildContext', () => {
     it('system content is identical regardless of which turn is current', () => {
       const turn1 = buildContext([userMsg1], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const turn2 = buildContext([userMsg1, assistantMsg1], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const turn3 = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -157,7 +154,6 @@ describe('buildContext', () => {
     it('system contains no timestamps, ids, or per-request values', () => {
       const result = buildContext([userMsg1], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -173,12 +169,10 @@ describe('buildContext', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
       const out1 = buildContext(messages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const out2 = buildContext(messages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -189,7 +183,6 @@ describe('buildContext', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
       const result = buildContext(messages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -203,7 +196,6 @@ describe('buildContext', () => {
       // Same messages, shuffled. seq order is userMsg1(1) → assistantMsg1(2) → userMsg2(3).
       const result = buildContext([userMsg2, userMsg1, assistantMsg1], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -227,7 +219,6 @@ describe('buildContext', () => {
         [userMsg1, systemRow, assistantMsg1, userMsg2],
         {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         },
       );
@@ -247,7 +238,6 @@ describe('buildContext', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
       const { messages: result } = buildContext(messages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -270,7 +260,6 @@ describe('buildContext', () => {
       const messages = [userMsg1, assistantMsg1, bobMsg];
       const { messages: result } = buildContext(messages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -291,7 +280,6 @@ describe('buildContext', () => {
       const messages = [userMsg1, assistantMsg1, bobMsg];
       const { messages: result } = buildContext(messages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -345,7 +333,6 @@ describe('buildContext', () => {
 
       const result = buildContext([stored], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -386,7 +373,6 @@ describe('buildContext', () => {
       expect(
         buildContext([stored], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         }).messages,
       ).toEqual([
@@ -423,7 +409,6 @@ describe('buildContext', () => {
       expect(
         buildContext([stored], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         }).messages,
       ).toStrictEqual([
@@ -494,7 +479,6 @@ describe('buildContext', () => {
       expect(
         buildContext([stored], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         }).messages,
       ).toEqual([
@@ -539,7 +523,6 @@ describe('buildContext', () => {
       expect(
         buildContext([stored], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         }).messages,
       ).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]);
@@ -558,7 +541,6 @@ describe('buildContext', () => {
       expect(
         buildContext([stored], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         }).messages,
       ).toEqual([
@@ -614,7 +596,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -659,7 +640,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -692,7 +672,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -709,7 +688,6 @@ describe('buildContext', () => {
 
       const result = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -722,7 +700,6 @@ describe('buildContext', () => {
       const messages = [userMsg1];
       const { messages: result } = buildContext(messages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -730,26 +707,6 @@ describe('buildContext', () => {
       const content = contentText(userResult!.content);
 
       expect(content).toContain('Hello');
-    });
-
-    it('reasoning parts are excluded from a compaction request (never summarized)', () => {
-      const assistant = msg({
-        role: 'assistant',
-        parts: [
-          { type: 'reasoning', text: 'SECRET_THINKING must not be summarized' },
-          { type: 'text', text: 'The visible answer' },
-        ],
-      });
-      const { messages: result } = buildContext([userMsg1, assistant], {
-        systemPrompt,
-        requestKind: 'compaction',
-        modelId: 'test-model',
-      });
-      const serialized = JSON.stringify(result);
-      // The compaction request summarizes these turns without their reasoning …
-      expect(serialized).not.toContain('SECRET_THINKING');
-      // … while the answer text still reaches the summarizer.
-      expect(serialized).toContain('The visible answer');
     });
 
     it('a continuation replays reasoning ahead of the text it preceded, byte-identically', () => {
@@ -769,7 +726,6 @@ describe('buildContext', () => {
 
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -788,38 +744,27 @@ describe('buildContext', () => {
       }
     });
 
-    it('a continuation replays an assistant message whose only part is reasoning', () => {
+    it('replays an assistant message whose only part is reasoning', () => {
       const assistant = msg({
         role: 'assistant',
         usage: { status: 'completed', modelId: 'test-model' },
         parts: [{ type: 'reasoning', text: 'ONLY_REASONING' }],
       });
 
-      const { messages: continuation } = buildContext([userMsg1, assistant], {
+      const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
-      expect(continuation).toEqual([
+      expect(messages).toEqual([
         { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
         {
           role: 'assistant',
           content: [{ type: 'reasoning', text: 'ONLY_REASONING' }],
         },
       ]);
-      for (const message of continuation) {
+      for (const message of messages) {
         expect(() => modelMessageSchema.parse(message)).not.toThrow();
       }
-
-      // A compaction request still drops a turn that holds nothing else.
-      const { messages: compaction } = buildContext([userMsg1, assistant], {
-        systemPrompt,
-        requestKind: 'compaction',
-        modelId: 'test-model',
-      });
-      expect(compaction).toEqual([
-        { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
-      ]);
     });
 
     it("a continuation carries each part's opaque provider metadata as providerOptions (3.3)", () => {
@@ -851,7 +796,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -901,46 +845,6 @@ describe('buildContext', () => {
       expect(Object.keys(withoutMetadata)).toEqual(['type', 'text']);
     });
 
-    it('a compaction request over the same turn carries neither reasoning nor metadata (3.3)', () => {
-      const providerMetadata = {
-        openai: {
-          itemId: 'rs_item_1',
-          reasoningEncryptedContent: 'ENCRYPTED_REASONING_STATE',
-        },
-      };
-      const assistant = msg({
-        role: 'assistant',
-        usage: { status: 'completed', modelId: 'test-model' },
-        parts: [
-          {
-            type: 'reasoning',
-            text: 'THINKING_ONLY_IN_CONTINUATION',
-            providerMetadata,
-          },
-          { type: 'text', text: 'The visible answer' },
-        ],
-      });
-
-      const { messages } = buildContext([userMsg1, assistant], {
-        systemPrompt,
-        requestKind: 'compaction',
-        modelId: 'test-model',
-      });
-
-      expect(messages).toEqual([
-        { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
-        {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'The visible answer' }],
-        },
-      ]);
-      const serialized = JSON.stringify(messages);
-      expect(serialized).not.toContain('THINKING_ONLY_IN_CONTINUATION');
-      expect(serialized).not.toContain('ENCRYPTED_REASONING_STATE');
-      expect(serialized).not.toContain('rs_item_1');
-      expect(serialized).not.toContain('providerOptions');
-    });
-
     it('tool observations are replayed as tool-call/tool-result parts', () => {
       const assistant = msg({
         role: 'assistant',
@@ -960,7 +864,6 @@ describe('buildContext', () => {
       });
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(result);
@@ -993,7 +896,6 @@ describe('buildContext', () => {
       });
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(result);
@@ -1030,7 +932,6 @@ describe('buildContext', () => {
 
       const { messages: result } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(result);
@@ -1081,7 +982,6 @@ describe('buildContext', () => {
 
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1105,7 +1005,6 @@ describe('buildContext', () => {
 
       const result = buildContext([userMsg1, toolRow, assistantMsg1], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1147,7 +1046,6 @@ describe('buildContext', () => {
 
       const result = buildContext([switched], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1187,7 +1085,6 @@ describe('buildContext', () => {
 
       const result = buildContext([switched, later], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1212,7 +1109,6 @@ describe('buildContext', () => {
 
       const result = buildContext([switched, later], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
         checkpoint: {
           text: 'persisted checkpoint',
@@ -1235,7 +1131,6 @@ describe('buildContext', () => {
 
         const result = buildContext([malformedRow], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         });
 
@@ -1283,7 +1178,6 @@ describe('buildContext', () => {
 
       const result = buildContext([switched], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1304,7 +1198,6 @@ describe('buildContext', () => {
 
       const result = buildContext([later], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
         checkpoint: {
           text: 'stored </system-reminder> checkpoint',
@@ -1334,7 +1227,6 @@ describe('buildContext', () => {
 
       const result = buildContext([forging], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const rendered = contentText(result.messages[0].content);
@@ -1360,7 +1252,6 @@ describe('buildContext', () => {
 
       const result = buildContext([discussing], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1468,7 +1359,6 @@ describe('buildContext', () => {
 
       const result = buildContext([triggering], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1500,7 +1390,6 @@ describe('buildContext', () => {
 
       const result = buildContext([triggering], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1530,7 +1419,6 @@ describe('buildContext', () => {
 
       const result = buildContext([triggering], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1581,7 +1469,6 @@ describe('buildContext', () => {
 
       const result = buildContext([superseded, current], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
         checkpoint: {
           text: 'stored failure checkpoint',
@@ -1619,7 +1506,6 @@ describe('buildContext', () => {
 
         const result = buildContext([row], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         });
 
@@ -1634,7 +1520,6 @@ describe('buildContext', () => {
     it('emits the stored literal before rows above its boundary', () => {
       const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
         checkpoint: {
           text: '<system-reminder producer="compaction" form="checkpoint">stored wording</system-reminder>',
@@ -1679,7 +1564,6 @@ describe('buildContext', () => {
         [userMsg1, assistantMsg1, checkpointRow, userMsg2],
         {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
           checkpoint: {
             text: 'selected checkpoint',
@@ -1709,7 +1593,6 @@ describe('buildContext', () => {
 
       const result = buildContext(manyMessages, {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -1747,7 +1630,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([userMsg1, assistant, nextUser], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -1761,7 +1643,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const toolCallMsg = messages.find(
@@ -1799,7 +1680,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -1823,7 +1703,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -1838,7 +1717,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const toolMsg = messages.find((m) => m.role === 'tool');
@@ -1864,7 +1742,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, poisoned], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -1894,11 +1771,10 @@ describe('buildContext', () => {
 
       const ctx2 = buildContext(
         [userMsg1, assistant, turn2User, turn2Assistant, turn3User],
-        { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+        { systemPrompt, modelId: 'test-model' },
       );
       const ctx3 = buildContext([userMsg1, assistant, turn2User], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       // The projection of the first assistant message must be identical
@@ -1908,7 +1784,7 @@ describe('buildContext', () => {
       expect(proj2).toBe(proj3);
     });
 
-    it('display-only provider metadata never replays; reasoning metadata replays only into a continuation (2.11)', () => {
+    it('display-only provider metadata never replays; reasoning metadata replays under the model rule (2.11)', () => {
       const providerMetadata = {
         openai: { itemId: 'rs_2', reasoningEncryptedContent: 'ENCRYPTED_2' },
       };
@@ -1935,7 +1811,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -1962,18 +1837,6 @@ describe('buildContext', () => {
       expect(projection).not.toContain('SECRET_REASONING');
       expect(projection).not.toContain('ENCRYPTED_2');
       expect(projection).not.toContain('PROVIDER_SECRET');
-
-      // A compaction request over the same turn carries neither.
-      const { messages: compaction } = buildContext([userMsg1, assistant], {
-        systemPrompt,
-        requestKind: 'compaction',
-        modelId: 'test-model',
-      });
-      const summarized = JSON.stringify(compaction);
-      expect(summarized).not.toContain('SECRET_REASONING');
-      expect(summarized).not.toContain('ENCRYPTED_2');
-      expect(summarized).not.toContain('PROVIDER_SECRET');
-      expect(summarized).toContain('DETAIL_NOT_IN_ANSWER');
     });
 
     it('a tool called during reasoning output is replayed with that reasoning ahead of it (2.13)', () => {
@@ -2004,7 +1867,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -2054,7 +1916,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, toolOnly, nextUser], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -2096,7 +1957,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const toolMsg = messages.find((m) => m.role === 'tool');
@@ -2164,7 +2024,6 @@ describe('buildContext', () => {
 
         const { messages } = buildContext([assistant], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         });
         expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
@@ -2197,7 +2056,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -2259,7 +2117,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -2314,7 +2171,6 @@ describe('buildContext', () => {
       const serialized = JSON.stringify(
         buildContext([assistant], {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'test-model',
         }).messages,
       );
@@ -2340,7 +2196,7 @@ describe('buildContext', () => {
       it('replays parallel calls as one step', () => {
         const { messages } = buildContext(
           [assistantWith([callPart('read-a', 2), callPart('read-b', 2)])],
-          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+          { systemPrompt, modelId: 'test-model' },
         );
 
         expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
@@ -2352,7 +2208,7 @@ describe('buildContext', () => {
       it('replays sequential calls as two steps', () => {
         const { messages } = buildContext(
           [assistantWith([callPart('read-a', 2), callPart('read-b', 3)])],
-          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+          { systemPrompt, modelId: 'test-model' },
         );
 
         expect(messages.map(({ role }) => role)).toEqual([
@@ -2375,7 +2231,7 @@ describe('buildContext', () => {
               callPart('read-a', 1),
             ]),
           ],
-          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+          { systemPrompt, modelId: 'test-model' },
         );
 
         expect(messages[0]).toMatchObject({ role: 'assistant' });
@@ -2396,7 +2252,7 @@ describe('buildContext', () => {
               callPart('read-b', 0),
             ]),
           ],
-          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+          { systemPrompt, modelId: 'test-model' },
         );
 
         expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
@@ -2424,7 +2280,7 @@ describe('buildContext', () => {
             ]),
             assistantWith([callPart('read-b', 1)]),
           ],
-          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+          { systemPrompt, modelId: 'test-model' },
         );
 
         expect(messages.map(({ role }) => role)).toEqual([
@@ -2465,7 +2321,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([assistant], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
 
@@ -2570,7 +2425,6 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([msg({ role: 'assistant', parts })], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
@@ -2612,7 +2466,6 @@ describe('buildContext', () => {
     const replay = (usage: unknown, modelId: string) =>
       buildContext([userMsg1, msg({ role: 'assistant', usage, parts })], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId,
       }).messages;
 
@@ -2659,7 +2512,6 @@ describe('buildContext', () => {
         ],
         {
           systemPrompt,
-          requestKind: 'continuation',
           modelId: 'sonnet',
         },
       ).messages;
@@ -2694,7 +2546,7 @@ describe('buildContext', () => {
               parts: [refusedPart(input)],
             }),
           ],
-          { systemPrompt, requestKind: 'continuation', modelId },
+          { systemPrompt, modelId },
         ).messages;
         const assistant = withRefusal.find(
           (message) => message.role === 'assistant',
@@ -2790,7 +2642,6 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, turn1, userMsg2, turn2], {
         systemPrompt,
-        requestKind: 'continuation',
         modelId: 'sonnet',
       });
       const serialized = JSON.stringify(messages);
@@ -2894,7 +2745,6 @@ describe('reasoning replay at the Responses SDK boundary (3.3)', () => {
   const buildReplayContext = () =>
     buildContext([userMessage, assistantMessage], {
       systemPrompt,
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
 

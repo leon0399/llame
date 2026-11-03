@@ -12,8 +12,9 @@
  *   results of its calls. It clears nothing and drops no tool pair — a
  *   checkpoint is the only boundary.
  * - Persisted reasoning and provider metadata follow the model rule of
- *   `reasoning-output` (D7): they replay only into a request that continues the
- *   Chat and only for the reply's own model after a completed reply.
+ *   `reasoning-output` (D7): they replay for the reply's own model after a
+ *   completed reply, in every request that model makes (D9 makes a
+ *   summarization request an ordinary one).
  * - Deterministic: identical inputs → identical output
  * - No message-count cap: context size is governed in TOKENS by the compaction
  *   threshold (#57). A count cap would silently drop old turns without any
@@ -177,29 +178,16 @@ export interface ContextCheckpoint {
   absorbedThroughSeq: number;
 }
 
-/**
- * What the built request is for (D16). Replaying a Chat's persisted reasoning
- * is a property of the request kind, not of the projection: a request that
- * continues the Chat carries its stored reasoning parts, while a request that
- * asks a model to summarize that history into a compaction carries none —
- * reasoning must not be folded into summary text that is no longer
- * provider-authorized.
- */
-export type ContextRequestKind = 'continuation' | 'compaction';
-
 export interface BuildContextOptions {
   systemPrompt: string;
-  /**
-   * Required, with no default: every caller states whether this request
-   * continues the Chat or summarizes it (D16), so a new caller cannot inherit
-   * a silent choice.
-   */
-  requestKind: ContextRequestKind;
   /**
    * Required, with no default: the llame model id this request runs on. The
    * model rule of `reasoning-output` (D7) replays a reply's reasoning and its
    * provider metadata only when the reply's `usage.modelId` is this value, so
-   * a caller must state the model it builds for.
+   * a caller must state the model it builds for. A summarization request is
+   * not a separate projection: it states the model it runs on like any other
+   * request, and the projection it shares with a later turn decides what that
+   * model may see (design D9).
    */
   modelId: string;
   /** The active checkpoint for this request, if any. */
@@ -615,13 +603,11 @@ function appendAssistantMessage(
   options: BuildContextOptions,
   retained: Map<string, RetainedMedia>,
 ): void {
-  // A continuation of this Chat is the only request kind that may reuse the
-  // reply's private continuation state, and only for the reply's own model
-  // after a completed reply (D7). A compaction request summarizes the same
-  // rows without it (D9 owns folding compaction into the same projection).
-  const privateParts =
-    options.requestKind === 'continuation' &&
-    replaysPrivateParts(m.usage, options.modelId);
+  // The model rule decides what a request on `options.modelId` may see of a
+  // stored reply: reasoning and provider metadata replay for a completed reply
+  // of that same model, in every request, a summarization request included
+  // (D7, D9).
+  const privateParts = replaysPrivateParts(m.usage, options.modelId);
   result.push(
     ...new StoredReplyProjection(privateParts, retained).project(m.parts, m.id),
   );

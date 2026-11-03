@@ -1022,6 +1022,77 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       });
     });
 
+    it('extends the previous turn’s last request and its response, then the instruction', async () => {
+      // A real first turn on the chat, run through the same service, so the
+      // prefix this pins is a request the live loop actually sent.
+      const chat = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).create({ ownerUserId: userId }),
+      );
+      doomedChats.push(chat.id);
+      const firstTurn = await addTurn(chat.id, 'FIRST REQUEST');
+      const firstCalls: Array<ModelStreamInput> = [];
+      const service = runService(createCompactionService(unexercisedModels));
+      const first = await service.executeRun(
+        requestFor(
+          firstTurn,
+          attemptClient({ calls: firstCalls, answer: 'FIRST ANSWER' }),
+        ),
+      );
+      await first.consumeStream?.();
+      const previousRequest = firstCalls.at(-1);
+      if (previousRequest === undefined) {
+        throw new Error('The first turn made no provider request.');
+      }
+
+      // The next turn crosses a one-token threshold, so compaction runs on the
+      // previous turn's model right before its first model step.
+      const secondTurn = await addTurn(chat.id, 'SECOND REQUEST');
+      const calls: Array<ModelStreamInput> = [];
+      const second = await service.executeRun(
+        requestFor(
+          secondTurn,
+          attemptClient({
+            calls,
+            summary: { response: SUMMARY },
+            answer: 'SECOND ANSWER',
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      await second.consumeStream?.();
+
+      const summaryRequest = sole(calls.filter(isSummaryRequest));
+      const response = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'FIRST ANSWER' }],
+      };
+      // The previous request really carried the first turn, and the summary
+      // request adds exactly that response and the instruction.
+      expect(JSON.stringify(previousRequest.messages)).toContain(
+        'FIRST REQUEST',
+      );
+      expect(summaryRequest.messages).toHaveLength(
+        previousRequest.messages.length + 2,
+      );
+      // The projection replays the previous request byte for byte, then the
+      // response to it, and the summarization instruction is the last message.
+      expect(JSON.stringify(summaryRequest.messages.slice(0, -1))).toBe(
+        JSON.stringify([...previousRequest.messages, response]),
+      );
+      expect(summaryRequest.messages.at(-1)).toEqual({
+        role: 'user',
+        content: COMPACTION_INSTRUCTION,
+      });
+
+      // The checkpoint row is the summary and nothing else: no reasoning part
+      // and no provider metadata (reasoning-output).
+      const checkpoint = sole((await readTurnState(secondTurn)).checkpoints);
+      expect(checkpoint.parts).toEqual([
+        createCompactionCheckpointPart(SUMMARY),
+      ]);
+      expect(checkpointSummary(checkpoint)).toBe(SUMMARY);
+    });
+
     it('keeps the checkpoint, its re-baked epoch, and the dispatched items once when the attempt dies, and the next attempt reuses them', async () => {
       const seeded = await seedEpoch();
       const turn = turnOf(seeded);

@@ -2659,9 +2659,8 @@ export class RunExecutionService {
     return {
       context: buildContext(toStoredMessages(history), {
         systemPrompt,
-        // A Run's own request continues this Chat, and its model decides
-        // which earlier reasoning and provider metadata replay (D7, D16).
-        requestKind: 'continuation',
+        // The model this Run executes on decides which earlier reasoning and
+        // provider metadata replay (D7).
         modelId: input.client.model,
         ...(checkpoint !== undefined && {
           checkpoint: toContextCheckpoint(checkpoint),

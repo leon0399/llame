@@ -1274,12 +1274,17 @@ describe('buildCompactionRequest', () => {
     expect(COMPACTION_WINDOW_RATIO).toBe(0.8);
   });
 
-  it('summarizes a history that stores reasoning without replaying it', () => {
+  it('carries the reasoning parts of its own model, in their stored positions', () => {
     const question = msg('plan a trip to Japan');
     const answer = msg('sure — when?', 'assistant');
+    answer.usage = { status: 'completed', modelId: 'test-model' };
+    const providerMetadata = {
+      openai: { reasoningEncryptedContent: 'ENCRYPTED_REASONING' },
+    };
     answer.parts = [
-      { type: 'reasoning', text: 'SECRET_REASONING' },
+      { type: 'reasoning', text: 'SECRET_REASONING', providerMetadata },
       { type: 'text', text: 'VISIBLE_ANSWER' },
+      { type: 'reasoning', text: 'SECOND_THOUGHT' },
     ];
 
     const request = buildCompactionRequest({
@@ -1289,11 +1294,90 @@ describe('buildCompactionRequest', () => {
       absorb: [question, answer],
     });
 
+    // The summarization request is an ordinary request of its model: the
+    // projection offers each reasoning part the model rule keeps, exactly as a
+    // later turn would (D9).
+    expect(request.messages[1]).toEqual({
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'SECRET_REASONING',
+          providerOptions: providerMetadata,
+        },
+        { type: 'text', text: 'VISIBLE_ANSWER' },
+        { type: 'reasoning', text: 'SECOND_THOUGHT' },
+      ],
+    });
+  });
+
+  it('carries no reasoning of another model, and no reasoning of an unfinished reply', () => {
+    const question = msg('plan a trip to Japan');
+    const otherModel = msg('sure — when?', 'assistant');
+    otherModel.usage = { status: 'completed', modelId: 'another-model' };
+    otherModel.parts = [
+      { type: 'reasoning', text: 'OTHER_MODEL_THOUGHT' },
+      { type: 'text', text: 'FIRST_ANSWER' },
+    ];
+    const unfinished = msg('still going', 'assistant');
+    unfinished.usage = { status: 'failed', modelId: 'test-model' };
+    unfinished.parts = [
+      { type: 'reasoning', text: 'FAILED_THOUGHT' },
+      { type: 'text', text: 'PARTIAL_ANSWER' },
+    ];
+
+    const request = buildCompactionRequest({
+      modelId: 'test-model',
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: [question, otherModel, unfinished],
+    });
+
     const serialized = JSON.stringify(request.messages);
-    // Reasoning is excluded from what the summarizer reads …
-    expect(serialized).not.toContain('SECRET_REASONING');
-    // … while the visible turn still reaches it.
-    expect(serialized).toContain('VISIBLE_ANSWER');
+    expect(serialized).not.toContain('OTHER_MODEL_THOUGHT');
+    expect(serialized).not.toContain('FAILED_THOUGHT');
+    expect(serialized).toContain('FIRST_ANSWER');
+    expect(serialized).toContain('PARTIAL_ANSWER');
+  });
+
+  it('shares one projection with a continuation: only the instruction differs', () => {
+    const rows = [
+      msg('plan a trip to Japan'),
+      msg('sure — when?', 'assistant'),
+      msg('in spring', 'user'),
+      msg('noted', 'assistant'),
+    ];
+    rows[1].usage = { status: 'completed', modelId: 'test-model' };
+    rows[1].parts = [
+      { type: 'reasoning', text: 'FIRST_THOUGHT' },
+      { type: 'text', text: 'Sure — when?' },
+    ];
+    rows[3].usage = { status: 'completed', modelId: 'test-model' };
+    rows[3].parts = [
+      { type: 'reasoning', text: 'SECOND_THOUGHT' },
+      { type: 'text', text: 'Noted.' },
+    ];
+
+    const continuation = buildContext(rows, {
+      systemPrompt: CHAT_SYSTEM,
+      modelId: 'test-model',
+    });
+    const compaction = buildCompactionRequest({
+      modelId: 'test-model',
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: rows,
+    });
+
+    // Same stored messages, same model, same projection — byte for byte. The
+    // summarization instruction is the only difference (D9).
+    expect(JSON.stringify(compaction.messages.slice(0, -1))).toBe(
+      JSON.stringify(continuation.messages),
+    );
+    expect(compaction.messages.at(-1)).toEqual({
+      role: 'user',
+      content: COMPACTION_INSTRUCTION,
+    });
   });
 
   it('replays an absorbed turn’s result as its live rendering, with no artifact line', () => {
@@ -1578,7 +1662,6 @@ describe('a stored retained read across the builds of one attempt', () => {
     // The main build emits the marker and returns the entry it names.
     const main = buildContext(rows, {
       systemPrompt: '',
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
     expect([...main.retainedMedia.keys()]).toEqual([
@@ -1604,7 +1687,6 @@ describe('a stored retained read across the builds of one attempt', () => {
     const { resolver: limitedResolver } = fakeResolver([]);
     const limited = buildContext(limitedRows, {
       systemPrompt: '',
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
     mergeRetainedMedia(limitedResolver.retainedMedia, limited.retainedMedia);

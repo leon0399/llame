@@ -16727,7 +16727,6 @@ describe('RunExecutionService retained read media', () => {
         ] satisfies Array<StoredMessage>,
         {
           systemPrompt: '',
-          requestKind: 'continuation',
           modelId: 'test-model',
         },
       );
