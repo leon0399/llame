@@ -15,4 +15,5 @@ export type CreateChatMessageDtoPermissionMode =
 export const CreateChatMessageDtoPermissionMode = {
   default: "default",
   bypass: "bypass",
+  "read-only": "read-only",
 } as const;
