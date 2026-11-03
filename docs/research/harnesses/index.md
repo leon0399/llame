@@ -194,6 +194,21 @@ assessment.
 69. [ThinkRail](./thinkrail.md) — JetBrains agentic IDE around in-process pi: git-worktree workspaces, a project trust grant, and MCP calls that ask unless marked read-only
 70. [OpenDuet](./openduet.md) — Proactive agent on vendored CopilotKit OpenBot: per-bot computers, a deny-by-default action gateway, and credentials kept out of the transcript
 71. [GVS5H](./gvs5h.md) — Benchmark scaffold for ledger-based fresh-context orchestration; the multiagent engine runs public stdin samples, and the model has no tools
+72. [Rakazo](./rakazo.md) — TypeScript bot host: Postgres event cursors, in-process run wakeups, a sandbox-provider switch, and approval keys bound to arguments
+73. [Guilds](./guilds.md) — AGPL orchestrator whose stored tool results are cut to 64 KiB and whose provider request then stubs older ones without rewriting the stored row
+74. [Clawboo](./clawboo.md) — MIT Node team service whose orchestration log tails by seq over SSE, while peer coding CLIs start with their own approvals off and a hard budget cap stays opt-in
+75. [Tucano](./tucano.md) — Apache-2.0 Electron workspace whose peer CLIs take tools from a per-turn MCP gateway and whose approval rechecks the grant before the stored call runs
+76. [Codync](./codync.md) — Rust host for installed agent CLIs: a ratatui client, SQLite routines that coalesce, and phones that attach to the computer that runs the bot
+77. [OpenGrokBot](./opengrokbot.md) — MIT gateway whose local shell stays off until the operator enables it and a Seatbelt or bubblewrap self-check passes, while Docker computers keep a shell
+78. [Mercury Agent](./mercury-agent.md) — MIT Node agent whose second terminal attaches over SSE to a running daemon, with one Ask Me or Allow All mode shared by every surface
+79. [Touri](./touri.md) — Tauri desktop over Codex, Claude Code, and OpenCode, with group delegation enforced at depth 2 and six calls and optional container bot machines
+80. [Lorca](./lorca.md) — GPL-3.0-only Rust CLI that owns the agent loop, with desktop runners executing bots, phones that only pair, and a relay that stores ciphertext blobs
+81. [Tobs](./tobs.md) — MIT Cordis plugin on DeepSeek Harness whose bot memory is a Git repository the plugin commits, while a paired phone steers the host
+82. [OpenTeam](./openteam.md) — GPL-3.0 bot team whose SSE replays an Event sequence, with every bot sharing one Linux computer that documents passwordless sudo
+83. [AionUi](./aionui.md) — Apache-2.0 Electron shell over an external aioncore binary and detected CLIs, with team cron ids stored on conversations in this repo
+84. [Happy](./happy.md) — MIT mobile, web, and legacy CLI clients plus a relay, with encrypted session bodies and the desktop harness in a separate repository
+85. [CraftBot](./craftbot.md) — MIT self-hosted agent whose in-workspace surface is Agent App, with the theme wire still named livingui-theme
+86. [Tamekoshi](./tamekoshi.md) — Waitlist desktop companion with no public repository located, so the note records only the site and the tierroom board
 
 ## Multi-machine and container placement
 
@@ -220,6 +235,8 @@ backend for agent execution):
 - [Agentastic](./agentastic.md) — SSH hosts plus Modal/Fly/Vercel (closed; site claims)
 - [OpenClaw](./openclaw.md) — tool sandboxes, Crabbox cloud workers, paired-device hosting
   (detail in the [execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md))
+- [Codync](./codync.md) — each computer is a host; a phone talks to that computer's bots. `list_bots` also returns bots other computers offer. A network plan recommends keeping those off the bot list and says that choice was not built yet
+- [Lorca](./lorca.md) — a bot is created on a paired desktop runner; phones are devices and do not execute
 
 **Multi-container / cloud sandbox placement** (per-task or disposable runtime,
 even with a single laptop UI):
@@ -234,6 +251,10 @@ even with a single laptop UI):
 - [AX](./ax.md) — desired-state task sandboxes over Agent Substrate
 - [OpenShell](./openshell.md) — per-sandbox supervisor and workload; Docker, Podman, Kubernetes, and MicroVM fences
 - [OpenDuet](./openduet.md) — default one Docker computer per Bot; gVisor only when the computer runtime is set to runsc
+- [Rakazo](./rakazo.md) — one selected provider (Docker, Kubernetes, E2B, and the other named kinds); a missing remote key becomes a none provider
+- [OpenGrokBot](./opengrokbot.md) — Docker container per teammate, with shell on. A local computer leaves shell off until the operator enables it, and that switch refuses unless Seatbelt or bubblewrap passes a self-check
+- [Touri](./touri.md) — optional bot machines: Apple container on macOS, rootless Podman or Docker on Linux (README; the container lifecycle was not re-read)
+- [OpenTeam](./openteam.md) — one shared Linux computer container for every bot's screen; passwordless sudo; not a VM boundary
 
 **Single remote only** (optional one SSH/daemon host, not a multi-box registry):
 [super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
@@ -242,7 +263,9 @@ forwarding stays off unless `linkedEnvironmentsEnabled` is on), [CodeBuddy Code]
 docs only), [DeepSeek Harness](./deepseek-harness.md) (optional POSIX SSH
 providers; shipped profiles leave them unmounted),
 [PiNomad](./pinomad.md) (one host runs the agent; Mac, web, and iOS clients attach),
-[ThinkRail](./thinkrail.md) (the CLI defaults to localhost and can bind another host).
+[ThinkRail](./thinkrail.md) (the CLI defaults to localhost and can bind another host),
+[Happy](./happy.md) (the original CLI runs the coding agent; phone and web clients attach through the relay; the desktop harness is another repository),
+[Tobs](./tobs.md) (bots run in the DeepSeek Harness host; the board's phone apps steer that host and were not read here).
 
 The [multi-device placement study](../product-vision/2026-10-18-multi-device-execution-placement.md)
 compares these mechanisms with OpenClaw nodes, Home Assistant voice satellites,
