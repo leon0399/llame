@@ -17,9 +17,13 @@ export function scriptedStreamHandlers(
   return {
     onChunk: ({ chunk }) => {
       if (chunk.type === 'text-delta') {
-        input.onTextDelta?.(chunk.text);
+        input.onTextDelta?.(chunk.text, chunk.id);
       } else if (chunk.type === 'reasoning-delta') {
-        input.onReasoningDelta?.(chunk.text);
+        input.onReasoningDelta?.(chunk.text, chunk.id, chunk.providerMetadata);
+      } else if (chunk.type === 'tool-call') {
+        if (chunk.providerMetadata !== undefined) {
+          input.onToolCallMetadata?.(chunk.toolCallId, chunk.providerMetadata);
+        }
       }
     },
     onError: input.onError,

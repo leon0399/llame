@@ -27,6 +27,7 @@ import type { Request } from 'express';
 
 import { CurrentUser } from '../auth/auth-context';
 import { withoutRetainedMediaPayload } from '../chats/retained-media-egress';
+import { withoutProviderMetadataPayload } from '../chats/provider-metadata-egress';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
@@ -356,8 +357,9 @@ function formatSseEvent(event: RunEvent): string {
 }
 
 /**
- * The owner's view of a stored event: no resolved host cwd, and no retained
- * read bytes — those stay on the server (retain-read-media D4).
+ * The owner's view of a stored event: no resolved host cwd, no retained read
+ * bytes (retain-read-media D4), and no text-part or tool-call provider
+ * metadata (design A7) — those stay on the server too.
  */
 function ownerEventForSse(event: RunEvent): RunEvent {
   if (!isRecord(event.payload)) {
@@ -365,6 +367,7 @@ function ownerEventForSse(event: RunEvent): RunEvent {
   }
 
   let payload = withoutRetainedMediaPayload(event.eventType, event.payload);
+  payload = withoutProviderMetadataPayload(event.eventType, payload);
   if (event.eventType === 'native.attempt' && payload['operation'] === 'bash') {
     payload = { ...payload };
     delete payload['path'];

@@ -154,11 +154,46 @@ export interface ModelStreamInput {
     reason: 'not_available' | 'invalid_input';
   }) => void;
   /**
-   * Called for each streamed text delta (#48/#49): lets the loop persist
-   * model.delta run events without consuming the result stream itself.
-   * A narrow seam by design — providers map their chunk shapes onto plain text.
+   * Called for each streamed text delivery (#48/#49): lets the loop persist
+   * model.delta run events without consuming the result stream itself. A
+   * narrow seam by design — providers map their chunk shapes onto plain text.
+   *
+   * `partId` and `providerMetadata` are the text counterpart of
+   * `onReasoningDelta`'s (design A7): the adapter's own text part id — scoped
+   * to the provider invocation and step — and the opaque metadata that part
+   * carries, so two Responses `message` items stay two stored parts, each with
+   * its own item id. A client whose adapter supplies part metadata delivers
+   * text, ids, and metadata from ONE consumer of its stream, so the deliveries
+   * keep the stream's order (design D18). A wire that numbers its parts per
+   * provider response (Chat Completions: one constant id) cannot be step
+   * scoped on `onChunk`; that is harmless, because a step that only wrote
+   * text ends the tool loop, so the collector's merge can never cross one.
+   *
+   * Deliberate asymmetry with reasoning: an empty delivery carrying metadata
+   * does NOT start a part. It binds to the part its id already names, or waits
+   * for that id to produce text. An empty text part would add separators to
+   * `partsToText` and nothing the model can use — unlike a withheld reasoning
+   * block, whose signature must replay.
    */
-  onTextDelta?: (text: string) => void;
+  onTextDelta?: (
+    text: string,
+    partId?: string,
+    providerMetadata?: ProviderMetadata,
+  ) => void;
+  /**
+   * Called once for each `tool-call` part that carries provider metadata,
+   * before the call can execute or be refused (design A7). The run holds the
+   * opaque value until the call settles, then stores it once on the call's
+   * tool part and its `tool.requested` event, so a later request sends it back
+   * unchanged. On the Responses wire that is the item's `itemId`; on Chat
+   * Completions it is the adapter's `thoughtSignature`. llame never reads
+   * inside it. The same consumer that calls `gate.reach` reports it, so the
+   * metadata is durable before the gate releases the call.
+   */
+  onToolCallMetadata?: (
+    toolCallId: string,
+    providerMetadata: ProviderMetadata,
+  ) => void;
   /**
    * Called for each reasoning ("thinking") delivery from a reasoning model:
    * the delta text (possibly empty), the id of the provider part it belongs to,

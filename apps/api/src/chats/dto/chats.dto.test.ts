@@ -582,6 +582,72 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
     expect(toChatMessageResponse(message).parts).toEqual(parts);
   });
 
+  it('omits a text part’s and a tool call’s provider metadata, keeping the rest', () => {
+    const parts = [
+      {
+        type: 'text',
+        text: 'the answer',
+        providerMetadata: { openai: { itemId: 'msg_1' } },
+      },
+      {
+        type: 'tool-grep',
+        toolCallId: 'call-grep',
+        state: 'output-available',
+        input: { pattern: 'token' },
+        output: { status: 'success', content: '1: token' },
+        outcome: 'success',
+        providerMetadata: { openai: { itemId: 'fc_1' } },
+      },
+      {
+        type: 'tool-bash',
+        toolCallId: 'call-bash',
+        state: 'output-error',
+        input: { command: 'build' },
+        errorText: 'cancelled',
+        outcome: 'cancelled',
+        // The owner-visible cancellation marker is not provider metadata and
+        // must survive the strip.
+        resultProviderMetadata: { llame: { cancelled: true } },
+      },
+      {
+        type: 'reasoning',
+        text: 'think',
+        providerMetadata: { anthropic: { signature: 'SIG' } },
+      },
+    ];
+    const message: Message = {
+      id: 'm-egress',
+      chatId: 'chat-owner',
+      seq: 8,
+      absorbedThroughSeq: null,
+      role: 'assistant',
+      senderUserId: null,
+      parts,
+      attachments: [],
+      usage: { modelId: 'm' },
+      inReplyTo: null,
+      createdAt: new Date('2026-08-25T00:00:00.000Z'),
+      revisedAt: null,
+    };
+
+    expect(toChatMessageResponse(message).parts).toEqual([
+      { type: 'text', text: 'the answer' },
+      {
+        type: 'tool-grep',
+        toolCallId: 'call-grep',
+        state: 'output-available',
+        input: { pattern: 'token' },
+        output: { status: 'success', content: '1: token' },
+        outcome: 'success',
+      },
+      parts[2],
+      parts[3],
+    ]);
+    // The stored row keeps what a later request replays.
+    expect(parts[0]).toHaveProperty('providerMetadata');
+    expect(parts[1]).toHaveProperty('providerMetadata');
+  });
+
   it('omits retained read bytes from a tool part and a prompt-import entry, changing nothing else', () => {
     const retainedMedia = {
       mediaType: 'image/png',
@@ -747,13 +813,20 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
   it('strips tool-<name> parts from the public payload (never leaked to a share)', () => {
     const message = fakeMessage({
       parts: [
-        { type: 'text', text: 'the visible answer' },
+        {
+          type: 'text',
+          text: 'the visible answer',
+          // A text part's opaque provider metadata is server-side plumbing
+          // for a later request, never public share content (design A7).
+          providerMetadata: { openai: { itemId: 'msg_1' } },
+        },
         {
           type: 'tool-search_conversations',
           toolCallId: 'call-1',
           state: 'output-available',
           input: { query: 'budget' },
           output: { status: 'success', results: [] },
+          providerMetadata: { openai: { itemId: 'fc_1' } },
         },
       ],
     });
@@ -764,6 +837,8 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
     expect(dto.messages[0].parts).toEqual([
       { type: 'text', text: 'the visible answer' },
     ]);
+    expect(JSON.stringify(dto)).not.toContain('providerMetadata');
+    expect(JSON.stringify(dto)).not.toContain('msg_1');
   });
 
   it('strips the temporal row, so a share discloses neither send times nor the instance timezone', () => {

@@ -425,6 +425,94 @@ describe('ModelClient', () => {
     ]);
   });
 
+  it('delivers two message parts with their own ids and metadata, and a call’s metadata, from that consumer', async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const openaiProvider = responsesProviderMock(providerModel);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    // Two Responses `message` items and one function call, exactly as the
+    // adapter reports them: the item ids ride the start and end parts, never a
+    // delta (design A7).
+    streamTextMock.mockReturnValue({
+      fullStream: simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          {
+            type: 'text-start',
+            id: 'msg_1',
+            providerMetadata: { openai: { itemId: 'msg_1' } },
+          },
+          { type: 'text-delta', id: 'msg_1', text: 'first' },
+          {
+            type: 'text-end',
+            id: 'msg_1',
+            providerMetadata: { openai: { itemId: 'msg_1' } },
+          },
+          {
+            type: 'text-start',
+            id: 'msg_2',
+            providerMetadata: { openai: { itemId: 'msg_2' } },
+          },
+          { type: 'text-delta', id: 'msg_2', text: 'second' },
+          {
+            type: 'text-end',
+            id: 'msg_2',
+            providerMetadata: { openai: { itemId: 'msg_2' } },
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'echo',
+            input: {},
+            providerMetadata: { openai: { itemId: 'fc_1' } },
+          },
+        ],
+      }),
+    });
+
+    const collector = createAssistantPartCollector();
+    const onToolCallMetadata = vi.fn();
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
+        requestHeaders: {},
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+    client.streamText({
+      chat: CHAT,
+      messages,
+      onTextDelta: (text, partId, providerMetadata) =>
+        collector.text(text, partId, providerMetadata),
+      onToolCallMetadata,
+    });
+
+    await vi.waitFor(() => expect(onToolCallMetadata).toHaveBeenCalledOnce());
+    // Two parts, not one: the differing item ids are the boundary, and each
+    // part keeps the id its own item sent. The empty start and end deliveries
+    // bind metadata and add no text.
+    expect(collector.parts()).toEqual([
+      {
+        type: 'text',
+        text: 'first',
+        providerMetadata: { openai: { itemId: 'msg_1' } },
+      },
+      {
+        type: 'text',
+        text: 'second',
+        providerMetadata: { openai: { itemId: 'msg_2' } },
+      },
+    ]);
+    expect(onToolCallMetadata).toHaveBeenCalledWith('call-1', {
+      openai: { itemId: 'fc_1' },
+    });
+  });
+
   it('collects an item whose summary is empty into one empty signed part', async () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',

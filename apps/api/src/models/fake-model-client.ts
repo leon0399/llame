@@ -69,6 +69,26 @@ interface FakeStreamOutcome {
   completion: Promise<void>;
 }
 
+/** One `onChunk` chunk of the SDK's stream. */
+type StreamChunk = Parameters<
+  NonNullable<Parameters<typeof streamText>[0]['onChunk']>
+>[0]['chunk'];
+
+/** Forwards a chunk's text, reasoning, or call metadata to the seams (A7). */
+function forwardChunk(chunk: StreamChunk, input: ModelStreamInput): void {
+  if (chunk.type === 'text-delta') {
+    input.onTextDelta?.(chunk.text, chunk.id);
+    return;
+  }
+  if (chunk.type === 'reasoning-delta') {
+    input.onReasoningDelta?.(chunk.text, chunk.id, chunk.providerMetadata);
+    return;
+  }
+  if (chunk.type === 'tool-call' && chunk.providerMetadata !== undefined) {
+    input.onToolCallMetadata?.(chunk.toolCallId, chunk.providerMetadata);
+  }
+}
+
 /** Wires `input`'s callbacks and a completion signal settled once they run. */
 function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
   let resolveCompletion: () => void = noop;
@@ -82,13 +102,7 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
   return {
     completion,
     handlers: {
-      onChunk: ({ chunk }) => {
-        if (chunk.type === 'text-delta') {
-          input.onTextDelta?.(chunk.text);
-        } else if (chunk.type === 'reasoning-delta') {
-          input.onReasoningDelta?.(chunk.text);
-        }
-      },
+      onChunk: ({ chunk }) => forwardChunk(chunk, input),
       onError: async (event) => {
         try {
           await input.onError?.(event);

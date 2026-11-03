@@ -75,7 +75,8 @@ describe('createFakeModelClient', () => {
 
     await expect(collectText(result.textStream)).resolves.toBe('done');
 
-    expect(onTextDelta).toHaveBeenCalledWith('done');
+    // The adapter's own part id rides along as plumbing (design A7).
+    expect(onTextDelta).toHaveBeenCalledWith('done', 'fake-response');
     expect(onRequestUsage).toHaveBeenCalledOnce();
     // The window is the request's own real elapsed time, which this fake
     // stream cannot pin, so only its presence is asserted.

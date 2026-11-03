@@ -62,6 +62,7 @@ type ErrorCapture = {
 
 type TextCapture = {
   texts: Array<string>;
+  deliveries: Array<[string, string | undefined, ProviderMetadata | undefined]>;
   onTextDelta: NonNullable<ModelStreamInput['onTextDelta']>;
 };
 
@@ -311,13 +312,18 @@ export function captureErrors(): ErrorCapture {
   };
 }
 
-/** Captures text deltas exactly as the run's collector sees them. */
+/** Captures text deliveries exactly as the run's collector sees them. */
 export function captureText(): TextCapture {
   const texts: Array<string> = [];
+  const deliveries: Array<
+    [string, string | undefined, ProviderMetadata | undefined]
+  > = [];
   return {
     texts,
-    onTextDelta: (text) => {
+    deliveries,
+    onTextDelta: (text, partId, providerMetadata) => {
       texts.push(text);
+      deliveries.push([text, partId, providerMetadata]);
     },
   };
 }

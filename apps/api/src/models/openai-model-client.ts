@@ -24,7 +24,7 @@ import {
   composeProviderOptions,
   type ProviderOptionRecord,
 } from './provider-options';
-import { consumeReasoningStream } from './reasoning-stream';
+import { consumeStreamParts } from './stream-parts';
 import {
   createToolCallGate,
   gateToolExecution,
@@ -99,9 +99,8 @@ function streamSanitizer(
  * so refusal reporting stays single-sourced. The step cap and `onStepStart`
  * live in `installStepPreparation`, which every client installs with or
  * without tools. `gate` orders execution and refusal reports behind the
- * reasoning channel; a client with an in-order reasoning consumer attaches it
- * through `bindReasoningChannel`, and an unattached gate lets calls run as
- * they arrive.
+ * stream channel; a client with an in-order consumer attaches it through
+ * `bindStreamChannel`, and an unattached gate lets calls run as they arrive.
  */
 export function applyToolCallingOptions(
   streamOptions: Parameters<typeof streamText>[0],
@@ -185,9 +184,23 @@ function createDeferredTerminals(): DeferredTerminals {
 }
 
 /**
+ * Whether this request needs the shared `fullStream` consumer: any of the text,
+ * reasoning, or tool-call metadata seams is in use. The consumer owns the
+ * tool-call gate, so a request without one of these callbacks leaves the gate
+ * unattached and its calls run as they arrive.
+ */
+export function hasStreamChannel(input: ModelStreamInput): boolean {
+  return (
+    input.onTextDelta !== undefined ||
+    input.onReasoningDelta !== undefined ||
+    input.onToolCallMetadata !== undefined
+  );
+}
+
+/**
  * Queues the SDK's terminal callbacks instead of awaiting them inside its
  * pipeline, which would deadlock the `fullStream` branch they must follow.
- * The client binds the returned queue to its single reasoning consumer after
+ * The client binds the returned queue to its single stream consumer after
  * `streamText` returns.
  */
 export function deferTerminalCallbacks(
@@ -195,7 +208,7 @@ export function deferTerminalCallbacks(
   input: ModelStreamInput,
 ): DeferredTerminals {
   const terminals = createDeferredTerminals();
-  if (input.onReasoningDelta === undefined) return terminals;
+  if (!hasStreamChannel(input)) return terminals;
 
   const onFinish = streamOptions.onFinish;
   if (onFinish !== undefined) {
@@ -212,20 +225,17 @@ export function deferTerminalCallbacks(
   return terminals;
 }
 
-/** Binds the queue and the tool-call gate to the request's one reasoning
+/** Binds the queue and the tool-call gate to the request's one stream
  *  consumer. */
-export function bindReasoningChannel(
+export function bindStreamChannel(
   terminals: DeferredTerminals,
   result: Pick<ModelStreamResult, 'fullStream'>,
   input: ModelStreamInput,
   gate: ToolCallGate,
 ): void {
-  if (input.onReasoningDelta !== undefined) {
-    gate.attach();
-    terminals.bind(
-      consumeReasoningStream(result.fullStream, input.onReasoningDelta, gate),
-    );
-  }
+  if (!hasStreamChannel(input)) return;
+  gate.attach();
+  terminals.bind(consumeStreamParts(result.fullStream, input, gate));
 }
 
 /**
@@ -548,26 +558,13 @@ function composeStructuredProviderOptions(
 }
 
 /**
- * `onChunk` carries the answer's text deltas only — it is called for deltas
- * alone, so it can never see the reasoning metadata a part carries. Reasoning,
- * text and metadata alike, is forwarded by ONE consumer of the result's
- * `fullStream` (`consumeReasoningStream`): a single path for the whole channel
- * keeps part boundaries, metadata binding, and their order in one place, and a
- * metadata-only delivery that starts a block can never overtake the text that
- * precedes it (design D18).
+ * Builds the Responses request. Text, reasoning, and tool-call metadata all
+ * ride ONE consumer of the result's `fullStream` (`consumeStreamParts`):
+ * `onChunk` never sees a text part's start or end, so it cannot carry the item
+ * id a Responses `message` part is replayed with (design A7), and a single
+ * consumer keeps part boundaries, metadata binding, and their order in one
+ * place (design D18).
  */
-function applyTextDeltaCallback(
-  streamOptions: Parameters<typeof streamText>[0],
-  input: ModelStreamInput,
-): void {
-  if (!input.onTextDelta) return;
-  streamOptions.onChunk = ({ chunk }) => {
-    if (chunk.type === 'text-delta') {
-      input.onTextDelta?.(chunk.text);
-    }
-  };
-}
-
 function buildOpenAIStreamOptions(
   openai: OpenAIProvider,
   config: OpenAIModelClientConfig,
@@ -594,7 +591,6 @@ function buildOpenAIStreamOptions(
   applyRequestOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input, gate);
   installStepPreparation(streamOptions, input, config);
-  applyTextDeltaCallback(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   return streamOptions;
@@ -608,14 +604,14 @@ function runOpenAIStream(
 ): ModelStreamResult {
   const gate = createToolCallGate();
   const streamOptions = buildOpenAIStreamOptions(openai, config, input, gate);
-  // SDK callbacks return immediately so the `fullStream` reasoning branch can
+  // SDK callbacks return immediately so the `fullStream` stream branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D18).
   const terminals = deferTerminalCallbacks(streamOptions, input);
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;
   const result = dependencies.streamText(streamOptions);
-  bindReasoningChannel(terminals, result, input, gate);
+  bindStreamChannel(terminals, result, input, gate);
 
   return awaitSettlementAfter(
     result,

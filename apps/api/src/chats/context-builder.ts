@@ -50,6 +50,16 @@ export type { ModelMessage };
 export interface TextPart {
   type: 'text';
   text: string;
+  /**
+   * Opaque provider metadata the adapter attached to this text part (design
+   * A7), stored verbatim beside the text: on the Responses wire the item's
+   * `itemId`. Same contract as `ReasoningPart`'s field — llame never reads a
+   * key inside it, and a later request for the same Chat replays it so the
+   * wire recognizes its own part. Absent when the adapter supplied none, and
+   * it changes neither the part's display text nor its order. The history
+   * response, exports, public shares, search, and telemetry never carry it.
+   */
+  providerMetadata?: ProviderMetadata;
 }
 
 /**

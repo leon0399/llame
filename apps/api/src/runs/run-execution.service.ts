@@ -759,6 +759,11 @@ type ToolRequestedEventPayload = {
   permission?: PermissionDecision;
   /** Absent means model-origin; see tool-activity-origin.ts. */
   origin?: ToolActivityOrigin;
+  /**
+   * The call's opaque provider metadata (design A7), copied to its stored tool
+   * part by the event-log rebuild so a later request sends it back unchanged.
+   */
+  providerMetadata?: ProviderMetadata;
 };
 
 /** A durably recorded tool completion, carrying the decision for history. */
@@ -1401,10 +1406,31 @@ export class RunExecutionService {
         if (!recorded) progressWriteFailed = true;
       });
     };
+    // Each buffered `model.delta` event carries the adapter part id of the
+    // text it holds, so the durable reconstructor rebuilds the same part
+    // boundaries the live collector saw (design A7). The buffer is drained
+    // before the id is switched, so one event never spans two ids.
+    let textPartId: string | undefined;
     const persistDelta = (text: string | null) => {
       if (text !== null) {
-        enqueueEvent('model.delta', { text });
+        enqueueEvent('model.delta', {
+          text,
+          ...(textPartId !== undefined && { partId: textPartId }),
+        });
       }
+    };
+    // A text part's opaque provider metadata (design A7) rides its own
+    // `model.delta`, keyed by the part's adapter id: the Responses wire
+    // attaches the item id to the part's start and end, never to a delta, so
+    // there is nothing to buffer — only the id the metadata binds to.
+    const persistTextMetadata = (
+      partId: string | undefined,
+      providerMetadata: ProviderMetadata,
+    ) => {
+      enqueueEvent('model.delta', {
+        ...(partId !== undefined && { partId }),
+        providerMetadata,
+      });
     };
 
     // Reasoning ("thinking") deltas: coalesced in their own buffer, appended
@@ -1544,6 +1570,12 @@ export class RunExecutionService {
         classification?: ToolClassification;
       }
     >();
+    // The opaque provider metadata each call's stream part carried (design
+    // A7), keyed by its id. A SEPARATE map from `openToolCalls`: the consumer
+    // reports the metadata before the SDK executes the call, i.e. before
+    // `reserveToolRequest` and admission, so the entry exists first and the
+    // request records what it holds. The call's settlement consumes it.
+    const pendingToolMetadata = new Map<string, ProviderMetadata>();
     // Reserve the persisted part and the open-call entry at request time (before
     // admission), so part order stays correct even if the call is later
     // rejected and settled by the completion path.
@@ -1584,6 +1616,10 @@ export class RunExecutionService {
       };
       if (permission !== undefined) payload.permission = permission;
       if (origin !== undefined) payload.origin = origin;
+      const providerMetadata = pendingToolMetadata.get(toolCallId);
+      if (providerMetadata !== undefined) {
+        payload.providerMetadata = providerMetadata;
+      }
       enqueueEvent('tool.requested', payload);
     };
     // Ids whose outcome has already been durably recorded. At-most-once per
@@ -1620,6 +1656,10 @@ export class RunExecutionService {
       const open = openToolCalls.get(toolCallId);
       const permission = open?.permission;
       const derivedDecisions = open?.derivedDecisions;
+      // Stored once, on the call (design A7): the request event already
+      // carries it, and every settlement path copies it from here.
+      const providerMetadata = pendingToolMetadata.get(toolCallId);
+      pendingToolMetadata.delete(toolCallId);
       openToolCalls.delete(toolCallId);
       // A model `read` of an unstored file keeps its bytes on the result's
       // part and event; the bound is decided here, once, before either is
@@ -1662,6 +1702,7 @@ export class RunExecutionService {
           toolName,
           input: toolInput,
           result,
+          providerMetadata,
           permission,
           derivedDecisions,
           classification: open?.classification ?? null,
@@ -2146,10 +2187,30 @@ export class RunExecutionService {
             recordToolCompleted(toolCallId, toolName, callInput, result);
           },
         }),
-        onTextDelta: (text) => {
+        // The call's opaque metadata, held before the call can execute or be
+        // refused, and copied to its `tool.requested` event and stored part
+        // (design A7).
+        onToolCallMetadata: (toolCallId, providerMetadata) => {
+          pendingToolMetadata.set(toolCallId, providerMetadata);
+        },
+        onTextDelta: (text, partId, providerMetadata) => {
+          // A metadata-only delivery: a text part's start or end carries the
+          // adapter's opaque metadata but no text of its own (design A7).
+          // Drain both buffers first so the durable log keeps every earlier
+          // part — another step's text included — before this one, then record
+          // the metadata under the id it names. An empty text delivery never
+          // starts a stored part.
+          if (text.length === 0) {
+            if (providerMetadata === undefined) return;
+            persistReasoning(reasoningDeltas.flush());
+            persistDelta(deltas.flush());
+            persistTextMetadata(partId, providerMetadata);
+            assistantPartCollector.text('', partId, providerMetadata);
+            return;
+          }
           noteOutputDelta(text);
           streamedText += text;
-          assistantPartCollector.text(text);
+          assistantPartCollector.text(text, partId);
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
           // Cross-flush on a modality switch: reasoning and text stream one at
@@ -2162,6 +2223,12 @@ export class RunExecutionService {
           // Text intervened: the next reasoning delta opens a new part, so the
           // id it carries is not the one the drained buffer belonged to.
           reasoningPartId = undefined;
+          // Drain before adopting a new id so a buffered event never spans
+          // two adapter parts (the collector splits on the same transition).
+          if (partId !== textPartId) {
+            persistDelta(deltas.flush());
+            textPartId = partId;
+          }
           persistDelta(deltas.push(text, Date.now()));
         },
         onReasoningDelta: (text, partId, providerMetadata) => {
@@ -2211,6 +2278,9 @@ export class RunExecutionService {
           // exactly as the live collector's part does.
           assistantPartCollector.reasoning(text, partId);
           persistDelta(deltas.flush());
+          // Reasoning intervened: the next text delta opens a new part, so
+          // the id it carries is not the one the drained buffer belonged to.
+          textPartId = undefined;
           persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
         onError: async ({ error }) => {

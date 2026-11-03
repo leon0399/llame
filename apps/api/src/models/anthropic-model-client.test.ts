@@ -20,6 +20,7 @@ import {
   messages,
   textBlock,
 } from '../testing/anthropic-model-client-fixtures';
+import { createAssistantPartCollector } from '../runs/assistant-transcript';
 import { ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-model-client';
 import type { ChatIdentity } from './model-client';
 import { KEYLESS_PLACEHOLDER_API_KEY } from './openai-model-client';
@@ -640,6 +641,60 @@ describe('createAnthropicModelClient — output limits (D17)', () => {
     ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body['max_tokens']).toBe(64_000);
+  });
+});
+
+describe('createAnthropicModelClient — text part ids and metadata (A7)', () => {
+  it('delivers the text part id and binds the citations its end carries', async () => {
+    // The adapter reports a text block's index as its part id and attaches a
+    // block's citations to the block's END, never to a delta (design A7), so
+    // neither is visible to `onChunk`.
+    const citation = {
+      type: 'web_search_result_location',
+      cited_text: 'quoted',
+      url: 'https://example.com/source',
+      title: 'Example',
+      encrypted_index: 'idx-1',
+    };
+    const harness = buildHarness({
+      streamEvents: messageEnvelope([
+        'event: content_block_start',
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+        '',
+        'event: content_block_delta',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"answer"}}',
+        '',
+        'event: content_block_delta',
+        `data: ${JSON.stringify({
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'citations_delta', citation },
+        })}`,
+        '',
+        'event: content_block_stop',
+        'data: {"type":"content_block_stop","index":0}',
+        '',
+      ]),
+    });
+    const client = buildClient(harness);
+    const collector = createAssistantPartCollector();
+
+    await expect(
+      client.streamText({
+        chat: CHAT,
+        messages,
+        onTextDelta: (text, partId, providerMetadata) =>
+          collector.text(text, partId, providerMetadata),
+      }).text,
+    ).resolves.toBe('answer');
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'text',
+        text: 'answer',
+        providerMetadata: { anthropic: { citations: [citation] } },
+      },
+    ]);
   });
 });
 

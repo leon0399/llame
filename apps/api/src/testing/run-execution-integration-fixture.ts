@@ -116,7 +116,8 @@ export function scriptedClient(
         messages: input.messages,
         abortSignal: input.abortSignal,
         onChunk: ({ chunk }) => {
-          if (chunk.type === 'text-delta') input.onTextDelta?.(chunk.text);
+          if (chunk.type === 'text-delta')
+            input.onTextDelta?.(chunk.text, chunk.id);
         },
         onError: input.onError,
         onFinish: (event) =>

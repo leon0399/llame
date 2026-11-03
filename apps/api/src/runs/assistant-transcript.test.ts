@@ -102,6 +102,101 @@ describe('AssistantPartCollector', () => {
     ]);
   });
 
+  it('starts a new text part when the adapter part id changes', () => {
+    const collector = createAssistantPartCollector();
+
+    // Same id: one part. Different defined ids: the second message item is a
+    // part of its own (design A7).
+    collector.text('first ', '0:msg_1');
+    collector.text('message', '0:msg_1');
+    collector.text('second ', '0:msg_2');
+    collector.text('message', '0:msg_2');
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'text', text: 'first message' },
+      { type: 'text', text: 'second message' },
+    ]);
+  });
+
+  it('holds a text part’s start metadata until its id produces text', () => {
+    const collector = createAssistantPartCollector();
+    const start = { openai: { itemId: 'msg_1' } };
+    const end = { openai: { itemId: 'msg_1', annotations: [] } };
+
+    // The Responses start arrives before any character, and it must not
+    // create an empty part (design A7).
+    collector.text('', '0:msg_1', start);
+    expect(collector.parts()).toStrictEqual([]);
+
+    collector.text('hello', '0:msg_1');
+    expect(collector.parts()).toStrictEqual([
+      { type: 'text', text: 'hello', providerMetadata: start },
+    ]);
+
+    // The end repeats the item id with its full metadata and binds to the
+    // same part.
+    collector.text('', '0:msg_1', end);
+    expect(collector.parts()).toStrictEqual([
+      { type: 'text', text: 'hello', providerMetadata: end },
+    ]);
+  });
+
+  it('starts no text part for metadata under an id that never writes text', () => {
+    const collector = createAssistantPartCollector();
+    const metadata = { openai: { itemId: 'msg_2' } };
+
+    collector.text('the answer', '0:msg_1');
+    collector.text('', '0:msg_2', metadata);
+
+    // The second item produced no visible text, so it has nothing to replay
+    // and no empty part may appear.
+    expect(collector.parts()).toStrictEqual([
+      { type: 'text', text: 'the answer' },
+    ]);
+  });
+
+  it('binds text metadata without an id to the open text part', () => {
+    const collector = createAssistantPartCollector();
+    const metadata = { openai: { itemId: 'msg_1' } };
+
+    collector.text('plain answer');
+    collector.text('', undefined, metadata);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'text', text: 'plain answer', providerMetadata: metadata },
+    ]);
+  });
+
+  it('starts no text part for an empty delivery that carries no provider metadata', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.text('', '0:msg_1');
+    collector.text('');
+
+    expect(collector.parts()).toStrictEqual([]);
+  });
+
+  it('stores the call’s provider metadata once on its tool part', () => {
+    const collector = createAssistantPartCollector();
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'search',
+      input: { query: 'q' },
+      providerMetadata: { openai: { itemId: 'fc_1' } },
+      result: { status: 'success', value: 'found' },
+    });
+
+    collector.toolRequested('call-1');
+    collector.tool(part);
+
+    expect(collector.parts()).toStrictEqual([
+      expect.objectContaining({
+        toolCallId: 'call-1',
+        providerMetadata: { openai: { itemId: 'fc_1' } },
+      }),
+    ]);
+  });
+
   it('stores opaque provider metadata on the part its adapter id names', () => {
     const collector = createAssistantPartCollector();
 
@@ -664,6 +759,66 @@ describe('reconstructDurableAssistant', () => {
         artifact: 'artifact://grep-1',
       }),
     ]);
+  });
+
+  it('rebuilds text part boundaries and their metadata from the persisted ids', () => {
+    const start = { openai: { itemId: 'msg_1' } };
+    const end = { openai: { itemId: 'msg_1', annotations: [] } };
+    const second = { openai: { itemId: 'msg_2' } };
+    const result = reconstructDurableAssistant([
+      // The live order of one Responses item: its start's metadata, its
+      // text, then its end. A second item is a second part (design A7).
+      event('model.delta', { partId: '0:msg_1', providerMetadata: start }),
+      event('model.delta', { text: 'first ', partId: '0:msg_1' }),
+      event('model.delta', { text: 'message', partId: '0:msg_1' }),
+      event('model.delta', { partId: '0:msg_1', providerMetadata: end }),
+      event('model.delta', { partId: '0:msg_2', providerMetadata: second }),
+      event('model.delta', { text: 'second', partId: '0:msg_2' }),
+      // A metadata-only event for an item that wrote nothing must not invent
+      // a part.
+      event('model.delta', {
+        partId: '0:msg_3',
+        providerMetadata: { openai: { itemId: 'msg_3' } },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toStrictEqual([
+      { type: 'text', text: 'first message', providerMetadata: end },
+      { type: 'text', text: 'second', providerMetadata: second },
+    ]);
+  });
+
+  it('rebuilds a call’s provider metadata onto its tool part', () => {
+    const metadata = { openai: { itemId: 'fc_1' } };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'c1',
+        toolName: 'search',
+        input: { query: 'needle' },
+        providerMetadata: metadata,
+      }),
+      event('tool.completed', {
+        toolCallId: 'c1',
+        output: { status: 'success', value: 'found' },
+      }),
+      // A malformed payload binds nothing and changes no part.
+      event('tool.requested', {
+        toolCallId: 'c2',
+        toolName: 'search',
+        input: { query: 'other' },
+        providerMetadata: 'not-a-record',
+      }),
+      event('tool.completed', {
+        toolCallId: 'c2',
+        output: { status: 'success', value: 'found' },
+      }),
+    ]);
+
+    const parts = result.collector.parts();
+    expect(parts[0]).toStrictEqual(
+      expect.objectContaining({ toolCallId: 'c1', providerMetadata: metadata }),
+    );
+    expect(parts[1]).not.toHaveProperty('providerMetadata');
   });
 
   it('drops an artifact value the grammar does not admit', () => {

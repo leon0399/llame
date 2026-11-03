@@ -7,6 +7,7 @@ import {
   createOpenAICodexModelClient,
 } from './openai-codex-model-client';
 import type { ChatIdentity } from './model-client';
+import { createAssistantPartCollector } from '../runs/assistant-transcript';
 import {
   ModelStreamIdleError,
   STREAM_IDLE_TIMEOUT_MS,
@@ -234,9 +235,16 @@ describe('createOpenAICodexModelClient', () => {
         requestHeaders: {},
       });
       const onReasoningDelta = vi.fn();
+      const collector = createAssistantPartCollector();
 
       await expect(
-        client.streamText({ chat: CHAT, messages, onReasoningDelta }).text,
+        client.streamText({
+          chat: CHAT,
+          messages,
+          onReasoningDelta,
+          onTextDelta: (text, partId, providerMetadata) =>
+            collector.text(text, partId, providerMetadata),
+        }).text,
       ).resolves.toBe('done');
 
       // `store: false` on a reasoning model requests the encrypted reasoning
@@ -271,6 +279,11 @@ describe('createOpenAICodexModelClient', () => {
           { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' } },
         ],
       ]);
+      // The same consumer carries the text part's id and metadata through the
+      // delegation to the Responses client (design A7), so the reply stores
+      // the item id the live step sent.
+      expect(collector.parts()).toMatchObject([{ type: 'text', text: 'done' }]);
+      expect(JSON.stringify(collector.parts())).toContain('"itemId":"item-1"');
     } finally {
       globalThis.fetch = previousFetch;
     }
