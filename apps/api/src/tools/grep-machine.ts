@@ -396,13 +396,12 @@ function segmentOfPages(
     pages.warnings.delete('deadline');
   } else if (!namesStop(pages.warnings)) {
     // The walk stopped without a reported reason: name the bound that left no
-    // budget for another page, or the call deadline it reached. A page can
-    // spend its bound exactly at its own page end, before it reports the stop.
-    const budget = pages.last === undefined ? search.budget : pages.budget;
-    const stopped = canAskPage(budget, singleFile)
+    // budget for another page. A page can spend its bound exactly at its own
+    // page end, before it reports the stop; when no bound is left, the call
+    // deadline is what spent the budget.
+    const stopped = canAskPage(pages.budget, singleFile)
       ? undefined
-      : (spentBound(budget, singleFile) ??
-        (budget.deadlineMs <= 0 ? 'deadline' : undefined));
+      : (spentBound(pages.budget, singleFile) ?? 'deadline');
     if (stopped !== undefined) pages.warnings.set(stopped, 1);
   }
   return {
@@ -412,13 +411,11 @@ function segmentOfPages(
     warnings: [...pages.warnings].map(([kind, count]) => ({ kind, count })),
     consumed: pages.consumed,
     progressed: pages.progressed,
-    ...(pages.unfinished !== undefined && { unfinished: pages.unfinished }),
-    ...(pages.ignored.paths.length > 0 && {
-      ignored: {
-        paths: pages.ignored.paths,
-        atLeast: pages.ignored.atLeast,
-      },
-    }),
+    unfinished: pages.unfinished,
+    ignored: {
+      paths: pages.ignored.paths,
+      atLeast: pages.ignored.atLeast,
+    },
   };
 }
 

@@ -241,8 +241,8 @@ async function runMachineSegment(
         warnings: machine.warnings,
         consumed: machine.consumed,
         progressed: machine.progressed,
-        ...(unfinished !== undefined && { unfinished }),
-        ...(machine.ignored !== undefined && { ignored: machine.ignored }),
+        unfinished,
+        ignored: machine.ignored,
       },
     ],
   };
@@ -325,7 +325,7 @@ function engineInput(
     onCandidate: (locator) =>
       Promise.resolve(run.request.admission.admit(locator)),
     budget: walk.budget,
-    ...(walk.cursor !== undefined && { cursor: walk.cursor }),
+    cursor: walk.cursor,
     inputHash: INTERNAL_CURSOR_HASH,
     now: Date.now,
     progressed: walk.progressed,
@@ -342,8 +342,7 @@ function nextPage(
   if (scan.warnings.some((warning) => PAGE_STOP_KINDS.has(warning.kind)))
     return undefined;
   const cursor = decodeGrepCursor(scan.cursor, INTERNAL_CURSOR_HASH);
-  if ('error' in cursor)
-    throw new Error('The engine returned a cursor it cannot decode.');
+  if ('error' in cursor) return undefined;
   return {
     cursor,
     progressed: walk.progressed || scan.progressed,

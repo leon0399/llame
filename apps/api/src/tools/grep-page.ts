@@ -146,9 +146,9 @@ function mergeCutPassage(
   if (grepFileLocator(next.locator) !== file) return undefined;
   if (passageEndLine(previous.locator) + 1 !== passageStartLine(next.locator))
     return undefined;
-  const matches = [...new Set([...previous.matches, ...next.matches])].sort(
-    (left, right) => left - right,
-  );
+  // The continuation starts after the cut, so the pieces share no line and
+  // their matches are already in line order.
+  const matches = [...previous.matches, ...next.matches];
   const truncated = previous.truncated === true || next.truncated === true;
   return {
     locator: `${file}:${String(passageStartLine(previous.locator))}-${String(

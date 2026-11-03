@@ -105,6 +105,111 @@ describe('grep page assembly', () => {
     ]);
   });
 
+  /** Append one page of passages with the fields a join test does not set. */
+  function appendPassages(
+    state: ReturnType<typeof createPageState>,
+    results: ReadonlyArray<GrepPassage>,
+  ): void {
+    appendSegment(
+      state,
+      {
+        results,
+        complete: true,
+        warnings: [],
+        consumed: { files: 1, entries: 1, bytes: 10 },
+        progressed: true,
+      },
+      OPEN,
+    );
+  }
+
+  it('keeps a passage after one that was not cut', () => {
+    const state = createPageState();
+    appendPassages(state, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4]),
+      passage('a.md:6-7', '6: d\n7: e', [7]),
+    ]);
+    expect(state.results.map((entry) => entry.locator)).toEqual([
+      'a.md:3-5',
+      'a.md:6-7',
+    ]);
+  });
+
+  it('keeps the continuation of another file apart', () => {
+    const state = createPageState();
+    appendPassages(state, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+      passage('b.md:6-7', '6: d\n7: e', [7]),
+    ]);
+    expect(state.results.map((entry) => entry.locator)).toEqual([
+      'a.md:3-5',
+      'b.md:6-7',
+    ]);
+  });
+
+  it('keeps a passage that does not start after the cut apart', () => {
+    const state = createPageState();
+    appendPassages(state, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+      passage('a.md:9-10', '9: d\n10: e', [9]),
+    ]);
+    expect(state.results.map((entry) => entry.locator)).toEqual([
+      'a.md:3-5',
+      'a.md:9-10',
+    ]);
+  });
+
+  it('keeps the cap of either half of a joined passage', () => {
+    const cappedFirst = createPageState();
+    appendPassages(cappedFirst, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], {
+        cut: true,
+        truncated: true,
+      }),
+      passage('a.md:6-7', '6: d\n7: e', [7]),
+    ]);
+    expect(cappedFirst.results[0]).toMatchObject({ truncated: true });
+
+    const cappedSecond = createPageState();
+    appendPassages(cappedSecond, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+      passage('a.md:6-7', '6: d\n7: e', [7], { truncated: true }),
+    ]);
+    expect(cappedSecond.results[0]).toMatchObject({ truncated: true });
+    expect(cappedSecond.results[0]).not.toHaveProperty('cut');
+  });
+
+  it('keeps a cut and a cap mark the continuation carries', () => {
+    const state = createPageState();
+    appendPassages(state, [
+      passage('a.md:3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+      passage('a.md:6-9', '6: d\n7: e', [7], {
+        cut: true,
+        truncated: true,
+      }),
+    ]);
+    expect(state.results).toHaveLength(1);
+    expect(state.results[0]).toMatchObject({ cut: true, truncated: true });
+  });
+
+  it('counts an excluded directory a second page repeats once', () => {
+    const state = createPageState();
+    const page = {
+      results: [],
+      complete: true,
+      warnings: [],
+      consumed: { files: 0, entries: 0, bytes: 0 },
+      progressed: false,
+      ignored: { paths: ['/r/skip'], atLeast: false },
+    };
+    appendSegment(state, page, OPEN);
+    appendSegment(state, page, OPEN);
+    const result = pageResult(state);
+    expect(result).toMatchObject({
+      ignored: { count: 1, locators: ['/r/skip'] },
+    });
+  });
+
   it('keeps a cut passage the walk stopped in as it is', () => {
     const state = createPageState();
     appendSegment(

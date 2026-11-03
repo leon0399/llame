@@ -1487,6 +1487,80 @@ describe('Machine pages within one call', () => {
     expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
   });
 
+  it('asks no page after a complete one, even with a cursor', async () => {
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value: page([passage('a.go', 1, 1)], { cursor: 'daemon-stale' }),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    expect(success(result).complete).toBe(true);
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    expect(asked).toHaveLength(1);
+    expect(searches).toBe(1);
+  });
+
+  it('keeps the bound a page already named', async () => {
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([passage('a.go', 1, 1)], {
+            complete: false,
+            cursor: 'daemon-next',
+            consumed: { files: 5000, entries: 1, bytes: 10 },
+            warnings: [{ kind: 'deadline', count: 1 }],
+          }),
+        },
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    // The page named its own stop; a spent file budget must not be added.
+    expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
+    expect(success(result).complete).toBe(false);
+  });
+
+  it('names the deadline when the call time ran out between pages', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(0);
+      const { connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.grep') return undefined;
+          // The page spends the whole 3-second walk of a 6-second call.
+          vi.setSystemTime(3000);
+          return {
+            value: page([passage('a.go', 1, 1)], {
+              complete: false,
+              cursor: 'daemon-next',
+              consumed: { files: 1, entries: 1, bytes: 10 },
+            }),
+          };
+        },
+      });
+      const result = await run(context(connector, { timeoutMs: 6000 }), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      });
+      expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
+      expect(success(result).complete).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('counts a directory a second daemon page repeated once', async () => {
     let searches = 0;
     const { connector } = fixture({
