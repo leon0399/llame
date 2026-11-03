@@ -177,9 +177,12 @@ consecutive tool parts and the text and reasoning before it form one step.
 
 ### Requirement: Stored parts keep the member order of their objects
 
-The storage of message parts MUST keep the members of each object in the order
-in which the system wrote them. A replayed tool input and a replayed JSON result
-MUST keep the member order of the live call and of the live result.
+The storage of message parts in the `messages` row MUST keep the members of each
+object in the order in which the system wrote them. A tool input and a JSON
+result that replay from that row MUST keep the member order of the live call and
+of the live result. The Run event log stores its payloads as `jsonb`, which does
+not keep member order. Parts that the system rebuilds from the event log,
+including the kept parts of a Continue Run, replay in the key order of `jsonb`.
 
 #### Scenario: A tool input keeps its member order
 
@@ -191,6 +194,12 @@ MUST keep the member order of the live call and of the live result.
 - **WHEN** a part stored before this change holds members in a sorted order
 - **THEN** replay uses the stored order
 - **AND** the system does not try to restore the original order
+
+#### Scenario: A kept part of a Continue Run replays in the key order of the event log
+
+- **WHEN** a Continue Run keeps a tool part of its source Run
+- **THEN** the first request of the Continue Run replays the input of that part in the key order of `jsonb`
+- **AND** a later turn replays that part in the order of the `messages` row of the Continue Run
 
 ### Requirement: A compaction request replays its rows like a later turn
 

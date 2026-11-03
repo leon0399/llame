@@ -51,7 +51,7 @@ over. Every other layer stays inside about 2,000 lines.
 ## 1. proposal
 
 - [x] 1.1 Validate the change: `pnpm exec openspec validate exact-turn-replay --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/exact-turn-replay/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
-  - Evidence: both `openspec validate --strict` runs pass; markdownlint, the link check, `pnpm format:check` over the repository, and `git diff --check` are clean on 3fdd6231.
+  - Evidence: `openspec validate exact-turn-replay --strict` passes; markdownlint, the link check, `pnpm format:check` over the repository, and `git diff --check` are clean on the rebased proposal head.
 - [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
   - Evidence: round 1 (spec consistency and feasibility reviewers; 13 P1, 15 P2; fixes in 52254f1b) and round 2 (4 P1, 20 P2; fixes in 3fdd6231). design.md "Revision history" records each round.
 - [x] 1.3 Obtain Leo's approval of the published revision, including A7 and A8 in proposal.md.
@@ -129,7 +129,7 @@ over. Every other layer stays inside about 2,000 lines.
 
 ## 10. finalize
 
-- [ ] 10.1 Enter `exact-turn-replay/finalize` with `$gh-stack` before any canonical spec write. Then run `$openspec-sync-specs`. Verify the ADDED requirements appear word for word, each MODIFIED requirement matches its delta with every canonical scenario kept, and the REMOVED requirement is gone.
+- [ ] 10.1 Enter `exact-turn-replay/finalize` with `$gh-stack` before any canonical spec write. Then run `$openspec-sync-specs`. Verify the ADDED requirements appear word for word, each MODIFIED requirement matches its delta with every canonical scenario kept, and both REMOVED `tool-calling` requirements are gone.
 - [ ] 10.2 Confirm archive readiness: `openspec status --change exact-turn-replay --json` reports every artifact done and every task above is checked. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
