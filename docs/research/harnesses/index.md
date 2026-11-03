@@ -195,7 +195,7 @@ assessment.
 70. [OpenDuet](./openduet.md) — Proactive agent on vendored CopilotKit OpenBot: per-bot computers, a deny-by-default action gateway, and credentials kept out of the transcript
 71. [GVS5H](./gvs5h.md) — Benchmark scaffold for ledger-based fresh-context orchestration; the multiagent engine runs public stdin samples, and the model has no tools
 72. [Rakazo](./rakazo.md) — TypeScript bot host: Postgres event cursors, in-process run wakeups, a sandbox-provider switch, and approval keys bound to arguments
-73. [Guilds](./guilds.md) — AGPL orchestrator: stored tool results are cut to 64 KiB, then the provider request stubs older ones
+73. [Guilds](./guilds.md) — AGPL orchestrator whose stored tool results are cut to 64 KiB and whose provider request then stubs older ones without rewriting the stored row
 74. [Clawboo](./clawboo.md) — MIT Node team service whose orchestration log tails by seq over SSE, while peer coding CLIs start with their own approvals off and a hard budget cap stays opt-in
 75. [Tucano](./tucano.md) — Apache-2.0 Electron workspace whose peer CLIs take tools from a per-turn MCP gateway and whose approval rechecks the grant before the stored call runs
 76. [Codync](./codync.md) — Rust host for installed agent CLIs: a ratatui client, SQLite routines that coalesce, and phones that attach to the computer that runs the bot

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Guilds"
-description: "AGPL orchestrator. Stored tool results are cut to 64 KiB; the provider request then stubs older ones without rewriting the stored row."
+description: "AGPL orchestrator whose stored tool results are cut to 64 KiB and whose provider request then stubs older ones without rewriting the stored row."
 resource: "https://github.com/CigaleAI/guilds/tree/bb909023059a10bf6ba24ab3626b478c2404f76e"
 tags: [harness, runs, transcript, routines, orchestration]
 status: stable
