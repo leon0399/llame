@@ -133,13 +133,6 @@ async function storeHeadRendering(
   // `boundedSpill` turns that rejection into `not-stored`.
   if (write.kind === 'failed') throw new Error('The artifact write failed.');
   const written = write.written;
-  // A host route needs the file it would name; without one only `read`
-  // reaches the artifact.
-  const reachable =
-    written.hostDirectory === undefined
-      ? readAdmitsArtifact(context, toolName, written.seq)
-      : canReadArtifacts(context, toolName, written.seq);
-  if (!reachable) return { kind: 'not-stored' };
   const hostFiles = artifactHostFiles(context, toolName, written);
   return {
     kind: 'stored',
@@ -193,9 +186,13 @@ async function writeSinglePart(
   }
   try {
     const written = await writePart(context, runId, toolName, part);
-    return canReadArtifacts(context, toolName, written.seq)
-      ? { kind: 'written', written }
-      : { kind: 'failed' };
+    // A host route needs the file it would name: when the writer made none,
+    // only `read` reaches the artifact.
+    const reachable =
+      written.hostDirectory === undefined
+        ? readAdmitsArtifact(context, toolName, written.seq)
+        : canReadArtifacts(context, toolName, written.seq);
+    return reachable ? { kind: 'written', written } : { kind: 'failed' };
   } catch {
     return { kind: 'failed' };
   }

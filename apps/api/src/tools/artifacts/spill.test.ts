@@ -490,3 +490,64 @@ describe('the shared single-part store', () => {
     expect(part?.findings).toBeNull();
   });
 });
+
+describe('the shared store on a bash-only route', () => {
+  const part = { contentType: 'text/markdown', content: '## /r/a.ts\n*1: x\n' };
+
+  /** A `$TMPDIR` that cannot hold the Chat directory, so no host file lands. */
+  function withoutHostFiles<T>(callback: () => Promise<T>): Promise<T> {
+    const previous = process.env['TMPDIR'];
+    const blocker = mkdtempSync(join(tmpdir(), 'spill-block-'));
+    const file = join(blocker, 'file');
+    writeFileSync(file, 'x');
+    process.env['TMPDIR'] = file;
+    return callback().finally(() => {
+      if (previous === undefined) delete process.env['TMPDIR'];
+      else process.env['TMPDIR'] = previous;
+      rmSync(blocker, { recursive: true, force: true });
+    });
+  }
+
+  it('stores nothing when the host file is missing and read denies it', async () => {
+    await withoutHostFiles(async () => {
+      const spies = spyStorage(6);
+      const written = await storeSinglePartArtifact(
+        context({
+          artifactReadable: false,
+          artifactHostFiles: true,
+          permissionPolicy: compileToolPermissionMap(
+            { read: { reject: true }, bash: { allow: true } },
+            'test-policy',
+          ),
+        }),
+        'grep',
+        part,
+      );
+
+      // The row was written before the host files, but nothing can reach it,
+      // so the producer must fall back instead of advertising a locator.
+      expect(written).toBeUndefined();
+      expect(spies.insertParts).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('stores the artifact when read reaches it without host files', async () => {
+    await withoutHostFiles(async () => {
+      spyStorage(7);
+      const written = await storeSinglePartArtifact(
+        context({
+          artifactHostFiles: true,
+          permissionPolicy: compileToolPermissionMap(
+            { read: { allow: true }, bash: { allow: true } },
+            'test-policy',
+          ),
+        }),
+        'grep',
+        part,
+      );
+
+      expect(written?.locator).toBe('artifact://grep-7');
+      expect(written?.hostDirectory).toBeUndefined();
+    });
+  });
+});
