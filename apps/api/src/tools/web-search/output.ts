@@ -308,24 +308,6 @@ function dropTrailing<T>(
   }
 }
 
-function cutAnswer(
-  output: AnswerOutput,
-  notes: ReadonlyArray<string>,
-  counts: TrimCounts,
-  removed: number | undefined,
-): WebSearchSuccess {
-  const render = (answer: string): WebSearchSuccess =>
-    withNotes(
-      { ...output, answer },
-      { notes, counts, answerCut: true, removed },
-    );
-  const fitting = longestFittingPrefix(
-    output.answer,
-    (candidate) => !isOverTrimmedBudget(render(candidate)),
-  );
-  return render(fitting ?? '');
-}
-
 function fitAnswer(
   initial: AnswerOutput,
   notes: ReadonlyArray<string>,
@@ -345,7 +327,7 @@ function fitAnswer(
       { ...initial, citations },
       { notes, counts, answerCut: false, removed },
     );
-  const over = dropTrailing(
+  dropTrailing(
     initial.citations,
     1,
     () => isOverTrimmedBudget(render()),
@@ -354,9 +336,7 @@ function fitAnswer(
       counts.citations += 1;
     },
   );
-  return over
-    ? cutAnswer({ ...initial, citations }, notes, counts, removed)
-    : render();
+  return render();
 }
 
 /** A results output while its trim steps run, with the notes they carry. */
@@ -413,27 +393,24 @@ function trimAnswerCitations(trim: ResultsTrim): void {
  */
 function cutLastAnswerText(trim: ResultsTrim): void {
   const index = trim.answers.length - 1;
-  if (index < 0) return;
+  if (index < 0 || !isOverTrimmedBudget(renderTrimmed(trim))) return;
   const answer = trim.answers[index];
-  if (answer.answer === '' || !isOverTrimmedBudget(renderTrimmed(trim))) return;
   // The note of this cut joins its own measurement.
   trim.counts.answerCut = true;
-  trim.answers[index] = { ...answer, answer: '' };
-  if (isOverTrimmedBudget(renderTrimmed(trim))) {
-    trim.answers[index] = answer;
-    trim.counts.answerCut = false;
-    return;
-  }
   const fitting = longestFittingPrefix(answer.answer, (candidate) => {
     trim.answers[index] = { ...answer, answer: candidate };
     return !isOverTrimmedBudget(renderTrimmed(trim));
   });
-  trim.answers[index] = { ...answer, answer: fitting ?? '' };
+  if (fitting === undefined) {
+    trim.answers[index] = answer;
+    trim.counts.answerCut = false;
+    return;
+  }
+  trim.answers[index] = { ...answer, answer: fitting };
 }
 
 /** The last three trim steps, from citations to whole attached answers. */
 function trimAnswers(trim: ResultsTrim): void {
-  if (trim.answers.length === 0) return;
   trimAnswerCitations(trim);
   cutLastAnswerText(trim);
   dropTrailing(

@@ -42,10 +42,7 @@ import type {
   WebSearchConfig,
   WebSearchEngineConfig,
 } from './web-search-config';
-import {
-  WEB_SEARCH_FETCH_LIMIT_DEFAULT,
-  WEB_SEARCH_FETCH_LIMIT_MAX,
-} from './web-search-config';
+import { WEB_SEARCH_FETCH_LIMIT_DEFAULT } from './web-search-config';
 import type { MachineHostConfig } from './machines-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type { RequestHeaderTemplates } from '../models/request-headers';
@@ -639,37 +636,8 @@ function resolveWebSearch(
   return {
     engines,
     chain: section.chain,
-    fetchLimit: resolveWebSearchFetchLimit(section, env),
+    fetchLimit: section.fetchLimit ?? WEB_SEARCH_FETCH_LIMIT_DEFAULT,
   };
-}
-
-/**
- * The number of results each call asks its engines for, before each vendor
- * maximum clamps it (tool-result-artifacts D9). It is a plain integer of 1 to
- * 100 with a default of 20; the schema rejects a larger or smaller value, and
- * this check names the path if the schema and the loader ever drift.
- */
-function resolveWebSearchFetchLimit(
-  section: RawWebSearchConfig,
-  env: NodeJS.ProcessEnv,
-): number {
-  const fetchLimit = requireResolvedNumber(
-    resolveNumeric({
-      configPath: 'webSearch.fetchLimit',
-      present: section.fetchLimit !== undefined,
-      raw: section.fetchLimit,
-      builtInDefault: WEB_SEARCH_FETCH_LIMIT_DEFAULT,
-      nullable: false,
-      env,
-    }),
-    'webSearch.fetchLimit',
-  );
-  if (fetchLimit > WEB_SEARCH_FETCH_LIMIT_MAX) {
-    throw new InstanceConfigError(
-      `webSearch.fetchLimit: must be at most ${WEB_SEARCH_FETCH_LIMIT_MAX}`,
-    );
-  }
-  return fetchLimit;
 }
 
 function resolveWebSearchTimeout(

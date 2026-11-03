@@ -3,8 +3,13 @@ import {
   canonicalUrl as canonicalizeSearchUrl,
   normalizeFullOutput,
   normalizeOutput as normalizeSearchOutput,
+  type WebSearchSuccess,
 } from './output';
 import { renderWebSearchOutput } from './text';
+
+function renderedLength(output: WebSearchSuccess): number {
+  return renderWebSearchOutput(output)?.text.length ?? 0;
+}
 import {
   type RawCitation,
   type RawResult,
@@ -776,4 +781,109 @@ it('keeps the whole serialized output that the inline fit would shorten', () => 
     throw new Error('expected results outputs');
   expect(full.results).toHaveLength(20);
   expect(inline.results.length).toBeLessThan(20);
+});
+
+it('keeps a results output at exactly the inline limit', () => {
+  const results = Array.from({ length: 20 }, (_unused, index) => ({
+    title: 't'.repeat(200),
+    url: `https://example.test/${index}/${'u'.repeat(1)}`,
+    snippet: 's'.repeat(300),
+  }));
+  const notes = Array.from({ length: 10 }, () => 'n'.repeat(200));
+  const query = 'q'.repeat(1000);
+  const build = (extra: number) =>
+    resultsSource(
+      results.map((result, index) =>
+        index === 0
+          ? { ...result, url: `${result.url}${'u'.repeat(extra)}` }
+          : result,
+      ),
+      notes,
+      query,
+    );
+
+  const extra = 15_000 - renderedLength(normalizeSearchOutput(build(0), 20));
+  expect(extra).toBeGreaterThanOrEqual(0);
+  expect(extra).toBeLessThanOrEqual(2000);
+  const output = normalizeSearchOutput(build(extra), 20);
+
+  expect(renderedLength(output)).toBe(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.results).toHaveLength(20);
+  expect(output.notes).toEqual(notes);
+});
+
+it('keeps an answer output at exactly the inline limit', () => {
+  const notes = Array.from({ length: 10 }, () => 'n'.repeat(200));
+  const query = 'q'.repeat(1000);
+  const minimal = { url: 'https://example.test/c' };
+  const build = (thirdUrlLength: number) =>
+    answerSource(
+      'a'.repeat(8000),
+      [
+        { url: longUrl('a', 2048) },
+        { url: 'https://example.test/b' },
+        thirdUrlLength === minimal.url.length
+          ? minimal
+          : { url: longUrl('c', thirdUrlLength) },
+      ],
+      query,
+      notes,
+    );
+
+  const base = normalizeSearchOutput(build(minimal.url.length), 10);
+  const extra = 15_000 - renderedLength(base);
+  const thirdUrlLength = minimal.url.length + extra;
+  expect(thirdUrlLength).toBeLessThanOrEqual(2048);
+  const output = normalizeSearchOutput(build(thirdUrlLength), 10);
+
+  expect(renderedLength(output)).toBe(15_000);
+  if (output.kind !== 'answer') throw new Error('expected an answer output');
+  expect(output.citations).toHaveLength(3);
+  expect(output.notes).toEqual(notes);
+});
+
+it('stops dropping results exactly at the notice-reserved limit', () => {
+  const notes = Array.from({ length: 10 }, () => 'n'.repeat(200));
+  const query = 'q'.repeat(1000);
+  const maxResult = (index: number) => ({
+    title: 't'.repeat(200),
+    url: `https://example.test/${index}/${'u'.repeat(1)}`,
+    snippet: 's'.repeat(300),
+  });
+  const tunable = (pad: number) => ({
+    title: 'sixth',
+    url: `https://example.test/tunable/${'u'.repeat(pad)}`,
+    snippet: 's'.repeat(300),
+  });
+  const small = {
+    title: 'small',
+    url: 'https://example.test/small',
+    snippet: 's'.repeat(300),
+  };
+  const build = (pad: number, withSmall: boolean) =>
+    resultsSource(
+      [
+        ...Array.from({ length: 18 }, (_unused, index) => maxResult(index)),
+        tunable(pad),
+        ...(withSmall ? [small] : []),
+      ],
+      notes,
+      query,
+    );
+  const measure = (pad: number) =>
+    renderedLength(normalizeSearchOutput(build(pad, true), 20));
+
+  // Start already over the inline limit, so the small result leaves; in that
+  // regime the padded URL moves the remaining text one unit per unit.
+  const pad = 1700 + (14_744 - measure(1700));
+  expect(pad).toBeGreaterThanOrEqual(0);
+  expect(pad).toBeLessThanOrEqual(2000);
+  const output = normalizeSearchOutput(build(pad, true), 20);
+
+  if (output.kind !== 'results') throw new Error('expected results output');
+  // The small result leaves, and the exact reserved boundary keeps the rest.
+  expect(output.results).toHaveLength(19);
+  expect(renderedLength(output)).toBe(14_744);
+  expect(output.notes).toContain('2 more engines');
 });

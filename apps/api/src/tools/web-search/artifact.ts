@@ -24,7 +24,11 @@ import {
   normalizeOutput,
   type WebSearchSuccess,
 } from './output';
-import { renderWebSearchOutput, type WebSearchTextBlock } from './text';
+import {
+  type RenderedWebSearchText,
+  renderWebSearchOutput,
+  type WebSearchTextBlock,
+} from './text';
 
 /** The inline result count and the fetched size. */
 export type WebSearchSpill = {
@@ -47,33 +51,42 @@ export async function spillWebSearchResult(
 
   const rendered = renderWebSearchOutput(full);
   const written =
-    rendered === undefined
-      ? undefined
-      : await storeSinglePartArtifact(context, 'web_search', {
-          contentType: 'text/markdown',
-          content: rendered.text,
-          findings: artifactFindings(
-            rendered.blocks.map((block) => ({
-              locators: block.locators,
-              rule: 'reject_only' as const,
-              start: block.start,
-              end: block.end,
-            })),
-          ),
-        });
+    rendered === undefined ? undefined : await storeArtifact(context, rendered);
   const notice =
     written === undefined || rendered === undefined
       ? leftOutNotice(full, inline)
       : storedNotice(
           context,
           written,
-          nextArtifactLine(rendered.blocks, full, inline),
+          nextArtifactLine(
+            rendered.blocks,
+            renderWebSearchOutput(inline)?.blocks ?? [],
+          ),
         );
   return {
     ...inline,
     ...(written !== undefined && { artifact: written.locator }),
     truncationNotice: notice,
   };
+}
+
+/** Store the whole rendered output with one finding for each block. */
+function storeArtifact(
+  context: ToolContext,
+  rendered: RenderedWebSearchText,
+): Promise<WrittenArtifact | undefined> {
+  return storeSinglePartArtifact(context, 'web_search', {
+    contentType: 'text/markdown',
+    content: rendered.text,
+    findings: artifactFindings(
+      rendered.blocks.map((block) => ({
+        locators: block.locators,
+        rule: 'reject_only' as const,
+        start: block.start,
+        end: block.end,
+      })),
+    ),
+  });
 }
 
 /**
@@ -91,11 +104,14 @@ function storedNotice(
     [{ locator: written.locator, lines: written.lineCount }],
     {
       continueWith: { locator: written.locator, next },
-      ...(hostFiles !== undefined && { hostFiles }),
+      hostFiles,
     },
   );
   return notice.slice(1, -1);
 }
+
+/** The first block always starts here; line 1 is the framing line. */
+const FIRST_BLOCK_LINE = 2;
 
 /**
  * The continuation line: the artifact line after the last block the inline
@@ -103,39 +119,25 @@ function storedNotice(
  * after the inline results cannot move the continuation into an answer.
  */
 function nextArtifactLine(
-  blocks: ReadonlyArray<WebSearchTextBlock>,
-  full: WebSearchSuccess,
-  inline: WebSearchSuccess,
+  fullBlocks: ReadonlyArray<WebSearchTextBlock>,
+  inlineBlocks: ReadonlyArray<WebSearchTextBlock>,
 ): number {
-  const reproduced = reproducedBlocks(full, inline);
-  const previous = blocks[reproduced - 1];
-  return previous === undefined ? (blocks[0]?.start ?? 1) : previous.end + 1;
+  const reproduced = reproducedBlocks(fullBlocks, inlineBlocks);
+  const boundary = fullBlocks[reproduced - 1];
+  return boundary === undefined ? FIRST_BLOCK_LINE : boundary.end + 1;
 }
 
 /** How many leading blocks the inline output keeps exactly as the full one. */
 function reproducedBlocks(
-  full: WebSearchSuccess,
-  inline: WebSearchSuccess,
+  full: ReadonlyArray<WebSearchTextBlock>,
+  inline: ReadonlyArray<WebSearchTextBlock>,
 ): number {
-  const fullEntries = blockEntries(full);
-  const inlineEntries = blockEntries(inline);
   let reproduced = 0;
-  while (
-    reproduced < inlineEntries.length &&
-    JSON.stringify(inlineEntries[reproduced]) ===
-      JSON.stringify(fullEntries[reproduced])
-  ) {
+  for (const block of inline) {
+    if (block.end !== full[reproduced].end) break;
     reproduced += 1;
   }
   return reproduced;
-}
-
-/** The entries whose blocks the text renders, results first for a results output. */
-function blockEntries(output: WebSearchSuccess): ReadonlyArray<unknown> {
-  if (output.kind === 'answer') {
-    return [{ answer: output.answer, citations: output.citations }];
-  }
-  return [...output.results, ...(output.answers ?? [])];
 }
 
 /** The line a call without an artifact ends with: what it left out. */
@@ -157,23 +159,23 @@ function leftOutCount(
   inline: WebSearchSuccess,
 ): number {
   if (full.kind === 'answer') {
-    if (inline.kind !== 'answer') return 1;
-    const citations = full.citations.length - inline.citations.length;
-    return citations > 0 ? citations : 1;
+    if (inline.kind !== 'answer') return 0;
+    return full.citations.length - inline.citations.length;
   }
-  if (inline.kind !== 'results') return 1;
+  if (inline.kind !== 'results') return 0;
   const answers = full.answers ?? [];
   const inlineAnswers = inline.answers ?? [];
-  const trimmed = inlineAnswers.reduce(
-    (total, answer, index) =>
-      total +
-      ((answers[index]?.citations.length ?? 0) - answer.citations.length),
+  const keptFullCitations = answers
+    .slice(0, inlineAnswers.length)
+    .reduce((total, answer) => total + answer.citations.length, 0);
+  const keptInlineCitations = inlineAnswers.reduce(
+    (total, answer) => total + answer.citations.length,
     0,
   );
-  const dropped =
+  return (
     full.results.length -
     inline.results.length +
     (answers.length - inlineAnswers.length) +
-    trimmed;
-  return dropped > 0 ? dropped : 1;
+    (keptFullCitations - keptInlineCitations)
+  );
 }

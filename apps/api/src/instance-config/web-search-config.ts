@@ -87,15 +87,12 @@ export type RawWebSearchEngineEntry =
 
 /** The default `webSearch.fetchLimit`, before each vendor's own maximum. */
 export const WEB_SEARCH_FETCH_LIMIT_DEFAULT = 20;
-/** The largest `webSearch.fetchLimit` the loader accepts. */
-export const WEB_SEARCH_FETCH_LIMIT_MAX = 100;
-
 /** The still-uninterpolated operator `webSearch` section. */
 export type RawWebSearchConfig = {
   engines: Array<RawWebSearchEngineEntry>;
   chain: Array<string>;
   /** Schema-validated integer of 1 to 100; no interpolation applies. */
-  fetchLimit?: unknown;
+  fetchLimit?: number;
 };
 
 export type WebSearchEngineConfig =

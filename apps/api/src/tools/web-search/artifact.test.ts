@@ -208,6 +208,7 @@ it('shows ten of twenty results inline and stores all twenty in rank order', asy
   );
 
   const text = writtenText();
+  expect(writtenPart().contentType).toBe('text/markdown');
   const headings = text.match(/^## \d+\./gmu) ?? [];
   expect(headings).toHaveLength(20);
   const positions = Array.from({ length: 20 }, (_unused, index) =>
@@ -733,6 +734,16 @@ it('says the host files are on the llame host only in a Machine Workspace', asyn
       testContext({
         artifactHostFiles: true,
         workspaceRoot: createWorkspaceRootCell('machine://box/home/u/project'),
+        // Only this tool's locators are readable, so a wrong tool name in the
+        // host-file fact loses the artifact's only route in a Machine.
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: [{ field: 'path', regex: '^artifact://web_search-' }],
+            },
+          },
+          'web-search-artifact-test',
+        ),
       }),
       resultsSource(
         Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
@@ -825,4 +836,44 @@ it('records an answer output finding with every citation', async () => {
       end: blocks[0]?.end,
     },
   ]);
+});
+
+it('continues from the first block when an answer output is trimmed', async () => {
+  const citations = Array.from({ length: 20 }, (_unused, index) =>
+    longUrl(index + 1),
+  );
+
+  const result = await spillWebSearchResult(
+    testContext(),
+    answerSource('a'.repeat(8000), citations),
+    { limit: 10, fetchSize: 20 },
+  );
+
+  expect(spilled(result).truncationNotice).toMatch(/:2-$/u);
+});
+
+it('counts dropped answers once and kept answers’ lost citations', async () => {
+  const citations = Array.from({ length: 20 }, (_unused, index) =>
+    longUrl(index + 1),
+  );
+  const answers = Array.from({ length: 5 }, (_unused, index) => ({
+    engine: `hosted-${index}`,
+    answer: 'a'.repeat(8000),
+    citations,
+  }));
+
+  const result = await spillWebSearchResult(
+    testContext({ artifactReadable: false }),
+    resultsSource([], answers),
+    { limit: 10, fetchSize: 20 },
+  );
+
+  const inline = spilled(result);
+  if (inline.kind !== 'results') throw new Error('expected results');
+  expect(inline.answers).toHaveLength(1);
+  expect(inline.answers?.[0]?.citations).toHaveLength(1);
+  // Four whole answers and the nineteen citations the kept one lost.
+  expect(inline.truncationNotice).toBe(
+    'left out: 23 results; full result not stored',
+  );
 });
