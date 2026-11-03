@@ -105,7 +105,9 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   });
   await historyReachedApi;
   expect(historyStatus, "owner history response status").toBe(200);
-  const fixtureSource = log.getByRole("button", { name: "Fixture source" });
+  const fixtureSource = log.getByRole("button", {
+    name: "Fixture source opens in a new tab",
+  });
   const linkSafetyModal = page.locator('[data-streamdown="link-safety-modal"]');
   await expect(fixtureSource).toBeVisible();
   await fixtureSource.click();

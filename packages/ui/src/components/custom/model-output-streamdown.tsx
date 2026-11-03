@@ -1,5 +1,7 @@
 "use client";
 
+import { SquareArrowOutUpRightIcon } from "lucide-react";
+import { createElement, Fragment, useMemo, useSyncExternalStore } from "react";
 import type { PluginConfig, StreamdownProps } from "streamdown";
 import {
   defaultRehypePlugins,
@@ -16,6 +18,7 @@ import {
   regexTokenAllowedTags,
 } from "#regex-tester/markdown";
 import { REGEX_TOKEN_TAG } from "#regex-tester/token";
+import { OUTBOUND_LINK_TAG, rehypeOutboundLinks } from "./outbound-link.js";
 
 /**
  * The intentionally narrow presentation surface for model-authored output.
@@ -61,9 +64,35 @@ const modelOutputRehypePlugins = [
   rehypeRegexTokens,
 ];
 
+/**
+ * Trailing mark for a link that leaves llame, appended inside Streamdown's
+ * link control so the confirmation modal stays that renderer's. The icon is
+ * decorative. The accessible-name algorithm joins child text with spaces, so
+ * the suffix is its own element and the name reads as "<label> opens in a
+ * new tab". `createElement` avoids a whitespace text node that would join as
+ * a second space. `ms-0.5` is the gap after the label (the same 0.5 step app
+ * chrome uses) and keeps the icon on the last line when the label wraps.
+ * Tailwind's preflight sets `svg { display: block }`, so the icon is
+ * `inline-block`.
+ */
+const OutboundLinkAffordance = () =>
+  createElement(
+    Fragment,
+    null,
+    createElement(SquareArrowOutUpRightIcon, {
+      "aria-hidden": true,
+      className: "ms-0.5 inline-block size-3 align-text-bottom",
+    }),
+    createElement("span", { className: "sr-only" }, "opens in a new tab"),
+  );
+
 const modelOutputComponents = {
   [REGEX_TOKEN_TAG]: RegexProseToken,
+  [OUTBOUND_LINK_TAG]: OutboundLinkAffordance,
 };
+
+/** The page origin cannot change during a session. */
+const subscribeToNothing = () => () => {};
 
 const resolveOverlayContainer = (
   anchor: HTMLElement,
@@ -75,26 +104,48 @@ const resolveOverlayContainer = (
 /**
  * Complete, security-hardened renderer for model-authored Markdown. Callers
  * receive presentation/render-state props only; regex adapters, sanitization,
- * link safety, plugin identities, and component mappings are atomic here.
+ * link safety, outbound-link marking, plugin identities, and component
+ * mappings are atomic here.
  */
 export const ModelOutputStreamdown = ({
   children,
   ...props
-}: ModelOutputStreamdownProps) => (
-  <RegexTesterProvider resolveOverlayContainer={resolveOverlayContainer}>
-    <Streamdown
-      {...props}
-      plugins={modelOutputPlugins}
-      remarkPlugins={modelOutputRemarkPlugins}
-      rehypePlugins={modelOutputRehypePlugins}
-      components={modelOutputComponents}
-      allowedTags={regexTokenAllowedTags}
-      linkSafety={{ enabled: true }}
-      disallowedElements={["img"]}
-    >
-      {children}
-    </Streamdown>
-  </RegexTesterProvider>
-);
+}: ModelOutputStreamdownProps) => {
+  // SSR and hydration have no `window`. `""` matches on both, so absolute
+  // links render the icon in the server HTML; the real origin takes over
+  // after hydration without a mismatch.
+  const ownOrigin = useSyncExternalStore(
+    subscribeToNothing,
+    () => window.location.origin,
+    () => "",
+  );
+  const rehypePlugins = useMemo(
+    () => [
+      ...modelOutputRehypePlugins,
+      [rehypeOutboundLinks, { ownOrigin }] satisfies [
+        typeof rehypeOutboundLinks,
+        { ownOrigin: string },
+      ],
+    ],
+    [ownOrigin],
+  );
+
+  return (
+    <RegexTesterProvider resolveOverlayContainer={resolveOverlayContainer}>
+      <Streamdown
+        {...props}
+        plugins={modelOutputPlugins}
+        remarkPlugins={modelOutputRemarkPlugins}
+        rehypePlugins={rehypePlugins}
+        components={modelOutputComponents}
+        allowedTags={regexTokenAllowedTags}
+        linkSafety={{ enabled: true }}
+        disallowedElements={["img"]}
+      >
+        {children}
+      </Streamdown>
+    </RegexTesterProvider>
+  );
+};
 
 ModelOutputStreamdown.displayName = "ModelOutputStreamdown";

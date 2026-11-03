@@ -7,6 +7,9 @@ import { WebSearchTool, type WebSearchToolProps } from "./web-search.js";
 
 const markdownRenderer: WebSearchToolProps["Markdown"] = MessageResponse;
 
+/** Accessible name of an outbound result or citation link. */
+const outboundLinkName = (label: string) => `${label} opens in a new tab`;
+
 // The Parameters panel renders through the shared Shiki CodeBlock, whose
 // built-in "one-light" palette ships token colors below WCAG AA color-contrast
 // (e.g. #e45649 and #50a14f on white). Same third-party-theme defect that
@@ -93,14 +96,23 @@ export const Results: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    const releaseNotes = canvas.getByRole("button", {
+      name: outboundLinkName("Llame release notes"),
+    });
+    await expect(releaseNotes).toBeInTheDocument();
+    await expect(releaseNotes.querySelector("svg")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
     await expect(
-      canvas.getByRole("button", { name: "Llame release notes" }),
+      canvas.getByRole("button", {
+        name: outboundLinkName("Search architecture"),
+      }),
     ).toBeInTheDocument();
     await expect(
-      canvas.getByRole("button", { name: "Search architecture" }),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getByRole("button", { name: "Tool calling guide" }),
+      canvas.getByRole("button", {
+        name: outboundLinkName("Tool calling guide"),
+      }),
     ).toBeInTheDocument();
     await expect(canvas.getByText(/^example\.com\b/iu)).toBeInTheDocument();
     await expect(canvas.getByText(/2026-10-08/iu)).toBeInTheDocument();
@@ -108,9 +120,7 @@ export const Results: Story = {
       canvas.getByText(/A concise overview of the latest release/iu),
     ).toBeInTheDocument();
 
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Llame release notes" }),
-    );
+    await userEvent.click(releaseNotes);
     await expect(canvas.getByText("Open external link?")).toBeVisible();
     await expect(
       canvas.getByText("You're about to visit an external website."),
@@ -151,11 +161,13 @@ export const Answer: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(canvas.getByText("The answer")).toBeInTheDocument();
     await expect(canvas.getByText("context")).toBeInTheDocument();
+    const citation = canvas.getByRole("button", {
+      name: outboundLinkName("Search design"),
+    });
+    await expect(citation).toBeInTheDocument();
+    await expect(citation.querySelector("svg")).toHaveClass("size-3");
     await expect(
-      canvas.getByRole("button", { name: "Search design" }),
-    ).toBeInTheDocument();
-    await expect(
-      canvas.getByRole("button", { name: "Search output" }),
+      canvas.getByRole("button", { name: outboundLinkName("Search output") }),
     ).toBeInTheDocument();
   },
 };
@@ -309,7 +321,9 @@ export const UntitledTimestampedResult: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(
-      canvas.getByRole("button", { name: "https://example.com/untitled" }),
+      canvas.getByRole("button", {
+        name: outboundLinkName("https://example.com/untitled"),
+      }),
     ).toBeInTheDocument();
     await expect(
       canvas.getByText("example.com · 2024-01-15 · Body text."),
@@ -351,14 +365,18 @@ export const MarkdownTitles: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(
       canvas.getByRole("button", {
-        name: "Python (programming language) - Wikipedia",
+        name: outboundLinkName("Python (programming language) - Wikipedia"),
       }),
     ).toBeInTheDocument();
     await expect(
-      canvas.getByRole("button", { name: "Release notes [v2.0] and more" }),
+      canvas.getByRole("button", {
+        name: outboundLinkName("Release notes [v2.0] and more"),
+      }),
     ).toBeInTheDocument();
     await expect(
-      canvas.getByRole("button", { name: "Price $5 & $10 *now*" }),
+      canvas.getByRole("button", {
+        name: outboundLinkName("Price $5 & $10 *now*"),
+      }),
     ).toBeInTheDocument();
     await expect(canvasElement.querySelector(".katex")).toBeNull();
   },
@@ -424,7 +442,7 @@ export const AggregateAnswers: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     const lastResult = canvas.getByRole("button", {
-      name: "Tool calling guide",
+      name: outboundLinkName("Tool calling guide"),
     });
     const answer = canvas.getByText("Aggregate answers");
     await expect(answer).toBeInTheDocument();
@@ -437,7 +455,7 @@ export const AggregateAnswers: Story = {
     await expect(canvas.getByText(/claude-search/u)).toBeInTheDocument();
     await expect(canvas.getByText("It cites two sources.")).toBeInTheDocument();
     await expect(
-      canvas.getByRole("button", { name: "Hosted context" }),
+      canvas.getByRole("button", { name: outboundLinkName("Hosted context") }),
     ).toBeInTheDocument();
     await expect(
       canvas.queryByRole("button", { name: "javascript:alert(1)" }),
@@ -478,7 +496,9 @@ export const StoredResultsWithoutAnswers: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(
-      canvas.getByRole("button", { name: "Self-hosted metasearch notes" }),
+      canvas.getByRole("button", {
+        name: outboundLinkName("Self-hosted metasearch notes"),
+      }),
     ).toBeInTheDocument();
     await expect(canvas.getByText(/searxng/u)).toBeInTheDocument();
     // Only the result list renders: a stored part without `answers` adds no

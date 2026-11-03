@@ -353,7 +353,9 @@ export const LiveAndHistoricalWebSearch: Story = {
 
     for (const result of WEB_SEARCH_OUTPUT.results) {
       const found = await waitFor(() => {
-        const buttons = canvas.getAllByRole("button", { name: result.title });
+        const buttons = canvas.getAllByRole("button", {
+          name: `${result.title} opens in a new tab`,
+        });
         expect(buttons).toHaveLength(2);
         return buttons;
       });
@@ -392,7 +394,9 @@ export const LiveAndHistoricalWebSearchAnswers: Story = {
         expect(canvas.getAllByText("Aggregate answers")).toHaveLength(2);
         expect(canvas.getAllByText(/claude-search/u)).toHaveLength(2);
         expect(
-          canvas.getAllByRole("button", { name: "Keyboard acoustics" }),
+          canvas.getAllByRole("button", {
+            name: "Keyboard acoustics opens in a new tab",
+          }),
         ).toHaveLength(2);
       },
       { timeout: 15_000 },
