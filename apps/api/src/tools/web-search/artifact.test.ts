@@ -923,3 +923,55 @@ it('reserves the notice room when the inline body alone fits', async () => {
   expect(notice).toBeDefined();
   expect(text.split('\n').at(-1)).toBe(`[${String(notice)}]`);
 });
+
+it('re-reads a partially reproduced answer instead of skipping its tail', async () => {
+  // Each answer is one artifact line (under 8,000 units), so a cut inside it
+  // leaves the block's line span unchanged.
+  const answers = ['a', 'b'].map((text, index) => ({
+    engine: `hosted-${index}`,
+    answer: text.repeat(6000),
+    citations: [longUrl(index + 1)],
+  }));
+  const source = resultsSource([], answers);
+  const fullBlocks =
+    renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
+
+  const result = await spillWebSearchResult(testContext(), source, {
+    limit: 10,
+    fetchSize: 20,
+  });
+
+  const inline = spilled(result);
+  if (inline.kind !== 'results') throw new Error('expected results');
+  expect(inline.answers).toHaveLength(2);
+  const inlineBlocks = renderWebSearchOutput(inline)?.blocks ?? [];
+  // The cut stays inside one answer line, so the block keeps its line span
+  // while its content changed; it must not count as reproduced.
+  expect(inlineBlocks[1]?.end).toBe(fullBlocks[1]?.end);
+  expect(inlineBlocks[1]?.text).not.toBe(fullBlocks[1]?.text);
+  expect(inline.truncationNotice).toMatch(
+    new RegExp(`:${(fullBlocks[0]?.end ?? 0) + 1}-$`, 'u'),
+  );
+});
+
+it('never reports zero results when only an answer text was cut', async () => {
+  const answers = ['a', 'b'].map((text, index) => ({
+    engine: `hosted-${index}`,
+    answer: text.repeat(8000),
+    citations: [longUrl(index + 1)],
+  }));
+
+  const result = await spillWebSearchResult(
+    testContext({ artifactReadable: false }),
+    resultsSource([], answers),
+    { limit: 10, fetchSize: 20 },
+  );
+
+  const inline = spilled(result);
+  if (inline.kind !== 'results') throw new Error('expected results');
+  expect(inline.answers).toHaveLength(2);
+  expect(inline.answers?.[1]?.answer).not.toBe(answers[1]?.answer);
+  expect(inline.truncationNotice).toBe(
+    'left out: 1 result; full result not stored',
+  );
+});

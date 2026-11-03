@@ -106,6 +106,11 @@ export type WebSearchTextBlock = {
   readonly start: number;
   /** The last artifact line of the block, inclusive. */
   readonly end: number;
+  /**
+   * The block's rendered lines, joined. A cut inside the last line keeps the
+   * line span, so the continuation is decided on this content, not the range.
+   */
+  readonly text: string;
 };
 
 /** The rendered text and the line range of every result or answer block. */
@@ -185,7 +190,12 @@ function assemble(
     const start = next;
     lines.push(...block.lines);
     for (const line of block.lines) next += renderedLineSpan(line);
-    ranges.push({ locators: block.locators, start, end: next - 1 });
+    ranges.push({
+      locators: block.locators,
+      start,
+      end: next - 1,
+      text: block.lines.join('\n'),
+    });
   }
   const notice = output.truncationNotice;
   lines.push(

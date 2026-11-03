@@ -138,7 +138,7 @@ function reproducedBlocks(
 ): number {
   let reproduced = 0;
   for (const block of inline) {
-    if (block.end !== full[reproduced].end) break;
+    if (block.text !== full[reproduced].text) break;
     reproduced += 1;
   }
   return reproduced;
@@ -164,7 +164,11 @@ function leftOutCount(
 ): number {
   if (full.kind === 'answer') {
     if (inline.kind !== 'answer') return 0;
-    return full.citations.length - inline.citations.length;
+    return (
+      full.citations.length -
+      inline.citations.length +
+      (full.answer === inline.answer ? 0 : 1)
+    );
   }
   if (inline.kind !== 'results') return 0;
   const answers = full.answers ?? [];
@@ -176,10 +180,14 @@ function leftOutCount(
     (total, answer) => total + answer.citations.length,
     0,
   );
+  const cutAnswers = inlineAnswers.filter(
+    (answer, index) => answer.answer !== answers[index].answer,
+  ).length;
   return (
     full.results.length -
     inline.results.length +
     (answers.length - inlineAnswers.length) +
-    (keptFullCitations - keptInlineCitations)
+    (keptFullCitations - keptInlineCitations) +
+    cutAnswers
   );
 }

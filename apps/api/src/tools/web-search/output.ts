@@ -156,8 +156,6 @@ function capFields(
 }
 
 const ANSWER_TRUNCATION_NOTE = 'answer truncated to 8000 characters';
-/** The note of an answer output whose own text is cut further. */
-const ANSWER_CUT_NOTE = 'answer cut to fit the output limit';
 /**
  * The note of a results output whose last answer text is cut. The step cuts at
  * most one answer, so its note is a constant.
@@ -267,18 +265,15 @@ type NoteInputs = {
   readonly notes: ReadonlyArray<string>;
   /** The count notes of the trim steps that ran. */
   readonly counts: TrimCounts;
-  /** Whether the answer was cut further to fit beside one citation. */
-  readonly answerCut: boolean;
   /** Entries the call removed, for the note that comes before the others. */
   readonly removed: number | undefined;
 };
 
 function withNotes(
   value: WebSearchSuccess,
-  { notes, counts, answerCut, removed }: NoteInputs,
+  { notes, counts, removed }: NoteInputs,
 ): WebSearchSuccess {
   const visible = [...trimNoteList(counts), ...notes];
-  if (answerCut) visible.unshift(ANSWER_CUT_NOTE);
   // The count note goes before every other note, including the truncation ones
   // above, so neither the cap nor a cut can take its place. It names no URL or
   // host: the model learns that something was removed, not what.
@@ -319,17 +314,13 @@ function fitAnswer(
   const unchanged = withNotes(initial, {
     notes,
     counts: NO_TRIM_COUNTS,
-    answerCut: false,
     removed,
   });
   if (fitsInline(unchanged, reserve)) return unchanged;
   const counts: TrimCounts = { ...NO_TRIM_COUNTS };
   let citations = initial.citations;
   const render = (): WebSearchSuccess =>
-    withNotes(
-      { ...initial, citations },
-      { notes, counts, answerCut: false, removed },
-    );
+    withNotes({ ...initial, citations }, { notes, counts, removed });
   dropTrailing(
     initial.citations,
     1,
@@ -364,7 +355,6 @@ function renderTrimmed(trim: ResultsTrim): WebSearchSuccess {
     {
       notes: trim.notes,
       counts: trim.counts,
-      answerCut: false,
       removed: trim.removed,
     },
   );
@@ -442,7 +432,6 @@ function fitResults(
   const unchanged = withNotes(initial, {
     notes,
     counts: NO_TRIM_COUNTS,
-    answerCut: false,
     removed,
   });
   if (fitsInline(unchanged, reserve)) return unchanged;
@@ -503,7 +492,6 @@ export function normalizeFullOutput(
   return withNotes(output, {
     notes,
     counts: NO_TRIM_COUNTS,
-    answerCut: false,
     removed: source.removed,
   });
 }

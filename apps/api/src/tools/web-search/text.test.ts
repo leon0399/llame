@@ -57,9 +57,34 @@ describe('the web search text shape', () => {
     );
 
     expect(rendered?.blocks).toEqual([
-      { locators: ['https://a.example/one'], start: 2, end: 5 },
-      { locators: ['https://b.example/two'], start: 7, end: 9 },
-      { locators: ['https://c.example/three'], start: 11, end: 14 },
+      {
+        locators: ['https://a.example/one'],
+        start: 2,
+        end: 5,
+        text: [
+          '## 1. First',
+          'https://a.example/one',
+          'a.example · 2026-10-08',
+          '> First snippet.',
+        ].join('\n'),
+      },
+      {
+        locators: ['https://b.example/two'],
+        start: 7,
+        end: 9,
+        text: ['## 2. Second', 'https://b.example/two', 'b.example'].join('\n'),
+      },
+      {
+        locators: ['https://c.example/three'],
+        start: 11,
+        end: 14,
+        text: [
+          '## 3. Third',
+          'https://c.example/three',
+          'c.example',
+          '> Third snippet.',
+        ].join('\n'),
+      },
     ]);
   });
 
@@ -351,6 +376,12 @@ it('counts an 8,000-unit answer line as the pieces the reader numbers', () => {
       locators: ['https://example.test/one', 'https://example.test/two'],
       start: 2,
       end: 6,
+      text: [
+        '## Answer (hosted)',
+        `> ${'a'.repeat(8000)}`,
+        '[1] https://example.test/one',
+        '[2] https://example.test/two',
+      ].join('\n'),
     },
   ]);
 });
