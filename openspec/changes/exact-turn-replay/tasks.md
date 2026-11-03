@@ -59,10 +59,14 @@ over. Every other layer stays inside about 2,000 lines.
 
 ## 2. seams
 
-- [ ] 2.1 Add a text-part seam to each model client (`openai`, `openai-codex`, `openai-completions`, `anthropic`, and the scripted and fake clients) that delivers the adapter's text part id and metadata in stream order. Start a new stored text part when the id changes. Forward the `tool-call` chunk metadata on every client, including a Chat Completions `thoughtSignature` (design A7). Verify that two Responses `message` items store two text parts, each with its item id.
-- [ ] 2.2 Store the metadata once, on the text part or the tool call, in the live collector and in the run-event payloads, so the event-log rebuild keeps it. Keep it out of the chat DTO, the UI chunk stream, exports, search, public shares, logs, and telemetry. Verify "The metadata is never shown" and "Completed run removes opaque continuation state" with the DTO, stream, export, share, and log tests.
-- [ ] 2.3 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 2.4 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused `apps/api` model-client, transcript, stream, and DTO tests, `pnpm format:check`, `git diff --check`.
+- [x] 2.1 Add a text-part seam to each model client (`openai`, `openai-codex`, `openai-completions`, `anthropic`, and the scripted and fake clients) that delivers the adapter's text part id and metadata in stream order. Start a new stored text part when the id changes. Forward the `tool-call` chunk metadata on every client, including a Chat Completions `thoughtSignature` (design A7). Verify that two Responses `message` items store two text parts, each with its item id.
+  - Evidence: `onTextDelta(text, partId, providerMetadata)` and `onToolCallMetadata` in `apps/api/src/models/model-client.ts`, delivered by the one `fullStream` consumer in `models/stream-parts.ts` for the Responses, Codex, and Anthropic clients and by `forwardChunk` for Chat Completions; `stream-parts.test.ts` and `model-client.test.ts` store two Responses `message` items as two text parts, each with its item id.
+- [x] 2.2 Store the metadata once, on the text part or the tool call, in the live collector and in the run-event payloads, so the event-log rebuild keeps it. Keep it out of the chat DTO, the UI chunk stream, exports, search, public shares, logs, and telemetry. Verify "The metadata is never shown" and "Completed run removes opaque continuation state" with the DTO, stream, export, share, and log tests.
+  - Evidence: `TextPartTrack` (`runs/transcript-text-parts.ts`) binds text metadata, `ToolActivityPart.providerMetadata` holds the call metadata, `model.delta` and `tool.requested` carry both for `reconstructDurableAssistant`; `chats/provider-metadata-egress.ts` strips them from the owner DTO and the owner event stream. Covered by `run-execution.service.test.ts`, `chats.dto.test.ts`, `runs.controller.test.ts`, `run-stream-bridge.test.ts`, and the web `chat-markdown.test.ts` export case.
+- [x] 2.3 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `CHANGELOG.md` 2026-11-03 entry; `pnpm lint:markdown` reports 0 issues.
+- [x] 2.4 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused `apps/api` model-client, transcript, stream, and DTO tests, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter api typecheck` and `lint` pass; 16 focused unit files, 896 tests pass; `pnpm --filter api test:crap` exits 0; `pnpm format:check` and `git diff --check` are clean.
 - [ ] 2.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 2.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
