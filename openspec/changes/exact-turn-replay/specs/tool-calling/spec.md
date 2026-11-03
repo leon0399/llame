@@ -520,3 +520,13 @@ capability, with their scenarios: earlier tool activity, stored failures,
 matched results, checkpoints, stored steps, and images. The projection itself
 moves to `turn-replay`. The scenarios on the budget, the frame, sequential
 pairs, and stability move to `turn-replay` or end with the budget.
+
+### Requirement: A replayed pair keeps its artifact locator
+
+**Reason**: Replay no longer clears a payload or adds lines to a result. A
+replayed result carries the cap notice that names the artifact, as the live loop
+sent it, so the separate `Artifact:` line only breaks prefix equality.
+
+**Migration**: "Tool results replay in their live rendering" of `turn-replay`
+covers it, with the scenario "A spilled result names its artifact once". The
+`artifact` field stays on the stored tool part for fork copy.

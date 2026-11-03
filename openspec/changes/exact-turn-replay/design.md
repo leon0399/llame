@@ -91,13 +91,13 @@ boundary. D5 adds back exactly that bit.
 
 Codes D1 to D14 are the grilling record, in proposal.md.
 
-### D1: Amend the artifacts delta here
+### D1: Remove the artifacts replay line here
 
-`tool-result-artifacts` is mid-stack and unsynced. Its tool-calling delta only
-adds the `Artifact:` line under the budget. This proposal deletes that delta
-and points its proposal and design text here, so either change can sync first.
-Rejected: wait for its archive (the bug stays live for six layers); reconcile
-at its finalize (two contradictory deltas in review until then).
+`tool-result-artifacts` synced and archived during this review. Its
+`tool-calling` requirement "A replayed pair keeps its artifact locator" adds the
+`Artifact:` line under the budget, and its `web-search` text replays the result
+as untrusted tool output. This change REMOVES the first and MODIFIES the second.
+The cap notice keeps the locator in the live text.
 
 ### D2, D6: No replay budget, no new compaction path
 
@@ -301,6 +301,9 @@ when it was staged before any tool result is settled by D14.
 
 ## Revision history
 
+- **v6 (2026-11-03), rebase.** `tool-result-artifacts` was archived on
+  `master`. Its amendment is replaced by a REMOVED `tool-calling` requirement
+  and a MODIFIED `web-search` requirement here; no other canonical block drifted.
 - **v5 (2026-11-03), GitHub review round 2 (#1551).** pullfrog: 1 finding,
   accepted. D14 names its three cases, including the failed reply and the
   scripted stream error that makes it, and the `harness` layer (not `replay`)

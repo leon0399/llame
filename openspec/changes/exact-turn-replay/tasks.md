@@ -26,7 +26,7 @@ master
 
 | Layer             | Parent            | Ownership                                                                                                                                     | Authored estimate | Closes      |
 | ----------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------- |
-| `proposal`        | `master`          | Proposal, design, deltas, this task list, and the amendment of `tool-result-artifacts`.                                                       | ~2,800            | none        |
+| `proposal`        | `master`          | Proposal, design, deltas, and this task list.                                                                                                 | ~2,800            | none        |
 | `seams`           | `proposal`        | The text-part seam in each model client, and provider metadata on text and tool parts, in event payloads, and out of every owner-facing sink. | ~1,600            | none        |
 | `storage`         | `seams`           | `step` on each part with the Continue offset and copy, the model-only fields of refused calls, and `messages.parts` as `json`.                | ~1,000            | none        |
 | `responses-store` | `storage`         | `store: false` on the `openai-responses` wire, with `forceReasoning` for entries that declare `reasoning`.                                    | ~250              | none        |
@@ -39,8 +39,8 @@ master
 
 **Named budget exception: the proposal layer is about 2,800 authored lines.**
 Measure it with `git diff --numstat origin/master` before publication. It adds
-one capability with ten requirements, modifies sixteen requirements in eleven
-capabilities, adds thirteen requirements to three, and removes one. Most
+one capability with ten requirements, modifies seventeen requirements in twelve
+capabilities, adds thirteen requirements to three, and removes two. Most
 MODIFIED blocks are long canonical requirements that must be copied whole, and
 nine are rewritten in full to Simplified Technical English. The `replay` layer
 deletes the budget code and its tests in the same layer that replaces them,
@@ -50,7 +50,7 @@ over. Every other layer stays inside about 2,000 lines.
 
 ## 1. proposal
 
-- [x] 1.1 Validate the change: `pnpm exec openspec validate exact-turn-replay --strict`, `pnpm exec openspec validate tool-result-artifacts --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/exact-turn-replay/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
+- [x] 1.1 Validate the change: `pnpm exec openspec validate exact-turn-replay --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/exact-turn-replay/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
   - Evidence: both `openspec validate --strict` runs pass; markdownlint, the link check, `pnpm format:check` over the repository, and `git diff --check` are clean on 3fdd6231.
 - [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
   - Evidence: round 1 (spec consistency and feasibility reviewers; 13 P1, 15 P2; fixes in 52254f1b) and round 2 (4 P1, 20 P2; fixes in 3fdd6231). design.md "Revision history" records each round.

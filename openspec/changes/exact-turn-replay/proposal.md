@@ -76,20 +76,19 @@ open proposal [#1257](https://github.com/leon0399/llame/pull/1257) for
   An entry that declares `reasoning` also asks for encrypted reasoning content.
   Today the wire replays reasoning as `item_reference` ids, which depend on
   server-side retention at OpenAI.
-- **Amendment to the in-flight `tool-result-artifacts` change.** Its unsynced
-  ADDED requirement "A replayed pair keeps its artifact locator" is removed,
-  with its scenarios. Its `web-search` delta no longer says that the result
-  replays as untrusted tool output. Its proposal and design text that keeps the
-  8,000 and 32,000 budgets points here.
+- **The synced `tool-result-artifacts` replay line goes.** The requirement "A
+  replayed pair keeps its artifact locator" is removed, and the `web-search`
+  stored-output requirement no longer says the result replays as untrusted tool
+  output.
 
 ## Assumptions, confirmed with Leo
 
 The grilling of 2026-11-02 and 2026-11-03 settled these. Codes come from the
 decision record in design.md.
 
-- **D1.** Branch from `master`. This proposal also amends the unsynced
-  `tool-result-artifacts` delta, so neither change brings back the budget or the
-  frame, in either sync order.
+- **D1.** Branch from `master`. `tool-result-artifacts` synced and archived
+  while this proposal was in review, so this change removes its replay line
+  and its `web-search` phrase from the canonical specs.
 - **D2, D6.** Remove the budget outright. Compaction is the only eviction
   boundary. A request that does not fit fails as `context_incompatible`, with
   no special compaction path.
@@ -160,7 +159,8 @@ Assumptions that follow from these but were never asked:
 ### Modified Capabilities
 
 - **`tool-calling`.**
-  - REMOVED: "Tool observations survive into later turns as stored UI parts".
+  - REMOVED: "Tool observations survive into later turns as stored UI parts",
+    and "A replayed pair keeps its artifact locator" from `tool-result-artifacts`.
     Its rules that stay true move to ADDED requirements here and in
     `turn-replay`, with their scenarios.
   - MODIFIED:
@@ -203,6 +203,9 @@ Assumptions that follow from these but were never asked:
   attribution", which drops clearing and the cleared `incomplete` outcome.
 - **`media-attachments`.** MODIFIED: "Retained bytes count toward no text
   budget", which drops the replay budgets.
+- **`web-search`.** MODIFIED: "Stored output is the normalized result only",
+  which replays the result as the live loop sent it, not as untrusted tool
+  output.
 - **`provider-api-selection`.** ADDED: the Responses wire stores no response
   and carries encrypted reasoning.
 - **`durable-runs`.** MODIFIED: "Final assistant-message projection preserves
@@ -213,10 +216,6 @@ Assumptions that follow from these but were never asked:
 
 Deliberately unchanged, with the reading under which each holds:
 
-- **`web-search` "Stored output is the normalized result only".** "replay into
-  later turns as untrusted tool output like any other tool result" holds as a
-  statement about the data, not about a label. The `tool-result-artifacts`
-  delta that rewrites this requirement drops the phrase.
 - **`owner-chat-forks`.** "SHALL NOT … re-budget inherited content" stays
   true, because nothing re-budgets content after this change. Prefix equality
   "under identical continuation inputs and runtime versions" matches D4.
@@ -258,8 +257,7 @@ Deliberately unchanged, with the reading under which each holds:
 - **Docs.** `SPEC.md` §28.2, `docs/product/reference/tools/model-output.md`,
   `docs/product/reference/continue-a-turn.md`, `tools/edit.md`, and
   `CHANGELOG.md`.
-- **Other changes.** `tool-result-artifacts` loses one ADDED requirement and
-  one phrase of its `web-search` delta. PR #1257 closes as superseded.
+- **Other changes.** PR #1257 closes as superseded.
 
 ## Non-Goals
 
