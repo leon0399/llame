@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Let a chat owner choose, per message, one of three Run permission modes — `default`, `bypass`, or `read-only` — within the modes the operator enables. `default` applies the operator's tool-call permission policy. `bypass` admits each call that the policy would decide. `read-only` admits only reads and plain Workspace entry or exit, and then applies the policy as `default` does. Every mode is reported on the Run and its context receipt, and the turn display marks only a `bypass` turn.
+Let a chat owner choose, per message, one of three Run permission modes — `default`, `bypass`, or `read-only` — within the modes the operator enables. `default` applies the operator's tool-call permission policy. `bypass` admits each call without an evaluation of the policy. `read-only` admits only reads and plain Workspace entry or exit, and then applies the policy as `default` does. Every mode is reported on the Run and its context receipt, and the turn display marks only a `bypass` turn.
 
 ## Requirements
 
