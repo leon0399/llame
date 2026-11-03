@@ -15,171 +15,152 @@ the effort and thinking defaults, structured output, and failure boundaries.
 
 ### Requirement: Thinking blocks are persisted and replayed complete and unmodified
 
-When an Anthropic model emits thinking or redacted thinking, the client SHALL
-surface it as a displayable reasoning part, persist that block's provider-issued
-signature (and its redacted payload, where present) as opaque provider metadata on
-the same reasoning part through the per-reasoning-part provider-metadata channel
-`reasoning-output` defines, and replay the block on later requests for the same
-chat. Within a tool-use turn the blocks SHALL be passed back; across turns the
-system SHALL pass back every block within the model context the request is
-built from. A prefix a checkpoint absorbed is replaced by that checkpoint
-message under the existing context contract, so the blocks it held are not part
-of that context and are not replayed; that replacement is not llame-side
-pruning of thinking. The adapter's reasoning-replay switch SHALL stay on as a
-client invariant, so an operator's `providerOptions` cannot turn replay off.
-The system SHALL NOT prune thinking blocks itself within the retained context:
-the Messages API filters them, keeps the blocks needed to preserve the model's
-reasoning, and bills input tokens only for the blocks actually shown to the
-model. Replayed blocks SHALL be complete and unmodified, and the consecutive
-thinking blocks of the latest assistant message SHALL NOT be rearranged, edited,
-or partially dropped, because a modified block is rejected. A block whose text
-the provider withheld SHALL be persisted and replayed exactly like any other:
-its empty text is the text the provider produced, and its signature is what
-the replay needs.
+When an Anthropic model emits thinking or redacted thinking, the client MUST show
+it as a displayable reasoning part. It MUST persist the signature of that block
+as opaque provider metadata on the same reasoning part. It MUST also persist the
+redacted payload of the block, where present. It uses the per-part
+provider-metadata channel that `reasoning-output` defines. Within a tool-use turn,
+the client MUST pass the blocks back. Across turns, it MUST pass back each block
+that the model rule of `reasoning-output` keeps in the request context. The checkpoint
+message replaces the prefix that the checkpoint absorbed, under the context
+contract, so the blocks of that prefix do not replay. The reasoning-replay switch of
+the adapter MUST stay on as a client invariant, so the `providerOptions` of an
+operator cannot turn replay off.
 
-A replay SHALL be safe when the prefix above it has changed. A thinking block
-stays valid only while the top-level `system` prompt, the `tools`, and the
-messages before it are unchanged, and llame rewrites that prefix on compaction
-and on prompt-receipt changes, so every request that carries adaptive thinking
-SHALL explicitly instruct the provider to drop blocks whose bound prefix no
-longer matches instead of failing, and SHALL do so rather than inherit whatever
-the account's default enforcement happens to be. The thinking block binding is
-llame's, not the operator's: it is a reserved key under
-`provider-api-selection`'s rule, so any value an operator's `providerOptions`
-places at it is stripped, and the client sets it itself on the adaptive shape
-only. The provider documents the instruction alongside adaptive and
-manual-budget thinking only, and the pinned adapter carries it only on the
-adaptive shape, so no request SHALL carry a thinking configuration that
-consists of the instruction alone, and a request that carries no thinking
-configuration or a manual-budget or disabled shape carries no instruction: an
-entry that declares no `reasoning` on a model that thinks by default, or an
-operator who overrides `thinking` to a manual-budget or disabled shape, gives
-up the instruction for that model, which the operator documentation SHALL state
-together with the remedy of declaring `reasoning`. The same behavior SHALL
-hold within a single run, where compaction can rewrite the prefix mid-turn.
+Apart from the model rule of `reasoning-output`, llame MUST NOT prune thinking
+blocks in the retained context. The Messages API filters them and keeps the
+blocks that the model needs. It bills input tokens only for the blocks that it
+shows to the model. Replayed blocks MUST be complete and unchanged. The consecutive
+thinking blocks of the latest assistant message MUST NOT be reordered, edited, or
+partly dropped, because the provider rejects a changed block. A block whose text
+the provider withheld MUST be persisted and replayed like any other block. Its
+empty text is the text that the provider produced, and its signature is what the
+replay needs.
 
-When the request's model differs from the model that produced a replayed block,
-the block SHALL still be replayed unchanged: a thinking block is readable only by
-the model that produced it or a newer one, and the provider ignores or drops the
-blocks the target model cannot read. The client SHALL NOT coerce a signed block
-to plain text, strip it, or otherwise rewrite it because of a model switch, and
-SHALL NOT prune prior turns' thinking itself. Metadata another wire's adapter
-attached to a reasoning part is not Messages metadata and SHALL NOT be sent as
-a thinking block.
+A replay MUST be safe when the prefix above it changes. A thinking block stays
+valid only while the earlier messages stay the same. The top-level `system`
+prompt and the `tools` MUST also stay the same for it. llame rewrites that prefix on compaction and on
+prompt-receipt changes. Thus each request that carries adaptive thinking MUST
+tell the provider explicitly to drop the blocks whose bound prefix no longer
+matches. It MUST NOT depend on the default enforcement of the account. The
+thinking block binding belongs to llame, not to the operator. It is a reserved key
+under the rule of `provider-api-selection`. Thus the client strips any value that
+the `providerOptions` of an operator put at it, and sets it only on the adaptive
+shape. The provider documents the instruction with adaptive and manual-budget
+thinking only, and the pinned adapter carries it only on the adaptive shape. A
+request MUST NOT carry a thinking configuration that holds only the instruction.
+A request with no thinking configuration, or with a manual-budget or disabled
+shape, carries no instruction. An entry that declares no `reasoning` on a model
+that thinks by default gives up the instruction for that model. An operator who
+overrides `thinking` to a manual-budget or disabled shape also gives it up. The
+operator documentation MUST state this, with the remedy: declare `reasoning`. The
+same behavior MUST apply within one run, where compaction can rewrite the prefix
+in the middle of a turn.
 
-A response that emits no thinking output SHALL remain a successful run.
+A replayed block follows the model rule of `reasoning-output`. After a model
+switch, the request MUST omit the thinking blocks of the replies of other models.
+The client MUST NOT change a signed block to plain text or rewrite it. A block
+that the request keeps MUST replay unchanged. The adapter of another wire can
+attach metadata to a reasoning part. That metadata is not Messages metadata, and
+the client MUST NOT send it as a thinking block.
+
+A response with no thinking output MUST stay a successful run.
 
 #### Scenario: Thinking survives a tool continuation
 
-- **WHEN** a model emits a thinking block, requests an authorized tool, and the
-  turn continues with the tool result
-- **THEN** the continuation carries the earlier thinking block with its signature
-  and the provider accepts it
+- **WHEN** a model emits a thinking block, requests an authorized tool, and the turn continues with the tool result
+- **THEN** the continuation carries the earlier thinking block with its signature, and the provider accepts it
 
 #### Scenario: Thinking survives into a later turn
 
-- **WHEN** a chat issues a later request whose history contains a persisted
-  reasoning part carrying a signature
+- **WHEN** a later request on the same model has history with a completed reply that persisted a reasoning part with a signature
 - **THEN** the block is replayed to the provider with that signature
 - **AND** the provider accepts the request
 
 #### Scenario: Replay cannot be switched off by configuration
 
-- **WHEN** a model entry's `providerOptions` sets the adapter's reasoning-replay
-  switch to off or to `null`
+- **WHEN** the `providerOptions` of a model entry set the reasoning-replay switch of the adapter to off or to `null`
 - **THEN** the request still carries the persisted thinking blocks
 - **AND** the operator value is not sent
 
 #### Scenario: Replay preserves block order and content
 
 - **WHEN** the latest assistant message holds several consecutive thinking blocks
-- **THEN** they are replayed in their original order, byte for byte, with none
-  edited and none partially dropped
+- **THEN** they replay in their original order, byte for byte, with no block edited and no block partly dropped
 
 #### Scenario: A rewritten prefix drops stale blocks instead of failing
 
-- **WHEN** a request carrying adaptive thinking follows a compaction or a
-  prompt-receipt change that rewrote the system prompt, tools, or earlier
-  messages above a replayed thinking block
-- **THEN** the request explicitly asks the provider to drop the stale-bound
-  blocks and the run continues without a rejection
+- **WHEN** a compaction or a prompt-receipt change rewrote the system prompt, the tools, or earlier messages above a replayed thinking block
+- **AND** the next request carries adaptive thinking
+- **THEN** the request explicitly tells the provider to drop the blocks with a stale binding
+- **AND** the run continues with no rejection
 
 #### Scenario: A mid-run compaction does not fail the continuation
 
-- **WHEN** compaction rewrites the prefix during an active run whose requests
-  carry adaptive thinking and the turn then continues with a tool result
-- **THEN** the continuation still succeeds under the drop behavior rather than
-  failing with a rejection
+- **WHEN** compaction rewrites the prefix during an active run whose requests carry adaptive thinking, and the turn then continues with a tool result
+- **THEN** the continuation succeeds under the drop behavior, with no rejection
 
 #### Scenario: An operator-supplied block binding is stripped
 
-- **WHEN** a model entry's `providerOptions` places any value at the thinking
-  block binding — error, drop, or `null` — with or without a thinking type
-- **THEN** that value is stripped before composition
-- **AND** a request carrying adaptive thinking still carries llame's drop
-  instruction, and a request carrying no thinking configuration carries no
-  instruction-only thinking object
+- **WHEN** the `providerOptions` of a model entry put any value at the thinking block binding (error, drop, or `null`), with or without a thinking type
+- **THEN** the client strips that value before composition
+- **AND** a request that carries adaptive thinking still carries the drop instruction of llame
+- **AND** a request with no thinking configuration carries no thinking object that holds only the instruction
 
 #### Scenario: A request without adaptive thinking carries no drop instruction
 
-- **WHEN** a model entry declares no `reasoning` and sets no thinking option, or
-  its `providerOptions` sets `thinking` to the manual-budget or the disabled
-  shape
-- **THEN** the request carries no drop instruction and no instruction-only
-  thinking configuration
-- **AND** the operator documentation records that a prefix rewrite can then be
-  rejected under the account's default enforcement, and that declaring
-  `reasoning` restores the instruction on models with adaptive thinking
+- **WHEN** a model entry declares no `reasoning` and sets no thinking option, or its `providerOptions` set `thinking` to the manual-budget or the disabled shape
+- **THEN** the request carries no drop instruction and no thinking configuration that holds only the instruction
+- **AND** the operator documentation states that the default enforcement of the account can then reject a prefix rewrite
+- **AND** it states that a `reasoning` declaration restores the instruction on models with adaptive thinking
 
 #### Scenario: A model switch replays blocks unchanged
 
-- **WHEN** a later request uses a different model than the one that produced a
-  persisted thinking block
-- **THEN** the block is replayed unchanged
-- **AND** llame neither coerces it to plain text nor strips it
+- **WHEN** a later request returns to the model that produced a persisted thinking block, after a turn on another model
+- **THEN** the block of that model replays unchanged
+- **AND** llame does not change it to plain text or strip it
+
+#### Scenario: A model switch omits earlier blocks
+
+- **WHEN** a later request uses a different model than the model that produced a persisted thinking block
+- **THEN** the request does not carry that block
+- **AND** llame does not change it to plain text
 
 #### Scenario: llame does not prune prior thinking
 
-- **WHEN** a chat's retained model context holds signed thinking blocks from
-  earlier turns
-- **THEN** llame replays them without pruning
-- **AND** the provider decides which blocks are retained and billed
+- **WHEN** the retained model context of a chat holds signed thinking blocks from earlier completed turns on the model of the request
+- **THEN** llame replays them and removes none of them
+- **AND** the provider decides which blocks it keeps and bills
 
 #### Scenario: A compacted prefix's blocks are not replayed
 
-- **WHEN** compaction has superseded a prefix that held signed thinking blocks
-  and a later request is built
-- **THEN** the request carries the compaction's checkpoint message in place of
-  that prefix, without the superseded blocks
-- **AND** blocks in the context after the checkpoint's absorbed-through
-  sequence are replayed unchanged
+- **WHEN** compaction has replaced a prefix that held signed thinking blocks, and a later request is built
+- **THEN** the request carries the checkpoint message of the compaction in place of that prefix, without the replaced blocks
+- **AND** the blocks in the context after the absorbed-through sequence of the checkpoint replay under the model rule
 
 #### Scenario: Redacted thinking survives a tool continuation
 
 - **WHEN** the model emits a redacted thinking block
-- **THEN** the block is replayed unchanged on the continuation
-- **AND** llame does not attempt to decode or display redacted payload contents
+- **THEN** the block replays unchanged on the continuation
+- **AND** llame does not try to decode or show the redacted payload
 
 #### Scenario: Withheld thinking text is persisted with its signature
 
-- **WHEN** the provider returns a thinking block whose text is empty and whose
-  signature is present
+- **WHEN** the provider returns a thinking block whose text is empty and whose signature is present
 - **THEN** a reasoning part with empty text and that signature is persisted
 - **AND** a later request replays the block with the signature
 
 #### Scenario: Another wire's metadata is not replayed as thinking
 
-- **WHEN** a chat's history holds a reasoning part whose provider metadata was
-  attached by a Responses-wire adapter and the chat continues on an
-  `anthropic-messages` provider
-- **THEN** no thinking block is synthesized from that metadata
+- **WHEN** the history of a chat holds a reasoning part whose provider metadata a Responses-wire adapter attached, and the chat continues on an `anthropic-messages` provider
+- **THEN** the client makes no thinking block from that metadata
 - **AND** the request succeeds
 
 #### Scenario: Reasoning is rendered for the owner
 
 - **WHEN** a run emits reasoning text
-- **THEN** the owner sees it under the existing reasoning-part contract
-- **AND** no new rendering path is required
+- **THEN** the owner sees it under the reasoning-part contract
+- **AND** no new render path is necessary
 
 #### Scenario: No thinking output is not a failure
 

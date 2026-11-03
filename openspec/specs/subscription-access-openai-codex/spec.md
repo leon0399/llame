@@ -40,37 +40,54 @@ The system SHALL use startup credential snapshots without llame-managed login, r
 
 ### Requirement: Preserve llame execution semantics
 
-The provider SHALL preserve llame's effective instructions, authorized tools, ordered tool calls/results, provider-returned condensed reasoning summaries, persisted effort, cancellation, and execution bounds. It SHALL persist the SDK `reasoningSummary: "auto"` display text as `reasoning` parts under the `reasoning-output` contract, together with the opaque provider metadata the Responses wire returns for them: the reasoning-item identifier on every part of that item, and the item's encrypted reasoning on the one part the adapter attaches it to — never duplicated across the item's parts. That metadata SHALL be replayed only to the provider on requests for the same Chat and SHALL NOT reach owner-visible output, markdown export, search, public shares, logs, telemetry, or errors. Opaque provider state not bound to a persisted reasoning part SHALL remain transient. It SHALL support compaction through the same transport and existing source-model/effort semantics. Unsupported meaningful request features SHALL fail explicitly rather than being silently discarded.
+The provider MUST keep the effective instructions of llame, its authorized tools,
+and the ordered tool calls and results. It MUST keep the condensed reasoning
+summaries that the provider returns. It MUST also keep the persisted effort, cancellation, and the
+execution bounds. It MUST persist the SDK `reasoningSummary: "auto"` display text
+as `reasoning` parts under the `reasoning-output` contract. With those parts, it
+MUST persist the opaque provider metadata that the Responses wire returns. This
+metadata is the reasoning item id on each part of that item. It also includes the
+encrypted reasoning of the item, on the one part to which the adapter attaches
+it. The system MUST NOT copy
+the encrypted reasoning to the other parts of the item. The provider metadata of
+text and tool parts persists under `turn-replay`. All this metadata MUST replay
+only to the provider, on requests for the same Chat that the model rule of
+`reasoning-output` allows. It MUST NOT reach owner-visible output, markdown
+export, search, public shares, logs, telemetry, or errors. Opaque provider state
+that is not bound to a persisted part MUST stay transient. The provider MUST
+support compaction through the same transport, with the source-model and effort
+semantics of compaction. A meaningful request feature that it cannot carry MUST
+fail explicitly, and the system MUST NOT discard it silently.
 
 #### Scenario: Authorized multi-step Run
 
 - **WHEN** a model requests an available tool and continues after its result
 - **THEN** llame authorizes and executes the tool under the bound owner and Run
-- **AND** the continuation uses the ordered result and existing prompt/history contract
+- **AND** the continuation uses the ordered result and the prompt and history contract
 
 #### Scenario: Cancel inference
 
 - **WHEN** the owner cancels an active streaming Run
-- **THEN** provider streaming is aborted and the Run settles under existing cancellation and tool-effect rules
-- **AND** no replacement Run is started
+- **THEN** the provider stream stops, and the Run settles under the cancellation and tool-effect rules
+- **AND** no replacement Run starts
 
 #### Scenario: Compaction
 
 - **WHEN** a Codex-backed source Run requires compaction
-- **THEN** compaction uses the Codex transport and source model's persisted effort
-- **AND** persisted usage identifies the executing model under the existing compaction contract
+- **THEN** compaction uses the Codex transport and the persisted effort of the source model
+- **AND** persisted usage names the model that executed it, under the compaction contract
 
 #### Scenario: Optional title failure
 
-- **WHEN** a configured Codex title call is unsupported or fails
-- **THEN** the existing optional title fallback/failure behavior applies without invalidating the completed answer
-- **AND** title requests carry no effort inherited from the Run and never fall back to another provider
+- **WHEN** a configured Codex title call is not supported or fails
+- **THEN** the optional title fallback and failure behavior applies, and the completed answer stays valid
+- **AND** title requests carry no effort from the Run and never fall back to another provider
 
 #### Scenario: Encrypted reasoning survives with its part
 
-- **WHEN** a Codex-backed Run receives a reasoning summary whose Responses item carries an identifier and encrypted content
+- **WHEN** a Codex-backed Run receives a reasoning summary whose Responses item carries an id and encrypted content
 - **THEN** the persisted reasoning part carries them as opaque provider metadata
-- **AND** a later request for the same Chat replays them with the part, and no owner-facing surface shows them
+- **AND** a later request of the same Chat on the same model replays them with the part, and no owner-facing surface shows them
 
 ### Requirement: Contain credential and owner data
 
