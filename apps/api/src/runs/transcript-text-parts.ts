@@ -15,7 +15,7 @@ type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
 type Transcript = Array<MessagePart | PendingToolPart>;
 
 /** What a text delivery carries beyond its characters. */
-export type TextDelivery = {
+type TextDelivery = {
   readonly partId?: string;
   readonly providerMetadata?: ProviderMetadata;
   /** The model step this delivery belongs to (design D5). */
@@ -28,7 +28,9 @@ export type TextDelivery = {
  *
  * - A delivery with text starts or extends a part; a new part starts on two
  *   defined adapter ids that differ, so two Responses `message` items stay two
- *   stored parts and a wire without ids keeps one merged part.
+ *   stored parts and a wire without ids keeps one merged part. It also starts
+ *   when the step number changes: a wire can reuse one id across steps (Chat
+ *   Completions sends `txt-0` every time), and each part records its own step.
  * - An empty delivery carrying metadata starts nothing: it binds to the part
  *   its id already names, or waits for that id to produce text. An empty text
  *   part would add separators to `partsToText` and nothing the model can use.
@@ -84,7 +86,10 @@ export class TextPartTrack {
     if (
       last?.type === 'text' &&
       isString(last.text) &&
-      !this.isNewPart(partId)
+      !this.isNewPart(partId) &&
+      // A step change starts a part under the same adapter id, so each part
+      // records the step its own characters arrived in (design D5).
+      last.step === delivery.step
     ) {
       last.text += text;
       // A defined id becomes the open part's id; an absent id adds nothing.

@@ -17,7 +17,7 @@
  * transform over events/deltas, which is what makes it unit-testable without
  * the full executeRun path (see `chats/reasoning-parts.test.ts`).
  */
-import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
@@ -36,17 +36,16 @@ import { isArtifactLocator } from '../tools/artifacts/locator';
 import { type PermissionDecision } from '../tools/permissions/types';
 import { type DerivedDecisionRecord } from '../tools/web-read/admission';
 import { isSystemOriginPayload } from './tool-activity-origin';
+import { TextPartTrack } from './transcript-text-parts';
 import {
   derivedDecisionsFromPayload,
+  eventPayloadField,
+  eventPayloadNumber,
+  eventPayloadString,
+  eventProviderMetadata,
   permissionFromPayload,
   sdkRefusalFromPayload,
   toolResultFromPayload,
-} from './tool-event-payload';
-import { TextPartTrack } from './transcript-text-parts';
-import {
-  eventPayloadField,
-  eventPayloadString,
-  eventProviderMetadata,
 } from './run-event-payload';
 import {
   parseRetainedMedia,
@@ -75,9 +74,9 @@ export type ToolActivityPart = {
   /**
    * The model step that produced this call (design D5), numbered from 0 in a
    * Run and continuing after the kept steps in a Continue Run. Absent on a
-   * part stored before this change; replay then falls back to the consecutive
-   * rule. The owner history response and owner event stream carry it, because
-   * it is neither opaque nor secret.
+   * legacy part that never recorded one; replay then falls back to the
+   * consecutive rule. The owner history response and owner event stream carry
+   * it, because it is neither opaque nor secret.
    */
   step?: number;
   /**
@@ -286,7 +285,10 @@ class AssistantPartCollectorImpl {
     if (
       last?.type === 'reasoning' &&
       isString(last.text) &&
-      !this.isNewReasoningPart(partId)
+      !this.isNewReasoningPart(partId) &&
+      // A step change starts a part under the same adapter id, so each part
+      // records the step its own characters arrived in (design D5).
+      last.step === step
     ) {
       last.text += text;
       // A defined id becomes the open part's id; an absent id adds nothing.
@@ -545,15 +547,15 @@ class DurableAssistantReconstructor {
 
   /**
    * The step number a stored event records, shifted by the Continue offset
-   * (design D5). An event without one — a log written before this change —
-   * adds nothing to the part it produces.
+   * (design D5). An event without one — a legacy log — adds nothing to the
+   * part it produces.
    */
   private stepFrom(
-    // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the number guard below parse it before use.
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadNumber` is the reader that validates it.
     payload: unknown,
   ): number | undefined {
-    const recorded = eventPayloadField(payload, 'stepNumber');
-    return isNumber(recorded) ? this.stepOffset + recorded : undefined;
+    const recorded = eventPayloadNumber(payload, 'stepNumber');
+    return recorded === undefined ? undefined : this.stepOffset + recorded;
   }
 
   apply(events: Array<RunEvent>): void {
@@ -598,9 +600,9 @@ class DurableAssistantReconstructor {
   }
 
   private applyStepCapReached(event: RunEvent): void {
-    const stepsUsed = eventPayloadField(event.payload, 'stepsUsed');
-    const maxSteps = eventPayloadField(event.payload, 'maxSteps');
-    if (isNumber(stepsUsed) && isNumber(maxSteps)) {
+    const stepsUsed = eventPayloadNumber(event.payload, 'stepsUsed');
+    const maxSteps = eventPayloadNumber(event.payload, 'maxSteps');
+    if (stepsUsed !== undefined && maxSteps !== undefined) {
       this.collector.capNotice({
         type: 'data-cap-notice',
         data: { stepsUsed, maxSteps },

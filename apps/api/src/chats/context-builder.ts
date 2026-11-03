@@ -53,8 +53,8 @@ export interface TextPart {
   /**
    * The model step that produced this part (design D5): numbered from 0 in a
    * Run, and continuing after the kept steps in a Continue Run. Absent on a
-   * part stored before this change, where replay falls back to the consecutive
-   * rule. It never changes the part's text or order.
+   * legacy part that never recorded one, where replay falls back to the
+   * consecutive rule. It never changes the part's text or order.
    */
   step?: number;
   /**

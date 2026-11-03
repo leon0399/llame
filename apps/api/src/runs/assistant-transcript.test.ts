@@ -118,6 +118,32 @@ describe('AssistantPartCollector', () => {
     ]);
   });
 
+  it('starts a new text part when the step changes under one adapter id', () => {
+    const collector = createAssistantPartCollector();
+
+    // Chat Completions sends `txt-0` on every step, so the id alone cannot
+    // delimit a part: each step's text stays in its own part (design D5).
+    collector.text('step one', 'txt-0', undefined, 0);
+    collector.text('step two', 'txt-0', undefined, 1);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'text', text: 'step one', step: 0 },
+      { type: 'text', text: 'step two', step: 1 },
+    ]);
+  });
+
+  it('starts a new reasoning part when the step changes under one adapter id', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('step one', 'reasoning-0', undefined, 0);
+    collector.reasoning('step two', 'reasoning-0', undefined, 1);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'step one', step: 0 },
+      { type: 'reasoning', text: 'step two', step: 1 },
+    ]);
+  });
+
   it('holds a text part’s start metadata until its id produces text', () => {
     const collector = createAssistantPartCollector();
     const start = { openai: { itemId: 'msg_1' } };
@@ -1802,7 +1828,7 @@ describe('reconstructDurableAssistant', () => {
     ]);
   });
 
-  it('writes no step onto a log stored before this change', () => {
+  it('writes no step onto a log that records none', () => {
     const result = reconstructDurableAssistant([
       event('model.delta', { text: 'old answer' }),
       event('reasoning.delta', { text: 'old thinking' }),
@@ -1821,6 +1847,33 @@ describe('reconstructDurableAssistant', () => {
     // An unnumbered step stays unnumbered: the projection's consecutive-call
     // rule reads it, and nothing here invents a step for it (design D5).
     for (const part of parts) expect(part).not.toHaveProperty('step');
+  });
+
+  it('splits a part when the log repeats one adapter id across steps', () => {
+    // Chat Completions reuses `txt-0` and `reasoning-0` on every step; the
+    // rebuilt parts keep each step's text apart, exactly as the live
+    // collector did (design D5).
+    const result = reconstructDurableAssistant([
+      event('reasoning.delta', {
+        text: 'think one',
+        partId: 'rs-0',
+        stepNumber: 0,
+      }),
+      event('model.delta', { text: 'one', partId: 'txt-0', stepNumber: 0 }),
+      event('reasoning.delta', {
+        text: 'think two',
+        partId: 'rs-0',
+        stepNumber: 1,
+      }),
+      event('model.delta', { text: 'two', partId: 'txt-0', stepNumber: 1 }),
+    ]);
+
+    expect(result.collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'think one', step: 0 },
+      { type: 'text', text: 'one', step: 0 },
+      { type: 'reasoning', text: 'think two', step: 1 },
+      { type: 'text', text: 'two', step: 1 },
+    ]);
   });
 
   it('rebuilds a refused call’s SDK text and input beside llame’s error', () => {

@@ -164,7 +164,7 @@ import {
 import {
   MAX_ADDRESS_DECISIONS,
   MAX_DERIVED_DECISIONS,
-} from './tool-event-payload';
+} from './run-event-payload';
 import {
   finalizeRunReply,
   isRunningUsage,
@@ -1567,11 +1567,12 @@ export class RunExecutionService {
     // the durable event and the persisted part can never disagree.
     // The step the live stream is in, for `tool.requested`'s step number
     // (turn-actions D6). `onStepStart` stamps it before each step's request, so
-    // every call a step makes carries that step.
+    // every call a step makes carries that step. A stored part carries the
+    // reply-wide number instead: `stepOffset + currentStepNumber`, so a
+    // Continue Run's own parts continue after the steps it kept (design D5)
+    // and a run with no tool step at all still numbers its parts from the
+    // offset.
     let currentStepNumber = 0;
-    // The same step, numbered across the whole reply: a Continue Run's own
-    // parts continue after the steps it kept (design D5).
-    let partStepNumber = 0;
     const openToolCalls = new Map<
       string,
       {
@@ -1616,14 +1617,16 @@ export class RunExecutionService {
       toolName: string,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK's own inputSchema validation (`toFlexibleSchema`, wired into `tool({...})` below) already ran before this callback fires; `toolInput` here is that already-admitted, per-tool-schema-shaped value forwarded for durable recording.
       toolInput: unknown,
-      origin?: ToolActivityOrigin,
-      sdkRefusal?: SdkRefusal,
+      {
+        origin,
+        sdkRefusal,
+      }: { origin?: ToolActivityOrigin; sdkRefusal?: SdkRefusal } = {},
     ) => {
       openToolCalls.set(toolCallId, {
         toolName,
         toolInput,
-        step: partStepNumber,
-        origin,
+        step: stepOffset + currentStepNumber,
+        ...(origin !== undefined && { origin }),
         ...(sdkRefusal !== undefined && { sdkRefusal }),
       });
       if (origin === undefined)
@@ -1742,7 +1745,7 @@ export class RunExecutionService {
           toolName,
           input: toolInput,
           result,
-          step: open?.step ?? partStepNumber,
+          step: open?.step ?? stepOffset + currentStepNumber,
           sdkRefusal: open?.sdkRefusal,
           providerMetadata,
           permission,
@@ -1848,7 +1851,9 @@ export class RunExecutionService {
     ): Promise<ToolResult> => {
       const toolCallId = turnInstructions.nextToolCallId();
       const toolInput = { path: selectorPath };
-      reserveToolRequest(toolCallId, 'read', toolInput, ORIGIN_INSTRUCTIONS);
+      reserveToolRequest(toolCallId, 'read', toolInput, {
+        origin: ORIGIN_INSTRUCTIONS,
+      });
       const result = await runTool(
         nativeReadTool,
         toolInput,
@@ -2162,8 +2167,12 @@ export class RunExecutionService {
           onToolSet: (record) => toolAdditions.bindToolRecord(record),
           maxSteps: maxStepsPerRun,
           onStepStart: async ({ messages, stepNumber }) => {
+            // Each buffered event carries the step its characters arrived in,
+            // so drain what the previous step still held BEFORE the number
+            // moves: text after a step's calls stays in that step (design D5).
+            persistReasoning(reasoningDeltas.flush());
+            persistDelta(deltas.flush());
             currentStepNumber = stepNumber;
-            partStepNumber = stepOffset + stepNumber;
             workspaceRoot.beginStep();
             inRunItems.beginStep(messages);
             const staged: Array<AuthoredContextItemPart> = [];
@@ -2226,13 +2235,7 @@ export class RunExecutionService {
             // is distinguished downstream by requested+completed with no
             // started in between). No permission decision: an unavailable or
             // invalid call is not a permission rejection.
-            reserveToolRequest(
-              toolCallId,
-              toolName,
-              callInput,
-              undefined,
-              sdkRefusal,
-            );
+            reserveToolRequest(toolCallId, toolName, callInput, { sdkRefusal });
             emitToolRequested(toolCallId, toolName, callInput, undefined);
             recordToolCompleted(toolCallId, toolName, callInput, result);
           },
@@ -2261,7 +2264,7 @@ export class RunExecutionService {
               '',
               partId,
               providerMetadata,
-              partStepNumber,
+              stepOffset + currentStepNumber,
             );
             if (bound !== undefined) persistTextMetadata(partId, bound);
             return;
@@ -2272,7 +2275,7 @@ export class RunExecutionService {
             text,
             partId,
             providerMetadata,
-            partStepNumber,
+            stepOffset + currentStepNumber,
           );
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
@@ -2331,7 +2334,7 @@ export class RunExecutionService {
               '',
               partId,
               providerMetadata,
-              partStepNumber,
+              stepOffset + currentStepNumber,
             );
             return;
           }
@@ -2354,7 +2357,7 @@ export class RunExecutionService {
             text,
             partId,
             undefined,
-            partStepNumber,
+            stepOffset + currentStepNumber,
           );
           persistDelta(deltas.flush());
           // Reasoning intervened: the next text delta opens a new part, so
@@ -2479,7 +2482,7 @@ export class RunExecutionService {
               text.slice(streamedText.length),
               undefined,
               undefined,
-              partStepNumber,
+              stepOffset + currentStepNumber,
             );
           }
           const status = input.abortSignal?.aborted

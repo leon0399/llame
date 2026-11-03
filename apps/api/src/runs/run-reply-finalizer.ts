@@ -303,35 +303,6 @@ function replyParts(
   return continued === undefined ? placed : [...continued.parts, ...placed];
 }
 
-/** The events and stored snapshot a settler rebuilds a reply from. */
-type RebuildSources = {
-  readonly log: Array<RunEvent>;
-  readonly settled: Array<RunEvent>;
-  readonly snapshot: ReadonlyArray<unknown>;
-};
-
-/**
- * The rebuilt parts of a settler without the collector: the log and its
- * settlement events, rebuilt at the Continue offset, around this Run's own
- * in-Run items (design D5).
- */
-function rebuiltReplyParts(
-  input: RunReplyFinalization,
-  continued: ContinueState | undefined,
-  rebuild: RebuildSources,
-): Array<MessagePart> {
-  const { log, settled, snapshot } = rebuild;
-  return replyParts(
-    input.run,
-    reconstructDurableAssistant(
-      [...log, ...settled],
-      continueStepOffset(continued),
-    ).collector.parts(),
-    snapshot,
-    continued,
-  );
-}
-
 /**
  * The reply write for a Run dispatched before the reply layer existed: it has
  * output to keep, or it gets no reply and no usage.
@@ -340,13 +311,16 @@ function dispatchedReplyWrite(
   input: RunReplyFinalization,
   log: Array<RunEvent>,
   settled: Array<RunEvent>,
-  continued: ContinueState | undefined,
+  stepOffset: number,
 ): ReplyWrite | undefined {
   if (!log.some((event) => event.eventType === 'model.requested')) {
     return undefined;
   }
   return {
-    parts: rebuiltReplyParts(input, continued, { log, settled, snapshot: [] }),
+    parts: reconstructDurableAssistant(
+      [...log, ...settled],
+      stepOffset,
+    ).collector.parts(),
     usage:
       input.telemetry ??
       tokenlessUsage(
@@ -372,17 +346,22 @@ function rebuiltReplyWrite(
   settled: Array<RunEvent>,
 ): ReplyWrite | undefined {
   const continued = continueStateFromEvents(log);
+  const stepOffset = continueStepOffset(continued);
   if (reply === undefined) {
-    return dispatchedReplyWrite(input, log, settled, continued);
+    return dispatchedReplyWrite(input, log, settled, stepOffset);
   }
   const running = reply.usage;
   if (!isRunningUsage(running)) return undefined;
   return {
-    parts: rebuiltReplyParts(input, continued, {
-      log: attemptWindow(log, running.attemptId),
-      settled,
-      snapshot: reply.parts,
-    }),
+    parts: replyParts(
+      input.run,
+      reconstructDurableAssistant(
+        [...attemptWindow(log, running.attemptId), ...settled],
+        stepOffset,
+      ).collector.parts(),
+      reply.parts,
+      continued,
+    ),
     usage:
       input.telemetry !== undefined && input.attemptId === running.attemptId
         ? input.telemetry

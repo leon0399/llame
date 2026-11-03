@@ -1,5 +1,5 @@
 import { NoSuchToolError, type streamText, type ToolSet } from 'ai';
-import { getErrorMessage } from '@ai-sdk/provider-utils';
+import { getErrorMessage, secureJsonParse } from '@ai-sdk/provider-utils';
 import { isString } from '@workspace/runtime-safety';
 
 import type { ModelStreamInput, SdkRefusal } from './model-client';
@@ -112,24 +112,24 @@ function parseToolCallInput(raw: string) {
 
 /**
  * What the SDK itself records for a call it refused (design D3, proposal A8):
- * the parsed input, or `{}` when that value is not an object — the exact rule
- * its model-message conversion applies to an invalid call (`ai`
- * `dist/index.js:4357-4358`), so a replayed call sends what the live step did.
- */
-function sdkRefusedInput(raw: string): SdkRefusal['input'] {
-  const input = parseToolCallInput(raw);
-  // eslint-disable-next-line anti-slop/no-runtime-typeof -- the model's JSON has no domain type before this rule; `typeof` is the SDK's own test, and keeping it exact (`null` included) is what makes replay equal the live step.
-  return typeof input === 'object' ? input : {};
-}
-
-/**
- * The SDK's own model-facing form of a refused call: the error text it renders
- * and its form of the input.
+ * the error text it renders and its form of the input. The input is parsed
+ * with the SDK's own `secureJsonParse` (`ai` uses it through `safeParseJSON`),
+ * so a `__proto__` or `constructor.prototype` key makes the parse fail exactly
+ * as it does there; the SDK then keeps the raw string, which its model-message
+ * conversion turns into `{}` (`ai` `dist/index.js:4357-4358`). A replayed call
+ * therefore sends what the live step did.
  */
 function sdkRefusal(error: unknown, rawInput: string): SdkRefusal {
+  let input: unknown;
+  try {
+    input = secureJsonParse(rawInput);
+  } catch {
+    return { errorText: getErrorMessage(error), input: {} };
+  }
   return {
     errorText: getErrorMessage(error),
-    input: sdkRefusedInput(rawInput),
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- the model's JSON has no domain type before this rule; `typeof` is the SDK's own test, and keeping it exact (`null` included) is what makes replay equal the live step.
+    input: typeof input === 'object' ? input : {},
   };
 }
 

@@ -103,6 +103,35 @@ describe('refuseUnavailableToolCalls', () => {
     expect(error.message).toContain('Available tools: read');
   });
 
+  it('drops a prototype key exactly as the SDK’s own parser does', async () => {
+    const report = vi.fn();
+    const repair = refuseUnavailableToolCalls(report, createToolCallGate());
+    const error = new NoSuchToolError({ toolName: 'fetch_page' });
+
+    // `ai` parses the refused call's input with `secureJsonParse`, which
+    // throws on an own `__proto__` key; the SDK then keeps the raw string and
+    // its model-message conversion turns that into `{}`, so replay must too.
+    await repair(
+      asDouble<Parameters<typeof repair>[0]>({
+        toolCall: {
+          type: 'tool-call',
+          toolCallId: 'call-3',
+          toolName: 'fetch_page',
+          input: '{"__proto__":{"polluted":true}}',
+        },
+        error,
+      }),
+    );
+
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCallId: 'call-3',
+        sdkRefusal: { errorText: error.message, input: {} },
+      }),
+    );
+    expect(Object.prototype).not.toHaveProperty('polluted');
+  });
+
   it('records an unparsable input as the empty object the SDK sends', async () => {
     const report = vi.fn();
     const repair = refuseUnavailableToolCalls(report, createToolCallGate());

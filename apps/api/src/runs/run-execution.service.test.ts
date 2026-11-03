@@ -6548,6 +6548,61 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
   });
 
+  it('keeps text that follows a step’s call in that step', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const }),
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('before ');
+    await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    // A step can write text after its calls: it stays in the step that
+    // streamed it, even though the next step's deliveries are what drain it.
+    options.onTextDelta?.('after ');
+    await options.onStepStart?.({ messages: [], stepNumber: 1 });
+    options.onTextDelta?.('next');
+    await options.onFinish?.({
+      text: 'before after next',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 2,
+    });
+
+    expect(appended.filter((entry) => entry.type === 'model.delta')).toEqual([
+      { type: 'model.delta', payload: { text: 'before ', stepNumber: 0 } },
+      { type: 'model.delta', payload: { text: 'after ', stepNumber: 0 } },
+      { type: 'model.delta', payload: { text: 'next', stepNumber: 1 } },
+    ]);
+    const parts = [
+      { type: 'text', text: 'before ', step: 0 },
+      expect.objectContaining({ toolCallId: 'call-1', step: 0 }),
+      { type: 'text', text: 'after ', step: 0 },
+      { type: 'text', text: 'next', step: 1 },
+    ];
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({ parts }),
+    );
+    // The log alone rebuilds the live collector's parts, step for step.
+    expect(
+      reconstructDurableAssistant(
+        durableEventsFrom(appended),
+      ).collector.parts(),
+    ).toStrictEqual(parts);
+  });
+
   it('stores a call’s stream metadata on its request and its settled part', async () => {
     const spies = mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();

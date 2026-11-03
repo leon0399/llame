@@ -13,7 +13,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   stream. `messages.parts` moves from `jsonb` to `json`, so a tool input and a
   JSON result keep the member order they were written with; rows written before
   the conversion keep the sorted order they hold. Nothing replays these fields
-  yet. Refs [#1539](https://github.com/leon0399/llame/issues/1539).
+  yet. **Upgrade note:** the conversion rewrites the whole `messages` table
+  under an `ACCESS EXCLUSIVE` lock, so every chat read and write waits for it
+  and free disk about the table's size is needed. Stop every API and worker
+  process, run `pnpm db:migrate`, then start them together on the matching
+  revision: an earlier revision reads `parts` with `jsonb` functions and fails,
+  and it serves the raw `sdkRefusal` that this revision keeps for the model
+  alone. A rollback must convert the column back first:
+  `ALTER TABLE "messages" ALTER COLUMN "parts" SET DATA TYPE jsonb;` Refs
+  [#1539](https://github.com/leon0399/llame/issues/1539).
 
 - A reply's stored text and tool parts now keep the opaque provider metadata
   their stream carried, so a later turn can send it back unchanged. On the
