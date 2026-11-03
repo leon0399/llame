@@ -552,7 +552,7 @@ export const WebAdapter: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
     const link = canvas.getByRole("button", {
-      name: "https://github.com/o/r/issues/1",
+      name: "https://github.com/o/r/issues/1 opens in a new tab",
     });
     await expect(link).toHaveAttribute("data-streamdown", "link");
     await expect(canvas.getByText("adapter (github)")).toBeInTheDocument();

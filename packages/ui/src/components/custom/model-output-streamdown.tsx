@@ -10,6 +10,10 @@ import {
 } from "streamdown";
 
 import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdown-plugins";
+import {
+  OUTBOUND_LINK_TAG,
+  rehypeOutboundLinks,
+} from "@workspace/ui/lib/outbound-link";
 import { RegexProseToken, RegexTesterProvider } from "#regex-tester/provider";
 import { withRegexTokens } from "#regex-tester/code-highlighter";
 import {
@@ -18,7 +22,6 @@ import {
   regexTokenAllowedTags,
 } from "#regex-tester/markdown";
 import { REGEX_TOKEN_TAG } from "#regex-tester/token";
-import { OUTBOUND_LINK_TAG, rehypeOutboundLinks } from "./outbound-link.js";
 
 /**
  * The intentionally narrow presentation surface for model-authored output.
