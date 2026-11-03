@@ -34,9 +34,9 @@ sources:
 
 # Hyra 2.0
 
-- **Stack:** The research page is a client-rendered article. The linked code found from that page's results promise is [Tencent-Hunyuan/Hyra-results](https://github.com/Tencent-Hunyuan/Hyra-results) at `8443f9a9aae1a0b72c79e0b2908c79026b8e1555`, a tree of papers, Lean snippets, and model inference packages.[^hyra-results-readme] **License:** the results README's companion `LICENSE` says Tencent-authored materials are Apache-2.0 unless a file says otherwise.[^hyra-results-license] No license was found for an orchestrator, because that source was not in the tree.
+- **Stack:** The research page is a client-rendered article. The linked code found from that page's results promise is [Tencent-Hunyuan/Hyra-results](https://github.com/Tencent-Hunyuan/Hyra-results), a tree of papers, Lean snippets, and model inference packages.[^hyra-results-readme] **License:** the results README's companion `LICENSE` says Tencent-authored materials are Apache-2.0 unless a file says otherwise.[^hyra-results-license] No license was found for an orchestrator, because that source was not in the tree.
 
-Hyra 2.0 (Hunyuan Research Agent) is described by Tencent Hunyuan as a harness that builds reusable scientific tools. The page dated 2026-11-01 was read as rendered Chinese text on 2026-11-03 from `https://hy.tencent.com/research/hyra2`.[^hyra-page] That URL is not a git object, so the paragraphs below are the article's claims, and the file citations are the public tree. The article's English shell at `https://hy.tencent.ai/research/hyra2` was not compared sentence by sentence. No Hyra process was run. Accuracy, speed, and proof claims on the page and in the result READMEs were not reproduced.
+Hyra 2.0 (Hunyuan Research Agent) is described by Tencent Hunyuan as a harness that builds reusable scientific tools. The Chinese article at `https://hy.tencent.com/research/hyra2` was read as rendered text.[^hyra-page] That URL is not a git object, so the paragraphs below are the article's claims, and the file citations are the public tree. The article's English shell at `https://hy.tencent.ai/research/hyra2` was not compared sentence by sentence. No Hyra process was run. Accuracy, speed, and proof claims on the page and in the result READMEs were not reproduced.
 
 **Study**
 
@@ -52,7 +52,7 @@ Hyra 2.0 (Hunyuan Research Agent) is described by Tencent Hunyuan as a harness t
 - Low: item 1's approval-before-expensive-work sentence, which restates [the harness owns execution](../../../VISION.md#the-harness-owns-execution) without a mechanism to inspect.
 - Avoid: treating the page's solved-problem counts, speedups, or proof claims as measurements made here.
 
-**Caution:** The orchestrator, prompts, queue, and approval records are unpublished. The page is a blog post.[^hyra-page] The Apache-2.0 grant covers the results tree that was cloned, and third-party files in that tree keep their own notices.[^hyra-results-license] Uncertainty remains on any sentence that exists only in the article, including the WeCom and compute-platform integration and the results that have no directory in `8443f9a`.
+**Caution:** The orchestrator, prompts, queue, and approval records are unpublished. The page is a blog post.[^hyra-page] The Apache-2.0 grant covers the results tree that was cloned, and third-party files in that tree keep their own notices.[^hyra-results-license] Uncertainty remains on any sentence that exists only in the article, including the WeCom and compute-platform integration and the results that have no directory in the inspected tree.
 
 [^hyra-page]: [Hyra 2.0 research page, Chinese article read on 2026-11-03](https://hy.tencent.com/research/hyra2)
 

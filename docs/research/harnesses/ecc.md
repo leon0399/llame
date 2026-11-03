@@ -96,7 +96,7 @@ sources:
 
 - **Stack:** npm package `ecc-universal` `2.2.3`. The `bin` map has six names: `ecc` and `ecc-universal` both run `scripts/ecc.js`; `ecc-install`, `ecc-control-pane`, `ecc-memory-mcp`, and `ecc-plan-canvas` are separate scripts.[^ecc-package][^ecc-bins] `ecc2/` is a separate Rust package, `ecc-tui` `0.1.0`.[^ecc-cargo] **License:** MIT.[^ecc-license]
 
-ECC (Everything Claude Code) is a catalog the peer CLI executes, plus an alpha control plane that starts those CLIs. Source inspection of `b38be6a7f6350964d59328b52f0624e1d1d552d1`. Nothing in this tree was run. The `ecc2/` README calls that directory alpha and says it is usable for local experimentation.[^ecc-readme-alpha]
+ECC (Everything Claude Code) is a catalog the peer CLI executes, plus an alpha control plane that starts those CLIs. Nothing in this tree was run. The `ecc2/` README calls that directory alpha and says it is usable for local experimentation.[^ecc-readme-alpha]
 
 **Study**
 

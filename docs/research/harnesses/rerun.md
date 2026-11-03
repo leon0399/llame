@@ -87,7 +87,7 @@ sources:
 
 - **Stack:** pnpm workspace. `apps/ui` is Next.js. `apps/engine` (`rerun-engine`) is a Hono process whose loop uses the Vercel AI SDK (`ai` `^6`), with libSQL and Drizzle for its own store. Product tables live in Supabase migrations.[^rerun-engine-pkg][^rerun-sqlite] **License:** AGPL-3.0-only on the root package.[^rerun-license]
 
-Rerun is a host for named coworkers. The engine owns the model loop. Source inspection of `195a9070066e76af241b912536dbee0e5d5d22c5`. The program was not run. README claims about a 200-app catalog and Composio were not traced into a connector implementation here.
+Rerun is a host for named coworkers. The engine owns the model loop. The program was not run. README claims about a 200-app catalog and Composio were not traced into a connector implementation here.
 
 **Study**
 

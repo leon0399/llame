@@ -111,7 +111,7 @@ sources:
 
 - **Stack:** TypeScript, Node `>=20.11`, npm package `cheap-agent` `1.3.2`, bin `cheapag`. Dependencies include `@modelcontextprotocol/sdk` and `opencode-ai` `1.19.0`.[^cheap-package][^cheap-bin] **License:** MIT.[^cheap-license]
 
-Cheap Agent is a plugin the frontier harness loads. Claude Code or Codex keeps the conversation. A cheap model, reached through a pinned OpenCode server, edits a git worktree. Source inspection of `7b1ee74e48cd946e01ee920a1eeaa514d4dfb0a8` (the `1.3.2` release commit). The test suite was not run, and the SWE-bench numbers in the README were not reproduced.
+Cheap Agent is a plugin the frontier harness loads. Claude Code or Codex keeps the conversation. A cheap model, reached through a pinned OpenCode server, edits a git worktree. The test suite was not run, and the SWE-bench numbers in the README were not reproduced.
 
 This is a harness extension, the same shelf as [parsec](./parsec.md). It does call a model, and the hosting CLI still owns the session. Calling an LLM from an MCP tool does not make a second Chat.
 
