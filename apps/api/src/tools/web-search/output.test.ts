@@ -887,3 +887,22 @@ it('stops dropping results exactly at the notice-reserved limit', () => {
   expect(renderedLength(output)).toBe(14_744);
   expect(output.notes).toContain('2 more engines');
 });
+
+it('cuts a multi-line answer output that still does not fit', () => {
+  const source = answerSource(
+    'a\n'.repeat(4000),
+    [{ url: longUrl('c', 2048) }],
+    'q'.repeat(1000),
+    Array.from({ length: 10 }, () => 'n'.repeat(200)),
+  );
+
+  const output = normalizeSearchOutput(source, 10);
+
+  expect(renderedLength(output)).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'answer') throw new Error('expected an answer output');
+  // The rendered text is far over the bound while the stored answer is not.
+  expect(source.answer).toHaveLength(8000);
+  expect(output.answer.length).toBeLessThan(8000);
+  expect(output.citations).toHaveLength(1);
+  expect(output.notes).toContain('answer cut to fit the output limit');
+});

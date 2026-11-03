@@ -975,3 +975,28 @@ it('never reports zero results when only an answer text was cut', async () => {
     'left out: 1 result; full result not stored',
   );
 });
+
+it('counts a cut answer output as one left-out result', async () => {
+  const source = {
+    kind: 'answer' as const,
+    engine: 'hosted',
+    query: 'q'.repeat(1000),
+    answer: 'a\n'.repeat(4000),
+    citations: [longUrl(1)],
+    notes: Array.from({ length: 10 }, () => 'n'.repeat(200)),
+  };
+
+  const result = await spillWebSearchResult(
+    testContext({ artifactReadable: false }),
+    source,
+    { limit: 10, fetchSize: 20 },
+  );
+
+  const inline = spilled(result);
+  if (inline.kind !== 'answer') throw new Error('expected an answer');
+  expect(inline.answer.length).toBeLessThan(8000);
+  expect(inline.citations).toHaveLength(1);
+  expect(inline.truncationNotice).toBe(
+    'left out: 1 result; full result not stored',
+  );
+});
