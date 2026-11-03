@@ -545,19 +545,34 @@ describe('reconciling host files', () => {
     );
   });
 
-  it('repairs a file exactly one millisecond off the stored time', async () => {
+  it('repairs a file whose time differs by at least the stored-time tolerance', async () => {
     scriptParts([storedPart('stdout', 'hello\n')]);
     const stdout = path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt');
     mkdirPrivate(path.dirname(stdout));
     writeFileSync(stdout, 'hellO\n');
-    const off = new Date(CREATED_AT.getTime() + 1);
-    utimesSync(stdout, off, off);
+    // A coarse filesystem truncates a sub-millisecond offset, so the smallest
+    // offset it keeps is discovered from `stat`. The expectation below follows
+    // what the reconcile itself reads, never the requested time.
+    let delta = 0;
+    for (const offset of [1, 2, 5, 10, 100, 1000]) {
+      const requested = new Date(CREATED_AT.getTime() + offset);
+      utimesSync(stdout, requested, requested);
+      delta = statSync(stdout).mtimeMs - CREATED_AT.getTime();
+      if (Math.abs(delta) >= 1) break;
+    }
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
       .mockResolvedValue([{ content: Buffer.from('hello\n') }]);
 
     await reconcileArtifactFiles(context());
 
+    // The reconcile keeps a file only within one millisecond of the stored
+    // time, so a filesystem that cannot represent that offset makes both
+    // outcomes equal; every filesystem that can must repair.
+    if (Math.abs(delta) < 1) {
+      expect(find).not.toHaveBeenCalled();
+      return;
+    }
     expect(find).toHaveBeenCalledOnce();
     expect(readFileSync(stdout, 'utf8')).toBe('hello\n');
   });
