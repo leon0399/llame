@@ -348,6 +348,96 @@ describe('the bash artifact parts', () => {
   });
 });
 
+describe('the bash spill boundaries', () => {
+  it('gives the whole budget to the one stream that has content', async () => {
+    const result = await spillBashStreams(testContext(), {
+      stdout: 'a'.repeat(9000),
+      stderr: '',
+    });
+    expect(result.streams.stdout).toBe('a'.repeat(9000));
+    expect(result.artifact).toBeUndefined();
+  });
+
+  it('marks a direct spill complete when the executor cut nothing', async () => {
+    await spillBashStreams(testContext(), {
+      stdout: 'a'.repeat(20_000),
+      stderr: '',
+    });
+    expect(insertWrites.insertArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ complete: true }),
+    );
+  });
+
+  it('names an omitted line whenever a stream spills', async () => {
+    const result = await spillBashStreams(testContext(), {
+      stdout: `${'a'.repeat(8000)}\n${'a'.repeat(8000)}`,
+      stderr: '',
+    });
+    expect(result.streams.stdout).toContain('[lines ');
+    expect(result.artifact).toBe('artifact://bash-5');
+  });
+
+  it('keeps no partial line when the head has no budget', () => {
+    expect(previewStream('abc', 2)).toEqual({
+      head: [],
+      tail: ['bc'],
+      omitted: { first: 1, last: 1 },
+    });
+  });
+
+  it('never lets a kept line overrun the head budget', () => {
+    const lines = Array.from({ length: 6 }, () => 'b'.repeat(1333));
+    const preview = previewStream(lines.join('\n'), 16_000);
+    expect(preview.head).toHaveLength(2);
+    expect(preview.head.join('').length).toBeLessThanOrEqual(4000);
+  });
+
+  it('writes nothing when only the call deadline has expired', async () => {
+    await spillBashResult(
+      testContext({ timeoutSignal: AbortSignal.abort() }),
+      success('a'.repeat(20_000)),
+    );
+    expect(insertWrites.insertParts).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the Run is already aborted', async () => {
+    const result = await spillBashResult(
+      testContext({ abortSignal: AbortSignal.abort() }),
+      success('a'.repeat(20_000)),
+    );
+    expect(insertWrites.insertParts).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
+  });
+
+  it('drops a write that is still running when the Run aborts', async () => {
+    insertWrites.insertParts.mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
+    const controller = new AbortController();
+    const pending = spillBashResult(
+      testContext({ abortSignal: controller.signal }),
+      success('a'.repeat(20_000)),
+    );
+    setTimeout(() => controller.abort(), 0);
+    const result = await pending;
+    expect(result).not.toHaveProperty('artifact');
+    expect(textOf(result)).toContain('full result not stored');
+  });
+
+  it('probes the read group with the bash locator', async () => {
+    const result = await spillBashResult(
+      testContext({
+        permissionPolicy: compileToolPermissionMap(
+          { read: { allow: [{ field: 'path', regex: '^artifact://bash-' }] } },
+          'policy',
+        ),
+      }),
+      success('a'.repeat(20_000)),
+    );
+    expect(result).toHaveProperty('artifact', 'artifact://bash-5');
+  });
+});
+
 describe('the bash spill failure paths', () => {
   it('marks the executor cut on a spilled failure and a timeout', async () => {
     const failure = await spillBashResult(

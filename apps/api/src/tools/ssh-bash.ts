@@ -117,38 +117,44 @@ export function decodeUtf8(bytes: Buffer): string {
 
 const CONTINUATION_FLOOR = 0x80;
 const CONTINUATION_CEILING = 0xbf;
-const TWO_BYTE_LEAD = 0xc0;
+const TWO_BYTE_LEAD = 0xc2;
 const THREE_BYTE_LEAD = 0xe0;
 const FOUR_BYTE_LEAD = 0xf0;
+const FOUR_BYTE_LIMIT = 0xf4;
 
 /**
  * The offset where the last complete UTF-8 sequence ends. A trailing run of
- * continuation bytes under a lead byte that promises more of them is an
- * incomplete character and is dropped; every other trailing byte stands.
+ * continuation bytes under a valid lead that promises more of them is an
+ * incomplete character and is dropped; every other trailing byte stands, so an
+ * invalid byte decodes as a replacement character instead of costing text.
  */
 function completeSequenceEnd(bytes: Buffer): number {
-  let start = bytes.length - 1;
-  let continuations = 0;
-  while (start >= 0 && continuations < 3) {
-    const byte = bytes[start];
-    if (byte < CONTINUATION_FLOOR || byte > CONTINUATION_CEILING) break;
-    start -= 1;
-    continuations += 1;
-  }
-  if (start < 0) return bytes.length;
-  const lead = bytes[start];
-  // Only a valid UTF-8 lead promises more bytes; 0x80–0xC1 and 0xF5+ are
-  // invalid instead of incomplete, so they stay for the decoder to replace.
-  const expected =
-    lead >= FOUR_BYTE_LEAD && lead <= 0xf4
-      ? 4
-      : lead >= THREE_BYTE_LEAD && lead <= 0xef
-        ? 3
-        : lead >= TWO_BYTE_LEAD && lead <= 0xdf && lead >= 0xc2
-          ? 2
-          : 0;
+  const lead = leadIndex(bytes);
+  if (lead === undefined) return bytes.length;
+  const expected = expectedSequenceLength(bytes[lead]);
   if (expected === 0) return bytes.length;
-  return start + expected <= bytes.length ? bytes.length : start;
+  return bytes.length - lead < expected ? lead : bytes.length;
+}
+
+/** The lead byte of the trailing sequence, or undefined when none is within four bytes. */
+function leadIndex(bytes: Buffer): number | undefined {
+  const earliest = Math.max(0, bytes.length - 4);
+  for (let index = bytes.length - 1; index >= earliest; index -= 1) {
+    if (!isContinuation(bytes[index])) return index;
+  }
+  return undefined;
+}
+
+function isContinuation(byte: number): boolean {
+  return byte >= CONTINUATION_FLOOR && byte <= CONTINUATION_CEILING;
+}
+
+/** How many bytes a valid UTF-8 lead promises; zero for anything invalid. */
+function expectedSequenceLength(lead: number): number {
+  if (lead >= TWO_BYTE_LEAD && lead <= 0xdf) return 2;
+  if (lead >= THREE_BYTE_LEAD && lead <= 0xef) return 3;
+  if (lead >= FOUR_BYTE_LEAD && lead <= FOUR_BYTE_LIMIT) return 4;
+  return 0;
 }
 
 /** The finished command as the local result shape, under the local bounds. */

@@ -136,6 +136,26 @@ describe('the ssh utf-8 decode', () => {
     expect(decodeUtf8(bytes)).toBe('a\uFFFDb');
   });
 
+  it.each([
+    // A 2-byte lead at the exact lower boundary, complete and incomplete.
+    [[0x61, 0xc2, 0x80], 'a\u0080'],
+    [[0x61, 0xc2], 'a'],
+    // 0xDF ends the 2-byte range; 0xE0 starts the 3-byte one.
+    [[0x61, 0xdf], 'a'],
+    [[0x61, 0xe0, 0xa0, 0x80], 'a\u0800'],
+    [[0x61, 0xef], 'a'],
+    // 0xF0 starts the 4-byte range; 0xF4 ends it.
+    [[0x61, 0xf0], 'a'],
+    [[0x61, 0xf4, 0x80, 0x80, 0x80], 'a\u{100000}'],
+    // An invalid lead is replaced, not trimmed.
+    [[0x61, 0xc1], 'a\uFFFD'],
+    [[0x61, 0xf5], 'a\uFFFD'],
+    [[0x61, 0x80], 'a\uFFFD'],
+    [[0x61, 0x80, 0x80, 0x80, 0x80], 'a\uFFFD\uFFFD\uFFFD\uFFFD'],
+  ])('decodes the lead boundaries at the end of the buffer', (bytes, text) => {
+    expect(decodeUtf8(Buffer.from(bytes))).toBe(text);
+  });
+
   it('drops only an incomplete trailing sequence', () => {
     // The first byte of an emoji with no continuation bytes.
     expect(decodeUtf8(Buffer.from('a😀', 'utf8').subarray(0, 2))).toBe('a');

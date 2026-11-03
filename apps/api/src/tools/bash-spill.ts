@@ -13,6 +13,7 @@
  * preview.
  */
 
+import { once } from 'node:events';
 import {
   artifactNotice,
   codePointSafeCutIndex,
@@ -162,7 +163,7 @@ function inlineShares(
   let budget = RESULT_TRUNCATE_CHARS;
   let pending = STREAM_NAMES.filter((name) => streams[name] !== '');
   const spilled: Partial<Record<StreamName, number>> = {};
-  while (pending.length > 0) {
+  for (;;) {
     const share = Math.floor(budget / pending.length);
     const fitting = pending.filter((name) => streams[name].length <= share);
     if (fitting.length === 0) {
@@ -172,7 +173,6 @@ function inlineShares(
     for (const name of fitting) budget -= streams[name].length;
     pending = pending.filter((name) => streams[name].length > share);
   }
-  return spilled;
 }
 
 /** A quarter of the share is the head and the rest is the tail (D4, A5). */
@@ -219,8 +219,7 @@ function takeHead(pieces: ReadonlyArray<string>, budget: number): HeadLines {
   const lines: Array<string> = [];
   let used = 0;
   let index = 0;
-  while (index < pieces.length) {
-    const piece = pieces[index];
+  for (const piece of pieces) {
     if (used + piece.length + 1 <= budget) {
       lines.push(piece);
       used += piece.length + 1;
@@ -253,7 +252,7 @@ function takeTail(
       start -= 1;
       continue;
     }
-    if (lines.length === 0 && budget > 0) lines.push(tailCut(piece, budget));
+    if (lines.length === 0) lines.push(tailCut(piece, budget));
     break;
   }
   return { lines, start };
@@ -373,15 +372,8 @@ async function writeWhileLive(
     return undefined;
   const signal = context.abortSignal;
   if (signal === undefined) return await write().catch(() => undefined);
-  return await new Promise<WrittenArtifact | undefined>((resolve) => {
-    const onAbort = () => resolve(undefined);
-    signal.addEventListener('abort', onAbort, { once: true });
-    const settle = (value: WrittenArtifact | undefined): void => {
-      signal.removeEventListener('abort', onAbort);
-      resolve(value);
-    };
-    void write().then(settle, () => settle(undefined));
-  });
+  const aborted = once(signal, 'abort').then((): undefined => undefined);
+  return await Promise.race([write().catch(() => undefined), aborted]);
 }
 
 /**
