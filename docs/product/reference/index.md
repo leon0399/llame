@@ -7,8 +7,8 @@ read_when:
 # Reference
 
 - [Tools](tools/index.md): one page per tool id, with its arguments, result,
-  bounds, and errors. [grep](tools/grep.md) is content search: globs,
-  line-ranged hits, and a keyset cursor.
+  bounds, and errors. [grep](tools/grep.md) is content search: globs and
+  line-ranged hits, walked to the end in one call.
 - [Locators](locators/index.md): one page per scheme a `path` argument can
   name, with the tools that accept it and the authority it reaches.
 - [Web adapters](web-adapters.md): the URLs each configured web adapter
