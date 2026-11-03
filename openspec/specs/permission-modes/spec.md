@@ -115,7 +115,7 @@ isolation.
 
 ### Requirement: The permission mode is not model-visible
 
-The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A change of mode between turns MUST NOT be a cause of an `effective-context-change` item. One other effect is permitted: a `read-only` attempt has no Workspace MCP declaration, and the tool availability reminder reports that change. The model MUST learn of a policy decision only from `permission_denied` results, the `web_search` removal note, that reminder, and the Workspace MCP reason of `mcp-tools`.
+The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A change of mode between turns MUST NOT be a cause of an `effective-context-change` item. But a `read-only` attempt has no Workspace MCP declaration, and the tool availability reminder reports that change. The model MUST learn of a policy decision only from `permission_denied` results, the `web_search` removal note, that reminder, and the Workspace MCP reason of `mcp-tools`.
 
 #### Scenario: Switching mode preserves the prompt prefix
 
