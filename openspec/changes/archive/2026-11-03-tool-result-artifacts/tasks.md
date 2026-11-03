@@ -2,7 +2,7 @@ Track [#915](https://github.com/leon0399/llame/issues/915),
 [#1519](https://github.com/leon0399/llame/issues/1519),
 [#1525](https://github.com/leon0399/llame/issues/1525),
 [#1526](https://github.com/leon0399/llame/issues/1526), and their PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking).
 Implementation waits for Leo's approval of the published proposal revision.
 Keep live status in the Project.
 
@@ -71,8 +71,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: the prompt's `<output>` block describes the text lines; the reference doc gains a "Model-facing text" section with a sample, the block grammar, and the untrusted-text rule; `CHANGELOG.md` has a 2026-11-02 entry. `pnpm lint:markdown` reports 0 issues.
 - [x] 2.5 Verify the layer: affected `lint`, `typecheck`, focused `apps/api` web-search and model-text tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api lint` and `pnpm --filter api typecheck` pass after `pnpm --filter "api^..." build`; focused runs of `src/tools/web-search`, `src/tools/model-text.test.ts`, `src/runs/assistant-transcript.test.ts`, `src/chats/tool-observation-part.test.ts`, and `src/chats/continue-projection.test.ts` pass (592 tests); `pnpm format:check` over the whole repository and `git diff --check` are clean.
-- [ ] 2.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 2.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1525`.
+- [x] 2.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1534 was marked ready: six passes (correctness/security, tests, reuse, quality, efficiency, over-engineering); fixes in "fix(tools): address review of web_search text shape". Every finding was verified and accepted ones fixed with new commits.
+- [x] 2.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1525`.
+  - Evidence: #1534 ran Ready-PR monitoring after every non-draft push (15-minute floor): 17 review threads replied to and resolved, 0 unresolved; CI terminal and passing (merged in a969a445); known flakes were named in PR comments and rerun.
 
 ## 3. store
 
@@ -95,8 +97,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: the new reference, the `read` reference/prompt additions, the locator and tools indexes, the operator section and field-allow example, and the 2026-11-02 changelog entry; `pnpm lint:markdown` reports 0 issues.
 - [x] 3.8 Verify the layer: `pnpm --filter api lint`, `typecheck`, focused unit tests, the API integration suite with the isolation tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `lint` and `typecheck` clean; the focused unit suites (662 tests) and `artifact-store`, `fork-artifacts`, and `fork-chat` integration suites pass; `pnpm format:check` and `git diff --check` clean.
-- [ ] 3.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 3.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 3.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1535 was marked ready: six passes (correctness, security/tenancy, tests, reuse, quality/efficiency, over-engineering); fixes in "fix(artifacts): address review of the artifact store". Every finding was verified and accepted ones fixed with new commits.
+- [x] 3.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1535 ran Ready-PR monitoring after every non-draft push (15-minute floor): 24 review threads replied to and resolved, 0 unresolved; CI terminal and passing (merged in a969a445); known flakes were named in PR comments and rerun.
 
 ## 4. store-authority
 
@@ -113,8 +117,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: `docs/product/reference/locators/artifact.md` "Finding re-check"; the 2026-11-02 `CHANGELOG.md` entry; `pnpm lint:markdown` reports 0 issues.
 - [x] 4.5 Verify the layer: as task 3.8.
   - Evidence: `pnpm --filter @workspace/runtime-safety lint`/`test` (113), `pnpm --filter api lint`, `pnpm exec tsc --noEmit`, the focused unit suites (458 tests across 12 files), `artifact-findings.integration.test.ts` (8 tests), `pnpm lint:markdown`, `oxfmt --check`, and `git diff --check` all pass. The local mutation gate was deferred to CI at the orchestrator's request (host load).
-- [ ] 4.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 4.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 4.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1538 was marked ready: five passes (correctness, security, tests, simplify, over-engineering); fixes in "fix(artifacts): address review of the finding re-check". Every finding was verified and accepted ones fixed with new commits.
+- [x] 4.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1538 ran Ready-PR monitoring after every non-draft push (15-minute floor): 15 review threads replied to and resolved, 0 unresolved; CI terminal and passing (merged in a969a445); known flakes were named in PR comments and rerun.
 
 ## 5. spill
 
@@ -126,8 +132,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: `mcp-tools.md` Result (head spill, `read("artifact://...:<line>-")`, above-bound marker), `model-output.md` "Oversized results" (`head` vs `tool`, pretty JSON, the notices), and the 2026-11-02 CHANGELOG bullet; `pnpm lint:markdown` passes (0 issues).
 - [x] 5.4 Verify the layer: affected `lint`, `typecheck`, `test:coverage` for `packages/runtime-safety`, focused `apps/api` runner and MCP tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter @workspace/runtime-safety lint` and `test:coverage` (124 tests, CRAP gate), `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused unit suites (`spill.test.ts`, `runner.test.ts`, `mcp-runtime.service.test.ts` — 159 tests), the integration file above, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check` all pass.
-- [ ] 5.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 5.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 5.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1540 was marked ready: three passes (correctness/security, tests, simplify/over-engineering); fixes in "fix(artifacts): address review of head spill". Every finding was verified and accepted ones fixed with new commits.
+- [x] 5.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1540 ran Ready-PR monitoring after every non-draft push (15-minute floor): 22 review threads replied to and resolved, 0 unresolved; CI terminal and passing (merged in a969a445); known flakes were named in PR comments and rerun.
 
 ## 6. bash-spill
 
@@ -146,8 +154,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: `docs/product/reference/tools/bash.md` (Result and Bounds), `apps/api/src/prompts/tools/bash.md` (output bullet and the bounded-instruction line), `CHANGELOG.md` (2026-11-02 entry); markdownlint passes on each touched file.
 - [x] 6.6 Verify the layer: affected `lint`, `typecheck`, `test:coverage` for `packages/bash-executor`, focused `apps/api` bash, ssh, and Machine call tests, `pnpm --filter machine test`, `pnpm format:check`, `git diff --check`.
   - Evidence: `packages/bash-executor` `tsc -p tsconfig.build.json` and `apps/api` `tsc --noEmit`: clean; `packages/bash-executor` `vitest run --coverage`: 78 tests passed, statements 94.85%, branches 88.68%, lines 96.46% (gates 88/90); focused unit files `src/tools/bash.test.ts` (29), `src/tools/ssh-bash.test.ts` (15), `src/tools/ssh-bash-execution.test.ts`, `src/tools/bash-spill.test.ts`, `src/tools/runner.test.ts`, and `src/tools/machine-call.test.ts` all pass (241 in one run); `src/tools/bash-spill.integration.test.ts` (2, Testcontainers) passes; `apps/machine` `vitest run`: 11 files, 173 tests passed; `oxlint` clean for both packages (the pre-commit hook lints the whole repo); `oxfmt --check`, `git diff --check`, and markdownlint on the touched docs: clean.
-- [ ] 6.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 6.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 6.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1541 was marked ready: three passes (correctness/security, tests, simplify/over-engineering); fixes in "fix(bash): address review of bash spill". Every finding was verified and accepted ones fixed with new commits.
+- [x] 6.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1541 ran Ready-PR monitoring after every non-draft push (15-minute floor): 23 review threads replied to and resolved, 0 unresolved; CI terminal and passing (CI green on efda98db); known flakes were named in PR comments and rerun.
 
 ## 7. materialize
 
@@ -163,8 +173,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: `docs/product/operator/native-files.md` "Host files" (the operator-only `$TMPDIR`, reconcile cadence, `0700` refusal, no-isolation warning, and seven-day sweep, linking the reference for layout and notice); `docs/product/reference/locators/artifact.md` "Host files" as an H3 under Behavior (paths and extensions, the three notice routes, refusal, content as admitted); the 2026-11-02 `CHANGELOG.md` entry; `pnpm lint:markdown` reports 0 issues.
 - [x] 7.6 Verify the layer: affected `lint`, `typecheck`, focused tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api lint` clean (whole package); `pnpm exec tsc --noEmit` in `apps/api` clean; focused unit files pass: `tools/artifacts/host-files.test.ts` (36), `tools/artifacts/readable.test.ts` (10), `tools/artifacts/spill.test.ts` (20), `tools/artifacts/artifact-writer.test.ts`, `tools/artifacts/artifacts-repository.test.ts` (5), `tools/bash-spill.test.ts` (41), `tools/bash.test.ts` (33), `runs/runs-worker.service.test.ts` and `runs/run-execution.service.test.ts` (366 together), `packages/runtime-safety` 136; `pnpm format:check` clean; `git diff --check` clean. The tests also pin the host-file branches of the notice, the abort and deadline paths, the no-follow directory refusals, and the sweep gate. No integration or mutation run was made.
-- [ ] 7.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 7.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #915`.
+- [x] 7.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1542 was marked ready: three passes (filesystem security, correctness/tests, simplify/over-engineering); fixes in "fix(artifacts): address review of host files". Every finding was verified and accepted ones fixed with new commits.
+- [x] 7.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #915`.
+  - Evidence: #1542 ran Ready-PR monitoring after every non-draft push (15-minute floor): 34 review threads replied to and resolved, 0 unresolved; CI terminal and passing (CI green on 5745948f); known flakes were named in PR comments and rerun.
 
 ## 8. grep-paging
 
@@ -174,8 +186,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: a page that names an unfinished file is skipped inside the call: the next request starts after the daemon position of that file, the single-file scope ends instead, and the segment keeps `unfinished` and `complete: false` (`takePage`, `segmentOf` in `grep-machine.ts`). "A daemon time budget skips one file": new `grep.machine.test.ts` "skips the file a daemon page stopped inside and asks after it" (two requests, the second carries the first page's cursor and `progressed: false`, the result names the file). "A resumed page does not repeat earlier exclusions": new "counts a directory a second daemon page repeated once" plus `grep-machine-wire.test.ts` "counts a directory a later page reported again once" over the new `seen` set in `mergePage`. "A refused unfinished file is not named": "does not name an unfinished file the read group refuses". "A file larger than the call is named" and "A stop after progress names no file": `packages/native-file-tools/src/grep/readahead.test.ts` "names the file a deadline stopped inside and skips it next time", "resumes at the file when the call progressed before the stop", and "counts the progress of an earlier segment"; in-call progress is pinned by "asks the next page with the progress of the pages before it". "A byte bound in the first file skips it": `grep.host.test.ts` "names a first file the byte bound stops inside".
 - [x] 8.3 Verify the layer: `pnpm --filter @workspace/native-file-tools test` and `test:coverage`, `pnpm --filter machine test`, `pnpm --filter @workspace/machine-protocol test`, focused `apps/api` grep tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`.
   - Evidence: `native-file-tools` 1,559 tests pass and its CRAP gate passes (statements 95.66%, branches 90.82%); `machine-protocol` 36 tests and `machine` 173 tests pass; `apps/api` `src/tools/grep` passes 350 tests in 12 files, plus the adjacent `knowledge-tool-candidate-resolver` and `registry` suites (40 tests); `pnpm --filter api lint` and `tsc --noEmit` are clean; `oxfmt` on the touched files, `pnpm format:check`, and `git diff --check` are clean. `grep-knowledge-entry-bound.test.ts` now gives its 20,001-symlink fixture an explicit 15 s budget: it wrote and removed the tree in 4.2-5.0 s against the 5 s default on this WSL2 host, failing by luck.
-- [ ] 8.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 8.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 8.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1543 was marked ready: two passes (correctness/tests, simplify/over-engineering); fixes in "fix(grep): address review of Machine paging". Every finding was verified and accepted ones fixed with new commits.
+- [x] 8.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1543 ran Ready-PR monitoring after every non-draft push (15-minute floor): 8 review threads replied to and resolved, 0 unresolved; CI terminal and passing (CI green on 3c94e6f9); known flakes were named in PR comments and rerun.
 
 ## 9. grep-cursorless
 
@@ -191,10 +205,12 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: the prompt drops `cursor`, the continuation line, the cut marker and the `limit` page claim, and says one call returns every passage; the reference doc drops the `cursor` argument and field, the page and cursor sections, and describes internal paging; `CHANGELOG.md` has a 2026-11-02 breaking entry. `pnpm lint:markdown` reports 0 issues.
 - [x] 9.4 Measure, with a throwaway script, a broad walk of this repository and of `/mnt/d/Projects`: time, result size, and the stop. Put the numbers in the PR body. Do not commit the script.
   - Evidence: a throwaway `nativeGrepTool` run over `<repo>/**` with `patterns: ["import"]`, no operator bounds, and the default 108 s walk: re-run after the review fixes, 3,230 ms, 5,456 passages in 2,195 files, 2,170,045 bytes of result JSON (1,521,361 rendered code units), `complete: true`, 36 excluded directories, warnings `205 binary` and `7 invalid_utf8` (the first run, before the count fix, read 4,688 ms, 5,455 passages, 2,169,280 bytes). The same walk over `/mnt/d/Projects/**`: 108,029 ms, stopped by `deadline` with 9,361 passages in 8,364 files, 3,915,365 bytes of JSON (3,283,682 rendered code units), `complete: false`, warnings `2335 binary`, `25 invalid_utf8`, `1 deadline`. The repository walk finishes with no stop; the drvfs tree spends the whole deadline. The numbers go in the PR body, and the script was deleted before the commit.
-- [ ] 9.5 Verify the layer: as task 8.3.
-  - Evidence so far: `pnpm --filter @workspace/native-file-tools build`; `pnpm --filter api exec tsc --noEmit` and `pnpm --filter machine exec tsc --noEmit` clean; the focused `apps/api` grep suites and the focused `native-file-tools` grep suites pass; `oxlint` on every touched file and `pnpm lint:markdown` are clean. Unticked: task 8.3 also asks for the whole `native-file-tools` suite and its CRAP gate, which this host does not run locally (the local resource rule reserves coverage and full-suite runs for CI); CI runs both for this branch.
-- [ ] 9.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 9.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 9.5 Verify the layer: as task 8.3.
+  - Evidence: CI run on #1544 head 67017413 passed `Tests / native-file-tools`, `Tests / machine-protocol`, `Tests / machine`, and `Typecheck`. Local: `pnpm --filter @workspace/native-file-tools build`; `pnpm --filter api exec tsc --noEmit` and `pnpm --filter machine exec tsc --noEmit` clean; the focused `apps/api` grep suites and the focused `native-file-tools` grep suites pass; `oxlint` on every touched file and `pnpm lint:markdown` are clean. The whole `native-file-tools` suite and its CRAP gate, which task 8.3 also asks for, were not run locally (the local resource rule reserves coverage and full-suite runs for CI); CI runs both for this branch.
+- [x] 9.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1544 was marked ready: two passes (correctness/tests, simplify/over-engineering); fixes in "fix(grep): address review of cursor removal". Every finding was verified and accepted ones fixed with new commits.
+- [x] 9.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1544 ran Ready-PR monitoring after every non-draft push (15-minute floor): 15 review threads replied to and resolved, 0 unresolved; CI terminal and passing (CI green on 67017413); known flakes were named in PR comments and rerun.
 
 ## 10. grep-artifact
 
@@ -215,8 +231,10 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: the reference gains "Inline part and artifact" (head bound, cut marker, artifact contents, remainder, notice, left-out line, artifact bound, findings and host files), the new result fields, and the `artifact_bound` warning kind; the prompt gains the artifact/remainder/notice, cut-marker, left-out, and `limit` rules; the harness comparison updates the result-count, response-size, continuation, deadline-outcome, and truncation-signal cells; `CHANGELOG.md` has a 2026-11-02 entry. `pnpm lint:markdown` reports 0 issues.
 - [x] 10.6 Verify the layer: as task 8.3.
   - Evidence: `pnpm --filter @workspace/native-file-tools build`; `pnpm --filter api exec tsc --noEmit` clean; `pnpm exec vitest run --project unit src/tools/grep` passes 338 tests in 13 files (page, host, Machine, knowledge, argument, and the new artifact suite); `pnpm --filter @workspace/native-file-tools exec vitest run src/grep` passes 230 tests; `pnpm --filter api lint` and `pnpm --filter @workspace/native-file-tools lint` are clean; `pnpm exec oxfmt --check` on every touched file, `git diff --check`, and `pnpm lint:markdown` (0 issues) are clean. No integration, coverage, mutation, or whole-repo test run was made locally; `grep-artifact.integration.test.ts` is TEST_DATABASE_URL-gated for CI. A stale cursor-line expectation in `chats/tool-observation-part.test.ts` (left by the cursor removal) was updated with this layer.
-- [ ] 10.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 10.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1519`.
+- [x] 10.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1545 was marked ready: two passes (correctness/security, simplify/over-engineering); fixes in "fix(grep): address review of the grep artifact". Every finding was verified and accepted ones fixed with new commits.
+- [x] 10.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1519`.
+  - Evidence: #1545 ran Ready-PR monitoring after every non-draft push (15-minute floor): 4 review threads replied to and resolved, 0 unresolved; CI terminal and passing (CI green on 1e12be37); known flakes were named in PR comments and rerun.
 
 ## 11. web-search-offload
 
@@ -233,14 +251,19 @@ without its first consumers. Every implementation layer stays inside about
   - Evidence: the operator runbook documents `fetchLimit` in the chain example, the fetch-size rule in "Query limits and result counts", the artifact and its cost (per-result billing on Exa and Parallel with Exa's 25-result standard cap, per-request elsewhere), and the aggregate trim; the reference documents `limit` as the inline bound, the artifact notice, the fetch size, and the output bounds; the `web_search` prompt explains the fetch size and the artifact notice; `CHANGELOG.md` has a 2026-11-02 entry with `Refs #1526`. `pnpm lint:markdown` reports 0 issues.
 - [x] 11.5 Verify the layer: affected `lint`, `typecheck`, focused web-search and instance-config tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api lint` and `pnpm --filter api exec tsc --noEmit` are clean; `pnpm exec vitest run --project unit src/tools/web-search src/tools/artifacts/spill.test.ts src/tools/artifacts/artifact-tools.test.ts src/tools/artifacts/readable.test.ts src/instance-config/web-search-config.test.ts src/instance-config/schema.test.ts src/instance-config/config-loader.test.ts` passes; `pnpm format:check` and `pnpm lint:markdown` pass; `git diff --check` is clean.
-- [ ] 11.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 11.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1526`.
+- [x] 11.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: independent local review of the parent-relative diff before #1546 was marked ready: two passes (correctness/security, simplify/over-engineering); fixes in "fix(web-search): address review of the result artifact". Every finding was verified and accepted ones fixed with new commits.
+- [x] 11.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1526`.
+  - Evidence: #1546 ran Ready-PR monitoring after every non-draft push (15-minute floor): 9 review threads replied to and resolved, 0 unresolved; CI terminal and passing (CI green on ae16bbc4); known flakes were named in PR comments and rerun.
 
 ## 12. finalize
 
-- [ ] 12.1 Enter `tool-result-artifacts/finalize` with `$gh-stack` before any canonical spec write. Then run `$openspec-sync-specs`. Verify the ADDED requirements appear word for word, each MODIFIED requirement matches its delta with every canonical scenario kept, and each REMOVED requirement is gone.
-- [ ] 12.2 Rewrite the `grep-tool` Purpose in `openspec/specs/grep-tool/spec.md`: results are bounded inline and stored whole as an artifact, with no keyset cursor.
-- [ ] 12.3 Confirm archive readiness: `openspec status --change tool-result-artifacts --json` reports every artifact done and every task above is checked. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 12.1 Enter `tool-result-artifacts/finalize` with `$gh-stack` before any canonical spec write. Then run `$openspec-sync-specs`. Verify the ADDED requirements appear word for word, each MODIFIED requirement matches its delta with every canonical scenario kept, and each REMOVED requirement is gone.
+  - Evidence: branch `tool-result-artifacts/finalize` from `web-search-offload` (`6bd830bc`) existed before the first canonical write; `openspec status --change tool-result-artifacts --json` lists the 10 delta paths under `artifactPaths.specs.existingOutputPaths`, and all 10 were synced. 45 ADDED, 31 MODIFIED, and 5 REMOVED requirements were applied, plus the new `openspec/specs/tool-artifacts/spec.md` (21 ADDED requirements, Purpose taken from the delta). A throwaway verifier parsed each delta section and the canonical `## Requirements` separately and compared each requirement block byte for byte: every ADDED and MODIFIED requirement is identical to its delta, no delta file leaked an operation header, and every REMOVED requirement is absent (`Results are ordered, bounded, and paged by a keyset cursor`, `Walks are bounded`, `A stop in a file that blocks progress skips that file`, `A stop after progress opens the file again` from `grep-tool`, and `A grep passage cut at the page bound names the cursor` from `tool-result-rendering`). A second verifier compared each capability with its `HEAD` spec: every scenario of every MODIFIED requirement survives, each untouched requirement is unchanged, no ADDED name collides, and no requirement name repeats. `pnpm exec openspec validate tool-result-artifacts --strict` is valid; `pnpm exec openspec validate --specs --strict` reports no issue other than the repository's pre-existing "requirement text is very long (>500 characters)" advisory: `HEAD` has 337 of them over 44 of its 54 specs, and the synced specs have 341 over 46 of 55. The net four come from approved delta text that is longer than the canonical text it replaces: `prompt-imports` "Prompt imports cover every native read scheme" (423 to 533 units) and `web-search` "The web search tool has one stable model-facing contract" (496 to 522), "Aggregate engines fan out and merge by rank fusion" (485 to 522), "Attached answers fit the result cap after results" (424 to 513), and "Parallel engines call the Parallel search API" (491 to 506). `grep-tool` loses two because its removed requirements were long, and the new `tool-artifacts` spec has none.
+- [x] 12.2 Rewrite the `grep-tool` Purpose in `openspec/specs/grep-tool/spec.md`: results are bounded inline and stored whole as an artifact, with no keyset cursor.
+  - Evidence: the Purpose now states that the tool "bounds the inline part and stores the whole result as an artifact" and "does not page by a keyset cursor"; it no longer mentions a stateless keyset cursor. `pnpm lint:markdown` and `node scripts/check-markdown-links.mjs` report no issue.
+- [x] 12.3 Confirm archive readiness: `openspec status --change tool-result-artifacts --json` reports every artifact done and every task above is checked. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+  - Evidence: `openspec status --change tool-result-artifacts --json` reports proposal, specs, design, and tasks `done`, and every task above is checked. A word-for-word re-check of every ADDED and MODIFIED requirement against the canonical specs passes (throwaway script, not committed). `pnpm exec openspec validate tool-result-artifacts --strict` passes; `--specs --strict` and `--all --strict` report only the pre-existing "Requirement text is very long" warning class (46 of 55 specs, against 44 of 54 before the sync, because five MODIFIED requirements are longer word for word). `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass.
 
 ## Workflow follow-up
 

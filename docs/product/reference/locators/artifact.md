@@ -4,7 +4,7 @@ read_when:
   - a tool result names an artifact://<tool>-<n> locator
   - you need to read the rest of a result that did not fit inline
   - a read of an artifact failed or you need to know why
-spec: native-file-tools
+spec: tool-artifacts
 configured_by:
   - ../../operator/native-files.md
 ---

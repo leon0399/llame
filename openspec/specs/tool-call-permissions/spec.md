@@ -923,16 +923,17 @@ name. An omitted `scopes` while a Workspace is entered uses the omitted-scope
 exception of that requirement. The system MUST then evaluate the canonical
 Workspace root as the one scope.
 
-All-fields rejection MUST traverse `patterns`, `cursor`, each submitted scope,
-and each projected prefix, as that requirement defines. A reject written
+All-fields rejection MUST traverse `patterns`, each submitted scope, and each
+projected prefix, as that requirement defines. A reject written
 against a glob suffix or a pattern then still refuses. The call decision MUST
 be the first rejection in scope order, or the allow of the last scope when
 every scope is allowed. The system MUST record only that call decision on
 `tool.requested`.
 
-The per-file evaluation is the sixth named exception of that requirement: the
-system MUST evaluate each candidate file against the `read` group with `path`
-set to its canonical locator under the `read` projection of this capability.
+The per-file evaluation is the sixth named exception of that requirement. The
+system MUST evaluate each candidate file against the `read` group. Its `path`
+is the canonical locator of the file under the `read` projection of this
+capability.
 The system MUST NOT record these file decisions one by one. The completion
 audit MUST carry the count of files the `read` group refused. The tool result
 MUST NOT carry it. A bypassed Run MUST record one bypass decision for the call
@@ -1183,3 +1184,33 @@ count of the completion audit. A `bypass` attempt MUST evaluate no such director
 - **WHEN** a `bypass` attempt runs a grep walk that excludes `/home/u/repo/node_modules`
 - **THEN** the system evaluates no `read` group for that directory
 - **AND** `ignored.locators` holds `/home/u/repo/node_modules`
+
+### Requirement: Artifact locators match as their logical text
+
+For `read`, an `artifact://` locator MUST match as its submitted text with any
+read selector removed. Policy matching MUST NOT see a host file path for it.
+"Artifact reads evaluate each served finding" defines the finding re-check.
+
+#### Scenario: A reject on an artifact locator refuses the read
+
+- **WHEN** a `read` group rejects `path` with regex `^artifact://bash-` and the model reads `artifact://bash-3/stdout:1-50`
+- **THEN** the matched text is `artifact://bash-3/stdout` and the reject refuses the call
+
+#### Scenario: An allow on artifacts cannot reach another Chat
+
+- **WHEN** a `read` group allows `^artifact://` and the model reads a locator that only another Chat has
+- **THEN** the read returns `not_found`
+
+### Requirement: Artifact reads evaluate each served finding
+
+The sixth named exception also covers each finding that an artifact read
+serves. The system MUST evaluate the `read` group on the recorded source
+locator of that finding. The system MUST NOT record these decisions one by
+one. They MUST NOT count toward the refused-file count of the completion
+audit. A `bypass` attempt MUST evaluate no finding.
+
+#### Scenario: Finding decisions are not recorded
+
+- **WHEN** an artifact read serves 30 findings and the `read` group refuses 2 of them
+- **THEN** `tool.requested` carries one decision for the call
+- **AND** the completion audit counts no refused file for those findings
