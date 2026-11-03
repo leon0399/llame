@@ -4,6 +4,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
 import { ChatProvider, useChatContext } from "@/contexts/chat-context";
+import type { PermissionMode } from "@/lib/services/permission-modes/mode";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so this is the SAME hook instance the component reads.
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
@@ -28,28 +29,23 @@ const READ_ONLY_AVAILABLE = {
   modes: [{ value: "default" }, { value: "read-only" }],
 } satisfies PermissionModesResponse;
 
-function BypassSelection({ children }: { children: React.ReactNode }) {
+function ModeSelection({
+  mode,
+  children,
+}: {
+  mode: PermissionMode;
+  children: React.ReactNode;
+}) {
   const { setPermissionMode } = useChatContext();
+  // The provider recreates its setter on every render, so latch: an effect
+  // without the guard would set state again each render and never settle.
   const didSet = React.useRef(false);
 
   React.useEffect(() => {
     if (didSet.current) return;
     didSet.current = true;
-    setPermissionMode("chat-1", "bypass");
-  }, [setPermissionMode]);
-
-  return children;
-}
-
-function ReadOnlySelection({ children }: { children: React.ReactNode }) {
-  const { setPermissionMode } = useChatContext();
-  const didSet = React.useRef(false);
-
-  React.useEffect(() => {
-    if (didSet.current) return;
-    didSet.current = true;
-    setPermissionMode("chat-1", "read-only");
-  }, [setPermissionMode]);
+    setPermissionMode("chat-1", mode);
+  }, [setPermissionMode, mode]);
 
   return children;
 }
@@ -152,9 +148,9 @@ export const BypassSelected: Story = {
   tags: ["ai-generated"],
   parameters: contrastKnownIssue232,
   render: (args) => (
-    <BypassSelection>
+    <ModeSelection mode="bypass">
       <PermissionModeSelector {...args} />
-    </BypassSelection>
+    </ModeSelection>
   ),
   play: async ({ canvas }) => {
     const trigger = await waitFor(() =>
@@ -180,9 +176,9 @@ export const ReadOnlySelected: Story = {
     });
   },
   render: (args) => (
-    <ReadOnlySelection>
+    <ModeSelection mode="read-only">
       <PermissionModeSelector {...args} />
-    </ReadOnlySelection>
+    </ModeSelection>
   ),
   play: async ({ canvas }) => {
     const trigger = await waitFor(() =>
@@ -262,9 +258,9 @@ export const BackgroundRefetchFailed: Story = {
     });
   },
   render: (args) => (
-    <BypassSelection>
+    <ModeSelection mode="bypass">
       <PermissionModeSelector {...args} />
-    </BypassSelection>
+    </ModeSelection>
   ),
   play: async ({ canvas }) => {
     await expect(

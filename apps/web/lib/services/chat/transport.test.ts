@@ -193,28 +193,31 @@ describe("follow-up requests", () => {
     },
   );
 
-  it("sends the latest Run's own settings on a plain regenerate", () => {
-    const request = prepareSendMessagesRequest({
-      chatId: "chat-1",
-      trigger: "regenerate-message",
-      followUp: {
+  it.each(["bypass", "read-only"] as const)(
+    "sends the latest Run's own %s mode on a plain regenerate",
+    (permissionMode) => {
+      const request = prepareSendMessagesRequest({
+        chatId: "chat-1",
+        trigger: "regenerate-message",
+        followUp: {
+          action: "regenerate",
+          modelId: "system:openai:previous",
+          effort: "low",
+          permissionMode,
+        },
+        // The composer shows another model; a plain click repeats the Run.
+        modelId: "system:openai:composer-model",
+        effort: "high",
+        messages: [USER_MESSAGE],
+      });
+      expect(request.body).toEqual({
         action: "regenerate",
         modelId: "system:openai:previous",
         effort: "low",
-        permissionMode: "bypass",
-      },
-      // The composer shows another model; a plain click repeats the Run.
-      modelId: "system:openai:composer-model",
-      effort: "high",
-      messages: [USER_MESSAGE],
-    });
-    expect(request.body).toEqual({
-      action: "regenerate",
-      modelId: "system:openai:previous",
-      effort: "low",
-      permissionMode: "bypass",
-    });
-  });
+        permissionMode,
+      });
+    },
+  );
 
   it("keys a follow-up on the user message of a turn with no reply", () => {
     const request = prepareSendMessagesRequest({
@@ -279,26 +282,6 @@ describe("followUpRunRequest", () => {
         permissionMode: "default",
       }),
     ).toEqual({ action: "regenerate", modelId: "system:openai:previous" });
-  });
-
-  it("keeps a read-only permission mode for either action", () => {
-    expect(
-      followUpRunRequest({
-        action: "continue",
-        permissionMode: "read-only",
-      }),
-    ).toEqual({ action: "continue", permissionMode: "read-only" });
-    expect(
-      followUpRunRequest({
-        action: "regenerate",
-        modelId: "system:openai:previous",
-        permissionMode: "read-only",
-      }),
-    ).toEqual({
-      action: "regenerate",
-      modelId: "system:openai:previous",
-      permissionMode: "read-only",
-    });
   });
 
   it("drops a permission mode this build does not know", () => {

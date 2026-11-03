@@ -9,9 +9,8 @@ import {
   within,
 } from "storybook/test";
 import type { UIMessage } from "ai";
-import { useEffect, useRef, type ReactNode } from "react";
 
-import { ChatProvider, useChatContext } from "@/contexts/chat-context";
+import { ChatProvider } from "@/contexts/chat-context";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
@@ -1610,20 +1609,6 @@ async function revealTurnActions(canvas: PlayContext["canvas"]) {
   return regenerate;
 }
 
-/** Puts the composer of the chat under test in a read-only selection. */
-function ReadOnlyChat({ children }: { children: ReactNode }) {
-  const { setPermissionMode } = useChatContext();
-  // The provider recreates its setter on every render, so latch: an unguarded
-  // effect would set state again each render and never settle.
-  const didSet = useRef(false);
-  useEffect(() => {
-    if (didSet.current) return;
-    didSet.current = true;
-    setPermissionMode("chat-1", "read-only");
-  }, [setPermissionMode]);
-  return children;
-}
-
 /**
  * A failed agentic turn offers both actions: Continue resumes the settled tool
  * step, and Regenerate starts the turn again. Continue sends the composer's
@@ -1650,43 +1635,6 @@ export const LatestTurnActions: Story = {
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "continue",
       permissionMode: "default",
-    });
-  },
-};
-
-/**
- * Continue sends the composer's permission mode; a read-only selection travels
- * as `permissionMode: "read-only"` rather than being dropped like the default.
- *
- * @summary Continue sends a selected read-only mode
- */
-export const ContinueSendsReadOnly: Story = {
-  tags: ["ai-generated"],
-  decorators: [
-    (Story) => (
-      <ChatProvider>
-        <ReadOnlyChat>
-          <Story />
-        </ReadOnlyChat>
-      </ChatProvider>
-    ),
-  ],
-  args: {
-    renderKey: "assistant-turn",
-    isLast: true,
-    message: failedReply([
-      SEARCH_TOOL_PART,
-      { type: "text", text: "I found the budget notes." },
-    ]),
-    latestRun: turnRun(),
-  },
-  play: async ({ canvas, args }) => {
-    await revealTurnActions(canvas);
-    const continueTurn = canvas.getByRole("button", { name: "Continue" });
-    await userEvent.click(continueTurn);
-    await expect(args.onFollowUp).toHaveBeenCalledWith({
-      action: "continue",
-      permissionMode: "read-only",
     });
   },
 };

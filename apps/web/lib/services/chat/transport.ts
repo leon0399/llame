@@ -1,5 +1,5 @@
 import type { ChatRequestOptions, UIMessage } from "ai";
-import { isPermissionMode } from "../../../contexts/chat-context";
+import { isPermissionMode } from "../permission-modes/mode";
 import type { PermissionModeResponseValue } from "../../api/generated/models";
 import { buildApiUrl } from "../../api/fetch";
 
@@ -88,10 +88,8 @@ export function followUpRunRequest(
 ): FollowUpRunRequest | null {
   if (value === undefined) return null;
   const rawMode = "permissionMode" in value ? value.permissionMode : undefined;
-  const listedMode =
-    isNonBlankString(rawMode) && isPermissionMode(rawMode) ? rawMode : null;
   const permissionMode =
-    listedMode !== null && listedMode !== "default" ? listedMode : undefined;
+    isPermissionMode(rawMode) && rawMode !== "default" ? rawMode : undefined;
   if ("action" in value && value.action === "continue") {
     return {
       action: "continue",

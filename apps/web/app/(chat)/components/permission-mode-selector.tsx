@@ -11,11 +11,11 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 
+import { useChatContext } from "@/contexts/chat-context";
 import {
   isPermissionMode,
   type PermissionMode,
-  useChatContext,
-} from "@/contexts/chat-context";
+} from "@/lib/services/permission-modes/mode";
 import {
   usePermissionModesQuery,
   type PermissionModesResponse,
