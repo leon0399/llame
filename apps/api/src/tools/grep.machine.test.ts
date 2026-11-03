@@ -1349,7 +1349,6 @@ describe('Machine pages within one call', () => {
     expect(asked).toHaveLength(2);
   });
 
-
   it('resumes after a skipped file when a later page kept nothing', async () => {
     const scope = 'machine://devl/srv/app/**';
     const stoppedAt = encodeGrepCursor({
