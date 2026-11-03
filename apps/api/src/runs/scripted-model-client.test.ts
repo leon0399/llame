@@ -839,3 +839,195 @@ describe('ScriptedModelsService streamText options', () => {
     );
   });
 });
+
+describe('ScriptedModelsService whole-step scripts', () => {
+  const metadata = { test: { itemId: 'metadata-0' } };
+
+  function recordTool(executed: Array<string>) {
+    return tool({
+      inputSchema: z.object({ value: z.string() }),
+      execute: ({ value }) => {
+        executed.push(value);
+        return value;
+      },
+    });
+  }
+
+  it('streams a whole step through the production fullStream channel', async () => {
+    const service = new ScriptedModelsService();
+    service.register('whole-step', {
+      kind: 'step-script',
+      steps: [
+        [
+          {
+            type: 'reasoning',
+            id: 'r0',
+            text: 'think',
+            providerMetadata: metadata,
+          },
+          {
+            type: 'text',
+            id: 't0',
+            text: 'before ',
+            providerMetadata: metadata,
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-one',
+            toolName: 'record',
+            input: { value: 'one' },
+            providerMetadata: metadata,
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-two',
+            toolName: 'record',
+            input: { value: 'two' },
+          },
+          { type: 'text', id: 't1', text: 'after' },
+        ],
+        [{ type: 'text', id: 'final', text: 'done' }],
+      ],
+    });
+    const onReasoningDelta = vi.fn();
+    const onTextDelta = vi.fn();
+    const onToolCallMetadata = vi.fn();
+    const executed: Array<string> = [];
+
+    const result = service.createClient('whole-step').streamText({
+      chat,
+      messages,
+      tools: { record: recordTool(executed) },
+      onReasoningDelta,
+      onTextDelta,
+      onToolCallMetadata,
+    });
+
+    await expect(result.text).resolves.toBe('done');
+    expect(executed).toEqual(['one', 'two']);
+    expect(onReasoningDelta).toHaveBeenCalledWith('think', '0:r0', metadata);
+    expect(onTextDelta).toHaveBeenCalledWith('before ', '0:t0', metadata);
+    expect(onTextDelta).toHaveBeenCalledWith('after', '0:t1', undefined);
+    expect(onToolCallMetadata).toHaveBeenCalledWith('call-one', metadata);
+    expect(onToolCallMetadata).not.toHaveBeenCalledWith(
+      'call-two',
+      expect.anything(),
+    );
+    // The SDK built the second request from the first step's response.
+    expect(service.prompts).toHaveLength(2);
+    const secondPrompt = service.prompts[1];
+    expect(
+      secondPrompt?.some(
+        (message) =>
+          message.role === 'assistant' &&
+          message.content.some(
+            (part) =>
+              part.type === 'tool-call' && part.toolCallId === 'call-one',
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it('records refused calls through the SDK repair hook', async () => {
+    const service = new ScriptedModelsService();
+    service.register('refused-calls', {
+      kind: 'step-script',
+      steps: [
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'missing',
+            toolName: 'not_declared',
+            input: { value: 'x' },
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'malformed',
+            toolName: 'record',
+            input: '{"value":',
+          },
+        ],
+        [{ type: 'text', id: 'final', text: 'ok' }],
+      ],
+    });
+    const refusals: Array<{
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      reason: 'not_available' | 'invalid_input';
+      sdkRefusal: { errorText: string; input: unknown };
+    }> = [];
+    const executed: Array<string> = [];
+
+    const result = service.createClient('refused-calls').streamText({
+      chat,
+      messages,
+      tools: { record: recordTool(executed) },
+      onUnavailableToolCall: (event) => {
+        refusals.push(event);
+      },
+    });
+
+    await expect(result.text).resolves.toBe('ok');
+    expect(executed).toEqual([]);
+    expect(refusals.map((event) => event.toolCallId)).toEqual([
+      'missing',
+      'malformed',
+    ]);
+    const missing = refusals[0];
+    expect(missing).toMatchObject({
+      toolName: 'not_declared',
+      input: { value: 'x' },
+      reason: 'not_available',
+    });
+    expect(missing?.sdkRefusal.input).toEqual({ value: 'x' });
+    expect(missing?.sdkRefusal.errorText).toContain('not_declared');
+    const malformed = refusals[1];
+    expect(malformed).toMatchObject({
+      toolName: 'record',
+      input: '{"value":',
+      reason: 'invalid_input',
+    });
+    expect(malformed?.sdkRefusal.input).toEqual({});
+    expect(malformed?.sdkRefusal.errorText.toLowerCase()).toContain('json');
+  });
+
+  it('surfaces a stream error after a reasoning delivery', async () => {
+    const service = new ScriptedModelsService();
+    service.register('broken-step', {
+      kind: 'step-script',
+      steps: [
+        [
+          {
+            type: 'reasoning',
+            id: 'r0',
+            text: 'thinking',
+            providerMetadata: metadata,
+          },
+          { type: 'error', message: 'provider dropped the stream' },
+        ],
+      ],
+    });
+    const onReasoningDelta = vi.fn();
+    const errors: Array<unknown> = [];
+
+    const result = service.createClient('broken-step').streamText({
+      chat,
+      messages,
+      onReasoningDelta,
+      onError: ({ error }) => {
+        errors.push(error);
+      },
+    });
+
+    // The SDK reports a provider stream failure through `onError`; the text
+    // result itself has no characters to reject with. The integration test
+    // proves the Run that consumes it fails.
+    await expect(result.text).resolves.toBe('');
+    expect(onReasoningDelta).toHaveBeenCalledWith('thinking', '0:r0', metadata);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      message: 'provider dropped the stream',
+    });
+  });
+});
