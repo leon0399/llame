@@ -8,30 +8,22 @@
  */
 
 import { contentText } from '../testing/support';
-
-/** The later-turn projection of one assistant row's parts. */
-const project = (parts: Array<MessagePart>) =>
-  projectToolObservations(parts, 'msg-1');
 import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildContext,
   partsToText,
-  projectToolObservations,
   type MessagePart,
   type ModelMessage,
   type ModelRequestContext,
   type StoredMessage,
 } from './context-builder';
+import { projectStoredToolPart } from './tool-observation-part';
 import {
   createModelChangeItem,
   createRecencyDigestDeltaItem,
   createRecencyDigestSupersessionItem,
   createToolAvailabilityItem,
 } from './context-item-producers';
-import {
-  TOOL_REPLAY_CALL_LIMIT,
-  TOOL_REPLAY_TURN_LIMIT,
-} from './tool-observation-part';
 import {
   createPromptImportsItem,
   promptImportMediaKey,
@@ -42,6 +34,13 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { modelMessageSchema, streamText, type ProviderMetadata } from 'ai';
+
+/** The later-turn projection of each settled tool part in `parts`. */
+const project = (parts: ReadonlyArray<MessagePart>) =>
+  parts.flatMap((part, partIndex) => {
+    const stored = projectStoredToolPart(part, partIndex, `msg-1:${partIndex}`);
+    return stored === undefined ? [] : [stored];
+  });
 
 /**
  * User content is a block array now — one block per injected context item,
@@ -138,14 +137,17 @@ describe('buildContext', () => {
       const turn1 = buildContext([userMsg1], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const turn2 = buildContext([userMsg1, assistantMsg1], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const turn3 = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(turn1.system).toBe(turn2.system);
@@ -156,6 +158,7 @@ describe('buildContext', () => {
       const result = buildContext([userMsg1], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       // Must not contain any message IDs or timestamps
@@ -171,10 +174,12 @@ describe('buildContext', () => {
       const out1 = buildContext(messages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const out2 = buildContext(messages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(JSON.stringify(out1)).toBe(JSON.stringify(out2));
@@ -185,6 +190,7 @@ describe('buildContext', () => {
       const result = buildContext(messages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result.messages[0].role).toBe('user');
@@ -198,6 +204,7 @@ describe('buildContext', () => {
       const result = buildContext([userMsg2, userMsg1, assistantMsg1], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(contentText(result.messages[0].content)).toContain('Hello'); // userMsg1
@@ -221,6 +228,7 @@ describe('buildContext', () => {
         {
           systemPrompt,
           requestKind: 'continuation',
+          modelId: 'test-model',
         },
       );
 
@@ -240,6 +248,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext(messages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       const userMessages = result.filter((m) => m.role === 'user');
@@ -262,6 +271,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext(messages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       const userMessages = result.filter((m) => m.role === 'user');
@@ -282,6 +292,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext(messages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       const assistantMessages = result.filter((m) => m.role === 'assistant');
@@ -335,6 +346,7 @@ describe('buildContext', () => {
       const result = buildContext([stored], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result.messages).toEqual([
@@ -372,8 +384,11 @@ describe('buildContext', () => {
       });
 
       expect(
-        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
-          .messages,
+        buildContext([stored], {
+          systemPrompt,
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        }).messages,
       ).toEqual([
         {
           role: 'user',
@@ -406,8 +421,11 @@ describe('buildContext', () => {
       });
 
       expect(
-        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
-          .messages,
+        buildContext([stored], {
+          systemPrompt,
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        }).messages,
       ).toStrictEqual([
         {
           role: 'user',
@@ -474,8 +492,11 @@ describe('buildContext', () => {
       });
 
       expect(
-        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
-          .messages,
+        buildContext([stored], {
+          systemPrompt,
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        }).messages,
       ).toEqual([
         {
           role: 'user',
@@ -516,8 +537,11 @@ describe('buildContext', () => {
       });
 
       expect(
-        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
-          .messages,
+        buildContext([stored], {
+          systemPrompt,
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        }).messages,
       ).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]);
     });
 
@@ -532,8 +556,11 @@ describe('buildContext', () => {
       });
 
       expect(
-        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
-          .messages,
+        buildContext([stored], {
+          systemPrompt,
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        }).messages,
       ).toEqual([
         {
           role: 'user',
@@ -575,17 +602,6 @@ describe('buildContext', () => {
       outcome: 'success',
     });
 
-    /** The exact `[assistant tool-call, tool tool-result]` envelope the replay
-     * budget measures, so a fixture can be sized against the real constant. */
-    const pairEnvelopeSize = (part: MessagePart): number => {
-      const pair = project([part])?.pairs[0];
-      if (!pair) throw new Error('Expected a projected tool pair');
-      return JSON.stringify([
-        { role: 'assistant', content: [pair.toolCallPart] },
-        { role: 'tool', content: [pair.toolResultPart] },
-      ]).length;
-    };
-
     it('replays a stored item as one user message after its tool result', () => {
       const assistant = msg({
         role: 'assistant',
@@ -599,6 +615,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(messages.map(({ role }) => role)).toEqual([
@@ -620,63 +637,14 @@ describe('buildContext', () => {
         role: 'user',
         content: [{ type: 'text', text: itemText }],
       });
-      expect(messages[3]).toEqual({ role: 'assistant', content: 'done' });
-    });
-
-    it('leaves the tool pair and its replay budget untouched by the item text', () => {
-      const base: MessagePart = {
-        type: 'tool-search_conversations',
-        toolCallId: 'call-budget',
-        state: 'output-error',
-        input: { query: 'holidays' },
-        errorText: 'x',
-        // The pair's outcome is metadata-derived, so the replay below also
-        // pins that the item leaves the pair's metadata handling alone.
-        resultProviderMetadata: { llame: { cancelled: true } },
-      };
-      const padding = TOOL_REPLAY_CALL_LIMIT - pairEnvelopeSize(base) - 1;
-      expect(padding).toBeGreaterThan(0);
-      const sized: MessagePart = {
-        ...base,
-        errorText: `x${'P'.repeat(padding)}`,
-      };
-      expect(pairEnvelopeSize(sized)).toBe(TOOL_REPLAY_CALL_LIMIT - 1);
-
-      const bigItemText = 'C'.repeat(TOOL_REPLAY_CALL_LIMIT * 3);
-      const { messages } = buildContext(
-        [
-          msg({
-            role: 'assistant',
-            parts: [sized, contextPart(bigItemText)],
-          }),
-        ],
-        { systemPrompt, requestKind: 'continuation' },
-      );
-      const pairOnly = buildContext(
-        [msg({ role: 'assistant', parts: [sized] })],
-        { systemPrompt, requestKind: 'continuation' },
-      );
-
-      expect(messages.map(({ role }) => role)).toEqual([
-        'assistant',
-        'tool',
-        'user',
-      ]);
-      expect(messages.slice(0, 2)).toEqual(pairOnly.messages);
-      expect(messages[2]).toEqual({
-        role: 'user',
-        content: [{ type: 'text', text: bigItemText }],
+      expect(messages[3]).toEqual({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
       });
-      const serializedPair = JSON.stringify(messages.slice(0, 2));
-      expect(serializedPair).toContain('"type":"cancelled"');
-      // The pair stays uncleared although the item text alone is three times
-      // the per-call limit: only the pair's own envelope is charged.
-      expect(serializedPair).toContain('P'.repeat(64));
-      expect(serializedPair).not.toContain('C'.repeat(64));
     });
 
-    it('keeps the item at its stored position when the pair is omitted by the turn budget', () => {
-      const manyTools = Array.from({ length: 220 }, (_, index) => ({
+    it('keeps the item after the tool message of the step before it', () => {
+      const manyTools = Array.from({ length: 3 }, (_, index) => ({
         type: 'tool-search_conversations',
         toolCallId: `many-${index.toString().padStart(3, '0')}`,
         state: 'output-error' as const,
@@ -692,18 +660,27 @@ describe('buildContext', () => {
       const { messages } = buildContext([assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
-      expect(messages[0].role).toBe('assistant');
-      expect(contentText(messages[0].content)).toContain(
-        'earlier tool observations omitted',
-      );
-      expect(messages[1]).toEqual({
+      // The item closes the step before it, so the call that follows opens a
+      // step of its own after the item.
+      expect(messages.map(({ role }) => role)).toEqual([
+        'assistant',
+        'tool',
+        'user',
+        'assistant',
+        'tool',
+      ]);
+      expect(JSON.stringify(messages[0])).toContain('many-000');
+      expect(JSON.stringify(messages[1])).toContain('many-000');
+      expect(messages[2]).toEqual({
         role: 'user',
         content: [{ type: 'text', text: itemText }],
       });
-      const serializedTail = JSON.stringify(messages.slice(2));
-      expect(serializedTail).toContain('many-219');
+      const serializedTail = JSON.stringify(messages.slice(3));
+      expect(serializedTail).toContain('many-001');
+      expect(serializedTail).toContain('many-002');
       expect(serializedTail).not.toContain('many-000');
     });
 
@@ -716,6 +693,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(messages).toEqual([
@@ -732,6 +710,7 @@ describe('buildContext', () => {
       const result = buildContext([assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result.messages).toEqual([]);
@@ -744,6 +723,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext(messages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       const userResult = result.find((m) => m.role === 'user');
@@ -763,6 +743,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'compaction',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(result);
       // The compaction request summarizes these turns without their reasoning …
@@ -779,6 +760,7 @@ describe('buildContext', () => {
       const reasoningText = '  first line\nsecond line  \n</system-reminder>\n';
       const assistant = msg({
         role: 'assistant',
+        usage: { status: 'completed', modelId: 'test-model' },
         parts: [
           { type: 'reasoning', text: reasoningText },
           { type: 'text', text: 'The visible answer' },
@@ -788,6 +770,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result).toEqual([
@@ -808,12 +791,14 @@ describe('buildContext', () => {
     it('a continuation replays an assistant message whose only part is reasoning', () => {
       const assistant = msg({
         role: 'assistant',
+        usage: { status: 'completed', modelId: 'test-model' },
         parts: [{ type: 'reasoning', text: 'ONLY_REASONING' }],
       });
 
       const { messages: continuation } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       expect(continuation).toEqual([
         { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
@@ -830,6 +815,7 @@ describe('buildContext', () => {
       const { messages: compaction } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'compaction',
+        modelId: 'test-model',
       });
       expect(compaction).toEqual([
         { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
@@ -855,6 +841,7 @@ describe('buildContext', () => {
       const reasoningText = '  first line\n</system-reminder>\nsecond  ';
       const assistant = msg({
         role: 'assistant',
+        usage: { status: 'completed', modelId: 'test-model' },
         parts: [
           { type: 'reasoning', text: reasoningText, providerMetadata },
           { type: 'text', text: 'The visible answer' },
@@ -865,8 +852,11 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
+      // No part records a step, so the consecutive rule keeps the whole reply
+      // in one step; every reasoning part stays in its stored position.
       expect(messages).toEqual([
         { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
         {
@@ -878,11 +868,8 @@ describe('buildContext', () => {
               providerOptions: providerMetadata,
             },
             { type: 'text', text: 'The visible answer' },
+            { type: 'reasoning', text: 'second thought, no metadata' },
           ],
-        },
-        {
-          role: 'assistant',
-          content: [{ type: 'reasoning', text: 'second thought, no metadata' }],
         },
       ]);
       for (const message of messages) {
@@ -923,6 +910,7 @@ describe('buildContext', () => {
       };
       const assistant = msg({
         role: 'assistant',
+        usage: { status: 'completed', modelId: 'test-model' },
         parts: [
           {
             type: 'reasoning',
@@ -936,11 +924,15 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'compaction',
+        modelId: 'test-model',
       });
 
       expect(messages).toEqual([
         { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
-        { role: 'assistant', content: 'The visible answer' },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'The visible answer' }],
+        },
       ]);
       const serialized = JSON.stringify(messages);
       expect(serialized).not.toContain('THINKING_ONLY_IN_CONTINUATION');
@@ -969,6 +961,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(result);
       // Tool output is replayed as a labelled tool-result part.
@@ -1001,6 +994,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(result);
       expect(serialized).not.toContain('data-cap-notice');
@@ -1025,6 +1019,7 @@ describe('buildContext', () => {
     it('omits unknown and provider-native parts, replaying only reasoning of the display-only kinds', () => {
       const assistant = msg({
         role: 'assistant',
+        usage: { status: 'completed', modelId: 'test-model' },
         parts: [
           { type: 'provider-metadata', secret: 'PROVIDER_NATIVE_SECRET' },
           { type: 'reasoning', text: 'PRIVATE_REASONING' },
@@ -1036,6 +1031,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext([assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(result);
       expect(serialized).not.toContain('PROVIDER_NATIVE_SECRET');
@@ -1068,14 +1064,6 @@ describe('buildContext', () => {
         },
       ],
       ['step boundary', { type: 'step-start' }],
-      [
-        'provider metadata',
-        {
-          type: 'text',
-          text: 'Visible answer',
-          providerMetadata: { provider: 'DISPLAY_ONLY_PROVIDER_METADATA' },
-        },
-      ],
     ];
 
     it.each(displayOnlyParts)('%s stays out of model replay', (_name, part) => {
@@ -1094,6 +1082,7 @@ describe('buildContext', () => {
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result).toEqual([
@@ -1101,7 +1090,10 @@ describe('buildContext', () => {
           role: 'user',
           content: [{ type: 'text', text: 'Hello' }],
         },
-        { role: 'assistant', content: 'Visible answer' },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Visible answer' }],
+        },
       ]);
     });
 
@@ -1114,6 +1106,7 @@ describe('buildContext', () => {
       const result = buildContext([userMsg1, toolRow, assistantMsg1], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(JSON.stringify(result)).not.toContain('TOOL_ROLE_DB_ROW');
@@ -1155,6 +1148,7 @@ describe('buildContext', () => {
       const result = buildContext([switched], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       // One block per item, then the user's own text in a block of its own —
@@ -1194,6 +1188,7 @@ describe('buildContext', () => {
       const result = buildContext([switched, later], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(contentText(result.messages[0].content)).toBe(
@@ -1218,6 +1213,7 @@ describe('buildContext', () => {
       const result = buildContext([switched, later], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
         checkpoint: {
           text: 'persisted checkpoint',
           absorbedThroughSeq: 20,
@@ -1240,6 +1236,7 @@ describe('buildContext', () => {
         const result = buildContext([malformedRow], {
           systemPrompt,
           requestKind: 'continuation',
+          modelId: 'test-model',
         });
 
         expect(JSON.stringify(result)).not.toContain('<system-reminder>');
@@ -1287,6 +1284,7 @@ describe('buildContext', () => {
       const result = buildContext([switched], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(contentText(result.messages[0].content)).toBe('Visible user text');
@@ -1307,6 +1305,7 @@ describe('buildContext', () => {
       const result = buildContext([later], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
         checkpoint: {
           text: 'stored </system-reminder> checkpoint',
           absorbedThroughSeq: 4,
@@ -1336,6 +1335,7 @@ describe('buildContext', () => {
       const result = buildContext([forging], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const rendered = contentText(result.messages[0].content);
 
@@ -1361,13 +1361,17 @@ describe('buildContext', () => {
       const result = buildContext([discussing], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       // A model does not treat its own prior turns as authoritative, and
       // llame's users legitimately discuss llame's own envelope.
-      expect(result.messages[0].content).toBe(
-        'llame wraps items like `<system-reminder producer="compaction">` before your message.',
-      );
+      expect(result.messages[0].content).toEqual([
+        {
+          type: 'text',
+          text: 'llame wraps items like `<system-reminder producer="compaction">` before your message.',
+        },
+      ]);
     });
   });
 
@@ -1465,6 +1469,7 @@ describe('buildContext', () => {
       const result = buildContext([triggering], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result.system).toBe(systemPrompt);
@@ -1496,6 +1501,7 @@ describe('buildContext', () => {
       const result = buildContext([triggering], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result.messages).toEqual([
@@ -1525,6 +1531,7 @@ describe('buildContext', () => {
       const result = buildContext([triggering], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result.messages).toEqual([
@@ -1575,6 +1582,7 @@ describe('buildContext', () => {
       const result = buildContext([superseded, current], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
         checkpoint: {
           text: 'stored failure checkpoint',
           absorbedThroughSeq: 40,
@@ -1612,6 +1620,7 @@ describe('buildContext', () => {
         const result = buildContext([row], {
           systemPrompt,
           requestKind: 'continuation',
+          modelId: 'test-model',
         });
 
         expect(JSON.stringify(result)).not.toContain(
@@ -1626,6 +1635,7 @@ describe('buildContext', () => {
       const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
         checkpoint: {
           text: '<system-reminder producer="compaction" form="checkpoint">stored wording</system-reminder>',
           absorbedThroughSeq: assistantMsg1.seq,
@@ -1670,6 +1680,7 @@ describe('buildContext', () => {
         {
           systemPrompt,
           requestKind: 'continuation',
+          modelId: 'test-model',
           checkpoint: {
             text: 'selected checkpoint',
             absorbedThroughSeq: 2,
@@ -1699,6 +1710,7 @@ describe('buildContext', () => {
       const result = buildContext(manyMessages, {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
       expect(result.messages).toHaveLength(200);
@@ -1736,6 +1748,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant, nextUser], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('DETAIL_NOT_IN_ANSWER');
@@ -1749,6 +1762,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const toolCallMsg = messages.find(
         (m) => m.role === 'assistant' && Array.isArray(m.content),
@@ -1786,6 +1800,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('cancelled');
@@ -1809,6 +1824,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('"type":"error"');
@@ -1823,6 +1839,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const toolMsg = messages.find((m) => m.role === 'tool');
       const serialized = JSON.stringify(toolMsg);
@@ -1848,6 +1865,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, poisoned], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).not.toContain('</user_personalization>');
@@ -1876,16 +1894,17 @@ describe('buildContext', () => {
 
       const ctx2 = buildContext(
         [userMsg1, assistant, turn2User, turn2Assistant, turn3User],
-        { systemPrompt, requestKind: 'continuation' },
+        { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
       );
       const ctx3 = buildContext([userMsg1, assistant, turn2User], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       // The projection of the first assistant message must be identical
       // regardless of how many later turns follow.
-      const proj2 = JSON.stringify(ctx2.messages.slice(1, 3));
-      const proj3 = JSON.stringify(ctx3.messages.slice(1, 3));
+      const proj2 = JSON.stringify(ctx2.messages.slice(1, 4));
+      const proj3 = JSON.stringify(ctx3.messages.slice(1, 4));
       expect(proj2).toBe(proj3);
     });
 
@@ -1895,6 +1914,7 @@ describe('buildContext', () => {
       };
       const assistant = msg({
         role: 'assistant',
+        usage: { status: 'completed', modelId: 'test-model' },
         // SAFETY: MessagePart's open UnknownRecord fallback member accepts
         // any of these object shapes at runtime, but spreading the
         // separately-declared `toolParts` fixture alongside inline
@@ -1916,11 +1936,12 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('SECRET_REASONING');
       // Metadata BOUND to a persisted reasoning part is durable with it and
-      // crosses as that part's providerOptions (D15) …
+      // crosses as that part's providerOptions …
       expect(serialized).toContain('ENCRYPTED_2');
       // … while a part llame does not treat as model-bearing — the display-only
       // provider-metadata part here — still never reaches the model.
@@ -1946,6 +1967,7 @@ describe('buildContext', () => {
       const { messages: compaction } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'compaction',
+        modelId: 'test-model',
       });
       const summarized = JSON.stringify(compaction);
       expect(summarized).not.toContain('SECRET_REASONING');
@@ -1963,6 +1985,7 @@ describe('buildContext', () => {
       };
       const assistant = msg({
         role: 'assistant',
+        usage: { status: 'completed', modelId: 'test-model' },
         parts: [
           {
             type: 'reasoning',
@@ -1982,6 +2005,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('REASONING_TOOL_RESULT');
@@ -2002,7 +2026,7 @@ describe('buildContext', () => {
       expect(messages[2].role).toBe('tool');
       expect(messages[3]).toEqual({
         role: 'assistant',
-        content: 'Answer after reasoning.',
+        content: [{ type: 'text', text: 'Answer after reasoning.' }],
       });
       for (const message of messages) {
         expect(() => modelMessageSchema.parse(message)).not.toThrow();
@@ -2031,6 +2055,7 @@ describe('buildContext', () => {
       const { messages } = buildContext([userMsg1, toolOnly, nextUser], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('tool-call');
@@ -2040,64 +2065,46 @@ describe('buildContext', () => {
 
     it('the live tool loop still observes its own results within the run (2.14)', () => {
       const projected = project(toolParts);
-      expect(projected).not.toBeNull();
-      expect(projected!.toolResultParts).toHaveLength(1);
-      expect(JSON.stringify(projected!.toolResultParts[0].output)).toContain(
+      expect(projected).toHaveLength(1);
+      expect(JSON.stringify(projected[0].pair.toolResultPart.output)).toContain(
         'DETAIL_NOT_IN_ANSWER',
       );
     });
 
-    it('keeps an incomplete Knowledge search as success while its payload remains', () => {
-      const projected = project([
-        {
-          type: 'tool-knowledge_search',
-          toolCallId: 'knowledge-incomplete-full',
-          state: 'output-available',
-          input: { query: 'checkpoint' },
-          output: {
-            status: 'success',
-            complete: false,
-            results: [{ path: 'notes/checkpoint.md' }],
-            warnings: [],
-            warningCount: 1,
+    it('keeps an incomplete Knowledge search whole, as the live loop sent it', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-knowledge_search',
+            toolCallId: 'knowledge-incomplete',
+            state: 'output-available',
+            input: { query: 'checkpoint' },
+            output: {
+              status: 'success',
+              complete: false,
+              results: [
+                { path: 'notes/checkpoint.md', snippet: 'R'.repeat(9000) },
+              ],
+              warnings: [],
+              warningCount: 1,
+            },
+            outcome: 'success',
           },
-          outcome: 'success',
-        },
-      ]);
+        ],
+      });
 
-      const value = projected?.toolResultParts[0]?.output;
-      expect(value).toMatchObject({ type: 'json' });
-      if (value?.type !== 'json') throw new Error('Expected a JSON output');
-      expect(value.value).toMatchObject({ status: 'success', complete: false });
-    });
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+        modelId: 'test-model',
+      });
+      const toolMsg = messages.find((m) => m.role === 'tool');
+      const serialized = JSON.stringify(toolMsg);
 
-    it('marks an incomplete Knowledge search incomplete when replay clears its payload', () => {
-      const projected = project([
-        {
-          type: 'tool-knowledge_search',
-          toolCallId: 'knowledge-incomplete-cleared',
-          state: 'output-available',
-          input: { query: 'checkpoint' },
-          output: {
-            status: 'success',
-            complete: false,
-            results: [
-              {
-                path: 'notes/checkpoint.md',
-                snippet: 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2),
-              },
-            ],
-            warnings: [],
-            warningCount: 1,
-          },
-          outcome: 'success',
-        },
-      ]);
-
-      const serialized = JSON.stringify(projected?.toolResultParts);
-      expect(serialized).toContain('"value":"incomplete"');
-      expect(serialized).not.toContain('"complete":false');
-      expect(serialized).not.toContain('R'.repeat(256));
+      expect(serialized).toContain('"complete":false');
+      expect(serialized).toContain('R'.repeat(9000));
+      expect(serialized).not.toContain('"value":"incomplete"');
     });
 
     it.each([
@@ -2131,7 +2138,7 @@ describe('buildContext', () => {
     ])(
       'ignores a record-shaped persisted tool part with an invalid required %s',
       (_field, part) => {
-        expect(project([part])).toBeNull();
+        expect(project([part])).toEqual([]);
       },
     );
 
@@ -2158,6 +2165,7 @@ describe('buildContext', () => {
         const { messages } = buildContext([assistant], {
           systemPrompt,
           requestKind: 'continuation',
+          modelId: 'test-model',
         });
         expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
 
@@ -2190,28 +2198,27 @@ describe('buildContext', () => {
       const { messages } = buildContext([assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
+      // The text before the call stays in the call's step; the text after it
+      // opens the next step.
       expect(messages.map(({ role }) => role)).toEqual([
-        'assistant',
         'assistant',
         'tool',
         'assistant',
       ]);
       expect(messages[0]).toEqual({
         role: 'assistant',
-        content: 'Before call.',
-      });
-      expect(messages[1]).toEqual({
-        role: 'assistant',
         content: [
+          { type: 'text', text: 'Before call.' },
           expect.objectContaining({
             type: 'tool-call',
             toolCallId: 'call-middle',
           }),
         ],
       });
-      expect(messages[2]).toEqual({
+      expect(messages[1]).toEqual({
         role: 'tool',
         content: [
           expect.objectContaining({
@@ -2220,13 +2227,13 @@ describe('buildContext', () => {
           }),
         ],
       });
-      expect(messages[3]).toEqual({
+      expect(messages[2]).toEqual({
         role: 'assistant',
-        content: 'After call.',
+        content: [{ type: 'text', text: 'After call.' }],
       });
     });
 
-    it('conservatively serializes consecutive calls in request order', () => {
+    it('replays a run of consecutive legacy calls as one step', () => {
       const assistant = msg({
         role: 'assistant',
         parts: [
@@ -2253,185 +2260,25 @@ describe('buildContext', () => {
       const { messages } = buildContext([assistant], {
         systemPrompt,
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
 
+      // No part records a step, so both consecutive calls share one step:
+      // one assistant message with both calls, then one tool message with
+      // both results. The text after the calls opens the next step.
       expect(messages.map(({ role }) => role)).toEqual([
-        'assistant',
-        'tool',
         'assistant',
         'tool',
         'assistant',
       ]);
       expect(JSON.stringify(messages[0])).toContain('call-first');
+      expect(JSON.stringify(messages[0])).toContain('call-second');
       expect(JSON.stringify(messages[1])).toContain('call-first');
-      expect(JSON.stringify(messages[2])).toContain('call-second');
-      expect(JSON.stringify(messages[3])).toContain('call-second');
-      expect(messages[4]).toEqual({ role: 'assistant', content: 'Done.' });
-    });
-
-    it('caps an oversized input over the complete serialized pair envelope', () => {
-      const assistant = msg({
+      expect(JSON.stringify(messages[1])).toContain('call-second');
+      expect(messages[2]).toEqual({
         role: 'assistant',
-        parts: [
-          {
-            type: 'tool-search_conversations',
-            toolCallId: 'oversized-input',
-            state: 'output-available',
-            input: { query: 'Q'.repeat(TOOL_REPLAY_CALL_LIMIT * 2) },
-            output: { status: 'success', value: 'small result' },
-            outcome: 'success',
-          },
-        ],
+        content: [{ type: 'text', text: 'Done.' }],
       });
-
-      const { messages } = buildContext([assistant], {
-        systemPrompt,
-        requestKind: 'continuation',
-      });
-
-      expect(JSON.stringify(messages).length).toBeLessThanOrEqual(
-        TOOL_REPLAY_CALL_LIMIT,
-      );
-      expect(JSON.stringify(messages)).toContain('oversized-input');
-      expect(JSON.stringify(messages)).toContain('search_conversations');
-      expect(JSON.stringify(messages)).toContain('"value":"success"');
-      expect(JSON.stringify(messages)).not.toContain('Q'.repeat(256));
-    });
-
-    it('drops oldest complete pairs when many irreducible short envelopes exceed the turn cap', () => {
-      const assistant = msg({
-        role: 'assistant',
-        parts: Array.from({ length: 220 }, (_, index) => ({
-          type: 'tool-search_conversations',
-          toolCallId: `many-${index.toString().padStart(3, '0')}`,
-          state: 'output-error',
-          input: {},
-          errorText: 'x',
-          outcome: 'invalid_input',
-        })),
-      });
-
-      const { messages } = buildContext([assistant], {
-        systemPrompt,
-        requestKind: 'continuation',
-      });
-      const serialized = JSON.stringify(messages);
-
-      expect(serialized.length).toBeLessThanOrEqual(TOOL_REPLAY_TURN_LIMIT);
-      expect(serialized).not.toContain('many-000');
-      expect(serialized).toContain('many-219');
-      expect(serialized.match(/tool observations omitted/g)).toHaveLength(1);
-      expect(serialized).not.toContain('payload cleared');
-
-      const calls = [...serialized.matchAll(/"type":"tool-call"/g)].length;
-      const results = [...serialized.matchAll(/"type":"tool-result"/g)].length;
-      expect(calls).toBe(results);
-    });
-
-    it('bounds thousands of observations without repeatedly serializing the retained projection', () => {
-      const parts = Array.from({ length: 2000 }, (_, index) => ({
-        type: 'tool-search_conversations',
-        toolCallId: `bulk-${index.toString().padStart(4, '0')}`,
-        state: 'output-error',
-        input: {},
-        errorText: 'x',
-        outcome: 'invalid_input',
-      }));
-      const stringifyDescriptor = Object.getOwnPropertyDescriptor(
-        JSON,
-        'stringify',
-      );
-      if (!stringifyDescriptor) {
-        throw new Error('JSON.stringify descriptor is unavailable');
-      }
-      const originalStringify = JSON.stringify;
-      let wholeProjectionSerializations = 0;
-      let projected: ReturnType<typeof projectToolObservations>;
-
-      Object.defineProperty(JSON, 'stringify', {
-        ...stringifyDescriptor,
-        // eslint-disable-next-line anti-slop/no-unknown-parameters -- monkey-patches JSON.stringify for test instrumentation; mirrors its own `(value: any, ...) => string` signature narrowed to `unknown`, and forwards straight to the real `originalStringify` below.
-        value: (value: unknown) => {
-          if (Array.isArray(value) && value.length > 2) {
-            wholeProjectionSerializations += 1;
-          }
-          return originalStringify(value);
-        },
-      });
-      try {
-        projected = project(parts);
-      } finally {
-        Object.defineProperty(JSON, 'stringify', stringifyDescriptor);
-      }
-
-      expect(projected).not.toBeNull();
-      expect(projected?.pairs.length).toBeGreaterThan(0);
-      expect(wholeProjectionSerializations).toBeLessThanOrEqual(1);
-    });
-
-    it('keeps visible chronology outside the exact capped observation envelope', () => {
-      const leadingText = `Before tools: ${'A'.repeat(10_000)}`;
-      const trailingText = `After tools: ${'Z'.repeat(10_000)}`;
-      const assistant = msg({
-        role: 'assistant',
-        parts: [
-          { type: 'text', text: leadingText },
-          ...Array.from({ length: 220 }, (_, index) => ({
-            type: 'tool-search_conversations',
-            toolCallId: `many-${index.toString().padStart(3, '0')}`,
-            state: 'output-error',
-            input: {},
-            errorText: 'x',
-            outcome: 'invalid_input',
-          })),
-          { type: 'text', text: trailingText },
-        ],
-      });
-
-      const { messages } = buildContext([assistant], {
-        systemPrompt,
-        requestKind: 'continuation',
-      });
-
-      expect(messages[0]).toEqual({ role: 'assistant', content: leadingText });
-      expect(messages[1]?.role).toBe('assistant');
-      expect(messages[1]?.content).toContain(
-        'earlier tool observations omitted',
-      );
-      expect(messages[2]?.role).toBe('assistant');
-      expect(JSON.stringify(messages[2])).toContain('"type":"tool-call"');
-      expect(messages[3]?.role).toBe('tool');
-      expect(JSON.stringify(messages[3])).toContain('"type":"tool-result"');
-      expect(messages.at(-1)).toEqual({
-        role: 'assistant',
-        content: trailingText,
-      });
-
-      const observationMessages = messages.slice(1, -1);
-      const serializedObservations = JSON.stringify(observationMessages);
-      expect(serializedObservations.length).toBeLessThanOrEqual(
-        TOOL_REPLAY_TURN_LIMIT,
-      );
-      expect(JSON.stringify(messages).length).toBeGreaterThan(
-        TOOL_REPLAY_TURN_LIMIT,
-      );
-      expect(serializedObservations).not.toContain('many-000');
-      expect(serializedObservations).toContain('many-219');
-
-      const pairedMessages = observationMessages.slice(1);
-      const retainedPairs = pairedMessages.filter(
-        ({ role }) => role === 'assistant',
-      ).length;
-      // The cap drops whole oldest pairs, so every retained observation still
-      // has its assistant message and its tool message.
-      expect(retainedPairs).toBe(113);
-      expect(pairedMessages).toHaveLength(2 * retainedPairs);
-      expect(pairedMessages.filter(({ role }) => role === 'tool')).toHaveLength(
-        retainedPairs,
-      );
-      for (const message of messages) {
-        expect(() => modelMessageSchema.parse(message)).not.toThrow();
-      }
     });
 
     it('preserves exact structured error outcomes and uses a generic legacy fallback', () => {
@@ -2465,12 +2312,402 @@ describe('buildContext', () => {
       });
 
       const serialized = JSON.stringify(
-        buildContext([assistant], { systemPrompt, requestKind: 'continuation' })
-          .messages,
+        buildContext([assistant], {
+          systemPrompt,
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        }).messages,
       );
       expect(serialized).toContain('"type":"timeout"');
       expect(serialized).toContain('"type":"invalid_input"');
       expect(serialized).toContain('"type":"error"');
+    });
+
+    describe('the calls of one step replay as one step', () => {
+      const callPart = (toolCallId: string, step?: number): MessagePart => ({
+        type: 'tool-search_conversations',
+        toolCallId,
+        state: 'output-available',
+        input: { query: toolCallId },
+        output: { status: 'success', value: `${toolCallId} result` },
+        outcome: 'success',
+        ...(step !== undefined && { step }),
+      });
+
+      const assistantWith = (parts: Array<MessagePart>) =>
+        msg({ role: 'assistant', parts });
+
+      it('replays parallel calls as one step', () => {
+        const { messages } = buildContext(
+          [assistantWith([callPart('read-a', 2), callPart('read-b', 2)])],
+          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+        );
+
+        expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
+        expect(JSON.stringify(messages[0])).toContain('read-a');
+        expect(JSON.stringify(messages[0])).toContain('read-b');
+        expect(JSON.stringify(messages[1])).toContain('read-b');
+      });
+
+      it('replays sequential calls as two steps', () => {
+        const { messages } = buildContext(
+          [assistantWith([callPart('read-a', 2), callPart('read-b', 3)])],
+          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+        );
+
+        expect(messages.map(({ role }) => role)).toEqual([
+          'assistant',
+          'tool',
+          'assistant',
+          'tool',
+        ]);
+        expect(JSON.stringify(messages[0])).toContain('read-a');
+        expect(JSON.stringify(messages[0])).not.toContain('read-b');
+        expect(JSON.stringify(messages[2])).toContain('read-b');
+        expect(JSON.stringify(messages[2])).not.toContain('read-a');
+      });
+
+      it('keeps text before a call in its step', () => {
+        const { messages } = buildContext(
+          [
+            assistantWith([
+              { type: 'text', text: 'Reading now.', step: 1 },
+              callPart('read-a', 1),
+            ]),
+          ],
+          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+        );
+
+        expect(messages[0]).toMatchObject({ role: 'assistant' });
+        expect(messages[0].content).toEqual([
+          { type: 'text', text: 'Reading now.' },
+          expect.objectContaining({ type: 'tool-call', toolCallId: 'read-a' }),
+        ]);
+        expect(messages[1].role).toBe('tool');
+      });
+
+      it('keeps text between two parallel calls in their step', () => {
+        const { messages } = buildContext(
+          [
+            assistantWith([
+              { type: 'text', text: 'First.', step: 0 },
+              callPart('read-a', 0),
+              { type: 'text', text: 'Second.', step: 0 },
+              callPart('read-b', 0),
+            ]),
+          ],
+          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+        );
+
+        expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
+        expect(messages[0].content).toEqual([
+          { type: 'text', text: 'First.' },
+          expect.objectContaining({ toolCallId: 'read-a' }),
+          { type: 'text', text: 'Second.' },
+          expect.objectContaining({ toolCallId: 'read-b' }),
+        ]);
+        expect(messages[1]).toMatchObject({
+          role: 'tool',
+          content: [
+            expect.objectContaining({ toolCallId: 'read-a' }),
+            expect.objectContaining({ toolCallId: 'read-b' }),
+          ],
+        });
+      });
+
+      it('keeps text after the calls in their step', () => {
+        const { messages } = buildContext(
+          [
+            assistantWith([
+              callPart('read-a', 0),
+              { type: 'text', text: 'One more.', step: 0 },
+            ]),
+            assistantWith([callPart('read-b', 1)]),
+          ],
+          { systemPrompt, requestKind: 'continuation', modelId: 'test-model' },
+        );
+
+        expect(messages.map(({ role }) => role)).toEqual([
+          'assistant',
+          'tool',
+          'assistant',
+          'tool',
+        ]);
+        expect(messages[0].content).toEqual([
+          expect.objectContaining({ toolCallId: 'read-a' }),
+          { type: 'text', text: 'One more.' },
+        ]);
+        expect(messages[2].content).toEqual([
+          expect.objectContaining({ toolCallId: 'read-b' }),
+        ]);
+      });
+    });
+
+    it('replays a refused call as the live step sent it', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-no_such_tool',
+            toolCallId: 'call-refused',
+            state: 'output-error',
+            input: {},
+            errorText: 'llame refusal message',
+            outcome: 'not_available',
+            sdkRefusal: {
+              errorText:
+                'Model tried to call unavailable tool "no_such_tool". Available tools: read, grep.',
+              input: {},
+            },
+          },
+        ],
+      });
+
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+        modelId: 'test-model',
+      });
+
+      expect(messages[0]).toEqual({
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'call-refused',
+            toolName: 'no_such_tool',
+            input: {},
+          },
+        ],
+      });
+      expect(messages[1]).toEqual({
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-refused',
+            toolName: 'no_such_tool',
+            output: {
+              type: 'error-text',
+              value:
+                'Model tried to call unavailable tool "no_such_tool". Available tools: read, grep.',
+            },
+          },
+        ],
+      });
+      expect(JSON.stringify(messages)).not.toContain('llame refusal message');
+    });
+
+    it('a long tool turn replays whole', () => {
+      const readContent = 'R'.repeat(8629);
+      const editInput = {
+        path: '/work/draft.md',
+        oldText: 'O'.repeat(22_240),
+        newText: 'N'.repeat(22_240),
+      };
+      const parts: Array<MessagePart> = [
+        {
+          type: 'tool-read',
+          toolCallId: 'call-read-draft',
+          state: 'output-available',
+          input: { path: '/work/draft.md' },
+          output: {
+            status: 'success',
+            kind: 'file',
+            path: '/work/draft.md',
+            content: readContent,
+            truncated: false,
+          },
+          outcome: 'success',
+        },
+        {
+          type: 'tool-edit',
+          toolCallId: 'call-edit-draft',
+          state: 'output-available',
+          input: editInput,
+          output: {
+            status: 'success',
+            operation: 'edit',
+            path: '/work/draft.md',
+            replacements: 1,
+            content: '1: changed',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: false,
+          },
+          outcome: 'success',
+        },
+        ...Array.from({ length: 17 }, (_, index) => ({
+          type: 'tool-search_conversations',
+          toolCallId: `call-${index.toString().padStart(2, '0')}`,
+          state: 'output-available' as const,
+          input: { query: `query-${index}` },
+          output: { status: 'success', value: 'result' },
+          outcome: 'success',
+        })),
+      ];
+      // The repro's measure: the stored tool parts of one turn. The filler's
+      // payload is what makes the fixture exactly that size.
+      const filler: UnknownRecord = {
+        type: 'tool-search_conversations',
+        toolCallId: 'call-filler',
+        state: 'output-available',
+        input: { query: 'filler' },
+        output: { status: 'success', value: '' },
+        outcome: 'success',
+      };
+      parts.push(filler);
+      const fillerOutput = filler['output'];
+      if (!isRecord(fillerOutput))
+        throw new Error('Expected the filler output');
+      fillerOutput['value'] = 'F'.repeat(
+        176_510 - JSON.stringify(parts).length,
+      );
+
+      expect(JSON.stringify(parts)).toHaveLength(176_510);
+      expect(parts).toHaveLength(20);
+      expect(readContent).toHaveLength(8629);
+      expect(editInput.oldText).toHaveLength(22_240);
+
+      const { messages } = buildContext([msg({ role: 'assistant', parts })], {
+        systemPrompt,
+        requestKind: 'continuation',
+        modelId: 'test-model',
+      });
+      const serialized = JSON.stringify(messages);
+
+      // Every call keeps its input and every result its full text: nothing is
+      // cleared, dropped, or replaced by an omission marker.
+      expect(serialized.match(/"type":"tool-call"/g)).toHaveLength(20);
+      expect(serialized.match(/"type":"tool-result"/g)).toHaveLength(20);
+      expect(serialized).toContain(readContent);
+      expect(serialized).toContain('O'.repeat(22_240));
+      expect(serialized).not.toContain('omitted');
+      expect(serialized).not.toContain('REPLAY_BUDGET');
+    });
+  });
+
+  describe('the model rule for earlier reasoning and provider metadata', () => {
+    const providerMetadata = {
+      openai: { itemId: 'msg_item_1', reasoningEncryptedContent: 'ENC' },
+    };
+    const parts: Array<MessagePart> = [
+      { type: 'reasoning', text: 'EARLIER_REASONING', providerMetadata },
+      {
+        type: 'text',
+        text: 'Earlier answer',
+        providerMetadata: { openai: { itemId: 'text_item_1' } },
+      },
+      {
+        type: 'tool-search_conversations',
+        toolCallId: 'call-rule',
+        state: 'output-available',
+        input: { query: 'rule' },
+        output: { status: 'success', value: 'RULE_RESULT' },
+        outcome: 'success',
+        providerMetadata: { openai: { itemId: 'call_item_1' } },
+      },
+    ];
+
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- a stored reply's `usage` is untyped jsonb; the model rule parses it.
+    const replay = (usage: unknown, modelId: string) =>
+      buildContext([userMsg1, msg({ role: 'assistant', usage, parts })], {
+        systemPrompt,
+        requestKind: 'continuation',
+        modelId,
+      }).messages;
+
+    it('replays reasoning and provider metadata for a completed reply on the same model', () => {
+      const messages = replay(
+        { status: 'completed', modelId: 'sonnet' },
+        'sonnet',
+      );
+      const serialized = JSON.stringify(messages);
+
+      expect(serialized).toContain('EARLIER_REASONING');
+      expect(serialized).toContain('"reasoningEncryptedContent":"ENC"');
+      expect(serialized).toContain('"itemId":"text_item_1"');
+      expect(serialized).toContain('"itemId":"call_item_1"');
+      // The result of a call that ran carries the call's metadata.
+      expect(messages[2]).toEqual({
+        role: 'tool',
+        content: [
+          expect.objectContaining({
+            toolCallId: 'call-rule',
+            providerOptions: { openai: { itemId: 'call_item_1' } },
+          }),
+        ],
+      });
+    });
+
+    it('keeps text and tool activity but drops both after a model switch', () => {
+      const messages = replay(
+        { status: 'completed', modelId: 'sonnet' },
+        'glm-5',
+      );
+      const serialized = JSON.stringify(messages);
+
+      expect(serialized).not.toContain('EARLIER_REASONING');
+      expect(serialized).not.toContain('ENC');
+      expect(serialized).not.toContain('text_item_1');
+      expect(serialized).not.toContain('call_item_1');
+      expect(serialized).not.toContain('providerOptions');
+      expect(serialized).toContain('Earlier answer');
+      expect(serialized).toContain('RULE_RESULT');
+      expect(messages[1]).toEqual({
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Earlier answer' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-rule',
+            toolName: 'search_conversations',
+            input: { query: 'rule' },
+          },
+        ],
+      });
+    });
+
+    it('drops both after a reply that did not complete', () => {
+      const messages = replay({ status: 'error', modelId: 'sonnet' }, 'sonnet');
+      const serialized = JSON.stringify(messages);
+
+      expect(serialized).not.toContain('EARLIER_REASONING');
+      expect(serialized).not.toContain('ENC');
+      expect(serialized).not.toContain('providerOptions');
+      expect(serialized).toContain('Earlier answer');
+      expect(serialized).toContain('RULE_RESULT');
+    });
+
+    it('drops both for a row written before usage existed', () => {
+      const serialized = JSON.stringify(replay(undefined, 'sonnet'));
+
+      expect(serialized).not.toContain('EARLIER_REASONING');
+      expect(serialized).not.toContain('providerOptions');
+      expect(serialized).toContain('Earlier answer');
+    });
+
+    it('replays the reasoning of the original model after a round trip through another model', () => {
+      const turn1 = msg({
+        role: 'assistant',
+        usage: { status: 'completed', modelId: 'sonnet' },
+        parts: [
+          { type: 'reasoning', text: 'SONNET_THOUGHT', providerMetadata },
+        ],
+      });
+      const turn2 = msg({
+        role: 'assistant',
+        usage: { status: 'completed', modelId: 'glm-5' },
+        parts: [{ type: 'reasoning', text: 'GLM_THOUGHT' }],
+      });
+      const { messages } = buildContext([userMsg1, turn1, userMsg2, turn2], {
+        systemPrompt,
+        requestKind: 'continuation',
+        modelId: 'sonnet',
+      });
+      const serialized = JSON.stringify(messages);
+
+      expect(serialized).toContain('SONNET_THOUGHT');
+      expect(serialized).not.toContain('GLM_THOUGHT');
     });
   });
 });
@@ -2511,6 +2748,7 @@ describe('reasoning replay at the Responses SDK boundary (3.3)', () => {
   });
   const assistantMessage = msg({
     role: 'assistant',
+    usage: { status: 'completed', modelId: 'test-model' },
     parts: [
       { type: 'reasoning', text: reasoningText, providerMetadata },
       // Persisted before this capability: neither an item id nor encrypted
@@ -2568,6 +2806,7 @@ describe('reasoning replay at the Responses SDK boundary (3.3)', () => {
     buildContext([userMessage, assistantMessage], {
       systemPrompt,
       requestKind: 'continuation',
+      modelId: 'test-model',
     });
 
   it('under store: false the part becomes an inline reasoning item carrying the adapter payload', async () => {

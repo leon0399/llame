@@ -1,14 +1,17 @@
 /**
  * Provider-portable replay of persisted tool observations.
  *
- * Budgets are measured in JavaScript UTF-16 code units over the exact
- * `JSON.stringify([assistantToolCallMessage, toolResultMessage])` envelope.
- * Pairing wins over payload retention: payloads clear oldest-first, then whole
- * oldest pairs are omitted when their irreducible envelopes still do not fit.
+ * One stored tool part becomes the call and its matched result, as the live
+ * loop sent them (`turn-replay`): the call keeps the stored input and the
+ * provider metadata of the live call, and the result is the one rendering that
+ * `tool-result-rendering` makes — the live builder's output, or the SDK's own
+ * error text for a call that the AI SDK refused before llame ran it (proposal
+ * A8). Replay has no budget: it clears no payload and drops no pair, because a
+ * checkpoint is the only boundary (`tool-replay` D2).
  */
 
 import type {
-  ModelMessage,
+  ProviderMetadata,
   ToolCallPart as SdkToolCallPart,
   ToolResultPart as SdkToolResultPart,
 } from 'ai';
@@ -16,6 +19,7 @@ import type {
 import { isRejectedHopUrl } from '../tools/permissions/messages';
 import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
 import { type ToolResult } from '../tools/types';
+import type { SdkRefusal } from '../models/model-client';
 import {
   isRecord,
   isString,
@@ -30,19 +34,11 @@ import {
   type ToolMediaRef,
   type ToolResultOutput,
 } from '../media/epoch-admission';
-import {
-  parseRetainedMedia,
-  storedToolPartMediaKey,
-} from '../media/retained-media';
+import { parseRetainedMedia } from '../media/retained-media';
 import { retainedEntry, type RetainedMedia } from '../media/attempt-media';
 
 export const TOOL_PART_PREFIX = 'tool-';
-export const TOOL_REPLAY_CALL_LIMIT = 8000;
-export const TOOL_REPLAY_TURN_LIMIT = 32_000;
 export const TOOL_OUTCOME_MAX_LENGTH = 128;
-export function renderToolObservationOmission(count: number): string {
-  return `[${count} earlier tool observations omitted to fit replay budget.]`;
-}
 
 const TOOL_CALL_ID_MAX_LENGTH = 1024;
 const TOOL_NAME_MAX_LENGTH = 64;
@@ -53,16 +49,6 @@ const TOOL_OUTCOME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
 /** The native `read` tool — the one tool whose refused redirect hop reports a
  *  target (tools/web-read/http-client.ts). */
 const READ_TOOL_NAME = 'read';
-
-/**
- * The tools whose `complete: false` result means the payload is partial: a
- * cleared pair replays as `incomplete`, not as a success, so the model never
- * reads a stopped page as the whole answer.
- */
-const PARTIAL_RESULT_TOOL_PARTS = {
-  'tool-knowledge_search': true,
-  'tool-grep': true,
-} satisfies Record<string, true>;
 
 /** The error type a refused redirect hop reports. */
 const HOP_REJECTION_OUTCOME = 'permission_denied';
@@ -92,8 +78,20 @@ interface StoredToolPart {
    * a hop rejection before either reader renders it.
    */
   errorRejectedUrl?: unknown;
+  /**
+   * What the AI SDK itself put in the live step for a call it refused before
+   * llame ran it (design D3, proposal A8): its error text and its form of the
+   * input. Present only on a refused call, and the marker of one.
+   */
+  sdkRefusal?: unknown;
   outcome?: unknown;
   resultProviderMetadata?: unknown;
+  /**
+   * The opaque provider metadata the adapter attached to the live call (design
+   * A7), stored once on the call and copied to the result of a call that ran,
+   * as the SDK does.
+   */
+  providerMetadata?: unknown;
   /**
    * The retained bytes of an unstored `read`, stored beside the result and
    * never in model text (`media-attachments`). A part with no valid record is
@@ -103,24 +101,22 @@ interface StoredToolPart {
 }
 
 export interface ProjectedToolObservationPair {
+  /** The stored part this pair replays, for the reply's step grouping. */
   partIndex: number;
   toolCallPart: SdkToolCallPart;
   toolResultPart: SdkToolResultPart;
-}
-
-export interface ToolObservationProjection {
-  pairs: Array<ProjectedToolObservationPair>;
-  toolCallParts: Array<SdkToolCallPart>;
-  toolResultParts: Array<SdkToolResultPart>;
-  omittedCount: number;
-  omissionPartIndex: number | null;
   /**
-   * The retained entry behind each media marker in `pairs`, keyed by the
-   * marker's key, so the caller merges them into the attempt's map before
-   * sizing or composing the request. A cleared or omitted pair emits no
-   * marker, so the entry its part keeps stays unused.
+   * The opaque provider metadata of the live call, sent back on the call and —
+   * for a call that ran — on its result, when the model rule of
+   * `reasoning-output` allows it.
    */
-  retainedMedia: ReadonlyMap<string, RetainedMedia>;
+  providerMetadata: ProviderMetadata | undefined;
+  /**
+   * Whether the AI SDK refused the call before llame ran it (proposal A8). A
+   * refused call's result is the SDK's error text and carries no provider
+   * metadata, because the result the SDK synthesized carried none.
+   */
+  refused: boolean;
 }
 
 interface ObservationPayload {
@@ -130,27 +126,19 @@ interface ObservationPayload {
   input: unknown;
   /** The output the live loop sent for this call, rebuilt from the part. */
   output: ToolResultOutput;
-  /** The outcome a cleared pair keeps; it is the whole of its text. */
-  clearedOutcome: string;
   /**
    * The image or PDF a `read` result names: its media id, or for an unstored
-   * file its submitted locator, dimensions or page count, and marker key. The
-   * Continue projection reuses it as the `retainedRef` when it rebuilds a
-   * recorded result; `output` already carries the reference itself, so the
-   * budgets measure the text without the `thumbnail` and never the bytes
-   * (vision-media D6).
+   * file its submitted locator, dimensions or page count, and marker key. It
+   * replays only beside the retained payload, as a reference the step composer
+   * projects at request time (vision-media D6).
    */
   media: ToolMediaRef | undefined;
   /** The entry `media` names, when the reference is retained. */
   retained: { readonly key: string; readonly entry: RetainedMedia } | undefined;
-}
-
-interface PairCandidate {
-  observation: ObservationPayload;
-  cleared: ProjectedToolObservationPair;
-  clearedSize: number;
-  selected: ProjectedToolObservationPair;
-  selectedSize: number;
+  /** The SDK's own account of a call it refused, when the part holds one. */
+  refusal: SdkRefusal | undefined;
+  /** The live call's opaque provider metadata, when the part holds one. */
+  providerMetadata: ProviderMetadata | undefined;
 }
 
 export function normalizeToolObservationOutcome(
@@ -200,6 +188,31 @@ function isToolActivityPart(part: unknown): part is StoredToolPart {
 export function isCancelledMetadata(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.llame)) return false;
   return value.llame.cancelled === true;
+}
+
+/**
+ * The SDK's own account of a refused call, re-read from the untrusted part: a
+ * record without a string error text, or without an input member at all, is
+ * no refusal — the part then keeps llame's own error text alone.
+ */
+function storedRefusal(value: unknown): SdkRefusal | undefined {
+  if (!isRecord(value)) return undefined;
+  const errorText = value['errorText'];
+  if (!isString(errorText) || !Object.hasOwn(value, 'input')) return undefined;
+  return { errorText, input: value['input'] };
+}
+
+/**
+ * The live call's opaque provider metadata, re-read from the untrusted part.
+ * Only a record is accepted; llame never reads inside it.
+ */
+function storedProviderMetadata(value: unknown): ProviderMetadata | undefined {
+  if (!isRecord(value)) return undefined;
+  // SAFETY: the value is the adapter's own provider-metadata object as the
+  // stored part keeps it; the check above only rules out a malformed or legacy
+  // shape, and nothing reads inside it.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as ProviderMetadata;
 }
 
 function resolveOutcome(part: StoredToolPart): string {
@@ -276,215 +289,37 @@ function storedOutput(
   );
 }
 
-function pairEnvelope(pair: ProjectedToolObservationPair): Array<ModelMessage> {
-  return [
-    { role: 'assistant', content: [pair.toolCallPart] },
-    { role: 'tool', content: [pair.toolResultPart] },
-  ];
+/** The SDK's `error-text` output for a call it refused (proposal A8). */
+function refusalOutput(refusal: SdkRefusal): ToolResultOutput {
+  return { type: 'error-text', value: refusal.errorText };
 }
 
-function measureToolObservationPair(
-  pair: ProjectedToolObservationPair,
-): number {
-  return JSON.stringify(pairEnvelope(pair)).length;
-}
-
+/**
+ * One stored observation as the pair the live loop sent: the call with its
+ * input (the SDK's own form for a refused call), and the result with the live
+ * rendering, or the SDK's error text when the call was refused.
+ */
 function makePair(
   observation: ObservationPayload,
-  cleared: boolean,
 ): ProjectedToolObservationPair {
+  const { refusal } = observation;
   return {
     partIndex: observation.partIndex,
     toolCallPart: {
       type: 'tool-call',
       toolCallId: observation.toolCallId,
       toolName: observation.toolName,
-      input: cleared ? {} : (observation.input ?? {}),
+      input: refusal === undefined ? (observation.input ?? {}) : refusal.input,
     },
     toolResultPart: {
       type: 'tool-result',
       toolCallId: observation.toolCallId,
       toolName: observation.toolName,
-      // A cleared pair keeps its outcome token alone.
-      output: cleared
-        ? toolResultOutput(observation.clearedOutcome, undefined)
-        : observation.output,
+      output:
+        refusal === undefined ? observation.output : refusalOutput(refusal),
     },
-  };
-}
-
-function measureProjection(
-  pairCount: number,
-  pairSizeTotal: number,
-  omittedCount: number,
-): number {
-  // Flattening `[assistant,tool]` pairs into one message array removes one
-  // framing code unit per pair; outer framing and the omission marker add back.
-  const pairMessagesSize = pairSizeTotal - pairCount;
-  if (omittedCount > 0) {
-    const omissionMessageSize = JSON.stringify({
-      role: 'assistant',
-      content: renderToolObservationOmission(omittedCount),
-    }).length;
-    return 2 + omissionMessageSize + pairMessagesSize;
-  }
-  return pairCount === 0 ? 2 : 1 + pairMessagesSize;
-}
-
-function incrementOmittedCount(count: number): number {
-  return Math.min(Number.MAX_SAFE_INTEGER, count + 1);
-}
-
-type BoundingState = {
-  omittedCount: number;
-  omittedPartIndexes: Array<number>;
-};
-
-function recordOmission(state: BoundingState, partIndex: number): void {
-  state.omittedCount = incrementOmittedCount(state.omittedCount);
-  state.omittedPartIndexes.push(partIndex);
-}
-
-/** Pass 1: clear any candidate whose full call already exceeds the per-call limit. */
-function clearOversizedCandidates(
-  candidates: Array<PairCandidate>,
-  state: BoundingState,
-): void {
-  for (const candidate of candidates) {
-    if (candidate.selectedSize <= TOOL_REPLAY_CALL_LIMIT) {
-      continue;
-    }
-    candidate.selected = candidate.cleared;
-    candidate.selectedSize = candidate.clearedSize;
-    if (candidate.selectedSize > TOOL_REPLAY_CALL_LIMIT) {
-      recordOmission(state, candidate.observation.partIndex);
-    }
-  }
-}
-
-/** Pass 2: clear retained candidates (front to back) until the turn projection fits. */
-function clearCandidatesUntilWithinLimit(
-  retained: Array<PairCandidate>,
-  retainedSize: number,
-  state: BoundingState,
-): number {
-  let size = retainedSize;
-  if (
-    measureProjection(retained.length, size, state.omittedCount) <=
-    TOOL_REPLAY_TURN_LIMIT
-  ) {
-    return size;
-  }
-  for (const candidate of retained) {
-    if (candidate.selected === candidate.cleared) continue;
-    if (candidate.clearedSize < candidate.selectedSize) {
-      size -= candidate.selectedSize - candidate.clearedSize;
-      candidate.selected = candidate.cleared;
-      candidate.selectedSize = candidate.clearedSize;
-    }
-    if (
-      measureProjection(retained.length, size, state.omittedCount) <=
-      TOOL_REPLAY_TURN_LIMIT
-    ) {
-      break;
-    }
-  }
-  return size;
-}
-
-/** Pass 3: drop retained candidates from the front until the turn projection fits. */
-function dropCandidatesUntilWithinLimit(
-  retained: Array<PairCandidate>,
-  retainedSize: number,
-  state: BoundingState,
-) {
-  let start = 0;
-  let size = retainedSize;
-  while (
-    start < retained.length &&
-    measureProjection(retained.length - start, size, state.omittedCount) >
-      TOOL_REPLAY_TURN_LIMIT
-  ) {
-    const dropped = retained[start];
-    start += 1;
-    size -= dropped.selectedSize;
-    recordOmission(state, dropped.observation.partIndex);
-  }
-  return { retained: retained.slice(start), retainedSize: size };
-}
-
-function boundCandidates(
-  candidates: Array<PairCandidate>,
-  inheritedOmittedCount = 0,
-) {
-  const state: BoundingState = {
-    omittedCount: inheritedOmittedCount,
-    omittedPartIndexes: [],
-  };
-  clearOversizedCandidates(candidates, state);
-
-  const withinCallLimit = candidates.filter(
-    (candidate) => candidate.selectedSize <= TOOL_REPLAY_CALL_LIMIT,
-  );
-  const withinCallLimitSize = withinCallLimit.reduce(
-    (total, candidate) => total + candidate.selectedSize,
-    0,
-  );
-
-  const clearedSize = clearCandidatesUntilWithinLimit(
-    withinCallLimit,
-    withinCallLimitSize,
-    state,
-  );
-  const { retained } = dropCandidatesUntilWithinLimit(
-    withinCallLimit,
-    clearedSize,
-    state,
-  );
-
-  return {
-    pairs: retained.map(({ selected }) => selected),
-    omittedCount: state.omittedCount,
-    omittedPartIndexes: state.omittedPartIndexes,
-  };
-}
-
-function candidatesFromObservations(
-  observations: Array<ObservationPayload>,
-): Array<PairCandidate> {
-  return observations.map((observation) => {
-    const full = makePair(observation, false);
-    const cleared = makePair(observation, true);
-    const fullSize = measureToolObservationPair(full);
-    const clearedSize = measureToolObservationPair(cleared);
-    return {
-      observation,
-      cleared,
-      clearedSize,
-      selected: full,
-      selectedSize: fullSize,
-    };
-  });
-}
-
-function projectionFromBounded(input: {
-  pairs: Array<ProjectedToolObservationPair>;
-  omittedCount: number;
-  omittedPartIndexes: Array<number>;
-  retainedMedia: ReadonlyMap<string, RetainedMedia>;
-}): ToolObservationProjection {
-  return {
-    pairs: input.pairs,
-    toolCallParts: input.pairs.map(({ toolCallPart }) => toolCallPart),
-    toolResultParts: input.pairs.map(({ toolResultPart }) => toolResultPart),
-    omittedCount: input.omittedCount,
-    omissionPartIndex:
-      input.omittedPartIndexes.length > 0
-        ? Math.min(...input.omittedPartIndexes)
-        : input.omittedCount > 0
-          ? -1
-          : null,
-    retainedMedia: input.retainedMedia,
+    providerMetadata: observation.providerMetadata,
+    refused: refusal !== undefined,
   };
 }
 
@@ -529,35 +364,18 @@ function storedObservation(
     partIndex,
     toolCallId: part.toolCallId,
     toolName,
-    clearedOutcome:
-      Object.hasOwn(PARTIAL_RESULT_TOOL_PARTS, part.type) &&
-      part.state === 'output-available' &&
-      outcome === 'success' &&
-      isRecord(part.output) &&
-      part.output.status === 'success' &&
-      part.output.complete === false
-        ? 'incomplete'
-        : outcome,
+
     input: part.input,
     output: storedOutput(part, toolName, outcome, media),
     media,
     retained,
+    refusal: storedRefusal(part.sdkRefusal),
+    providerMetadata: storedProviderMetadata(part.providerMetadata),
   };
 }
 
-/** The retained entries the given observations name, keyed by marker. */
-function retainedEntriesOf(
-  observations: ReadonlyArray<ObservationPayload>,
-): ReadonlyMap<string, RetainedMedia> {
-  return new Map(
-    observations.flatMap(({ retained }) =>
-      retained === undefined ? [] : [[retained.key, retained.entry] as const],
-    ),
-  );
-}
-
-/** A kept part as its unbudgeted call and result pair, with its media. */
-type StoredToolObservation = {
+/** One stored tool part as its model-facing call and result pair. */
+export interface StoredToolObservation {
   readonly pair: ProjectedToolObservationPair;
   /** The reference its result names, when the part keeps the bytes. */
   readonly media: ToolMediaRef | undefined;
@@ -565,15 +383,13 @@ type StoredToolObservation = {
   readonly retained:
     | { readonly key: string; readonly entry: RetainedMedia }
     | undefined;
-};
+}
 
 /**
- * One stored tool part as its model-facing call and result pair, unbudgeted:
- * the Continue projection sends every kept result the way the live loop sent
- * it (turn-actions D6), so it shares this file's serialization instead of the
- * later-turn projection's clearing and omission. `mediaKey` is the marker key
- * the Continue projection loads the part's retained bytes under. Undefined for
- * a part that is not a settled tool part.
+ * One stored tool part as the call and result pair the live loop sent, with
+ * the retained entry its media marker names. `mediaKey` is the key the request
+ * that replays it loads the part's retained bytes under. Undefined for a part
+ * that is not a settled tool part.
  */
 export function projectStoredToolPart(
   part: MessagePart,
@@ -583,31 +399,8 @@ export function projectStoredToolPart(
   const observation = storedObservation(part, partIndex, mediaKey);
   if (observation === undefined) return undefined;
   return {
-    pair: makePair(observation, false),
+    pair: makePair(observation),
     media: observation.media,
     retained: observation.retained,
   };
-}
-
-/**
- * `parts` as the later-turn projection, with `messageId` naming the row its
- * retained markers load their bytes under.
- */
-export function projectToolObservations(
-  parts: Array<MessagePart>,
-  messageId: string,
-): ToolObservationProjection | null {
-  const observations = parts.flatMap((part, partIndex) => {
-    const observation = storedObservation(
-      part,
-      partIndex,
-      storedToolPartMediaKey(messageId, partIndex),
-    );
-    return observation === undefined ? [] : [observation];
-  });
-  if (observations.length === 0) return null;
-  return projectionFromBounded({
-    ...boundCandidates(candidatesFromObservations(observations)),
-    retainedMedia: retainedEntriesOf(observations),
-  });
 }

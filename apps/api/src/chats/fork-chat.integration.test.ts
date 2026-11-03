@@ -883,6 +883,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           sourceWindow.checkpoint,
         ),
         requestKind: 'continuation',
+        modelId: 'test-model',
         checkpoint: toContextCheckpoint(sourceWindow.checkpoint),
       },
     );
@@ -894,6 +895,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           forkWindow.checkpoint,
         ),
         requestKind: 'continuation',
+        modelId: 'test-model',
         checkpoint: toContextCheckpoint(forkWindow.checkpoint),
       },
     );

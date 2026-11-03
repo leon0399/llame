@@ -233,8 +233,7 @@ function keptPair(
   const result = results.get(toolCallPart.toolCallId);
   if (result === undefined) return stored.pair;
   return {
-    partIndex,
-    toolCallPart,
+    ...stored.pair,
     toolResultPart: {
       type: 'tool-result',
       toolCallId: toolCallPart.toolCallId,

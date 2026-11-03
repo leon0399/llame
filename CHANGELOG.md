@@ -2,6 +2,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
+- **BREAKING: a later turn replays the whole stored turn, so a long older Chat
+  can fail with `context_incompatible`.** One projection now turns stored rows
+  into the model messages the live loop sent: one assistant message per model
+  step, one tool message with its results, a refused call with the SDK's own
+  error text and input, and the live rendering of every result. It clears no
+  payload, drops no pair, and adds no omission marker — the 8,000-unit per-call
+  and 32,000-unit per-turn replay budgets are gone, because a checkpoint is the
+  only eviction boundary. A stored part now records its model step, and text and
+  tool parts keep the provider metadata of the live step, so on the same completed
+  reply a turn's first request starts with the previous request and its
+  response; a model switch or a failed reply drops only that reply's reasoning
+  and provider metadata. Earlier reasoning therefore replays only for the model
+  that produced it. Requests grow in tool-heavy Chats and compaction fires
+  earlier, so a Chat written before this change whose full history no longer
+  fits can fail its next turn with `context_incompatible`; fork from a recent
+  message in that case. No migration, and no backfill: an older row replays as
+  stored and takes one cache miss. Refs
+  [#1539](https://github.com/leon0399/llame/issues/1539),
+  [#599](https://github.com/leon0399/llame/issues/599).
+
 - **BREAKING: a replayed tool result is now the result the live loop sent, with
   no untrusted-output frame.** A later turn and a compaction request render each
   stored tool part through the same function that rendered it live, so the text
@@ -12,8 +32,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   once on both paths. A spilled result names its artifact in its cap notice,
   exactly as the live result did. The model-visible text of earlier turns
   therefore changes once for existing Chats; no stored row or schema changes.
-  The per-call and per-turn replay budget still applies in this revision, and a
-  pair that it clears now carries only its outcome token. Refs
+  In that revision the per-call and per-turn replay budget still applied, and a
+  pair that it cleared carried only its outcome token; the replay entry above
+  removes it. Refs
   [#1539](https://github.com/leon0399/llame/issues/1539).
 
 - The `openai-responses` wire now sends `store: false` on every request, so the

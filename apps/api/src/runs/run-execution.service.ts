@@ -2659,9 +2659,10 @@ export class RunExecutionService {
     return {
       context: buildContext(toStoredMessages(history), {
         systemPrompt,
-        // A Run's own request continues this Chat, so it replays the Chat's
-        // persisted reasoning (D16).
+        // A Run's own request continues this Chat, and its model decides
+        // which earlier reasoning and provider metadata replay (D7, D16).
         requestKind: 'continuation',
+        modelId: input.client.model,
         ...(checkpoint !== undefined && {
           checkpoint: toContextCheckpoint(checkpoint),
         }),
@@ -3753,6 +3754,7 @@ export class RunExecutionService {
         railText: stagedContextTexts(input.stagedParts)
           .map((part) => part.text)
           .join(''),
+        modelId: input.run.client.model,
         media: input.media,
         keptRefCount: input.keptRefCount,
       }) +

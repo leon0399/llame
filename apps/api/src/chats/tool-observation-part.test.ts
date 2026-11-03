@@ -1,5 +1,5 @@
 import {
-  projectToolObservations,
+  projectStoredToolPart,
   type ProjectedToolObservationPair,
 } from './tool-observation-part';
 import { toToolResult } from '../tools/bash-result';
@@ -32,10 +32,9 @@ function toolPart(overrides: UnknownRecord = {}): MessagePart {
 
 /** The one projected tool result pair for `part`. */
 function projectedPart(part: MessagePart): ProjectedToolObservationPair {
-  const projection = projectToolObservations([part], 'msg-1');
-  const pair = projection?.pairs[0];
-  if (pair === undefined) throw new Error('Expected a tool projection');
-  return pair;
+  const projection = projectStoredToolPart(part, 0, 'msg-1:0');
+  if (projection === undefined) throw new Error('Expected a tool projection');
+  return projection.pair;
 }
 
 /** The text of a projected result that the live builder rendered as text. */
@@ -520,5 +519,111 @@ describe('live and replayed renderings agree', () => {
 
     expect(text).not.toContain('artifact://grep-7');
     expect(text).not.toContain('Artifact:');
+  });
+});
+
+const CALL_METADATA = { test: { itemId: 'call-1-item' } };
+
+describe('refused calls replay as the live step sent them', () => {
+  it('replays the SDK error text and its form of the input', () => {
+    const part = toolPart({
+      type: 'tool-no_such_tool',
+      state: 'output-error',
+      input: 'not valid json{{{',
+      output: undefined,
+      errorText: 'llame refusal message',
+      outcome: 'not_available',
+      sdkRefusal: {
+        errorText:
+          'Model tried to call unavailable tool "no_such_tool". Available tools: read, grep.',
+        input: {},
+      },
+    });
+
+    const pair = projectedPart(part);
+
+    expect(pair.refused).toBe(true);
+    expect(pair.toolCallPart).toMatchObject({
+      type: 'tool-call',
+      toolCallId: 'call-1',
+      toolName: 'no_such_tool',
+      input: {},
+    });
+    expect(pair.toolResultPart.output).toEqual({
+      type: 'error-text',
+      value:
+        'Model tried to call unavailable tool "no_such_tool". Available tools: read, grep.',
+    });
+    // The owner-facing message is not the model's result.
+    expect(JSON.stringify(pair.toolResultPart)).not.toContain(
+      'llame refusal message',
+    );
+  });
+
+  it('replays a schema-invalid call with the parsed input the SDK kept', () => {
+    const pair = projectedPart(
+      toolPart({
+        type: 'tool-read',
+        input: { path: 7 },
+        output: undefined,
+        errorText: '',
+        outcome: 'invalid_input',
+        sdkRefusal: {
+          errorText: 'Invalid input for tool "read"',
+          input: { path: 7 },
+        },
+      }),
+    );
+
+    expect(pair.toolCallPart.input).toEqual({ path: 7 });
+    expect(pair.toolResultPart.output).toEqual({
+      type: 'error-text',
+      value: 'Invalid input for tool "read"',
+    });
+  });
+
+  it('ignores a refusal record without an input member', () => {
+    const pair = projectedPart(
+      toolPart({
+        state: 'output-error',
+        output: undefined,
+        errorText: 'BOOM',
+        outcome: 'not_available',
+        sdkRefusal: { errorText: 'SDK text' },
+      }),
+    );
+
+    expect(pair.refused).toBe(false);
+    expect(JSON.stringify(pair.toolResultPart.output)).toContain('BOOM');
+  });
+});
+
+describe('the live call provider metadata', () => {
+  it('is carried on the pair for the model rule to replay', () => {
+    const stored = projectStoredToolPart(
+      toolPart({ providerMetadata: CALL_METADATA }),
+      0,
+      'msg-1:0',
+    );
+
+    expect(stored?.pair.providerMetadata).toEqual(CALL_METADATA);
+    expect(stored?.pair.refused).toBe(false);
+    // The projection itself adds no providerOptions: the caller applies the
+    // model rule and copies the call's metadata onto a result that ran.
+    expect(stored?.pair.toolCallPart).not.toHaveProperty('providerOptions');
+    expect(stored?.pair.toolResultPart).not.toHaveProperty('providerOptions');
+  });
+
+  it('is undefined for a part that stores none or an unreadable value', () => {
+    expect(
+      projectStoredToolPart(toolPart(), 0, 'msg-1:0')?.pair.providerMetadata,
+    ).toBeUndefined();
+    expect(
+      projectStoredToolPart(
+        toolPart({ providerMetadata: 'opaque-ish' }),
+        0,
+        'msg-1:0',
+      )?.pair.providerMetadata,
+    ).toBeUndefined();
   });
 });

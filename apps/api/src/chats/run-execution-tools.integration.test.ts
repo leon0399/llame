@@ -3368,6 +3368,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge replay test',
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       // The replayed read is the text rendering: the header names the shown
       // range and the total, and the attribution lines follow it, so every
@@ -3403,7 +3404,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ],
           },
         ],
-        { systemPrompt: 'Knowledge replay test', requestKind: 'continuation' },
+        {
+          systemPrompt: 'Knowledge replay test',
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        },
       );
       expect(JSON.stringify(historical.messages)).toContain(contentHash);
 
@@ -3430,7 +3435,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ],
           },
         ],
-        { systemPrompt: 'Knowledge replay test', requestKind: 'continuation' },
+        {
+          systemPrompt: 'Knowledge replay test',
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        },
       );
       const degradedReplay = JSON.stringify(degraded.messages);
       expect(degraded.messages).toHaveLength(2);
@@ -3574,6 +3583,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         {
           systemPrompt: 'Conversation replay test',
           requestKind: 'continuation',
+          modelId: 'test-model',
         },
       );
       const replayed = JSON.stringify(replay.messages);
@@ -3994,6 +4004,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge search replay test',
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const replayed = JSON.stringify(replay.messages);
       expect(replayed).toContain(space.id);
@@ -5835,7 +5846,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
                 createdAt: new Date(0),
               },
             ],
-            { systemPrompt: 'system', requestKind: 'continuation' },
+            {
+              systemPrompt: 'system',
+              requestKind: 'continuation',
+              modelId: 'test-model',
+            },
           );
           mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
           const composed = await composeStepMessages(sent.messages, {
