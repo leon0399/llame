@@ -6,7 +6,8 @@ The system MUST render each tool result a model receives through one rendering f
 of that function MUST be the tool result object: a success object, or a failure object with its
 type, message, and locators. Replay MUST rebuild the failure object from the stored outcome, error
 text, and rejected locator. The function MUST produce the live result, the replayed result of a
-later turn, and the kept result of a Continue Run. A tool MUST NOT bypass the function.
+later turn, and the kept result of a Continue Run. A call that the AI SDK refused before llame ran
+it is the one exception. The SDK makes its live result, and `turn-replay` defines its replay. A tool MUST NOT bypass the function.
 
 #### Scenario: Live and replayed renderings agree
 

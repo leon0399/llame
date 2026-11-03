@@ -39,8 +39,8 @@ open proposal [#1257](https://github.com/leon0399/llame/pull/1257) for
   llame version, when turn N completed on the model of turn N+1, the request of
   turn N+1 starts with the messages of the last request of turn N, then the
   response to that request. After a model switch or a reply that did not
-  complete, the only difference is the reasoning and provider metadata that the
-  model rule omits.
+  complete, the differences are the reasoning and provider metadata that the
+  model rule omits, and the media forms that the new model's input selects.
 - **BREAKING: no replay budget.** Replay removes nothing that a checkpoint has
   not absorbed. The 8,000 and 32,000 limits are removed. So are payload
   clearing, the `input: {}` substitute, the omission marker, and the
@@ -50,15 +50,15 @@ open proposal [#1257](https://github.com/leon0399/llame/pull/1257) for
   output type and the text that the live loop sent. The replay-only
   untrusted-output frame is removed, and so is the replay-only
   `Artifact: <locator>` line. The cap notice already names the artifact.
-- **Steps replay as steps.** A stored tool part records the step that called
-  it, and a Continue Run numbers its steps after the kept ones. The calls of
+- **Steps replay as steps.** Each stored text, reasoning, and tool part records
+  its model step, and a Continue Run numbers its steps after the kept ones. The calls of
   one step replay as one assistant message, then one tool message. A part with
   no step number uses today's Continue rule: consecutive tool parts are one
   step.
 - **A refused call replays as the live step sent it.** For a call that the AI
   SDK refused (an unknown tool or invalid input), the live step sends the SDK's
-  error text and an empty input when the input does not parse. The stored part
-  keeps that text, and replay sends it (A8).
+  error text and the SDK's form of the input. The stored part keeps both in
+  model-only fields, and replay sends them (A8).
 - **Stored parts keep their bytes.** `messages.parts` changes from `jsonb` to
   `json`, so object keys keep the order in which they were written. Text and
   tool parts also keep the provider metadata of the live step (A7).
@@ -88,7 +88,8 @@ The grilling of 2026-11-02 and 2026-11-03 settled these. Codes come from the
 decision record in design.md.
 
 - **D1.** Branch from `master`. This proposal also amends the unsynced
-  `tool-result-artifacts` delta, so both changes sync cleanly in either order.
+  `tool-result-artifacts` delta, so neither change brings back the budget or the
+  frame, in either sync order.
 - **D2, D6.** Remove the budget outright. Compaction is the only eviction
   boundary. A request that does not fit fails as `context_incompatible`, with
   no special compaction path.
@@ -133,18 +134,19 @@ Assumptions that follow from these but were never asked:
 - **A6.** The prompt-cache gain is a provider effect that this change does not
   measure. The test proves request-prefix equality, not cache hits.
 - **A7.** The live step sends provider metadata on text parts and tool calls
-  (the item ids of the Responses wire, for example), and the SDK copies the
-  metadata of a call onto its result. llame stores it only on reasoning parts
-  today. To rebuild the live bytes from parts, text and tool parts keep it too,
-  and it replays under the same model rule as reasoning, as OpenCode does. This
-  needs a new text-part seam in each model client. It was found after the
-  grilling; please confirm.
+  (the item ids of the Responses wire, or a Gemini-style `thoughtSignature` on
+  a Chat Completions call), and the SDK copies the metadata of a call onto its
+  result. llame stores it only on reasoning parts today. To rebuild the live
+  bytes from parts, text and tool parts keep it too, and it replays under the
+  same model rule as reasoning, as OpenCode does. This needs a text-part seam in
+  each model client. It was found after the grilling; please confirm.
 - **A8.** For a call that the AI SDK refused, the live step sends the SDK's
-  error text (for an unknown tool, it names the available tools) and `{}` for
-  input that does not parse. Today llame stores its own refusal message and the
-  raw input string. To replay what the live step sent, the stored error text of
-  such a call becomes the SDK's text. The owner sees that text too. Found in
-  review; please confirm.
+  error text (for an unknown tool, it names the available tools) and the SDK's
+  form of the input. llame stores its own refusal message and its own parse of
+  the input, so replay cannot rebuild the live result today. The tool part keeps
+  the SDK's text and input in two fields for the model only, which also mark the
+  call as refused. The owner-facing error does not change. Found in review;
+  please confirm.
 
 ## Capabilities
 
@@ -172,7 +174,7 @@ Assumptions that follow from these but were never asked:
     attempt stays in later context as the user saw it; a stored failure replays
     with its stored outcome; every replayed call has its result; absorbed tool
     activity crosses a checkpoint only as summary text; no tool observation is
-    rebuilt from a checkpoint; a stored tool part records its step; tool
+    rebuilt from a checkpoint; a stored part records its model step; tool
     results store images without image data; no thumbnail or retained byte
     reaches the model; a replayed image result attaches under the epoch image
     window; a replayed image that cannot attach becomes a placeholder.
@@ -181,9 +183,10 @@ Assumptions that follow from these but were never asked:
   persistence". Both lose the #599 exception, the budget, and the
   unconditional reasoning replay.
 - **`reasoning-output`.**
-  - MODIFIED: "Reasoning is an ordered private assistant part" and "Reasoning
-    parts carry durable provider metadata". Compaction now carries reasoning,
-    and replay follows the model rule.
+  - MODIFIED: "Reasoning is an ordered private assistant part", "Opaque
+    continuation state is transient and private", and "Reasoning parts carry
+    durable provider metadata". Compaction now carries reasoning, text and tool
+    metadata persist, and replay follows the model rule.
   - ADDED: earlier reasoning replays only for the model that produced it.
 - **`anthropic-messages-provider`.** MODIFIED: "Thinking blocks are persisted
   and replayed complete and unmodified". A model switch now omits earlier
@@ -194,7 +197,8 @@ Assumptions that follow from these but were never asked:
 - **`turn-actions`.** MODIFIED: "Continue requests the next step of the same
   turn", which uses the shared projection and drops the 32,000 premise.
 - **`tool-result-rendering`.** MODIFIED: "One rendering function produces every
-  model-facing tool result", which drops the replay frame.
+  model-facing tool result", which drops the replay frame and names the
+  refused call as the one result that the SDK renders.
 - **`knowledge-tools`.** MODIFIED: "Retrieval persists safe response-time
   attribution", which drops clearing and the cleared `incomplete` outcome.
 - **`media-attachments`.** MODIFIED: "Retained bytes count toward no text
@@ -236,8 +240,13 @@ Deliberately unchanged, with the reading under which each holds:
     projection is rewritten, the budget passes are removed, and the frame
     template `prompts/tool-output-untrusted.md` is deleted.
   - `continue-projection.ts` is folded into the projection.
+  - Each model client (`openai`, `openai-codex`, `openai-completions`,
+    `anthropic`, and the scripted clients) gains a text-part seam, and
+    `assistant-transcript.ts` keeps text and tool metadata and starts a new text
+    part on a new text id.
   - `run-execution.service.ts` and `assistant-transcript.ts` record the step
-    number on tool parts.
+    number on each part, and `tool-call-gate.ts` records the SDK text and input
+    of a refused call.
   - `compaction.ts` builds its request through the projection with reasoning.
   - `openai-model-client.ts` sets `store: false`.
 - **Model-facing text.** Replayed results lose the frame and the `Artifact:`

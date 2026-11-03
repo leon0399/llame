@@ -41,6 +41,7 @@ changes the history, and the rule then applies to the new history.
 - **WHEN** turn 1 completes on `sonnet`, and turn 2 runs on `glm-5`
 - **THEN** the first request of turn 2 starts with the messages of the last request of turn 1 and of its response
 - **AND** those messages do not have the reasoning parts and the provider metadata that the model rule of `reasoning-output` omits
+- **AND** each image and PDF takes the form that the input of `glm-5` selects
 
 ### Requirement: Replay removes nothing that a checkpoint has not absorbed
 
@@ -64,27 +65,29 @@ of its model, the compaction rules of `model-system-prompts` apply.
 
 ### Requirement: A refused call replays as the live step sent it
 
-A call that the AI SDK refused before llame ran it MUST replay the error text that
-the SDK sent for it. Its input MUST replay as the live step sent it: an empty
-object when the stored input is not an object. The stored error text of a
-refused call MUST be the text that the SDK sent.
+When the AI SDK refused a call before llame ran it, the tool part MUST store the
+error text and the input of the live step. These fields are for the
+model only, and the owner-facing error stays as before. Replay MUST send that
+error text as an error-text output, with that input. A refused part stored before
+this change has neither field and replays through the failure rendering.
 
 #### Scenario: A call to an unknown tool replays the SDK error
 
 - **WHEN** the model called `fetch_page`, which no declaration names, and a later turn replays that call
 - **THEN** the replayed result is the error text that the SDK sent in the live step
 - **AND** the replayed result names the same available tools as the live step
+- **AND** the owner still sees the refusal message of llame
 
 #### Scenario: Unparsable input replays as an empty object
 
 - **WHEN** the model called `read` with the input `not valid json{{{`, and a later turn replays that call
-- **THEN** the replayed call carries the input `{}`, as the live step did
+- **THEN** the replayed call carries the input that the live step sent, which is `{}`
 
 ### Requirement: Tool results replay in their live rendering
 
 A replayed tool result MUST carry the output that the live loop sent for that
 call: the same output type and the same text. The rendering of
-`tool-result-rendering` makes both. The system MUST NOT add a frame, an outcome
+`tool-result-rendering` makes both, except for a call that the AI SDK refused. The system MUST NOT add a frame, an outcome
 line, an artifact line, or other text to a replayed result. A JSON result MUST
 replay as a JSON output. A call with no live result MUST replay the failure
 rendering of its stored outcome.
@@ -120,10 +123,9 @@ rendering of its stored outcome.
 
 The parts of one model step MUST replay as one assistant message, then one tool
 message with the results of its calls. The assistant message MUST hold the
-reasoning, the text, and the calls of that step in stored order. A tool part
-starts a new step when its step number differs from that of the tool part before
-it. Reasoning and text belong to the step of the next tool part, or to the final
-step. Consecutive tool parts with no step number form one step.
+reasoning, the text, and the calls of that step in stored order. Parts with the
+same step number form one step. For parts with no step number, a run of
+consecutive tool parts and the text and reasoning before it form one step.
 
 #### Scenario: Parallel calls replay as one step
 
@@ -147,10 +149,16 @@ step. Consecutive tool parts with no step number form one step.
 - **THEN** one assistant message carries the first text, the first call, the second text, and the second call
 - **AND** one tool message carries both results
 
+#### Scenario: Text after the calls stays in their step
+
+- **WHEN** one model response called `read("a.md")` and then wrote text, and the next step called `read("b.md")`
+- **THEN** the first assistant message carries the first call and that text
+- **AND** the second assistant message carries only the second call
+
 #### Scenario: Parts with no step number use the consecutive rule
 
-- **WHEN** a stored turn has tool parts with no step number
-- **THEN** each run of consecutive tool parts replays as one step
+- **WHEN** a stored turn has parts with no step number
+- **THEN** each run of consecutive tool parts replays as one step, with the text and the reasoning before it
 
 ### Requirement: Stored parts keep the member order of their objects
 
@@ -191,8 +199,8 @@ request.
 
 A stored text part MUST keep the provider metadata of the live text, and a stored
 tool part MUST keep that of the live call. A later request MUST send it back
-unchanged when its reply meets the model rule of
-`reasoning-output`. The result of a call that ran MUST carry the metadata of its call.
+unchanged when its reply meets the model rule of `reasoning-output`. The kept
+parts of a Continue Run meet it on their model. The result of a call that ran MUST carry the metadata of its call.
 Otherwise the part MUST replay with no provider metadata. The metadata MUST stay
 opaque, as `reasoning-output` requires.
 

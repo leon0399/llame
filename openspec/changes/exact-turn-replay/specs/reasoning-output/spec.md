@@ -6,8 +6,8 @@ A reasoning part of an earlier turn MUST replay only when two conditions are
 true. Its reply came from a Run with the llame model id of the request, and that
 Run completed. Otherwise the
 system MUST omit the part and its provider metadata. Within one turn, and in the
-kept parts of a Continue Run, a reasoning part MUST replay when its Run used the
-model of the request. The system MUST NOT select reasoning parts by their content or
+kept parts of a Continue Run, a reasoning part MUST replay on the model of its
+Run. The system MUST NOT select reasoning parts by their content or
 their age.
 
 #### Scenario: The same model keeps earlier reasoning
@@ -101,6 +101,24 @@ Chat. The privacy of the parts stays the same everywhere else.
 - **THEN** its own stored reasoning parts and their metadata replay, so its model-facing prefix matches the Chat that it copied
 - **AND** a provider that no longer accepts a copied item fails or ignores it under the failure contract
 - **AND** llame does not rewrite or remove the item
+
+### Requirement: Opaque continuation state is transient and private
+
+Chat history MUST persist the displayable reasoning text that the provider
+authorized, with the opaque provider metadata bound to a persisted reasoning part.
+It MUST also persist the provider metadata of text and tool parts that
+`turn-replay` defines. Opaque continuation state that is not bound to a persisted
+part MUST stay private run state. The system MUST NOT render it or use it as later
+chat context, and MUST delete it when the run completes. Persisted provider
+metadata is durable with its part. It replays only under the model rule of this
+capability. The system MUST NOT render, export, or index it, or put it in a public
+share.
+
+#### Scenario: Completed run removes opaque continuation state
+
+- **WHEN** an active run uses private opaque continuation state that is not bound to a persisted part, and the run reaches a terminal status
+- **THEN** the chat transcript does not keep that state
+- **AND** the only opaque state in message history is provider metadata bound to a persisted reasoning, text, or tool part
 
 ### Requirement: Reasoning parts carry durable provider metadata
 

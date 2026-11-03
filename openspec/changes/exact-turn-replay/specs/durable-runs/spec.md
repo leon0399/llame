@@ -75,7 +75,7 @@ Operational and UI replay MUST keep the observed part order of a failed attempt,
 record MUST become model history. A failed, cancelled, expired, or superseded attempt keeps the
 partial assistant turn that the user saw. It also keeps the rail context items that its dispatched
 requests carried. These enter later model context, model-facing recall, and compaction like any
-other committed turn. Their reasoning parts follow the model rule of `reasoning-output`. A later attempt of the same Run MUST instead reset that assistant message to
+other committed turn. Their reasoning parts and provider metadata follow the model rule of `reasoning-output`. A later attempt of the same Run MUST instead reset that assistant message to
 `running` for itself, in the transaction that dispatches its first request. That reset removes the
 output and the in-Run items of the earlier attempt together. Its preparation MUST read history only
 through the triggering user message, so its own assistant message never enters its request. A

@@ -116,12 +116,18 @@ from the stored success object, or from the failure object that
 `tool-result-rendering` already rebuilds from the stored outcome, error text,
 and rejected locator. The frame template and the `Artifact:` line go; the cap
 notice already names the artifact. A call that the SDK refused is the one case
-where the live result does not come from llame's renderer: it replays as the
-SDK's `error-text`, from the stored error text, which now is the SDK's text
-(proposal A8). Rejected for that case: rewrite the SDK result in the live loop
-(it changes what the model sees today and cannot reach the last step). Rejected: frame the live loop too (about
-140 units more on each live result, and Continue already sends unframed);
-keep the replay frame (the prefix breaks at the first tool result).
+where the live result does not come from llame's renderer. The repair hook
+(`tool-call-gate.ts`) gets the same error object that the SDK reports, so it
+stores `getErrorMessage(error)` and the SDK's form of the input in two
+model-only fields. Their presence marks the call, because an executor that
+returns `not_available` stores the same outcome and error text. Replay sends
+the SDK's `error-text`; the owner-facing `errorText` stays llame's (proposal
+A8). Rejected for that case: rewrite the SDK result in the live loop (it changes
+what the model sees today and cannot reach the last step); overwrite
+`errorText` (it shows the SDK's raw validation dump to the owner and cannot be
+told apart from an executor's refusal). Rejected for all results: frame the live
+loop too (about 140 units more on each live result, and Continue already sends
+unframed); keep the replay frame (the prefix breaks at the first tool result).
 
 The frame was the only untrusted label on replayed results. The live loop never
 had it, so the model already acts on unframed results in the turn that runs the
@@ -136,26 +142,28 @@ the rebuild exact, parts must hold what the live step held: the step number
 (proposal A7). Rejected: a stored copy of the model messages per turn (a second
 source of truth that Continue, regenerate, and forks must keep in step).
 
-### D5: `step` on tool parts
+### D5: `step` on each part
 
-`toolActivityPart` copies `stepNumber` from the `tool.requested` payload into
-`step`, on the live collector and the event-log rebuild. The SDK numbers steps
-from 0 in each `streamText` call, so a Continue Run adds the highest kept step
-plus one, as `continue-projection.ts` already offsets today. The projection
-groups parts into steps:
+The collector stamps the current SDK step number on each text, reasoning, and
+tool part, on the live path and in the event-log rebuild (`tool.requested`
+already carries `stepNumber`; text and reasoning events gain it). The SDK
+numbers steps from 0 in each `streamText` call, so a Continue Run adds the
+highest kept step plus one, as `continue-projection.ts` already offsets today.
+Continue admission copies the step number of each kept tool part stored without
+one from its `tool.requested` event, so an older Run keeps its boundaries.
 
-- A tool part starts a new step when its `step` differs from the `step` of the
-  tool part before it.
-- Reasoning and text before a tool part belong to that part's step.
-- Reasoning and text after the last tool part form the final step.
-- Tool parts with no `step` group by the Continue rule: a run of consecutive
-  tool parts is one step.
+The projection groups parts with the same `step` into one step. A step can
+write text after its calls, because the SDK keeps `[text, call, text]` in one
+message; a step number per part keeps that text in place. Rows stored before
+this change use the Continue rule: a run of consecutive tool parts, with the
+text and reasoning before it, is one step.
 
 Each step becomes one assistant message (reasoning, text, calls, in stored
 order) and one tool message (results in call order). A `data-context` part on
 the reply follows the tool message of the step before it, which is where the
 live splice puts it. Rejected: an AI SDK `step-start` part (a new part type and
-a web hide rule for one bit); reading events at replay time (a query per row).
+a web hide rule); a step number on tool parts only (text after a step's calls
+moves to the next step); reading events at replay time (a query per row).
 
 ### D7: Model rule for reasoning and provider metadata
 
@@ -176,14 +184,17 @@ summary request then shares the previous turn's prefix.
 
 ### A7: Provider metadata on text and tool parts
 
-The `fidelity` layer adds a text-part seam to each model client: the adapter's
+The `seams` layer adds a text-part seam to each model client: the adapter's
 text part id and metadata, in stream order, the way reasoning already arrives.
-The collector starts a new text part when the text id changes, so two Responses
-`message` items stay two parts. The plain Responses client also forwards the
-`tool-call` chunk metadata. The metadata is stored once, on the call; replay
-copies it to the result of a call that ran, as the SDK does
-(`ai` `dist/index.js:3118-3126`). Event payloads carry both, so the event-log
-rebuild keeps them.
+`onChunk` carries the text id on `text-delta`, and `fullStream` carries the
+metadata. The collector starts a new text part when the text id changes, so two
+Responses `message` items stay two parts. Each client forwards the `tool-call`
+chunk metadata, including a Chat Completions `thoughtSignature`. The metadata is
+stored once, on the call; replay copies it to the result of a call that ran, as
+the SDK does (`ai` `dist/index.js:3118-3126`). Event payloads carry both, so the
+event-log rebuild keeps them. The chat DTO, the UI chunk stream, exports,
+search, public shares, logs, and telemetry carry none of it, as for reasoning
+metadata today.
 
 ### D11: One projection module
 
@@ -197,12 +208,13 @@ its kept-part selection. `run.continued` keeps `parts` and loses `steps` and
 The client adds `store: false` as an invariant, like the Codex client. The
 `@ai-sdk/openai` adapter asks for `reasoning.encrypted_content` only when it
 treats the model as a reasoning model, from a model-id prefix
-(`dist/index.js:5357-5360`). The client therefore passes the catalog entry's
-`reasoning` declaration to the adapter (`forceReasoning`), so a reasoning entry
-under any id asks, and another entry never does: OpenAI rejects the include on
-non-reasoning models. A part persisted with only an item id is omitted by the
-SDK (`dist/index.js:3682-3691`). This layer lands before `replay`, so the new
-text and tool item ids never replay as `item_reference`.
+(`dist/index.js:5357-5360`). The client therefore passes `forceReasoning: true`
+for an entry that declares `reasoning`, so a reasoning entry under any id asks.
+It passes nothing for another entry, so the adapter keeps its id rule: a
+`gpt-5` id still asks and gets the `reasoningSummary` default, and `gpt-4.1`
+does not ask, which OpenAI would reject. A part persisted with only an item id
+is omitted by the SDK (`dist/index.js:3682-3691`). This layer lands before
+`replay`, so the new text and tool item ids never replay as `item_reference`.
 
 ### D13: `messages.parts` as `json`
 
@@ -256,16 +268,22 @@ turn 2 and asserts no reasoning part and no provider metadata of turn 1.
 
 ## Migration Plan
 
-1. `fidelity`: the migration, the text-part seam, and the new stored fields.
-   Old rows keep working with the old projection.
-2. `responses-store`: `store: false`, before any text or tool item id replays.
-3. `replay`: the new projection for later turns, with the equality test. The
+1. `seams`: the text-part seam in each client, and provider metadata on text
+   and tool parts and in event payloads.
+2. `storage`: `step` on each part, the model-only fields of refused calls, and
+   `messages.parts` as `json`. Old rows keep working with the old projection.
+3. `responses-store`: `store: false`, before any text or tool item id replays.
+4. `live-rendering`: replayed results use the live builder; the frame and the
+   `Artifact:` line go.
+5. `harness`: the scripted client emits whole steps through the production
+   seams.
+6. `replay`: the new projection for later turns, with the equality test. The
    first turn of each old Chat takes one cache miss.
-4. `compaction`: the compaction request through the projection, and the end of
+7. `compaction`: the compaction request through the projection, and the end of
    `ContextRequestKind`.
-5. `continue`: Continue moves to the projection; `run.continued` loses its maps.
+8. `continue`: Continue moves to the projection; `run.continued` loses its maps.
 
-Rollback of `fidelity` needs a `json` to `jsonb` migration, which is lossless
+Rollback of `storage` needs a `json` to `jsonb` migration, which is lossless
 except for member order. The other layers revert as code.
 
 ## Open Questions
@@ -275,6 +293,16 @@ when it was staged before any tool result is settled by D14.
 
 ## Revision history
 
+- **v3 (2026-11-03), review round 2.** Two reviewers; 0 P0, 4 P1, 20 P2.
+  Fixed: refused calls keep the SDK text and input in model-only fields, and
+  the owner-facing error stays (A8); `forceReasoning` is passed only for entries
+  that declare `reasoning`; "Opaque continuation state is transient and
+  private" is MODIFIED for A7; every part carries `step`, so text after a
+  step's calls stays in it, and Continue copies step numbers for older Runs;
+  the model-switch scenario names the media forms; A7 covers the Chat
+  Completions call metadata and every metadata sink; `fidelity` splits into
+  `seams` and `storage`, and `live-rendering` and `harness` leave `replay`.
+  Rejected: nothing.
 - **v2 (2026-11-03), review round 1.** Two reviewers (spec consistency,
   feasibility); 0 P0, 13 P1, 15 P2. Fixed: the prefix rule now applies only
   after a completed reply on the same model; steps split on a change of number,

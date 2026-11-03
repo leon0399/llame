@@ -25,8 +25,8 @@ empty text is the text that the provider produced, and its signature is what the
 replay needs.
 
 A replay MUST be safe when the prefix above it changes. A thinking block stays
-valid only while the earlier messages, the top-level `system` prompt, and the
-`tools` do not change. llame rewrites that prefix on compaction and on
+valid only while the earlier messages stay the same. The top-level `system`
+prompt and the `tools` MUST also stay the same for it. llame rewrites that prefix on compaction and on
 prompt-receipt changes. Thus each request that carries adaptive thinking MUST
 tell the provider explicitly to drop the blocks whose bound prefix no longer
 matches. It MUST NOT depend on the default enforcement of the account. The

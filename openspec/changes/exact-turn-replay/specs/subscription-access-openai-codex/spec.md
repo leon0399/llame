@@ -3,13 +3,14 @@
 ### Requirement: Preserve llame execution semantics
 
 The provider MUST keep the effective instructions of llame, its authorized tools,
-the ordered tool calls and results, and the condensed reasoning summaries that the
-provider returns. It MUST also keep the persisted effort, cancellation, and the
+and the ordered tool calls and results. It MUST keep the condensed reasoning
+summaries that the provider returns. It MUST also keep the persisted effort, cancellation, and the
 execution bounds. It MUST persist the SDK `reasoningSummary: "auto"` display text
 as `reasoning` parts under the `reasoning-output` contract. With those parts, it
-MUST persist the opaque provider metadata that the Responses wire returns: the
-reasoning item id on each part of that item, and the encrypted reasoning of the
-item on the one part to which the adapter attaches it. The system MUST NOT copy
+MUST persist the opaque provider metadata that the Responses wire returns. This
+metadata is the reasoning item id on each part of that item. It also includes the
+encrypted reasoning of the item, on the one part to which the adapter attaches
+it. The system MUST NOT copy
 the encrypted reasoning to the other parts of the item. The provider metadata of
 text and tool parts persists under `turn-replay`. All this metadata MUST replay
 only to the provider, on requests for the same Chat that the model rule of

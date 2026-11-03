@@ -34,8 +34,8 @@ own results in the Run that made them.
 The prospective cutover boundary in `context-injection` MUST govern the retention
 of failed attempts. The system MUST NOT filter or rebuild the current
 conversation state retrospectively. A failed, cancelled, expired, or superseded
-attempt MUST stay in later context as the user saw it, until a follow-up Run from
-`turn-actions` replaces the reply. Its reasoning parts follow the model rule of
+attempt MUST stay in later context as the user saw it. A follow-up Run from
+`turn-actions` can replace the reply. Its reasoning parts follow the model rule of
 `reasoning-output`.
 
 #### Scenario: A cancelled call is projected as cancelled
@@ -52,7 +52,8 @@ attempt MUST stay in later context as the user saw it, until a follow-up Run fro
 
 ### Requirement: A stored failure replays with its stored outcome
 
-A replayed failure MUST carry the structured outcome that its tool part stores.
+A replayed failure MUST carry the structured outcome that its tool part stores,
+except a call that the AI SDK refused, which `turn-replay` covers.
 A legacy failed part with no structured outcome MUST replay as the generic
 `error`. The system MUST NOT parse human prose to find an outcome. Structured
 cancellation metadata can recover `cancelled`.
@@ -115,27 +116,33 @@ contents of an absorbed turn.
 - **THEN** request preparation fails closed
 - **AND** the system invents no tool observation from summary prose or from a ledger
 
-### Requirement: A stored tool part records its step
+### Requirement: A stored part records its model step
 
-A stored tool part MUST record, as `step`, the number of the model step that
-called it. The number MUST come from the `tool.requested` event of that call. In
-a Continue Run, the numbers MUST continue after the highest step of the kept
-parts. A part stored before this change has no `step`, and the system MUST NOT
-add one to it.
+A stored text, reasoning, or tool part MUST record, as `step`, the number of the
+model step that produced it. In a Continue Run, the numbers MUST continue after
+the highest step of the kept parts. When a kept tool part has no `step`, Continue
+admission MUST copy it from the `tool.requested` event of that call. The system
+MUST NOT add `step` to a part stored before this change.
 
 #### Scenario: Two parallel calls record one step
 
-- **WHEN** one model response in step 2 calls `read("a.md")` and `read("b.md")`
-- **THEN** both stored tool parts record `step: 2`
+- **WHEN** one model response in step 2 writes text and calls `read("a.md")` and `read("b.md")`
+- **THEN** the stored text part and both stored tool parts record `step: 2`
 
 #### Scenario: A Continue Run numbers its steps after the kept steps
 
 - **WHEN** the kept parts of a Continue Run end with a call at `step: 1`, and the first step of the Continue Run calls `read("c.md")`
 - **THEN** the stored tool part of that call records `step: 2`
 
+#### Scenario: A Continue of an older Run keeps its steps
+
+- **WHEN** the owner continues a Run whose tool parts were stored with no `step`
+- **THEN** each kept tool part gets the step number of its `tool.requested` event
+- **AND** the sequential steps of that Run stay separate in the Continue request
+
 #### Scenario: An old part keeps no step
 
-- **WHEN** a tool part stored before this change replays
+- **WHEN** a part stored before this change replays on a later turn
 - **THEN** it has no `step`, and the system writes none to it
 
 ### Requirement: Tool results store images without image data
@@ -175,8 +182,8 @@ A replayed image MUST become provider image content, built at request time, only
 when three conditions are true. The model declares `image` input, the model
 variant is available, and the epoch image window attaches the reference. A `media://` result takes its variant
 from the media store, and each other result from its retained bytes. This applies
-to a later step, a later turn, a Continue Run, an owner fork, a compaction
-request, and a reply rebuilt from the event log.
+to a later step, a later turn, a Continue Run, and an owner fork. It also applies
+to a compaction request and to a reply rebuilt from the event log.
 
 #### Scenario: An attached image result replays as image content
 
