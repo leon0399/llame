@@ -209,6 +209,9 @@ assessment.
 84. [Happy](./happy.md) — MIT mobile, web, and legacy CLI clients plus a relay, with encrypted session bodies and the desktop harness in a separate repository
 85. [CraftBot](./craftbot.md) — MIT self-hosted agent whose in-workspace surface is Agent App, with the theme wire still named livingui-theme
 86. [Tamekoshi](./tamekoshi.md) — Waitlist desktop companion with no public repository located, so the note records only the site and the tierroom board
+87. [ECC](./ecc.md) — MIT skill and hook catalog for peer coding CLIs, plus an alpha Rust control plane that tails SQLite session output by row id
+88. [Rerun](./rerun.md) — AGPL TypeScript coworker host: an AI SDK tool loop, an in-process SSE buffer, workspace RLS on the product database, and a local libSQL engine store
+89. [Hyra 2.0](./hyra.md) — Tencent Hunyuan research post that describes an Overall, Mission, and Worker harness; the public repository ships result artifacts, and the orchestrator source is absent
 
 ## Multi-machine and container placement
 
