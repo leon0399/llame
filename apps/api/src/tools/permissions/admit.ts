@@ -1,12 +1,11 @@
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
-import { type Tool, type ToolContext, type ToolResult } from '../types';
+import { type Tool, type ToolContext } from '../types';
 import { evaluatePermission } from './evaluator';
 import {
   DEFAULT_PERMISSION_MODE,
   type PermissionMode,
 } from './permission-mode';
-import { permissionDeniedResult } from './messages';
 import {
   type CompiledPolicy,
   type EvaluatePermissionOptions,
@@ -27,9 +26,10 @@ export type EvaluateCall = (
 ) => PermissionDecision;
 
 /**
- * The only permission entry point: every mode's semantics live here. `decide`
- * composes the call's evaluations and runs only when the mode consults the
- * policy; `bypass` answers a synthetic allow without it.
+ * The only permission entry point: every mode's policy semantics live here.
+ * `decide` composes the call's evaluations and runs for `default` and
+ * `read-only`; `bypass` answers a synthetic allow without it. The `read-only`
+ * ceiling ({@link readOnlyCeiling}) runs before this function, in the runner.
  */
 export function decidePermission(
   policy: CompiledPolicy,
@@ -98,24 +98,6 @@ export function readOnlyCeiling(
     reason: 'permission_mode_read_only',
     reference: null,
   };
-}
-
-/**
- * Apply the ceiling to one tool call right after argument validation: a
- * rejected call resolves no SSH destination, asks for no grep scope, and
- * evaluates no permission group, and it records the same decision path as a
- * policy reject. `undefined` means the call may continue.
- */
-export async function admitReadOnlyCeiling(
-  context: ToolContext,
-  tool: Pick<Tool, 'id' | 'classification'>,
-  submittedArgs: UnknownRecord,
-  onAdmitted?: (decision: PermissionDecision) => void | Promise<void>,
-): Promise<ToolResult | undefined> {
-  const ceiling = readOnlyCeiling(context, tool, submittedArgs);
-  if (ceiling === undefined) return undefined;
-  if (onAdmitted !== undefined) await onAdmitted(ceiling);
-  return permissionDeniedResult(ceiling.reason);
 }
 
 /**

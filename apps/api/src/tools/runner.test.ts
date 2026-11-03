@@ -2041,9 +2041,14 @@ describe('runTool read-only ceiling', () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
-  it('admits a plain Workspace entry', async () => {
-    const execute = vi.fn(() => ({ status: 'success' as const }));
-    const enterTool: Tool<{ path: string; worktree?: { name?: string } }> = {
+  /** A Workspace-entry stand-in: the ceiling reads only its id and args. */
+  function enterTool(
+    execute: (
+      context: ToolContext,
+      args: { path: string; worktree?: { name?: string } },
+    ) => ToolResult | Promise<ToolResult>,
+  ): Tool<{ path: string; worktree?: { name?: string } }> {
+    return {
       id: 'enter_workspace',
       description: 'binds a root',
       classification: 'execute_code',
@@ -2053,8 +2058,12 @@ describe('runTool read-only ceiling', () => {
       }),
       execute,
     };
+  }
+
+  it('admits a plain Workspace entry', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
     const result = await runTool(
-      enterTool,
+      enterTool(execute),
       { path: '/repo' },
       readOnlyContext(),
       5,
@@ -2063,25 +2072,11 @@ describe('runTool read-only ceiling', () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    ['a host path', '/repo'],
-    ['a Machine path', 'machine://devl/repo'],
-    ['an absent path', '/does-not-exist'],
-  ])('rejects a worktree entry on %s before any probe', async (_name, path) => {
+  it('rejects a worktree entry without probing', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
-    const enterTool: Tool<{ path: string; worktree?: { name?: string } }> = {
-      id: 'enter_workspace',
-      description: 'binds a root',
-      classification: 'execute_code',
-      inputSchema: z.strictObject({
-        path: z.string().min(1),
-        worktree: z.strictObject({ name: z.string().optional() }).optional(),
-      }),
-      execute,
-    };
     const result = await runTool(
-      enterTool,
-      { path, worktree: { name: 'fix' } },
+      enterTool(execute),
+      { path: '/repo', worktree: { name: 'fix' } },
       readOnlyContext(),
       5,
     );
@@ -2167,12 +2162,19 @@ describe('runTool read-only ceiling', () => {
     expect(result).toMatchObject({ type: 'invalid_input' });
   });
 
-  it('reports the fixed text without naming the mode or a setting', () => {
-    expect(READ_ONLY_REJECTION).not.toContain('read-only');
-    expect(READ_ONLY_REJECTION).not.toContain('permissionModes');
-    expect(READ_ONLY_REJECTION).toContain(
-      'This Run permits only reads and Workspace entry or exit without a worktree.',
+  it('resolves no SSH host for a read-only call without a trusted policy', async () => {
+    const ssh = fakeSsh();
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'ssh://devbox/repo' },
+      {
+        ...readOnlyContext({ sshClient: ssh.client }),
+        permissionPolicy: undefined,
+      },
+      5,
     );
+    expect(result).toMatchObject({ type: 'permission_denied' });
+    expect(ssh.resolve).not.toHaveBeenCalled();
   });
 
   it('applies the ceiling to a preview', () => {

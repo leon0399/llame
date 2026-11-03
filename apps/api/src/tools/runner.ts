@@ -15,7 +15,6 @@ import { evaluateGrepPermission } from './grep-admission';
 import { refuseUnsearchableGrepScopes } from './grep-scopes';
 import {
   admitPermission,
-  admitReadOnlyCeiling,
   evaluateSubmittedThenProjected,
   readOnlyCeiling,
 } from './permissions/admit';
@@ -389,18 +388,23 @@ export async function runTool(
   const admission = admitToolCall(tool, args, context, callTimeoutSeconds);
   if ('result' in admission) return admission.result;
   const { context: validContext, args: validArgs, submittedArgs } = admission;
-  const refused = await admitReadOnlyCeiling(
-    validContext,
-    tool,
-    submittedArgs,
-    onAdmitted,
-  );
-  if (refused !== undefined) return refused;
-  const ssh = (await admitSshCall(tool, submittedArgs, validContext)) ?? NO_SSH;
+  // The `read-only` ceiling runs right after argument validation: a rejected
+  // call resolves no SSH destination, asks for no grep scope, and evaluates no
+  // permission group. It records the same decision path as a policy reject.
+  const ceiling = readOnlyCeiling(validContext, tool, submittedArgs);
+  if (ceiling !== undefined) {
+    if (onAdmitted !== undefined) await onAdmitted(ceiling);
+    return permissionDeniedResult(ceiling.reason);
+  }
+  // Any other call keeps the synchronous permission path; an `ssh://` read or
+  // `bash` cwd must resolve its destination first, so only those await.
+  const pendingSsh = admitSshCall(tool, submittedArgs, validContext);
+  const ssh = pendingSsh === undefined ? NO_SSH : await pendingSsh;
   if (ssh.kind === 'refused') return ssh.result;
+  // Policy is not asked for a scope this process cannot search.
   if (tool.id === 'grep') {
-    const refused = refuseUnsearchableGrepScopes(submittedArgs, validContext);
-    if (refused !== undefined) return refused;
+    const scope = refuseUnsearchableGrepScopes(submittedArgs, validContext);
+    if (scope !== undefined) return scope;
   }
   const decision =
     ssh.kind === 'decided'

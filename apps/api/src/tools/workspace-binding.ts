@@ -1,6 +1,7 @@
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { machineExecutorId } from '../machines/machine-locator';
 import {
+  listUnstartedOnce,
   type WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
   type WorkspaceMcpKey,
@@ -221,27 +222,17 @@ export function claimTransition(context: ToolContext): boolean {
 /**
  * A `read-only` entry reports the servers the binding's configuration names,
  * each unavailable because the attempt started none of them. The attempt
- * lists once for each binding: a listing already held for this root and
- * generation is returned as-is, so a same-root re-entry reads no
- * configuration and takes no tool from a client another attempt started.
+ * lists once for each binding: a same-root re-entry returns the listing it
+ * already made and takes no tool from a client another attempt started.
  */
 async function readOnlyWorkspaceMcpServers(
   context: ToolContext,
   clients: WorkspaceMcpClients,
   key: WorkspaceMcpKey,
 ): Promise<WorkspaceMcpEntryState['servers']> {
-  const listing = context.workspaceMcpListing;
-  const current = listing?.current();
-  if (
-    current !== undefined &&
-    current.root === key.root &&
-    current.generation === key.generation
-  ) {
-    return current.servers;
-  }
-  const servers = await clients.listUnstarted(key);
-  listing?.commit({ root: key.root, generation: key.generation, servers });
-  return servers;
+  const cell = context.workspaceMcpListing;
+  if (cell === undefined) return clients.listUnstarted(key);
+  return listUnstartedOnce(clients, cell, key);
 }
 
 async function workspaceMcpServers(

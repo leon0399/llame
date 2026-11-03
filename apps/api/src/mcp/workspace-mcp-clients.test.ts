@@ -674,6 +674,39 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
     await runtime.stop();
   });
 
+  it('stops an in-flight start it cannot register', async () => {
+    const { runtime } = operatorRuntime();
+    const gate = deferred<void>();
+    const created: Array<FakeClient> = [];
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: () => Promise.resolve([config('web', 'in-flight')]),
+      clientFactory: (input) => {
+        const started = client(input.serverId, 'in-flight');
+        created.push(started);
+        return gate.promise.then(() => started);
+      },
+    });
+    const inFlight = key('chat-1', '/workspace/in-flight', 2);
+    const next = key('chat-1', '/workspace/next', 3);
+
+    // A settled stop leaves a recorded epoch for the generation the in-flight
+    // start will carry, so only the bump below can invalidate it.
+    await provider.stopForChat('chat-1');
+    const started = provider.startForChat(inFlight);
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+    const stopped = provider.stopStale(next);
+    gate.resolve();
+    await stopped;
+    await started;
+
+    // The stop-epoch bump is what makes this complete: without it the start
+    // would register its clients after the discard and report them available.
+    expect(provider.stateForKey(inFlight)).toBeUndefined();
+    expect(created[0]?.close).toHaveBeenCalledOnce();
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
   it('stops an earlier generation without starting the current one', async () => {
     const { runtime } = operatorRuntime();
     const { provider, clients } = workspaceProvider(runtime, () => [

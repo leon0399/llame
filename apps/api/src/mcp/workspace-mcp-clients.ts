@@ -58,31 +58,36 @@ export type WorkspaceMcpEntryState = Readonly<{
 /** The reason every configured server reports when a `read-only` attempt did
  *  not start it (openspec/changes/read-only-permission-mode "Workspace entry
  *  reports a server that read-only did not start"). */
-export const READ_ONLY_MCP_REASON = 'not started in a read-only Run';
+const READ_ONLY_MCP_REASON = 'not started in a read-only Run';
 
 /** One attempt's single Workspace MCP listing: the binding it describes and
- *  the servers its configuration named. Held in attempt memory so a same-root
- *  re-entry reports the same servers and reads no configuration again. */
+ *  the servers its configuration named. */
 export type WorkspaceMcpListing = Readonly<{
-  root: string;
-  generation: number;
+  key: WorkspaceMcpKey;
   servers: ReadonlyArray<WorkspaceMcpServerState>;
 }>;
 
 /** Attempt-scoped holder for {@link WorkspaceMcpListing}. */
-export type WorkspaceMcpListingCell = Readonly<{
-  current: () => WorkspaceMcpListing | undefined;
-  commit: (listing: WorkspaceMcpListing) => void;
-}>;
+export type WorkspaceMcpListingCell = {
+  listing?: WorkspaceMcpListing;
+};
 
-export function createWorkspaceMcpListingCell(): WorkspaceMcpListingCell {
-  let listing: WorkspaceMcpListing | undefined;
-  return {
-    current: () => listing,
-    commit: (next) => {
-      listing = next;
-    },
-  };
+/**
+ * The attempt's listing for `key`, read once for each binding: a same-root
+ * re-entry returns it and reads no configuration again.
+ */
+export async function listUnstartedOnce(
+  clients: WorkspaceMcpClients,
+  cell: WorkspaceMcpListingCell,
+  key: WorkspaceMcpKey,
+): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
+  const current = cell.listing;
+  if (current !== undefined && sameKey(current.key, key)) {
+    return current.servers;
+  }
+  const servers = await clients.listUnstarted(key);
+  cell.listing = { key, servers };
+  return servers;
 }
 
 export type WorkspaceMcpClientsOptions = Readonly<{
@@ -221,10 +226,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
       const record = await pending;
       return this.describe(record);
     }
-    const epoch = this.bumpStopEpoch(key.chatId);
-    await this.stopStaleForChat(key);
-    await this.awaitPendingStarts(key.chatId);
-    const record = await this.startKey(key, epoch);
+    const record = await this.startKey(key, await this.stopStale(key));
     record.lastUsed = this.now();
     return this.describe(record);
   }
@@ -247,16 +249,13 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   async listUnstarted(
     key: WorkspaceMcpKey,
   ): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
-    const target = machineWorkspaceTarget(key.root);
-    const configs =
-      target === undefined
-        ? await this.readLocalConfigs(key.root)
-        : await readMachineServerConfigs(this.connector, target);
+    const configs = await this.readConfigs(key.root);
     return Object.freeze(
       configs.map((config) =>
-        config.state === 'unavailable'
-          ? unavailable(config.id, config.reason)
-          : unavailable(config.id, READ_ONLY_MCP_REASON),
+        unavailable(
+          config.id,
+          config.state === 'unavailable' ? config.reason : READ_ONLY_MCP_REASON,
+        ),
       ),
     );
   }
@@ -268,10 +267,11 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
    * register its clients afterwards. The cached set for `key` itself stays
    * untouched for a later `default` attempt.
    */
-  async stopStale(key: WorkspaceMcpKey): Promise<void> {
-    this.bumpStopEpoch(key.chatId);
+  async stopStale(key: WorkspaceMcpKey): Promise<number> {
+    const epoch = this.bumpStopEpoch(key.chatId);
     await this.stopStaleForChat(key);
     await this.awaitPendingStarts(key.chatId);
+    return epoch;
   }
 
   beginAttempt(key: WorkspaceMcpKey): void {
@@ -427,10 +427,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
 
   private async createClientSet(key: WorkspaceMcpKey): Promise<ClientSet> {
     const target = machineWorkspaceTarget(key.root);
-    const configs =
-      target === undefined
-        ? await this.readLocalConfigs(key.root)
-        : await readMachineServerConfigs(this.connector, target);
+    const configs = await this.readConfigs(key.root);
     const operatorIds = this.operator.snapshotServerIds();
     const configured = configuredEntries(configs, operatorIds);
     const runtime = new McpRuntimeService(runtimeDefinitions(configured), {
@@ -446,6 +443,16 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     });
     await runtime.start();
     return { key, configs, runtime, activeAttempts: 0, lastUsed: this.now() };
+  }
+
+  /** Every server the binding's root declares, locally or on its Machine. */
+  private async readConfigs(
+    root: string,
+  ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
+    const target = machineWorkspaceTarget(root);
+    return target === undefined
+      ? this.readLocalConfigs(root)
+      : readMachineServerConfigs(this.connector, target);
   }
 
   /** Every server the Workspace's own `.mcp.json` resolves to, here. */

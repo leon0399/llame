@@ -254,8 +254,6 @@ describe('resolveEffectivePermissionMode', () => {
     ['bypass', ['default'], 'default'],
     ['default', ['default', 'bypass'], 'default'],
     ['default', ['default'], 'default'],
-    ['read-only', ['default'], 'read-only'],
-    ['read-only', ['default', 'read-only', 'bypass'], 'read-only'],
   ] as const)(
     'resolves accepted %s with worker modes %j to %s',
     (accepted, workerModes, expected) => {

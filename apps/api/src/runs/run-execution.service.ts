@@ -326,7 +326,7 @@ import {
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
-  createWorkspaceMcpListingCell,
+  listUnstartedOnce,
   WorkspaceMcpClients,
   type WorkspaceMcpKey,
   type WorkspaceMcpListingCell,
@@ -1175,16 +1175,12 @@ export class RunExecutionService {
     // The attempt's one Workspace MCP listing, filled at attempt start or at
     // the entry that sets a binding, so a same-root re-entry reads no
     // configuration again (read-only-permission-mode D6).
-    const workspaceMcpListing = createWorkspaceMcpListingCell();
+    const workspaceMcpListing: WorkspaceMcpListingCell = {};
     const boundWorkspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
     // A `read-only` attempt starts, holds, and composes no Workspace MCP
     // client: no key reaches the catalog, the resolver, or the attempt hold.
-    const workspaceMcpKey = this.attemptWorkspaceMcpKey(
-      workspacePreparation,
-      effectivePermissionMode,
-    );
     await this.restoreArtifactFiles(input, workspaceChat);
-    await this.startWorkspaceMcp(
+    const workspaceMcpKey = await this.startWorkspaceMcp(
       input.chatId,
       boundWorkspaceMcpKey,
       effectivePermissionMode,
@@ -2553,22 +2549,23 @@ export class RunExecutionService {
     key: WorkspaceMcpKey | undefined,
     mode: PermissionMode,
     listing: WorkspaceMcpListingCell,
-  ): Promise<void> {
-    if (this.workspaceMcp === undefined) return;
-    if (key === undefined) {
-      await this.workspaceMcp.stopForChat(chatId);
-      return;
-    }
+  ): Promise<WorkspaceMcpKey | undefined> {
+    const clients = this.workspaceMcp;
     if (mode === 'read-only') {
-      await this.workspaceMcp.stopStale(key);
-      listing.commit({
-        root: key.root,
-        generation: key.generation,
-        servers: await this.workspaceMcp.listUnstarted(key),
-      });
-      return;
+      if (clients === undefined || key === undefined) return undefined;
+      await Promise.all([
+        clients.stopStale(key),
+        listUnstartedOnce(clients, listing, key),
+      ]);
+      return undefined;
     }
-    await this.workspaceMcp.startForChat(key);
+    if (clients === undefined) return key;
+    if (key === undefined) {
+      await clients.stopForChat(chatId);
+      return undefined;
+    }
+    await clients.startForChat(key);
+    return key;
   }
 
   private attemptDynamicResolver(

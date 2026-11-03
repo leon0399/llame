@@ -4218,202 +4218,109 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
-  it('keeps the accepted permission mode out of model context', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-09-28T12:00:00.000Z'));
+  it.each(['bypass', 'read-only'] as const)(
+    'keeps the accepted %s permission mode out of model context',
+    async (mode) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-28T12:00:00.000Z'));
 
-    const service = serviceWithTools({
-      allowed: ['search_conversations'],
-      permissionModes: ['default', 'bypass'],
-    });
-    const defaultSeeded = await seedBoundRun(
-      'permission-mode-context-isolation',
-      'default',
-    );
-    const bypassSeeded = await seedBoundRun(
-      'permission-mode-context-isolation',
-      'bypass',
-    );
-    const calls: Array<ModelStreamInput> = [];
-    const model = new MockLanguageModelV3({
-      doStream: () => Promise.resolve(textResponse('context is unchanged')),
-    });
-
-    try {
-      const defaultResult = await executeSeeded(
-        defaultSeeded,
-        service,
-        recordingMockClient(model, calls),
+      const service = serviceWithTools({
+        allowed: ['search_conversations'],
+        permissionModes: ['default', mode],
+      });
+      const defaultSeeded = await seedBoundRun(
+        'permission-mode-context-isolation',
+        'default',
       );
-      await defaultResult.consumeStream?.();
-      const bypassResult = await executeSeeded(
-        bypassSeeded,
-        service,
-        recordingMockClient(model, calls),
+      const modeSeeded = await seedBoundRun(
+        'permission-mode-context-isolation',
+        mode,
       );
-      await bypassResult.consumeStream?.();
+      const calls: Array<ModelStreamInput> = [];
+      const model = new MockLanguageModelV3({
+        doStream: () => Promise.resolve(textResponse('context is unchanged')),
+      });
 
-      expect(calls).toHaveLength(2);
-      expect(model.doStreamCalls).toHaveLength(2);
-      const defaultRequest = calls[0];
-      const bypassRequest = calls[1];
-      if (defaultRequest === undefined || bypassRequest === undefined) {
-        throw new Error('Expected both model requests to be recorded');
+      try {
+        const defaultResult = await executeSeeded(
+          defaultSeeded,
+          service,
+          recordingMockClient(model, calls),
+        );
+        await defaultResult.consumeStream?.();
+        const modeResult = await executeSeeded(
+          modeSeeded,
+          service,
+          recordingMockClient(model, calls),
+        );
+        await modeResult.consumeStream?.();
+
+        expect(calls).toHaveLength(2);
+        expect(model.doStreamCalls).toHaveLength(2);
+        const defaultRequest = calls[0];
+        const modeRequest = calls[1];
+        if (defaultRequest === undefined || modeRequest === undefined) {
+          throw new Error('Expected both model requests to be recorded');
+        }
+        expect(defaultRequest.system).toEqual(expect.any(String));
+        expect(modeRequest.system).toBe(defaultRequest.system);
+        expect(modeRequest.messages).toEqual(defaultRequest.messages);
+        expect(model.doStreamCalls[1]?.prompt).toEqual(
+          model.doStreamCalls[0]?.prompt,
+        );
+        // The declarations are identical too: the mode is not model-visible.
+        expect(model.doStreamCalls[1]?.tools).toEqual(
+          model.doStreamCalls[0]?.tools,
+        );
+
+        const [defaultReceipts, modeReceipts] = await tenantDb.runAs(
+          userId,
+          async (tx) => {
+            const receipts = new SystemPromptReceiptsRepository(tx);
+            return [
+              await receipts.findByOwnedRun(defaultSeeded.run.id, userId),
+              await receipts.findByOwnedRun(modeSeeded.run.id, userId),
+            ] as const;
+          },
+        );
+        expect(defaultReceipts).toHaveLength(1);
+        expect(modeReceipts).toHaveLength(1);
+        expect(
+          modeReceipts.map(({ source, systemPrompt, promptHash }) => ({
+            source,
+            systemPrompt,
+            promptHash,
+          })),
+        ).toEqual(
+          defaultReceipts.map(({ source, systemPrompt, promptHash }) => ({
+            source,
+            systemPrompt,
+            promptHash,
+          })),
+        );
+        for (const runId of [defaultSeeded.run.id, modeSeeded.run.id]) {
+          await waitForCompleted(runId);
+        }
+        const defaultParts = await storedContextParts(defaultSeeded.chatId);
+        const modeParts = await storedContextParts(modeSeeded.chatId);
+        expect(defaultParts.length).toBeGreaterThan(0);
+        expect(modeParts.map(persistedItem)).toEqual(
+          defaultParts.map(persistedItem),
+        );
+
+        for (const request of calls) {
+          expect(JSON.stringify(request)).not.toContain(mode);
+        }
+        for (const part of [...defaultParts, ...modeParts]) {
+          expect(JSON.stringify(part)).not.toContain(mode);
+        }
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${defaultSeeded.chatId}`;
+        await sql`DELETE FROM chats WHERE id = ${modeSeeded.chatId}`;
+        vi.useRealTimers();
       }
-      expect(defaultRequest.system).toEqual(expect.any(String));
-      expect(bypassRequest.system).toBe(defaultRequest.system);
-      expect(bypassRequest.messages).toEqual(defaultRequest.messages);
-      expect(model.doStreamCalls[1]?.prompt).toEqual(
-        model.doStreamCalls[0]?.prompt,
-      );
-
-      const [defaultReceipts, bypassReceipts] = await tenantDb.runAs(
-        userId,
-        async (tx) => {
-          const receipts = new SystemPromptReceiptsRepository(tx);
-          return [
-            await receipts.findByOwnedRun(defaultSeeded.run.id, userId),
-            await receipts.findByOwnedRun(bypassSeeded.run.id, userId),
-          ] as const;
-        },
-      );
-      expect(defaultReceipts).toHaveLength(1);
-      expect(bypassReceipts).toHaveLength(1);
-      expect(
-        bypassReceipts.map(({ source, systemPrompt, promptHash }) => ({
-          source,
-          systemPrompt,
-          promptHash,
-        })),
-      ).toEqual(
-        defaultReceipts.map(({ source, systemPrompt, promptHash }) => ({
-          source,
-          systemPrompt,
-          promptHash,
-        })),
-      );
-      for (const runId of [defaultSeeded.run.id, bypassSeeded.run.id]) {
-        await waitForCompleted(runId);
-      }
-      const defaultParts = await storedContextParts(defaultSeeded.chatId);
-      const bypassParts = await storedContextParts(bypassSeeded.chatId);
-      expect(defaultParts.length).toBeGreaterThan(0);
-      expect(bypassParts.map(persistedItem)).toEqual(
-        defaultParts.map(persistedItem),
-      );
-
-      for (const request of calls) {
-        expect(JSON.stringify(request)).not.toContain('bypass');
-      }
-      for (const part of [...defaultParts, ...bypassParts]) {
-        expect(JSON.stringify(part)).not.toContain('bypass');
-      }
-    } finally {
-      await sql`DELETE FROM chats WHERE id = ${defaultSeeded.chatId}`;
-      await sql`DELETE FROM chats WHERE id = ${bypassSeeded.chatId}`;
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps the prompt prefix of a Chat with no Workspace MCP server on a read-only turn', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-09-28T12:00:00.000Z'));
-
-    const service = serviceWithTools({
-      allowed: ['search_conversations'],
-      permissionModes: ['default', 'read-only'],
-    });
-    const defaultSeeded = await seedBoundRun(
-      'permission-mode-read-only-context-isolation',
-      'default',
-    );
-    const readOnlySeeded = await seedBoundRun(
-      'permission-mode-read-only-context-isolation',
-      'read-only',
-    );
-    const calls: Array<ModelStreamInput> = [];
-    const model = new MockLanguageModelV3({
-      doStream: () => Promise.resolve(textResponse('context is unchanged')),
-    });
-
-    try {
-      const defaultResult = await executeSeeded(
-        defaultSeeded,
-        service,
-        recordingMockClient(model, calls),
-      );
-      await defaultResult.consumeStream?.();
-      const readOnlyResult = await executeSeeded(
-        readOnlySeeded,
-        service,
-        recordingMockClient(model, calls),
-      );
-      await readOnlyResult.consumeStream?.();
-
-      expect(calls).toHaveLength(2);
-      expect(model.doStreamCalls).toHaveLength(2);
-      const defaultRequest = calls[0];
-      const readOnlyRequest = calls[1];
-      if (defaultRequest === undefined || readOnlyRequest === undefined) {
-        throw new Error('Expected both model requests to be recorded');
-      }
-      expect(readOnlyRequest.system).toBe(defaultRequest.system);
-      expect(readOnlyRequest.messages).toEqual(defaultRequest.messages);
-      // The declarations are identical too: the mode is not model-visible.
-      expect(model.doStreamCalls[1]?.prompt).toEqual(
-        model.doStreamCalls[0]?.prompt,
-      );
-      expect(model.doStreamCalls[1]?.tools).toEqual(
-        model.doStreamCalls[0]?.tools,
-      );
-
-      const [defaultReceipts, readOnlyReceipts] = await tenantDb.runAs(
-        userId,
-        async (tx) => {
-          const receipts = new SystemPromptReceiptsRepository(tx);
-          return [
-            await receipts.findByOwnedRun(defaultSeeded.run.id, userId),
-            await receipts.findByOwnedRun(readOnlySeeded.run.id, userId),
-          ] as const;
-        },
-      );
-      expect(defaultReceipts).toHaveLength(1);
-      expect(readOnlyReceipts).toHaveLength(1);
-      expect(
-        readOnlyReceipts.map(({ source, systemPrompt, promptHash }) => ({
-          source,
-          systemPrompt,
-          promptHash,
-        })),
-      ).toEqual(
-        defaultReceipts.map(({ source, systemPrompt, promptHash }) => ({
-          source,
-          systemPrompt,
-          promptHash,
-        })),
-      );
-      for (const runId of [defaultSeeded.run.id, readOnlySeeded.run.id]) {
-        await waitForCompleted(runId);
-      }
-      const defaultParts = await storedContextParts(defaultSeeded.chatId);
-      const readOnlyParts = await storedContextParts(readOnlySeeded.chatId);
-      expect(defaultParts.length).toBeGreaterThan(0);
-      expect(readOnlyParts.map(persistedItem)).toEqual(
-        defaultParts.map(persistedItem),
-      );
-
-      for (const request of calls) {
-        expect(JSON.stringify(request)).not.toContain('read-only');
-      }
-      for (const part of [...defaultParts, ...readOnlyParts]) {
-        expect(JSON.stringify(part)).not.toContain('read-only');
-      }
-    } finally {
-      await sql`DELETE FROM chats WHERE id = ${defaultSeeded.chatId}`;
-      await sql`DELETE FROM chats WHERE id = ${readOnlySeeded.chatId}`;
-      vi.useRealTimers();
-    }
-  });
+    },
+  );
 
   it('bypasses a recommended-policy Bash reject and records the decision before tool.started', async () => {
     const cwd = mkdtempSync(path.join(tmpdir(), 'permission-mode-bash-'));
@@ -7098,14 +7005,24 @@ describeIfDb('executeRun tool-loop persistence', () => {
       return root;
     }
 
-    it('starts no Workspace MCP client for a read-only attempt', async () => {
+    /** One bound Chat with a `docs` Workspace MCP server, for one test. */
+    async function withDocsWorkspace(
+      seedMode: PermissionMode,
+      run: (input: {
+        fixture: McpTestFixture;
+        root: string;
+        clients: WorkspaceMcpClients;
+        service: RunExecutionService;
+        seeded: Awaited<ReturnType<typeof seedBoundRun>>;
+      }) => Promise<void>,
+    ): Promise<void> {
       const fixture = await docsMcpFixture();
       const root = workspaceRootWithDocs(fixture);
       const operator = new McpRuntimeService({});
       const clients = new WorkspaceMcpClients(operator);
       const seeded = await seedBoundRun(
         `read-only-mcp-${crypto.randomUUID()}`,
-        'read-only',
+        seedMode,
       );
       const service = serviceWithTools({
         allowed: ['read', 'enter_workspace', 'mcp__docs__search'],
@@ -7115,6 +7032,25 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       await bindChatWorkspace(seeded.chatId, root);
       try {
+        await run({ fixture, root, clients, service, seeded });
+      } finally {
+        await clients.onModuleDestroy();
+        await operator.stop();
+        await fixture.close();
+        rmSync(root, { recursive: true, force: true });
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    }
+
+    it('starts no Workspace MCP client for a read-only attempt', async () => {
+      await withDocsWorkspace('read-only', async (env) => {
+        const { fixture, root, clients, service, seeded } = env;
+        // A client another attempt started for an earlier generation.
+        const stale = { chatId: seeded.chatId, root, generation: 0 };
+        await clients.startForChat(stale);
+        expect(clients.stateForKey(stale)).toBeDefined();
+        const requestsBeforeAttempt = fixture.requestSummaries().length;
+
         const calls: Array<ModelStreamInput> = [];
         const result = await executeSeeded(
           seeded,
@@ -7124,14 +7060,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
         await result.consumeStream?.();
         await waitForCompleted(seeded.run.id);
 
-        // No server process, no declaration, and no cached client set.
-        expect(fixture.requestSummaries()).toEqual([]);
+        // No new server process, no declaration, no cached client set, and the
+        // stale generation stopped.
+        expect(fixture.requestSummaries()).toHaveLength(requestsBeforeAttempt);
+        expect(clients.stateForKey(stale)).toBeUndefined();
         expect(
-          clients.stateForKey({
-            chatId: seeded.chatId,
-            root,
-            generation: 1,
-          }),
+          clients.stateForKey({ chatId: seeded.chatId, root, generation: 1 }),
         ).toBeUndefined();
         expect(Object.keys(calls[0]?.tools ?? {})).not.toContain(
           'mcp__docs__search',
@@ -7158,32 +7092,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(Object.keys(secondCalls[0]?.tools ?? {})).toContain(
           'mcp__docs__search',
         );
-      } finally {
-        await clients.onModuleDestroy();
-        await operator.stop();
-        await fixture.close();
-        rmSync(root, { recursive: true, force: true });
-        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
-      }
+      });
     });
 
     it('reports the Workspace MCP tools as removed on a read-only turn', async () => {
-      const fixture = await docsMcpFixture();
-      const root = workspaceRootWithDocs(fixture);
-      const operator = new McpRuntimeService({});
-      const clients = new WorkspaceMcpClients(operator);
-      const seeded = await seedBoundRun(
-        `read-only-mcp-removed-${crypto.randomUUID()}`,
-        'default',
-      );
-      const service = serviceWithTools({
-        allowed: ['read', 'enter_workspace', 'mcp__docs__search'],
-        nativeExecutorId: 'workspace-test-host',
-        permissionModes: ['default', 'read-only'],
-        workspaceMcp: clients,
-      });
-      await bindChatWorkspace(seeded.chatId, root);
-      try {
+      await withDocsWorkspace('default', async (env) => {
+        const { fixture, root, clients, service, seeded } = env;
         const defaultCalls: Array<ModelStreamInput> = [];
         const first = await executeSeeded(
           seeded,
@@ -7196,11 +7110,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
           'mcp__docs__search',
         );
         const requestsAfterDefault = fixture.requestSummaries().length;
-        const cached = {
-          chatId: seeded.chatId,
-          root,
-          generation: 1,
-        };
+        const cached = { chatId: seeded.chatId, root, generation: 1 };
+        // Only a `read-only` attempt must skip the hold; a `default` one takes
+        // it for the cached set.
+        const beginAttempt = vi.spyOn(clients, 'beginAttempt');
 
         const second = await seedRunOnChat(
           seeded,
@@ -7216,12 +7129,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
         await secondResult.consumeStream?.();
         await waitForCompleted(second.run.id);
 
-        // The read-only attempt declares none of the client's tools, takes no
-        // tool from it, and leaves the cached set for a later default attempt.
+        // The read-only attempt declares none of the client's tools, holds and
+        // takes no tool from it, and leaves the cached set for a later default
+        // attempt.
         expect(Object.keys(readOnlyCalls[0]?.tools ?? {})).not.toContain(
           'mcp__docs__search',
         );
         expect(fixture.requestSummaries()).toHaveLength(requestsAfterDefault);
+        expect(beginAttempt).not.toHaveBeenCalled();
         expect(clients.stateForKey(cached)).toMatchObject({
           servers: [{ id: 'docs', state: 'available' }],
         });
@@ -7244,13 +7159,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             }),
           ]),
         );
-      } finally {
-        await clients.onModuleDestroy();
-        await operator.stop();
-        await fixture.close();
-        rmSync(root, { recursive: true, force: true });
-        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
-      }
+      });
     });
   });
 });
