@@ -14,6 +14,14 @@ type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
 /** Every part the transcript holds, in order. */
 type Transcript = Array<MessagePart | PendingToolPart>;
 
+/** What a text delivery carries beyond its characters. */
+export type TextDelivery = {
+  readonly partId?: string;
+  readonly providerMetadata?: ProviderMetadata;
+  /** The model step this delivery belongs to (design D5). */
+  readonly step?: number;
+};
+
 /**
  * Records text deliveries onto the transcript, deciding part boundaries and
  * binding a part's opaque provider metadata to it.
@@ -44,29 +52,11 @@ export class TextPartTrack {
   record(
     collected: Transcript,
     text: string,
-    partId?: string,
-    providerMetadata?: ProviderMetadata,
+    delivery: TextDelivery = {},
   ): ProviderMetadata | undefined {
+    const { partId, providerMetadata } = delivery;
     if (text.length > 0) {
-      const last = collected.at(-1);
-      if (
-        last?.type !== 'text' ||
-        !isString(last.text) ||
-        this.isNewPart(partId)
-      ) {
-        this.openPartId = partId;
-        collected.push({ type: 'text', text });
-      } else {
-        last.text += text;
-        // A defined id becomes the open part's id; an absent id adds nothing.
-        this.openPartId = partId ?? this.openPartId;
-      }
-      return this.bind(
-        collected,
-        partId,
-        providerMetadata,
-        collected.length - 1,
-      );
+      return this.recordText(collected, text, delivery);
     }
     // The part's start (or a repeat of its end): bind to the part its id
     // names, or hold the metadata until that id produces text.
@@ -81,6 +71,33 @@ export class TextPartTrack {
       this.pendingMetadata.set(partId, providerMetadata);
     }
     return undefined;
+  }
+
+  /** Records characters on the open text part, or starts a new one (D5/A7). */
+  private recordText(
+    collected: Transcript,
+    text: string,
+    delivery: TextDelivery,
+  ): ProviderMetadata | undefined {
+    const { partId, providerMetadata } = delivery;
+    const last = collected.at(-1);
+    if (
+      last?.type === 'text' &&
+      isString(last.text) &&
+      !this.isNewPart(partId)
+    ) {
+      last.text += text;
+      // A defined id becomes the open part's id; an absent id adds nothing.
+      this.openPartId = partId ?? this.openPartId;
+    } else {
+      this.openPartId = partId;
+      collected.push({
+        type: 'text',
+        text,
+        ...(delivery.step !== undefined && { step: delivery.step }),
+      });
+    }
+    return this.bind(collected, partId, providerMetadata, collected.length - 1);
   }
 
   /**

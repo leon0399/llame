@@ -2,6 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
+- A stored text, reasoning, or tool part now records the model step that
+  produced it, so a later turn can group a step's calls and its text exactly as
+  the live loop sent them. The number continues after the kept steps in a
+  Continue Run, and admission copies it from the source Run's own
+  `tool.requested` event for a part stored before this change; an older part
+  keeps no step. A call the AI SDK refused before llame ran it now stores the
+  SDK's own error text and input form beside llame's owner-facing error, for
+  the model only, and both stay out of the owner history response and run event
+  stream. `messages.parts` moves from `jsonb` to `json`, so a tool input and a
+  JSON result keep the member order they were written with; rows written before
+  the conversion keep the sorted order they hold. Nothing replays these fields
+  yet. Refs [#1539](https://github.com/leon0399/llame/issues/1539).
+
 - A reply's stored text and tool parts now keep the opaque provider metadata
   their stream carried, so a later turn can send it back unchanged. On the
   Responses wire two `message` items stay two stored text parts, each with its

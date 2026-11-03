@@ -832,6 +832,8 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
       toolName: 'not_a_real_tool',
       input: '{"x":1}',
       expectedInput: { x: 1 },
+      expectedSdkInput: { x: 1 },
+      errorMarker: "unavailable tool 'not_a_real_tool'",
       reason: 'not_available',
     },
     {
@@ -839,6 +841,8 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
       toolName: 'echo',
       input: '{"bad":true}',
       expectedInput: { bad: true },
+      expectedSdkInput: { bad: true },
+      errorMarker: 'Type validation failed',
       reason: 'invalid_input',
     },
     {
@@ -846,17 +850,28 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
       toolName: 'not_a_real_tool',
       input: 'not valid json{{{',
       expectedInput: 'not valid json{{{',
+      // The SDK sends `{}` for a call whose raw input is not an object.
+      expectedSdkInput: {},
+      errorMarker: "unavailable tool 'not_a_real_tool'",
       reason: 'not_available',
     },
   ] as const)(
     'reports $reason for $name without crashing',
-    async ({ toolName, input, expectedInput, reason }) => {
+    async ({
+      toolName,
+      input,
+      expectedInput,
+      expectedSdkInput,
+      errorMarker,
+      reason,
+    }) => {
       const model = scriptedModel([
         toolResponse([{ toolName, input }]),
         textResponse('fallback'),
       ]);
       const client = buildClient(model);
-      const onUnavailableToolCall = vi.fn();
+      const onUnavailableToolCall =
+        vi.fn<NonNullable<ModelStreamInput['onUnavailableToolCall']>>();
 
       await expect(
         client.streamText({
@@ -868,12 +883,17 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
         }).text,
       ).resolves.toBe('fallback');
 
-      expect(onUnavailableToolCall).toHaveBeenCalledWith({
+      expect(onUnavailableToolCall).toHaveBeenCalledTimes(1);
+      const [reported] = onUnavailableToolCall.mock.calls[0] ?? [];
+      expect(reported).toMatchObject({
         toolCallId: 'call-0',
         toolName,
         input: expectedInput,
         reason,
+        // The SDK's own form of the refused call, stored for replay (D3/A8).
+        sdkRefusal: { input: expectedSdkInput },
       });
+      expect(reported?.sdkRefusal.errorText).toContain(errorMarker);
       expect(model.doStreamCalls).toHaveLength(2);
     },
   );

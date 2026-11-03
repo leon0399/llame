@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { getErrorMessage } from '@ai-sdk/provider-utils';
 import { NoSuchToolError, stepCountIs, streamText } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type {
@@ -245,6 +246,14 @@ function createClient(
               : { messages: override };
         };
         options.experimental_repairToolCall = ({ toolCall, error }) => {
+          let sdkInput: unknown;
+          try {
+            // SAFETY: JSON.parse returns any; asserting unknown forces the
+            // caller to narrow before use rather than silently inheriting any.
+            sdkInput = JSON.parse(toolCall.input) as unknown;
+          } catch {
+            sdkInput = toolCall.input;
+          }
           input.onUnavailableToolCall?.({
             toolCallId: toolCall.toolCallId,
             toolName: toolCall.toolName,
@@ -252,6 +261,11 @@ function createClient(
             reason: NoSuchToolError.isInstance(error)
               ? 'not_available'
               : 'invalid_input',
+            sdkRefusal: {
+              errorText: getErrorMessage(error),
+              // eslint-disable-next-line anti-slop/no-runtime-typeof -- the scripted client mirrors the SDK's own invalid-call rule (`{}` for a non-object input), so the refusal record equals the live one.
+              input: typeof sdkInput === 'object' ? sdkInput : {},
+            },
           });
           return Promise.resolve(null);
         };

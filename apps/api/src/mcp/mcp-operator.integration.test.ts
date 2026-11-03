@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { type LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { getErrorMessage } from '@ai-sdk/provider-utils';
 import {
   NoSuchToolError,
   stepCountIs,
@@ -265,6 +266,11 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
               reason: NoSuchToolError.isInstance(error)
                 ? 'not_available'
                 : 'invalid_input',
+              sdkRefusal: {
+                errorText: getErrorMessage(error),
+                // eslint-disable-next-line anti-slop/no-runtime-typeof -- the scripted client mirrors the SDK's own invalid-call rule (`{}` for a non-object input), so the refusal record equals the live one.
+                input: typeof parsedInput === 'object' ? parsedInput : {},
+              },
             });
             return Promise.resolve(null);
           },

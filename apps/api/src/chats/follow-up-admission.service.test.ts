@@ -403,6 +403,42 @@ describe('FollowUpAdmissionService', () => {
     );
   });
 
+  it('copies a kept call’s step from its source event when the reply stores none', async () => {
+    const { service, listByRunId, append } = makeService();
+    listByRunId.mockResolvedValue([
+      {
+        sequence: 6,
+        runId: sourceRun.id,
+        eventType: 'tool.requested',
+        payload: { toolCallId: 'call-1', stepNumber: 1 },
+        createdAt: now,
+      },
+    ]);
+
+    const admitted = await admit(service);
+
+    // The source reply's parts were stored before step numbers (design D5):
+    // admission copies each kept call's step from the event that requested it,
+    // so the continued reply keeps the source Run's step boundary.
+    expect(append).toHaveBeenNthCalledWith(2, admitted.runId, 'run.continued', {
+      sourceRunId: sourceRun.id,
+      parts: [
+        replyParts[0],
+        {
+          type: 'tool-read',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: { path: '/tmp/file.txt' },
+          output: { content: 'body' },
+          step: 1,
+        },
+      ],
+      steps: { 'call-1': 1 },
+      results: {},
+    });
+    expect(replyParts[1]).not.toHaveProperty('step');
+  });
+
   it('rejects a malformed action before any transaction', async () => {
     const { service, runAs } = makeService();
 

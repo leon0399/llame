@@ -877,7 +877,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         }),
         expect.objectContaining({
           role: 'assistant',
-          parts: [{ type: 'text', text: 'hello from model' }],
+          parts: [{ type: 'text', text: 'hello from model', step: 0 }],
           usage: expect.objectContaining({
             inputTokens: 3,
             cachedInputTokens: 2,
@@ -958,7 +958,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       expect.arrayContaining([
         expect.objectContaining({
           role: 'assistant',
-          parts: [{ type: 'text', text: 'still persisted' }],
+          parts: [{ type: 'text', text: 'still persisted', step: 0 }],
           usage: expect.objectContaining({
             status: 'completed',
             cachedInputTokens: 2,

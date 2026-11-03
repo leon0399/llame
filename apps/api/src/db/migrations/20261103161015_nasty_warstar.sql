@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ALTER COLUMN "parts" SET DATA TYPE json;

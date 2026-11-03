@@ -21,6 +21,7 @@ import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
+import { type SdkRefusal } from '../models/model-client';
 import { type AuthoredContextItemPart } from '../chats/context-item';
 import {
   isHopRejection,
@@ -31,23 +32,21 @@ import {
   type ToolClassification,
   type ToolResult,
 } from '../tools/types';
-import { isRejectedHopUrl } from '../tools/permissions/messages';
 import { isArtifactLocator } from '../tools/artifacts/locator';
-import {
-  type PermissionClauseReference,
-  type PermissionDecision,
-} from '../tools/permissions/types';
-import {
-  isDerivedLocatorKind,
-  type DerivedDecisionRecord,
-} from '../tools/web-read/admission';
+import { type PermissionDecision } from '../tools/permissions/types';
+import { type DerivedDecisionRecord } from '../tools/web-read/admission';
 import { isSystemOriginPayload } from './tool-activity-origin';
+import {
+  derivedDecisionsFromPayload,
+  permissionFromPayload,
+  sdkRefusalFromPayload,
+  toolResultFromPayload,
+} from './tool-event-payload';
 import { TextPartTrack } from './transcript-text-parts';
 import {
   eventPayloadField,
   eventPayloadString,
   eventProviderMetadata,
-  isPermissionRejectionReason,
 } from './run-event-payload';
 import {
   parseRetainedMedia,
@@ -73,6 +72,22 @@ export type ToolActivityPart = {
   errorText?: string;
   /** Provider-portable structured outcome: success or the ToolResult error type. */
   outcome: string;
+  /**
+   * The model step that produced this call (design D5), numbered from 0 in a
+   * Run and continuing after the kept steps in a Continue Run. Absent on a
+   * part stored before this change; replay then falls back to the consecutive
+   * rule. The owner history response and owner event stream carry it, because
+   * it is neither opaque nor secret.
+   */
+  step?: number;
+  /**
+   * What the AI SDK itself put in the live step for a call it refused before
+   * llame ran it (design D3, proposal A8): the SDK's exact error text and its
+   * form of the input. Model-only, and the marker of a refused call — an
+   * executor that returns `not_available` stores the same outcome and error
+   * text without it. Its presence never changes the owner-facing `errorText`.
+   */
+  sdkRefusal?: SdkRefusal;
   /**
    * The artifact locator the call's result names (tool-result-artifacts D6).
    * The replay renders `Artifact: <locator>` from it after payload clearing
@@ -192,19 +207,21 @@ class AssistantPartCollectorImpl {
 
   /**
    * A text delivery; boundaries and metadata binding: see `TextPartTrack`
-   * (design A7). Reports the metadata this delivery stored on a part, if any.
+   * (design A7). `step` is stamped on a part this delivery starts (design D5);
+   * a part keeps the value it was created with. Reports the metadata this
+   * delivery stored on a part, if any.
    */
   text(
     text: string,
     partId?: string,
     providerMetadata?: ProviderMetadata,
+    step?: number,
   ): ProviderMetadata | undefined {
-    return this.textParts.record(
-      this.collected,
-      text,
+    return this.textParts.record(this.collected, text, {
       partId,
       providerMetadata,
-    );
+      step,
+    });
   }
 
   /**
@@ -226,30 +243,20 @@ class AssistantPartCollectorImpl {
     text: string,
     partId?: string,
     providerMetadata?: ProviderMetadata,
+    step?: number,
   ): void {
     if (text.length > 0) {
-      const last = this.collected.at(-1);
-      if (
-        last?.type === 'reasoning' &&
-        isString(last.text) &&
-        !this.isNewReasoningPart(partId)
-      ) {
-        last.text += text;
-        // A defined id becomes the open part's id; an absent id adds nothing.
-        this.openReasoningPartId = partId ?? this.openReasoningPartId;
-      } else {
-        this.openReasoningPartId = partId;
-        this.collected.push({ type: 'reasoning', text });
-      }
-      // A defined id now names the part those characters went into (D15).
-      if (partId !== undefined) {
-        this.reasoningPartIndexes.set(partId, this.collected.length - 1);
-      }
+      this.appendReasoning(text, partId, step);
     } else if (this.startsReasoningPart(partId, providerMetadata)) {
       // D18: the block exists, its text was withheld. The empty part becomes
       // the open one, so text the wire still sends under this id lands in it.
       this.openReasoningPartId = partId;
-      this.collected.push({ type: 'reasoning', text: '', providerMetadata });
+      this.collected.push({
+        type: 'reasoning',
+        text: '',
+        providerMetadata,
+        ...(step !== undefined && { step }),
+      });
       this.reasoningPartIndexes.set(partId, this.collected.length - 1);
       return;
     }
@@ -266,6 +273,35 @@ class AssistantPartCollectorImpl {
     const part = this.collected[index];
     if (part?.type === 'reasoning' && isString(part.text)) {
       part.providerMetadata = providerMetadata;
+    }
+  }
+
+  /** Records reasoning characters on the open part, or a new one (D5/D15). */
+  private appendReasoning(
+    text: string,
+    partId: string | undefined,
+    step: number | undefined,
+  ): void {
+    const last = this.collected.at(-1);
+    if (
+      last?.type === 'reasoning' &&
+      isString(last.text) &&
+      !this.isNewReasoningPart(partId)
+    ) {
+      last.text += text;
+      // A defined id becomes the open part's id; an absent id adds nothing.
+      this.openReasoningPartId = partId ?? this.openReasoningPartId;
+    } else {
+      this.openReasoningPartId = partId;
+      this.collected.push({
+        type: 'reasoning',
+        text,
+        ...(step !== undefined && { step }),
+      });
+    }
+    // A defined id now names the part those characters went into (D15).
+    if (partId !== undefined) {
+      this.reasoningPartIndexes.set(partId, this.collected.length - 1);
     }
   }
 
@@ -364,6 +400,13 @@ export type ToolActivityPartInput = {
   readonly toolName: string;
   readonly input: unknown;
   readonly result: ToolResult;
+  /** The model step that produced this call (design D5). */
+  readonly step?: number;
+  /**
+   * The SDK's own error text and input form for a call it refused (design D3,
+   * proposal A8), copied from the refusal seam.
+   */
+  readonly sdkRefusal?: SdkRefusal;
   /**
    * The call's opaque provider metadata (design A7), stored once on the call:
    * the consumer delivered it before the call executed, and every settlement
@@ -387,20 +430,6 @@ export type ToolActivityPartInput = {
 };
 
 /**
- * The per-call request budget can produce 20 redirect-hop decisions and six
- * probe-candidate decisions (one alternate, one suffix, and four `llms.txt`
- * candidates). The submitted locator is decided at the execution gate, and
- * refused addresses have a separate bound.
- */
-export const MAX_DERIVED_DECISIONS = 26;
-
-/**
- * Address refusals are bounded independently so DNS answers cannot crowd out
- * the hop and probe decisions that explain a call's outcome.
- */
-export const MAX_ADDRESS_DECISIONS = 16;
-
-/**
  * Exported for `RunExecutionService`'s live-stream path, which shapes tool
  * results the same way the durable reconstructor below does.
  */
@@ -408,6 +437,8 @@ export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
   const part = toolPartBody(call);
+  if (call.step !== undefined) part.step = call.step;
+  if (call.sdkRefusal !== undefined) part.sdkRefusal = call.sdkRefusal;
   if (call.retainedMedia !== undefined) part.retainedMedia = call.retainedMedia;
   if (call.providerMetadata !== undefined)
     part.providerMetadata = call.providerMetadata;
@@ -471,136 +502,12 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
 type OpenToolCall = {
   readonly toolName: string;
   readonly toolInput: unknown;
+  /** The model step the `tool.requested` event recorded (design D5). */
+  readonly step?: number;
   readonly permission?: PermissionDecision;
   /** The call's opaque provider metadata, from its `tool.requested` (A7). */
   readonly providerMetadata?: ProviderMetadata;
 };
-
-function permissionClauseFromPayload(
-  value: unknown,
-): PermissionClauseReference | null {
-  if (!isRecord(value)) return null;
-  const groupId = value['groupId'];
-  const list = value['list'];
-  const clauseIndex = value['clauseIndex'];
-  if (!isString(groupId)) return null;
-  if (list !== 'allow' && list !== 'reject') return null;
-  if (clauseIndex !== null && !isNumber(clauseIndex)) return null;
-  return { groupId, list, clauseIndex };
-}
-
-/** Re-read one stored decision record's safe metadata: an opaque policy id, a
- *  decision, a static reason, and a bounded clause reference. */
-function permissionDecisionFrom(
-  value: unknown,
-): PermissionDecision | undefined {
-  if (!isRecord(value)) return undefined;
-  const policyId = value['policyId'];
-  const decision = value['decision'];
-  const reason = value['reason'];
-  if (!isString(policyId)) return undefined;
-  const reference = permissionClauseFromPayload(value['reference']);
-  if (decision === 'allow') {
-    return reason === 'matched_allow' || reason === 'permission_mode_bypass'
-      ? { policyId, decision: 'allow', reason, reference }
-      : undefined;
-  }
-  if (decision !== 'reject' || !isPermissionRejectionReason(reason)) {
-    return undefined;
-  }
-
-  return { policyId, decision: 'reject', reason, reference };
-}
-
-/** Re-read the safe decision metadata from a `tool.requested` payload. */
-function permissionFromPayload(
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; the field read and the guard above parse it before anything is trusted.
-  payload: unknown,
-): PermissionDecision | undefined {
-  return permissionDecisionFrom(eventPayloadField(payload, 'permission'));
-}
-
-/** Re-read one stored derived-locator record: the kind of locator judged,
- *  beside the same safe decision metadata a call decision carries. */
-function derivedDecisionRecordFrom(
-  value: unknown,
-): DerivedDecisionRecord | undefined {
-  if (!isRecord(value)) return undefined;
-  const kind = value['kind'];
-  if (!isDerivedLocatorKind(kind)) return undefined;
-  const decision = permissionDecisionFrom(value);
-  if (decision === undefined) return undefined;
-  const count = value['count'];
-  return isNumber(count) && Number.isInteger(count) && count >= 0
-    ? { ...decision, kind, count }
-    : { ...decision, kind };
-}
-
-/**
- * Re-read the derived-locator decisions a `tool.completed` payload recorded
- * when the call settled. Stored jsonb is untrusted on the way back in, so
- * malformed entries are dropped and each kind group keeps its own bound in
- * stored order; an empty list is absent, like the metadata every other part
- * omits.
- */
-function derivedDecisionsFromPayload(
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `Array.isArray` test below parse it before any entry is trusted.
-  payload: unknown,
-): ReadonlyArray<DerivedDecisionRecord> | undefined {
-  const value = eventPayloadField(payload, 'derivedDecisions');
-  if (!Array.isArray(value)) return undefined;
-
-  const decisions: Array<DerivedDecisionRecord> = [];
-  let addressCount = 0;
-  let derivedCount = 0;
-  for (const entry of value) {
-    const decision = derivedDecisionRecordFrom(entry);
-    if (decision === undefined) continue;
-
-    if (decision.kind === 'address') {
-      if (addressCount >= MAX_ADDRESS_DECISIONS) continue;
-      addressCount += 1;
-    } else {
-      if (derivedCount >= MAX_DERIVED_DECISIONS) continue;
-      derivedCount += 1;
-    }
-    decisions.push(decision);
-  }
-
-  return decisions.length === 0 ? undefined : decisions;
-}
-
-/**
- * Re-read one `tool.completed` payload's result: the success record as stored,
- * or the error the completion described. Stored jsonb is untrusted on the way
- * back in, so an unreadable record is dropped and only the exact locator a
- * hop rejection writes is carried into the rebuilt error — and only when the
- * call that completed was the native `read` tool's refused hop.
- */
-function toolResultFromPayload(
-  output: unknown,
-  toolName: string,
-): ToolResult | undefined {
-  if (!isRecord(output)) return undefined;
-  const status = output['status'];
-  if (status === 'success') return { ...output, status };
-  const type = output['type'];
-  const message = output['message'];
-  if (status !== 'error' || !isString(type) || !isString(message)) {
-    return undefined;
-  }
-  const rejectedUrl = output['rejectedUrl'];
-  const artifact = output['artifact'];
-
-  return {
-    status,
-    type,
-    message,
-    ...(isHopRejection(toolName, type) &&
-      isRejectedHopUrl(rejectedUrl) && { rejectedUrl }),
-    ...(isString(artifact) && { artifact }),
-  };
-}
 
 /**
  * Replays the append-only event log into `createAssistantPartCollector`. A
@@ -613,6 +520,13 @@ class DurableAssistantReconstructor {
   private readonly seenToolCallIds = new Set<string>();
   private readonly completedToolCallIds = new Set<string>();
   /**
+   * The event log records the SDK's own step number, which restarts at 0 in
+   * every request, while the stored parts of a Continue Run continue after the
+   * kept steps (design D5). The caller supplies the offset the run used, so a
+   * rebuilt part carries the same step the live collector stamped.
+   */
+  private readonly stepOffset: number;
+  /**
    * The calls that recorded a `tool.started`. A call without one never ran, so
    * its part stores `null`; a call with one but no recorded classification
    * started under an earlier revision, so its part omits the field and readers
@@ -624,6 +538,23 @@ class DurableAssistantReconstructor {
     string,
     ToolClassification
   >();
+
+  constructor(stepOffset: number) {
+    this.stepOffset = stepOffset;
+  }
+
+  /**
+   * The step number a stored event records, shifted by the Continue offset
+   * (design D5). An event without one — a log written before this change —
+   * adds nothing to the part it produces.
+   */
+  private stepFrom(
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the number guard below parse it before use.
+    payload: unknown,
+  ): number | undefined {
+    const recorded = eventPayloadField(payload, 'stepNumber');
+    return isNumber(recorded) ? this.stepOffset + recorded : undefined;
+  }
 
   apply(events: Array<RunEvent>): void {
     for (const event of events) {
@@ -638,6 +569,7 @@ class DurableAssistantReconstructor {
           eventPayloadString(event.payload, 'text') ?? '',
           eventPayloadString(event.payload, 'partId'),
           eventProviderMetadata(event.payload),
+          this.stepFrom(event.payload),
         );
         return;
       case 'reasoning.delta':
@@ -645,6 +577,7 @@ class DurableAssistantReconstructor {
           eventPayloadString(event.payload, 'text') ?? '',
           eventPayloadString(event.payload, 'partId'),
           eventProviderMetadata(event.payload),
+          this.stepFrom(event.payload),
         );
         return;
       case 'run.step_cap_reached':
@@ -697,6 +630,7 @@ class DurableAssistantReconstructor {
     this.openToolCalls.set(toolCallId, {
       toolName,
       toolInput,
+      step: this.stepFrom(event.payload),
       permission,
       providerMetadata: eventProviderMetadata(event.payload),
     });
@@ -752,6 +686,8 @@ class DurableAssistantReconstructor {
         toolName: request.toolName,
         input: request.toolInput,
         result,
+        step: request.step,
+        sdkRefusal: sdkRefusalFromPayload(event.payload),
         permission: request.permission,
         providerMetadata: request.providerMetadata,
         classification: this.recordedClassification(toolCallId),
@@ -765,8 +701,19 @@ class DurableAssistantReconstructor {
   }
 }
 
-export function reconstructDurableAssistant(events: Array<RunEvent>) {
-  const reconstructor = new DurableAssistantReconstructor();
+/**
+ * The reply's parts and open calls rebuilt from a Run's event log.
+ *
+ * @param events - The Run's stored events, in sequence order
+ * @param stepOffset - The first step number the run used: 0 for a Run that
+ *   starts a turn, and the Continue offset for a Run that continues one
+ *   (design D5). Old events without a step number keep no step.
+ */
+export function reconstructDurableAssistant(
+  events: Array<RunEvent>,
+  stepOffset = 0,
+) {
+  const reconstructor = new DurableAssistantReconstructor(stepOffset);
   reconstructor.apply(events);
   return {
     collector: reconstructor.collector,

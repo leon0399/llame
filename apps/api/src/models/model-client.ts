@@ -18,6 +18,16 @@ import type { ModelInput, TokenPrice } from './model-catalog';
 /** Whether reported model usage is metered or covered by a subscription. */
 export type BillingMode = 'usage' | 'subscription';
 
+/**
+ * What the AI SDK itself put in the live step for a tool call it refused
+ * before llame ran it (design D3, proposal A8): the error text the SDK
+ * renders and its own form of the input — the parsed value, or `{}` when that
+ * value is not an object. A later request replays exactly these two values,
+ * so a refused call replays as the live step sent it. Model-only: every
+ * owner-facing sink strips it.
+ */
+export type SdkRefusal = { errorText: string; input: unknown };
+
 export type ModelStreamResult = StreamTextResult<
   ToolSet,
   OutputInterface<string, string, never>
@@ -152,6 +162,12 @@ export interface ModelStreamInput {
     toolName: string;
     input: unknown;
     reason: 'not_available' | 'invalid_input';
+    /**
+     * The SDK's own model-facing error text and input form for this call
+     * (design D3, proposal A8), stored on the tool part and its completion for
+     * replay only. The owner-facing error stays llame's own.
+     */
+    sdkRefusal: SdkRefusal;
   }) => void;
   /**
    * Called for each streamed text delivery (#48/#49): lets the loop persist

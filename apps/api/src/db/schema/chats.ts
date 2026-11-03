@@ -6,6 +6,7 @@ import {
   check,
   foreignKey,
   index,
+  json,
   jsonb,
   pgEnum,
   pgPolicy,
@@ -248,7 +249,12 @@ export const messages = pgTable(
     senderUserId: text('sender_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    parts: jsonb('parts').$type<Array<unknown>>().notNull(), // AI SDK v6 UIMessage parts array
+    // AI SDK v6 UIMessage parts array. `json`, not `jsonb`: the storage keeps
+    // the member order each object was written with, because a replayed tool
+    // input and JSON result must equal the live step's (design D13). Only rows
+    // written after the conversion keep that order — older rows come back with
+    // jsonb's sorted members, which replay uses as stored.
+    parts: json('parts').$type<Array<unknown>>().notNull(),
     attachments: jsonb('attachments')
       .$type<Array<unknown>>()
       .notNull()

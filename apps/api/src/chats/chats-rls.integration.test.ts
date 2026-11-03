@@ -271,7 +271,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   });
 
   it('messages.parts round-trips AI SDK v5 UIMessage parts via the real repository (write→read equality)', async () => {
-    // Exercises the PRODUCTION code path (Drizzle jsonb) inside an RLS-scoped
+    // Exercises the PRODUCTION code path (Drizzle json) inside an RLS-scoped
     // transaction — not hand-rolled SQL — so this proves the column round-trips
     // structured parts exactly as the app writes them.
     const parts = [
@@ -300,6 +300,101 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
       const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
       expect(readBack.parts).toEqual(parts);
+
+      await tx.execute(dsql`DELETE FROM chats WHERE id = ${chat.id}`); // cascades to messages
+    });
+  });
+
+  it('messages.parts keeps the member order a tool input was written with', async () => {
+    // `json` stores the text as written; a replay must send the call's input
+    // with the members in the order the live step had (design D13).
+    const parts = [
+      {
+        type: 'tool-edit',
+        toolCallId: 'call-edit',
+        state: 'output-available',
+        input: { path: '/work/a.md', oldText: 'before', newText: 'after' },
+        output: { status: 'success', replacements: 1 },
+        outcome: 'success',
+      },
+    ];
+
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        dsql`select set_config('app.current_user_id', ${userAId}, true)`,
+      );
+      const chatsRepo = new ChatsRepository(tx);
+      const messagesRepo = new MessagesRepository(tx);
+
+      const chat = await chatsRepo.create({
+        ownerUserId: userAId,
+        title: 'Order',
+      });
+      await messagesRepo.create({
+        chatId: chat.id,
+        role: 'assistant',
+        parts,
+      });
+
+      const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
+      expect(readBack.parts).toEqual(parts);
+      const [part] = readBack.parts;
+      if (!isRecord(part) || !isRecord(part['input'])) {
+        throw new TypeError('Expected the stored tool part with its input');
+      }
+      expect(Object.keys(part['input'])).toEqual([
+        'path',
+        'oldText',
+        'newText',
+      ]);
+
+      await tx.execute(dsql`DELETE FROM chats WHERE id = ${chat.id}`); // cascades to messages
+    });
+  });
+
+  it('messages.parts reads a row stored as sorted jsonb before the conversion', async () => {
+    // The migration casts each pre-existing row through jsonb, whose members
+    // are sorted. Replay uses the stored order and restores nothing (design
+    // D13); the call still reads and parses.
+    const parts = [
+      {
+        type: 'tool-edit',
+        toolCallId: 'call-legacy',
+        state: 'output-available',
+        input: { path: '/work/a.md', oldText: 'before', newText: 'after' },
+        output: { status: 'success', replacements: 1 },
+        outcome: 'success',
+      },
+    ];
+
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        dsql`select set_config('app.current_user_id', ${userAId}, true)`,
+      );
+      const chatsRepo = new ChatsRepository(tx);
+      const messagesRepo = new MessagesRepository(tx);
+
+      const chat = await chatsRepo.create({
+        ownerUserId: userAId,
+        title: 'Legacy',
+      });
+      // A pre-migration write: jsonb sorts the input's members before the
+      // column's cast to json keeps that text.
+      await tx.execute(
+        dsql`INSERT INTO messages (id, chat_id, seq, role, parts) VALUES (${crypto.randomUUID()}, ${chat.id}, 1, 'assistant', ${JSON.stringify(parts)}::jsonb)`,
+      );
+
+      const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
+      expect(readBack.parts).toEqual(parts);
+      const [part] = readBack.parts;
+      if (!isRecord(part) || !isRecord(part['input'])) {
+        throw new TypeError('Expected the stored tool part with its input');
+      }
+      expect(Object.keys(part['input'])).toEqual([
+        'path',
+        'newText',
+        'oldText',
+      ]);
 
       await tx.execute(dsql`DELETE FROM chats WHERE id = ${chat.id}`); // cascades to messages
     });

@@ -27,6 +27,7 @@ import {
   type StepResult,
   type ToolSet,
 } from 'ai';
+import { getErrorMessage } from '@ai-sdk/provider-utils';
 import { createHash } from 'node:crypto';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
@@ -304,6 +305,13 @@ function createMockModelClient(
               reason: NoSuchToolError.isInstance(error)
                 ? ('not_available' as const)
                 : ('invalid_input' as const),
+              // The SDK's own form of the refused call, as the production
+              // repair hook records it (design D3).
+              sdkRefusal: {
+                errorText: getErrorMessage(error),
+                // eslint-disable-next-line anti-slop/no-runtime-typeof -- the scripted client mirrors the SDK's own invalid-call rule (`{}` for a non-object input), so the refusal record equals the live one.
+                input: typeof parsedInput === 'object' ? parsedInput : {},
+              },
             });
             return Promise.resolve(null);
           },

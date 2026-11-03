@@ -509,7 +509,7 @@ describeIfDb('a Continue Run', () => {
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
       ...keptParts,
-      { type: 'text', text: 'done' },
+      { type: 'text', text: 'done', step: 0 },
     ]);
     expect(reply?.usage).toMatchObject({
       status: 'completed',
@@ -531,7 +531,7 @@ describeIfDb('a Continue Run', () => {
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
       ...keptParts,
-      { type: 'text', text: 'partial' },
+      { type: 'text', text: 'partial', step: 0 },
     ]);
     expect(reply?.usage).toMatchObject({ status: 'error', runId: turn.runId });
     expect((await runOf(turn.runId))?.status).toBe('failed');

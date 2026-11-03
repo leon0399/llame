@@ -320,7 +320,11 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     );
     const assistant = messages.find((m) => m.role === 'assistant');
     const parts = assistant?.parts;
-    expect(parts?.[0]).toEqual({ type: 'reasoning', text: 'brief thought' });
+    expect(parts?.[0]).toEqual({
+      type: 'reasoning',
+      text: 'brief thought',
+      step: 0,
+    });
     expect(parts?.some((p) => isTextPart(p) && p.text === 'Here it is.')).toBe(
       true,
     );
@@ -387,8 +391,8 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     // Both survive the abort -- reasoning is not silently dropped while the
     // partial answer is kept.
     expect(parts).toEqual([
-      { type: 'reasoning', text: 'thinking before it dies' },
-      { type: 'text', text: 'partial answer' },
+      { type: 'reasoning', text: 'thinking before it dies', step: 0 },
+      { type: 'text', text: 'partial answer', step: 0 },
     ]);
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;

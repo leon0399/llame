@@ -44,6 +44,7 @@ import type { RetainedMedia } from '../media/attempt-media';
 import { continuedMediaKey } from '../media/retained-media';
 import {
   projectStoredToolPart,
+  TOOL_PART_PREFIX,
   type ProjectedToolObservationPair,
 } from './tool-observation-part';
 import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
@@ -135,6 +136,24 @@ export function continueStateFromEvents(
     stepNumbers,
     results,
   };
+}
+
+/**
+ * The first step number a Continue Run's own parts use: one after the highest
+ * kept step (design D5), so the steps of the continued reply stay separate and
+ * in order. A Run that continues nothing, or keeps no numbered part, starts at
+ * 0. The kept parts carry their step on every part stored after this change;
+ * the kept step map covers the text and reasoning parts of an older source Run.
+ */
+export function continueStepOffset(state: ContinueState | undefined): number {
+  if (state === undefined) return 0;
+  const steps: Array<number> = [];
+  for (const part of state.parts) {
+    const step = isRecord(part) ? part['step'] : undefined;
+    if (isNumber(step)) steps.push(step);
+  }
+  steps.push(...state.stepNumbers.values());
+  return steps.length === 0 ? 0 : Math.max(...steps) + 1;
 }
 
 /**
@@ -393,6 +412,35 @@ function keptToolCallIds(parts: ReadonlyArray<MessagePart>): Array<string> {
     return isString(type) && type.startsWith('tool-') && isString(toolCallId)
       ? [toolCallId]
       : [];
+  });
+}
+
+/**
+ * The kept parts with the step number of each call the source Run's events
+ * recorded, for a kept tool part that stores none (design D5). Continue
+ * admission calls this, so a source Run written before step numbers keeps its
+ * step boundaries in the Continue request. A part that already records a step
+ * keeps it, a call no event numbers keeps none, and the stored source is never
+ * mutated.
+ */
+export function withKeptSteps(
+  parts: ReadonlyArray<unknown>,
+  steps: KeptStepNumbers,
+): Array<unknown> {
+  return parts.map((part) => {
+    if (!isRecord(part)) return part;
+    const type = part['type'];
+    const toolCallId = part['toolCallId'];
+    if (
+      !isString(type) ||
+      !type.startsWith(TOOL_PART_PREFIX) ||
+      !isString(toolCallId) ||
+      Object.hasOwn(part, 'step')
+    ) {
+      return part;
+    }
+    const step = steps[toolCallId];
+    return isNumber(step) ? { ...part, step } : part;
   });
 }
 
