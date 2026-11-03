@@ -11,7 +11,11 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 
-import { type PermissionMode, useChatContext } from "@/contexts/chat-context";
+import {
+  isPermissionMode,
+  type PermissionMode,
+  useChatContext,
+} from "@/contexts/chat-context";
 import {
   usePermissionModesQuery,
   type PermissionModesResponse,
@@ -33,11 +37,11 @@ const PERMISSION_MODE_DETAILS: Record<PermissionMode, PermissionModeDetails> = {
     title: "Bypass",
     description: "Skips tool-permission checks for this chat.",
   },
+  "read-only": {
+    title: "Read-only",
+    description: "Reads only. Edits, commands, and MCP tools are refused.",
+  },
 };
-
-function isPermissionMode(value: string): value is PermissionMode {
-  return value === "default" || value === "bypass";
-}
 
 function PermissionModeItem({ mode }: { mode: PermissionMode }) {
   const details = PERMISSION_MODE_DETAILS[mode];

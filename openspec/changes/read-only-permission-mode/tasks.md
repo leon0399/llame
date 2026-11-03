@@ -64,10 +64,14 @@ zero and is reported separately in each PR.
 
 ## 3. web
 
-- [ ] 3.1 Regenerate the web client and the web live protocol, and widen the mode union in `chat-context.tsx`.
-- [ ] 3.2 Add `read-only` to the selector details with a non-destructive trigger, widen `isPermissionMode`, and send any non-default mode from the composer, creation, Continue, and Regenerate (design D8). Verify with selector, transport, and Turn-action stories or tests for "Read-only is sent when selected", a Continue with `read-only` that sends `permissionMode: "read-only"`, and the existing `bypass` scenarios.
-- [ ] 3.3 Run Storybook tests for the selector and return preview URLs; run `pnpm --filter web lint` and `typecheck`.
-- [ ] 3.4 Add the web part of the `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
+- [x] 3.1 Regenerate the web client and the web live protocol, and widen the mode union in `chat-context.tsx`.
+  - Evidence: `pnpm --filter web generate:client` regenerated every permission-mode enum under `apps/web/lib/api/generated/models/` with `read-only` and `apps/web/lib/api/live-generated/live-protocol.ts`; `apps/web/contexts/chat-context.tsx` types `PermissionMode` with `read-only` and exports the shared `isPermissionMode`.
+- [x] 3.2 Add `read-only` to the selector details with a non-destructive trigger, widen `isPermissionMode`, and send any non-default mode from the composer, creation, Continue, and Regenerate (design D8). Verify with selector, transport, and Turn-action stories or tests for "Read-only is sent when selected", a Continue with `read-only` that sends `permissionMode: "read-only"`, and the existing `bypass` scenarios.
+  - Evidence: `apps/web/app/(chat)/components/permission-mode-selector.tsx` (`Read-only` details, destructive trigger stays bypass-only, shared `isPermissionMode`); `lib/services/chat/transport.ts` (`followUpRunRequest` parses `isPermissionMode` and keeps any non-default mode; a send carries any non-default mode) and `lib/services/chat/creation.ts`; `lib/services/chat/transport.test.ts` read-only send, Continue, Regenerate, and the existing `bypass` cases; `lib/services/chat/creation.test.ts` read-only creation; stories `permission-mode-selector.stories.tsx` `ReadOnlySelected` and `chat-message-row.stories.tsx` `ContinueSendsReadOnly`. Restore from usage stays `bypass`-only.
+- [x] 3.3 Run Storybook tests for the selector and return preview URLs; run `pnpm --filter web lint` and `typecheck`.
+  - Evidence: `pnpm --filter web exec vitest run --project stories` on `permission-mode-selector.stories.tsx` (7 passed) and on `chat-message-row.stories.tsx` with `-t "Latest Turn Actions|Regenerate|Bypass Usage"` (10 passed); `pnpm --filter web test` (838 passed); `pnpm --filter web lint`, `pnpm --filter web typecheck`, `pnpm format:check`, `git diff --check`. The Storybook MCP is unavailable in this session, so the CLI story project rendered each story in Chromium and returned no preview URLs.
+- [x] 3.4 Add the web part of the `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
+  - Evidence: `CHANGELOG.md` 2026-11-03 entry (composer listing, send, creation, Continue, Regenerate, quiet trigger, `default` on reopen); `pnpm lint:markdown`.
 - [ ] 3.5 SR before ready; GR through Ready-PR monitoring.
 
 ## 4. finalize

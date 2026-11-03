@@ -70,7 +70,8 @@ export function buildCreateChatRequest(
       parts: draft.message.parts,
       modelId: draft.message.modelId,
       ...(effort !== undefined && effort.length > 0 && { effort }),
-      ...(permissionMode === "bypass" && { permissionMode }),
+      ...(permissionMode !== undefined &&
+        permissionMode !== "default" && { permissionMode }),
     },
   };
 }

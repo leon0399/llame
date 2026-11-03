@@ -2,7 +2,12 @@
 
 import { useState, createContext, useContext } from "react";
 
-export type PermissionMode = "default" | "bypass";
+export type PermissionMode = "default" | "bypass" | "read-only";
+
+/** Narrows a listed or recorded value to a mode this build can send. */
+export function isPermissionMode(value: string): value is PermissionMode {
+  return value === "default" || value === "bypass" || value === "read-only";
+}
 
 export interface ChatContextType {
   // `undefined` = no model chosen yet (models still loading / none available).

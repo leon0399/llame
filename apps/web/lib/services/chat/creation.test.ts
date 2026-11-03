@@ -88,6 +88,20 @@ describe("buildCreateChatRequest", () => {
       permissionMode: "bypass",
     });
   });
+
+  it("carries a read-only mode when chosen", () => {
+    const request = buildCreateChatRequest(
+      draft({
+        message: {
+          parts: [{ type: "text", text: "Hi" }],
+          modelId: "model-1",
+          permissionMode: "read-only",
+        },
+      }),
+    );
+
+    expect(request.message).toMatchObject({ permissionMode: "read-only" });
+  });
 });
 
 describe("workspaceFailure", () => {

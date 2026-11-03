@@ -24,6 +24,10 @@ const BOTH_MODES = {
   modes: [{ value: "default" }, { value: "bypass" }],
 } satisfies PermissionModesResponse;
 
+const READ_ONLY_AVAILABLE = {
+  modes: [{ value: "default" }, { value: "read-only" }],
+} satisfies PermissionModesResponse;
+
 function BypassSelection({ children }: { children: React.ReactNode }) {
   const { setPermissionMode } = useChatContext();
   const didSet = React.useRef(false);
@@ -32,6 +36,19 @@ function BypassSelection({ children }: { children: React.ReactNode }) {
     if (didSet.current) return;
     didSet.current = true;
     setPermissionMode("chat-1", "bypass");
+  }, [setPermissionMode]);
+
+  return children;
+}
+
+function ReadOnlySelection({ children }: { children: React.ReactNode }) {
+  const { setPermissionMode } = useChatContext();
+  const didSet = React.useRef(false);
+
+  React.useEffect(() => {
+    if (didSet.current) return;
+    didSet.current = true;
+    setPermissionMode("chat-1", "read-only");
   }, [setPermissionMode]);
 
   return children;
@@ -144,6 +161,45 @@ export const BypassSelected: Story = {
       canvas.getByRole("button", { name: "Permission mode, Bypass" }),
     );
     await expect(trigger).toHaveAttribute("data-variant", "destructive");
+  },
+};
+
+/**
+ * Read-only narrows authority instead of widening it, so the trigger stays a
+ * quiet ghost while the menu offers the mode with its one-line description.
+ *
+ * @summary read-only stays selected with a non-destructive trigger
+ */
+export const ReadOnlySelected: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    usePermissionModesQuery.mockReturnValue({
+      data: READ_ONLY_AVAILABLE,
+      isError: false,
+      isPending: false,
+    });
+  },
+  render: (args) => (
+    <ReadOnlySelection>
+      <PermissionModeSelector {...args} />
+    </ReadOnlySelection>
+  ),
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(() =>
+      canvas.getByRole("button", { name: "Permission mode, Read-only" }),
+    );
+    await expect(trigger).toHaveAttribute("data-variant", "ghost");
+
+    await userEvent.click(trigger);
+    const menu = within(document.body);
+    await expect(
+      await menu.findByText(
+        "Reads only. Edits, commands, and MCP tools are refused.",
+      ),
+    ).toBeTruthy();
+    await expect(
+      await menu.findByRole("menuitemradio", { name: /Read-only/ }),
+    ).toHaveAttribute("aria-checked", "true");
   },
 };
 

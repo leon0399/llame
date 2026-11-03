@@ -86,17 +86,20 @@ describe("prepareSendMessagesRequest", () => {
     expect(body).not.toHaveProperty("effort");
   });
 
-  it("sends a selected permission mode verbatim", () => {
-    // SAFETY: same excess-property mismatch as above — the fixture message
-    // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
-    const body = sendBody({
-      chatId: "chat-1",
-      modelId: "system:openai:reasoner",
-      permissionMode: "bypass",
-      messages: [{ id: "m1", role: "user", parts: [] }],
-    } as never);
-    expect(body.permissionMode).toBe("bypass");
-  });
+  it.each(["bypass", "read-only"] as const)(
+    "sends a selected %s permission mode verbatim",
+    (permissionMode) => {
+      // SAFETY: same excess-property mismatch as above — the fixture message
+      // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
+      const body = sendBody({
+        chatId: "chat-1",
+        modelId: "system:openai:reasoner",
+        permissionMode,
+        messages: [{ id: "m1", role: "user", parts: [] }],
+      } as never);
+      expect(body.permissionMode).toBe(permissionMode);
+    },
+  );
 
   it.each([undefined, "default"])(
     "omits the permission mode field for %p",
@@ -153,25 +156,28 @@ describe("prepareSendMessagesRequest", () => {
 describe("follow-up requests", () => {
   const USER_MESSAGE = { id: "user-1", parts: [] };
 
-  it("routes a continue to the follow-up route with the composer's mode", () => {
-    const request = prepareSendMessagesRequest({
-      chatId: "chat-1",
-      trigger: "regenerate-message",
-      followUp: { action: "continue", permissionMode: "bypass" },
-      modelId: "system:openai:composer-model",
-      effort: "high",
-      messages: [USER_MESSAGE],
-    });
-    expect(request.api).toMatch(
-      /\/api\/v1\/chats\/chat-1\/messages\/user-1\/runs$/,
-    );
-    // Continue takes its model and effort from the Run it resumes, so the
-    // composer's values must not ride along.
-    expect(request.body).toEqual({
-      action: "continue",
-      permissionMode: "bypass",
-    });
-  });
+  it.each(["bypass", "read-only"] as const)(
+    "routes a %s continue to the follow-up route with the composer's mode",
+    (permissionMode) => {
+      const request = prepareSendMessagesRequest({
+        chatId: "chat-1",
+        trigger: "regenerate-message",
+        followUp: { action: "continue", permissionMode },
+        modelId: "system:openai:composer-model",
+        effort: "high",
+        messages: [USER_MESSAGE],
+      });
+      expect(request.api).toMatch(
+        /\/api\/v1\/chats\/chat-1\/messages\/user-1\/runs$/,
+      );
+      // Continue takes its model and effort from the Run it resumes, so the
+      // composer's values must not ride along.
+      expect(request.body).toEqual({
+        action: "continue",
+        permissionMode,
+      });
+    },
+  );
 
   it.each([undefined, "default"] as const)(
     "omits the permission mode field for a %p continue",
@@ -273,6 +279,35 @@ describe("followUpRunRequest", () => {
         permissionMode: "default",
       }),
     ).toEqual({ action: "regenerate", modelId: "system:openai:previous" });
+  });
+
+  it("keeps a read-only permission mode for either action", () => {
+    expect(
+      followUpRunRequest({
+        action: "continue",
+        permissionMode: "read-only",
+      }),
+    ).toEqual({ action: "continue", permissionMode: "read-only" });
+    expect(
+      followUpRunRequest({
+        action: "regenerate",
+        modelId: "system:openai:previous",
+        permissionMode: "read-only",
+      }),
+    ).toEqual({
+      action: "regenerate",
+      modelId: "system:openai:previous",
+      permissionMode: "read-only",
+    });
+  });
+
+  it("drops a permission mode this build does not know", () => {
+    expect(
+      followUpRunRequest({
+        action: "continue",
+        permissionMode: "yolo",
+      }),
+    ).toEqual({ action: "continue" });
   });
 
   it("rejects a body that is not a follow-up request", () => {
