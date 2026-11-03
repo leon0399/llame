@@ -7,7 +7,7 @@
  * inline result.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -860,6 +860,105 @@ describe('the bash artifact host files', () => {
     expect(textOf(result)).toContain(
       `[full result: artifact://bash-5/stdout (3 lines); host files in ${hostDirectory()} on the llame host]`,
     );
+  });
+
+  it('names the directory for a direct spill with no placement argument', async () => {
+    const result = await spillBashStreams(
+      testContext({ artifactHostFiles: true }),
+      { stdout: 'a'.repeat(20_000), stderr: '' },
+    );
+
+    expect(result.notice).toContain(`; host files in ${hostDirectory()}`);
+  });
+
+  it('judges the read rule on the allocated locator for the notice', async () => {
+    const result = await spillBashResult(
+      testContext({
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: { allow: [{ field: 'path', regex: '^artifact://bash-' }] },
+          },
+          'policy',
+        ),
+        artifactHostFiles: true,
+      }),
+      success('a'.repeat(20_000)),
+      true,
+    );
+
+    // The read rule admits the artifact, so `read` is the route elsewhere.
+    expect(textOf(result)).toContain('; host files on the llame host only]');
+  });
+
+  it('stores a host-file artifact when the read rule names the allocated locator', async () => {
+    const result = await spillBashResult(
+      testContext({
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: { allow: [{ field: 'path', regex: '^artifact://bash-' }] },
+          },
+          'policy',
+        ),
+      }),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(result.artifact).toBe('artifact://bash-5');
+  });
+
+  it('stores through host files when read is only a rejecting group', async () => {
+    const result = await spillBashResult(
+      testContext({
+        artifactReadable: true,
+        artifactHostFiles: true,
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: { allow: [{ field: 'path', regex: '^artifact://bash-' }] },
+            bash: { reject: true },
+          },
+          'policy',
+        ),
+      }),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(result.artifact).toBe('artifact://bash-5');
+    expect(textOf(result)).toContain(`; host files in ${hostDirectory()}]`);
+  });
+
+  it('stores through the shared predicate when read is not admissible', async () => {
+    const result = await spillBashResult(
+      testContext({
+        artifactReadable: false,
+        artifactHostFiles: true,
+        permissionPolicy: compileToolPermissionMap(
+          { bash: { allow: true } },
+          'policy',
+        ),
+      }),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(result.artifact).toBe('artifact://bash-5');
+  });
+
+  it('stores nothing when the host route has no file and read is not a route', async () => {
+    writeFileSync(join(tmpdir(), 'llame'), '');
+
+    const result = await spillBashResult(
+      testContext({
+        artifactReadable: false,
+        artifactHostFiles: true,
+        permissionPolicy: compileToolPermissionMap(
+          { bash: { allow: true } },
+          'policy',
+        ),
+      }),
+      success('a'.repeat(20_000)),
+    );
+
+    expect(result).not.toHaveProperty('artifact');
+    expect(textOf(result)).toContain('full result not stored');
   });
 
   it('stores an artifact a Run without read opens through host files', async () => {

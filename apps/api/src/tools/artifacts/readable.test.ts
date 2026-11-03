@@ -106,6 +106,43 @@ describe('the artifact readability predicate', () => {
     ).toBe(false);
   });
 
+  it('probes the bash group with an empty command, not a missing field', () => {
+    expect(
+      canReadArtifacts(
+        context({
+          artifactReadable: false,
+          artifactHostFiles: true,
+          permissionPolicy: compileToolPermissionMap(
+            { bash: { allow: [{ field: 'command', regex: '^$' }] } },
+            'policy',
+          ),
+        }),
+        'bash',
+      ),
+    ).toBe(true);
+  });
+
+  it('probes the bash group with the empty command, not a placeholder', () => {
+    expect(
+      canReadArtifacts(
+        context({
+          artifactReadable: false,
+          artifactHostFiles: true,
+          permissionPolicy: compileToolPermissionMap(
+            {
+              bash: {
+                allow: true,
+                reject: [{ field: 'command', regex: '^Stryker was here!$' }],
+              },
+            },
+            'policy',
+          ),
+        }),
+        'bash',
+      ),
+    ).toBe(true);
+  });
+
   it('refuses a command-allow bash group the probe cannot satisfy', () => {
     expect(
       canReadArtifacts(

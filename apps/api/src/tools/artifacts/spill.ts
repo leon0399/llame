@@ -146,7 +146,8 @@ async function storeHeadRendering(
     kind: 'stored',
     locator: written.locator,
     lineCount: written.lineCount,
-    ...(hostFiles !== undefined && { hostFiles }),
+    // Absent host files read as no clause, so the field needs no guard.
+    hostFiles,
   };
 }
 

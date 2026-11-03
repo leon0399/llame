@@ -911,7 +911,7 @@ describe('RunExecutionService executeRun', () => {
     vi.spyOn(
       ArtifactsRepository.prototype,
       'findPartContent',
-    ).mockResolvedValue(Buffer.from('hello\n'));
+    ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
   }
 
   it('restores the Chat artifact files before the first request and sweeps stale directories at attempt start', async () => {

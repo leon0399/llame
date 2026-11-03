@@ -306,10 +306,11 @@ that a command changed is rewritten from the store, not edited.
 
 Because `$TMPDIR` is shared, the worker creates `llame/` and `llame/chats/`
 with mode `0700` and checks them, the Chat directory, and the artifact
-directory on every use: a symbolic link, another user's owner, or any group or
-other permission disables host files for that process (one warning is logged,
-without a path) instead of writing through it. Each file is written `0600`
-through a temporary name.
+directory on every use. A bad root (a symbolic link, another user's owner, or
+any group or other permission) disables host files for that process and logs
+one warning, without a path; an unsafe Chat or artifact directory refuses that
+write or reconcile quietly, and the next one tries again. Each file is written
+`0600` through a temporary name.
 
 The files are not isolated per owner. `bash` runs as the worker's own OS user,
 so any Run on that host can read or rewrite them, and a person with a shell on

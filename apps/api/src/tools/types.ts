@@ -169,9 +169,11 @@ export interface ToolContext {
   readonly artifactReadable?: boolean;
   /**
    * `bash` is in `tools.allowed` and this process has a native executor, so a
-   * Run keeps its artifacts as files under `$TMPDIR/llame/chats/<chatId>/`
-   * when the host directories verify (tool-result-artifacts D10). Absent
-   * means no host file is written.
+   * Run's artifacts are also copied as files under
+   * `$TMPDIR/llame/chats/<chatId>/` when the host directories verify
+   * (tool-result-artifacts D10). Postgres stays authoritative: a copy can be
+   * missing or stale, and the reconcile rewrites it. Absent means no host
+   * file is written.
    */
   readonly artifactHostFiles?: boolean;
   /**

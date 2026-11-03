@@ -239,8 +239,8 @@ export class ArtifactsRepository {
     chatId: string,
     artifactId: string,
     name: string,
-  ): Promise<Buffer | undefined> {
-    const [row] = await this.db
+  ): Promise<Array<{ readonly content: Buffer }>> {
+    return this.db
       .select({ content: toolArtifactParts.content })
       .from(toolArtifactParts)
       .innerJoin(
@@ -254,6 +254,5 @@ export class ArtifactsRepository {
           eq(toolArtifactParts.name, name),
         ),
       );
-    return row?.content;
   }
 }

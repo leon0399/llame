@@ -91,7 +91,7 @@ export async function writeToolArtifact(
     locator: formatArtifactLocator(request.toolName, seq),
     lineCount: parts.reduce((total, part) => total + part.lineCount, 0),
     byteSize: parts.reduce((total, part) => total + part.byteSize, 0),
-    ...(hostDirectory !== undefined && { hostDirectory }),
+    hostDirectory,
   };
 }
 

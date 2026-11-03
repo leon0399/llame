@@ -32,6 +32,7 @@ import {
   reconcileArtifactFiles,
   SWEEP_AFTER_MS,
   sweepArtifactDirectories,
+  sweepWhenHostFilesEnabled,
   writeArtifactHostFiles,
 } from './host-files';
 
@@ -59,6 +60,23 @@ function mkdirPrivate(directory: string): void {
 /** The directory `$TMPDIR/llame/chats/<chatId>` names the sweep. */
 function chatRoot(chatId: string): string {
   return path.join(tmpdir(), 'llame', 'chats', chatId);
+}
+
+/**
+ * A real aborted-state signal that flips on one chosen read, so a mid-write
+ * or mid-pass abort is deterministic instead of a race.
+ */
+function flippingSignal(flipAt: number): AbortSignal {
+  const target = new AbortController().signal;
+  let reads = 0;
+  return new Proxy(target, {
+    get(_target, property: string | symbol) {
+      // The write path reads only `aborted`; everything else stays unset.
+      if (property !== 'aborted') return undefined;
+      reads += 1;
+      return reads === flipAt;
+    },
+  });
 }
 
 /** The two bash streams as the writer takes them. */
@@ -215,6 +233,7 @@ describe('writing host files after the commit', () => {
   });
 
   it('writes nothing when a bash command replaced the artifact directory', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn');
     const outside = mkdtempSync(path.join(temporaryRoot, 'outside-'));
     const directory = artifactDirectory(CHAT);
     mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
@@ -230,6 +249,8 @@ describe('writing host files after the commit', () => {
 
     expect(written).toBeUndefined();
     expect(readdirSync(outside)).toEqual([]);
+    // The directory check refuses before any write is attempted.
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('writes nothing when the Run has already aborted', async () => {
@@ -247,6 +268,90 @@ describe('writing host files after the commit', () => {
 
     expect(written).toBeUndefined();
     expect(existsSync(artifactDirectory(CHAT))).toBe(false);
+  });
+
+  it('refuses an unsafe root with one warning for the whole process', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    writeFileSync(path.join(temporaryRoot, 'llame'), '');
+
+    const first = await write(CHAT);
+    const second = await write(CHAT);
+
+    expect(first.hostDirectory).toBeUndefined();
+    expect(second.hostDirectory).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(
+      'Artifact host files disabled',
+    );
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain(temporaryRoot);
+  });
+
+  it('refuses a root another user owns', async () => {
+    const getuid = vi.spyOn(process, 'getuid').mockReturnValue(99_999);
+    try {
+      const written = await write(CHAT);
+
+      expect(written.hostDirectory).toBeUndefined();
+      expect(existsSync(artifactDirectory(CHAT))).toBe(false);
+    } finally {
+      getuid.mockRestore();
+    }
+  });
+
+  it('writes nothing when the call deadline has already fired', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const written = await writeArtifactHostFiles({
+      chatId: CHAT,
+      toolName: 'bash',
+      seq: 1,
+      createdAt: CREATED_AT,
+      parts: bashParts(),
+      timeoutSignal: controller.signal,
+    });
+
+    expect(written).toBeUndefined();
+    expect(existsSync(artifactDirectory(CHAT))).toBe(false);
+  });
+
+  it('stops writing the parts once the abort fires', async () => {
+    const written = await writeArtifactHostFiles({
+      chatId: CHAT,
+      toolName: 'bash',
+      seq: 12,
+      createdAt: CREATED_AT,
+      parts: bashParts(),
+      // Entry, first part, second part: the second part never starts.
+      abortSignal: flippingSignal(3),
+    });
+
+    // The aborted call names no directory, and the first part stays only
+    // because the post-loop check reads the same one-shot signal as false.
+    expect(written).toBe(path.join(artifactDirectory(CHAT), 'bash-12'));
+    expect(
+      existsSync(path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt')),
+    ).toBe(true);
+    expect(
+      existsSync(path.join(artifactDirectory(CHAT), 'bash-12', 'stderr.txt')),
+    ).toBe(false);
+  });
+
+  it('discards a write that lands after the abort', async () => {
+    const written = await writeArtifactHostFiles({
+      chatId: CHAT,
+      toolName: 'bash',
+      seq: 12,
+      createdAt: CREATED_AT,
+      parts: [bashParts()[0]],
+      // Entry, the one part, then the post-loop check sees the abort.
+      abortSignal: flippingSignal(3),
+    });
+
+    expect(written).toBeUndefined();
+    expect(
+      existsSync(path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt')),
+    ).toBe(false);
   });
 
   it('logs a fixed failure code when the write cannot land', async () => {
@@ -267,8 +372,8 @@ describe('writing host files after the commit', () => {
     });
 
     expect(written).toBeUndefined();
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringMatching(/^Artifact host file write failed: /u),
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(
+      /^Artifact host file write failed: E[A-Z]+$/u,
     );
     expect(String(warn.mock.calls[0]?.[0])).not.toContain(temporaryRoot);
   });
@@ -305,8 +410,8 @@ describe('reconciling host files', () => {
     ]);
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
-      .mockResolvedValueOnce(Buffer.from('hello\n'))
-      .mockResolvedValueOnce(Buffer.from('warn\n'));
+      .mockResolvedValueOnce([{ content: Buffer.from('hello\n') }])
+      .mockResolvedValueOnce([{ content: Buffer.from('warn\n') }]);
 
     await reconcileArtifactFiles(context());
 
@@ -325,7 +430,7 @@ describe('reconciling host files', () => {
     scriptParts([storedPart('stdout', 'hello\n')]);
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
-      .mockResolvedValue(Buffer.from('hello\n'));
+      .mockResolvedValue([{ content: Buffer.from('hello\n') }]);
     await writeArtifactHostFiles({
       chatId: CHAT,
       toolName: 'bash',
@@ -355,7 +460,7 @@ describe('reconciling host files', () => {
     utimesSync(stdout, later, later);
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
-      .mockResolvedValue(Buffer.from('hello\n'));
+      .mockResolvedValue([{ content: Buffer.from('hello\n') }]);
 
     await reconcileArtifactFiles(context());
 
@@ -372,7 +477,7 @@ describe('reconciling host files', () => {
     vi.spyOn(
       ArtifactsRepository.prototype,
       'findPartContent',
-    ).mockResolvedValue(Buffer.from('hello\n'));
+    ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
 
     await reconcileArtifactFiles(context());
 
@@ -390,7 +495,7 @@ describe('reconciling host files', () => {
     vi.spyOn(
       ArtifactsRepository.prototype,
       'findPartContent',
-    ).mockResolvedValue(Buffer.from('hello\n'));
+    ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
 
     await reconcileArtifactFiles(context());
 
@@ -403,7 +508,7 @@ describe('reconciling host files', () => {
     vi.spyOn(
       ArtifactsRepository.prototype,
       'findPartContent',
-    ).mockResolvedValue(Buffer.from('hello\n'));
+    ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
     const seen = new Date('2026-10-01T00:00:00.000Z');
     mkdirPrivate(chatRoot(CHAT));
     utimesSync(chatRoot(CHAT), seen, seen);
@@ -422,7 +527,7 @@ describe('reconciling host files', () => {
     ]);
     vi.spyOn(ArtifactsRepository.prototype, 'findPartContent')
       .mockRejectedValueOnce(new Error('the store refused the read'))
-      .mockResolvedValueOnce(Buffer.from('warn\n'));
+      .mockResolvedValueOnce([{ content: Buffer.from('warn\n') }]);
     const seen = new Date('2026-10-01T00:00:00.000Z');
     mkdirPrivate(chatRoot(CHAT));
     utimesSync(chatRoot(CHAT), seen, seen);
@@ -437,6 +542,102 @@ describe('reconciling host files', () => {
     ).toBe('warn\n');
     expect(statSync(chatRoot(CHAT)).mtimeMs).toBeGreaterThan(
       seen.getTime() + DAY_MS,
+    );
+  });
+
+  it('repairs a file exactly one millisecond off the stored time', async () => {
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    const stdout = path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt');
+    mkdirPrivate(path.dirname(stdout));
+    writeFileSync(stdout, 'hellO\n');
+    const off = new Date(CREATED_AT.getTime() + 1);
+    utimesSync(stdout, off, off);
+    const find = vi
+      .spyOn(ArtifactsRepository.prototype, 'findPartContent')
+      .mockResolvedValue([{ content: Buffer.from('hello\n') }]);
+
+    await reconcileArtifactFiles(context());
+
+    expect(find).toHaveBeenCalledOnce();
+    expect(readFileSync(stdout, 'utf8')).toBe('hello\n');
+  });
+
+  it('repairs no part when the Chat directory is a symbolic link', async () => {
+    const outside = mkdtempSync(path.join(temporaryRoot, 'outside-'));
+    mkdirSync(path.dirname(chatRoot(CHAT)), { recursive: true, mode: 0o700 });
+    symlinkSync(outside, chatRoot(CHAT));
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    const find = vi.spyOn(ArtifactsRepository.prototype, 'findPartContent');
+
+    await reconcileArtifactFiles(context());
+
+    expect(find).not.toHaveBeenCalled();
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it('logs a stubbed directory failure without a path', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    const outside = mkdtempSync(path.join(temporaryRoot, 'outside-'));
+    const artifactDir = path.join(artifactDirectory(CHAT), 'bash-12');
+    mkdirPrivate(artifactDirectory(CHAT));
+    symlinkSync(outside, artifactDir);
+
+    await reconcileArtifactFiles(context());
+
+    expect(warn).toHaveBeenCalledWith(
+      'Artifact host file repair failed: unknown',
+    );
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it('writes nothing when the store answers no part row', async () => {
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'findPartContent',
+    ).mockResolvedValue([]);
+
+    await reconcileArtifactFiles(context());
+
+    expect(
+      existsSync(path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt')),
+    ).toBe(false);
+  });
+
+  it('stops repairing the remaining parts once the abort fires', async () => {
+    scriptParts([
+      storedPart('stdout', 'hello\n'),
+      storedPart('stderr', 'warn\n'),
+    ]);
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'findPartContent',
+    ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
+
+    await reconcileArtifactFiles({
+      ...context(),
+      // Entry, first part, second part: the second one never starts.
+      abortSignal: flippingSignal(3),
+    });
+
+    const directory = path.join(artifactDirectory(CHAT), 'bash-12');
+    expect(existsSync(path.join(directory, 'stdout.txt'))).toBe(true);
+    expect(existsSync(path.join(directory, 'stderr.txt'))).toBe(false);
+  });
+
+  it('logs an unknown code when a repair fails without one', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    scriptParts([storedPart('stdout', 'hello\n')]);
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'findPartContent',
+    ).mockRejectedValue('the store refused the read');
+
+    await reconcileArtifactFiles(context());
+
+    expect(warn).toHaveBeenCalledWith(
+      'Artifact host file repair failed: unknown',
     );
   });
 
@@ -506,6 +707,25 @@ describe('sweeping host directories', () => {
     await sweepArtifactDirectories(NOW);
 
     expect(existsSync(directory)).toBe(true);
+  });
+
+  it('sweeps only when the worker keeps host files', async () => {
+    const stale = seed(CHAT, new Date(NOW.getTime() - 8 * DAY_MS));
+
+    await sweepWhenHostFilesEnabled({ allowed: ['read'] });
+
+    expect(existsSync(stale)).toBe(true);
+  });
+
+  it('sweeps when the worker keeps host files', async () => {
+    const stale = seed(CHAT, new Date(NOW.getTime() - 8 * DAY_MS));
+
+    await sweepWhenHostFilesEnabled({
+      allowed: ['bash'],
+      nativeExecutorId: 'host-a',
+    });
+
+    expect(existsSync(stale)).toBe(false);
   });
 
   it('removes nothing when the host root is a symbolic link', async () => {

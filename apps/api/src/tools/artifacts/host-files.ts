@@ -22,12 +22,15 @@ import {
   readdir,
   rename,
   rm,
+  unlink,
   utimes,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { Logger } from '@nestjs/common';
+
+import { isString } from '@workspace/runtime-safety';
 
 import { type ToolContext } from '../types';
 import {
@@ -92,7 +95,10 @@ async function verifiedChatsRoot(): Promise<string | undefined> {
   } catch {
     return refuseRoot();
   }
-  return (await isPrivateDirectory(root)) ? root : refuseRoot();
+  if (!(await isPrivateDirectory(root))) return refuseRoot();
+  // A later unsafe root is a new condition, so it logs again.
+  rootWarned = false;
+  return root;
 }
 
 /**
@@ -117,10 +123,9 @@ async function isPrivateDirectory(path: string): Promise<boolean> {
 }
 
 function refuseRoot(): undefined {
-  if (!rootWarned) {
-    rootWarned = true;
-    logger.warn('Artifact host files disabled: the host root is not private');
-  }
+  if (rootWarned) return undefined;
+  rootWarned = true;
+  logger.warn('Artifact host files disabled: the host root is not private');
   return undefined;
 }
 
@@ -157,13 +162,11 @@ export async function writeArtifactHostFiles(
     // A write that lands after the abort names no file, so it must not stay.
     if (aborted(input)) return await discard(directory, written);
     await touch(chatDirectory);
-    return input.parts.every((part) => part.name === '')
-      ? directory
-      : join(directory, `${input.toolName}-${input.seq}`);
+    // Every part is written unless the write aborted above, so the first
+    // file's directory is the artifact's own.
+    return dirname(join(directory, written[0]));
   } catch (error) {
-    logger.warn(
-      `Artifact host file write failed: ${errorCode(error) ?? 'unknown'}`,
-    );
+    logger.warn(`Artifact host file write failed: ${errorCode(error)}`);
     return undefined;
   }
 }
@@ -202,16 +205,16 @@ async function discard(
   files: ReadonlyArray<string>,
 ): Promise<undefined> {
   for (const file of files) {
-    await rm(confined(directory, file), { force: true }).catch(() => undefined);
+    await unlink(confined(directory, file)).catch(() => undefined);
   }
   return undefined;
 }
 
 /** A filesystem error's code, for a log line that never names a path. */
-function errorCode(error: unknown): string | undefined {
-  return error instanceof Error && 'code' in error
-    ? String(error.code)
-    : undefined;
+function errorCode(error: unknown): string {
+  if (!(error instanceof Error) || !('code' in error) || !isString(error.code))
+    return 'unknown';
+  return error.code;
 }
 
 /**
@@ -238,7 +241,6 @@ export async function reconcileArtifactFiles(
   const parts = await context.tenantDb.runAs(context.userId, (db) =>
     new ArtifactsRepository(db).listChatPartFiles(context.chatId),
   );
-  if (parts.length === 0) return;
   const matches = await Promise.all(
     parts.map((part) => fileMatches(directory, part)),
   );
@@ -272,27 +274,33 @@ async function repairPart(
   directory: string,
   part: ChatPartFile,
 ): Promise<void> {
-  if (aborted(context)) return;
   try {
-    const content = await context.tenantDb.runAs(context.userId, (db) =>
+    const [row] = await context.tenantDb.runAs(context.userId, (db) =>
       new ArtifactsRepository(db).findPartContent(
         context.chatId,
         part.artifactId,
         part.name,
       ),
     );
-    if (content === undefined || aborted(context)) return;
+    if (row === undefined) return;
     await writeFileAtomically(
       directory,
       partFileName(part),
-      content,
+      row.content,
       part.createdAt,
     );
   } catch (error) {
-    logger.warn(
-      `Artifact host file repair failed: ${errorCode(error) ?? 'unknown'}`,
-    );
+    logger.warn(`Artifact host file repair failed: ${errorCode(error)}`);
   }
+}
+
+/** Sweep only when this process keeps host files (D10); never rejects. */
+export async function sweepWhenHostFilesEnabled(tools: {
+  readonly allowed: ReadonlyArray<string>;
+  readonly nativeExecutorId?: string | undefined;
+}): Promise<void> {
+  if (!hostFilesEnabled(tools)) return;
+  await sweepArtifactDirectories();
 }
 
 /**
@@ -311,9 +319,7 @@ export async function sweepArtifactDirectories(
     const modified = await lstat(directory).catch(() => undefined);
     if (modified === undefined || !modified.isDirectory()) continue;
     if (now.getTime() - modified.mtimeMs <= SWEEP_AFTER_MS) continue;
-    await rm(directory, { recursive: true, force: true }).catch(
-      () => undefined,
-    );
+    await rm(directory, { recursive: true }).catch(() => undefined);
   }
 }
 
@@ -325,9 +331,8 @@ export async function sweepArtifactDirectories(
 function partFileName(
   part: Pick<ChatPartFile, 'toolName' | 'seq' | 'name' | 'contentType'>,
 ): string {
-  const stem = `${part.toolName}-${part.seq}`;
-  const file = part.name === '' ? stem : join(stem, part.name);
-  return `${file}${contentExtension(part.contentType)}`;
+  // `join` drops an empty segment, so an unnamed part is one file in place.
+  return `${join(`${part.toolName}-${part.seq}`, part.name)}${contentExtension(part.contentType)}`;
 }
 
 /** The extension a content type gives the file, so readers apply. */
@@ -350,11 +355,10 @@ async function writeFileAtomically(
   modified: Date,
 ): Promise<void> {
   const target = confined(directory, file);
-  const parent = dirname(target);
-  if (!(await privateDirectory(parent)))
-    throw new Error('The artifact directory is not private.');
   const temporary = `${target}.${randomUUID()}.tmp`;
   try {
+    if (!(await privateDirectory(dirname(target))))
+      throw new Error('The artifact directory is not private.');
     await writeFile(temporary, content, { mode: 0o600 });
     await utimes(temporary, modified, modified);
     await rename(temporary, target);
@@ -375,7 +379,7 @@ async function touch(directory: string): Promise<void> {
 function confined(root: string, relative: string): string {
   const target = resolve(root, relative);
   const base = resolve(root);
-  if (target !== base && !target.startsWith(`${base}${sep}`)) {
+  if (!target.startsWith(`${base}${sep}`)) {
     throw new Error('An artifact path leaves its Chat directory.');
   }
   return target;

@@ -82,6 +82,24 @@ describe('ArtifactsRepository', () => {
     expect(query.params).toEqual(expect.arrayContaining([CHAT_ID, 'bash', 2]));
   });
 
+  it('reads one part with the Chat seatbelt and no findings', async () => {
+    const { db, queries } = makeMockDb();
+
+    await new ArtifactsRepository(db)
+      .findPartContent(CHAT_ID, 'artifact-2', 'stdout')
+      .catch(() => []);
+
+    const query = lastQuery(queries);
+    expect(query.sql).toContain('from "tool_artifact_parts"');
+    expect(query.sql).toContain('inner join "tool_artifacts"');
+    expect(query.sql).toContain('"tool_artifacts"."chat_id" =');
+    expect(query.sql).toContain('"tool_artifact_parts"."name" =');
+    expect(query.sql).not.toContain('"findings"');
+    expect(query.params).toEqual(
+      expect.arrayContaining([CHAT_ID, 'artifact-2', 'stdout']),
+    );
+  });
+
   it('reads one named part through one joined locator query', async () => {
     const { db, queries } = makeMockDb();
 
