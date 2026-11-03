@@ -1035,6 +1035,65 @@ describe('ModelClient', () => {
           /^acme-gateway-client\/1/,
         );
       });
+
+      // The tests above read the options handed to the SDK; this one reads the
+      // body the REAL adapter serialized, so the wire's `store: false`
+      // invariant (design D12) is proven on the request a provider receives,
+      // not only on the call that composed it.
+      it('sends store: false on the serialized structured request', async () => {
+        const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: 'resp_test',
+                created_at: 1_700_000_000,
+                model: 'gpt-test',
+                output: [
+                  {
+                    type: 'function_call',
+                    id: 'fc_test',
+                    call_id: 'call-0',
+                    name: 'output',
+                    arguments: '{"title":"A title"}',
+                  },
+                ],
+                usage: { input_tokens: 1, output_tokens: 1 },
+              }),
+              { headers: { 'content-type': 'application/json' } },
+            ),
+          ),
+        );
+        const client = createOpenAIModelClient({
+          credential: 'sk-test',
+          providerModelId: 'gpt-test',
+          modelId: 'system:openai:gpt-test',
+          contextWindowTokens: 128_000,
+          userAgent: USER_AGENT,
+          requestHeaders: {},
+          fetch: fetchMock,
+        });
+        if (!client.generateObject) {
+          throw new Error(
+            'the Responses model client must expose generateObject',
+          );
+        }
+
+        await expect(
+          client.generateObject({
+            chat: CHAT,
+            messages,
+            schema: z.object({ title: z.string() }),
+          }),
+        ).resolves.toEqual({ title: 'A title' });
+
+        const [request, init] = fetchMock.mock.calls[0] ?? [];
+        if (request === undefined) throw new Error('no request was sent');
+        const body: unknown = JSON.parse(
+          await new Request(request, init).text(),
+        );
+
+        expect(body).toMatchObject({ store: false });
+      });
     });
   });
 });

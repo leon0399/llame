@@ -1,5 +1,6 @@
-import { Logger } from '@nestjs/common';
+import { generateText } from 'ai';
 import type { Warning } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
 
 import { installAiSdkWarningLogger, logModelWarnings } from './ai-sdk-warnings';
 
@@ -13,9 +14,7 @@ function otherWarning(message: string): Warning {
 
 /** The log lines one batch of warnings produced. */
 function loggedLines(warnings: Array<Warning>): string {
-  const warn = vi
-    .spyOn(Logger.prototype, 'warn')
-    .mockImplementation(() => undefined);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
   logModelWarnings({
     warnings,
@@ -54,6 +53,62 @@ describe('logModelWarnings', () => {
     expect(logged).not.toContain(REASONING);
     expect(logged).not.toContain(ITEM_ID);
     expect(logged).not.toContain(ENCRYPTED);
+  });
+
+  it('redacts a warning the SDK raises during a model call', async () => {
+    const previous = globalThis.AI_SDK_LOG_WARNINGS;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      installAiSdkWarningLogger();
+
+      const part = JSON.stringify({
+        type: 'reasoning',
+        text: REASONING,
+        providerOptions: {
+          openai: { itemId: ITEM_ID, reasoningEncryptedContent: ENCRYPTED },
+        },
+      });
+      const model = new MockLanguageModelV3({
+        provider: 'openai.responses',
+        modelId: 'gpt-test',
+        doGenerate: () =>
+          Promise.resolve({
+            content: [{ type: 'text', text: 'ok' }],
+            finishReason: { unified: 'stop', raw: undefined },
+            usage: {
+              inputTokens: {
+                total: 1,
+                noCache: 1,
+                cacheRead: 0,
+                cacheWrite: 0,
+              },
+              outputTokens: { total: 1, text: 1, reasoning: 0 },
+            },
+            warnings: [
+              otherWarning(
+                `Non-OpenAI reasoning parts are not supported. Skipping reasoning part: ${part}.`,
+              ),
+            ],
+          }),
+      });
+
+      // The SDK's own warning path calls the installed global, so this proves
+      // the hook is in force for a model call, not only for a direct call.
+      await generateText({ model, prompt: 'hello' });
+
+      const logged = warn.mock.calls
+        .map((call) => call.map((argument) => String(argument)).join(' '))
+        .join('\n');
+      expect(logged).toContain('AI SDK warning (openai.responses / gpt-test)');
+      expect(logged).toContain('Non-OpenAI reasoning parts are not supported');
+      expect(logged).not.toContain(REASONING);
+      expect(logged).not.toContain(ITEM_ID);
+      expect(logged).not.toContain(ENCRYPTED);
+    } finally {
+      warn.mockRestore();
+      globalThis.AI_SDK_LOG_WARNINGS = previous;
+    }
   });
 
   it('keeps the feature and details of a setting warning', () => {

@@ -1,7 +1,4 @@
-import { Logger } from '@nestjs/common';
 import type { LogWarningsFunction, Warning } from 'ai';
-
-const logger = new Logger('AiSdkWarnings');
 
 /**
  * `@ai-sdk/openai` embeds the whole skipped prompt part as JSON in two of its
@@ -33,7 +30,10 @@ function warningLine(warning: Warning): string {
  * The AI SDK's warning logger for every adapter call. The SDK's default prints
  * each warning's message verbatim with `console.warn`, which would write a
  * replayed reasoning part — item id, encrypted content, or plaintext reasoning
- * — into the process log and Sentry's console breadcrumbs.
+ * — into the process log and Sentry's console breadcrumbs. The redacted line
+ * still goes through `console.warn`, so it reaches both; and the only import
+ * here is type-only, so loading this module evaluates nothing — `instrument.ts`
+ * requires it before Sentry starts (that file's first-import rule).
  */
 export const logModelWarnings: LogWarningsFunction = ({
   warnings,
@@ -41,16 +41,16 @@ export const logModelWarnings: LogWarningsFunction = ({
   model,
 }) => {
   for (const warning of warnings) {
-    logger.warn(
+    console.warn(
       `AI SDK warning (${provider} / ${model}): ${warningLine(warning)}`,
     );
   }
 };
 
 /**
- * Routes AI SDK warnings to llame's logger. Both entrypoints (`main.ts` and
- * `worker.ts`) call this once at bootstrap, from `instrument.ts`, before any
- * adapter call can emit a warning.
+ * Installs the redacting logger above as the SDK's warning sink. Both
+ * entrypoints (`main.ts` and `worker.ts`) call this once at bootstrap, from
+ * `instrument.ts`, before any adapter call can emit a warning.
  */
 export function installAiSdkWarningLogger(): void {
   globalThis.AI_SDK_LOG_WARNINGS = logModelWarnings;

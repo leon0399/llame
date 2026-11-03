@@ -140,6 +140,26 @@ describe('the Responses wire stores no response (design D12)', () => {
     expect(JSON.stringify(body['input'])).not.toContain('item_reference');
   });
 
+  // A part with encrypted content but no item id still replays as an item the
+  // adapter builds itself: the encrypted content is the replay, so the part
+  // must not be dropped for lacking the stored item's id.
+  it('replays encrypted content that carries no item id', async () => {
+    const body = await sentBody({ reasoningDeclared: true }, [
+      USER_MESSAGE,
+      replayedReasoning({
+        openai: { reasoningEncryptedContent: 'enc-orphan' },
+      }),
+      ANSWER_MESSAGE,
+    ]);
+
+    expect(sentItems(body)).toContainEqual({
+      type: 'reasoning',
+      encrypted_content: 'enc-orphan',
+      summary: [{ type: 'summary_text', text: KEPT_REASONING }],
+    });
+    expect(JSON.stringify(body['input'])).not.toContain('item_reference');
+  });
+
   it('omits a part that carries an item id and no encrypted content, and succeeds', async () => {
     const body = await sentBody({}, [
       USER_MESSAGE,

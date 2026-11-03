@@ -210,7 +210,9 @@ The `openai-responses` wire sends `store: false` on every request, so the
 provider keeps no response for later retrieval through the API and no request
 depends on a provider-side item: an entry's `"store": true` is not sent, and a
 later turn sends a stored reasoning part back as an item carrying its
-encrypted content, never as a reference to a stored item. This does not change
+encrypted content, never as a reference to a stored item. A stored reasoning
+part that carries an item id and no encrypted content — one stored before this
+change — is omitted from the request. This does not change
 the provider's own data-retention policy, and an endpoint at another `baseUrl`
 follows its own. `store: false` makes the adapter ask for
 `reasoning.encrypted_content` on a model it treats as a reasoning model —
