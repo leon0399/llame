@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Tucano"
-description: "Apache-2.0 Electron workspace. Peer CLIs get tools only through a per-turn MCP gateway, and an approval rechecks the grant before the stored call runs."
+description: "Apache-2.0 Electron workspace whose peer CLIs take tools from a per-turn MCP gateway and whose approval rechecks the grant before the stored call runs."
 resource: "https://github.com/eduwxyz/tucano/tree/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d"
 tags: [harness, peer-executor, mcp, approvals, desktop, routines]
 status: stable
@@ -40,7 +40,7 @@ sources:
 
 # Tucano
 
-- **Stack:** Electron and TypeScript. Apache-2.0.[^tucano-license] The [tierroom board](https://my-tierroom.party/agents/tucano) and [tucano.sh](https://tucano.sh/) are live pages and are not pinned. This revision is the clone tip after the 0.2.8 release commit message; the board's feature grid cites an older README pin.
+- **Stack:** Electron and TypeScript. Apache-2.0.[^tucano-license] The [tierroom board](https://my-tierroom.party/agents/tucano) and [tucano.sh](https://tucano.sh/) are live pages and are not pinned.
 
 Tucano is a desktop workspace of named agents on Claude Code, Codex, OpenCode, or Pi. The security note says each reply runs the harness CLI with no built-in tools, and the only tools come from a local MCP gateway on a secret per-turn URL that lists that agent's tools.[^tucano-security] `claudeArgs` says that with web enabled the only built-in tools are web search and page reading, and `--tools` is that web list.[^tucano-claude-web] Source inspection of the policy and run files; nothing was run.
 

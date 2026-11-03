@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "CraftBot"
-description: "MIT self-hosted agent. The in-workspace app surface is Agent App; the theme wire still says livingui-theme after that rename."
+description: "MIT self-hosted agent whose in-workspace surface is Agent App, with the theme wire still named livingui-theme."
 resource: "https://github.com/CraftOS-dev/CraftBot/tree/94aa652fdc89c6bab653e157ce7eba3e8dad5d14"
 tags: [harness, self-hosted, memory, apps]
 status: stable

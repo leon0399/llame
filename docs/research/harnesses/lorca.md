@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Lorca"
-description: "GPL-3.0-only. A Rust CLI is the local agent loop. Desktop runners execute bots. Phones are paired devices, and the relay stores ciphertext blobs."
+description: "GPL-3.0-only Rust CLI that owns the agent loop, with desktop runners executing bots, phones that only pair, and a relay that stores ciphertext blobs."
 resource: "https://github.com/egoist/lorca/tree/bf1ab709bc8df470016522578d7ae2df7740cd22"
 tags: [harness, cli, pairing, relay, mobile, multi-host]
 status: stable

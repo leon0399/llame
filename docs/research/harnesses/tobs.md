@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Tobs"
-description: "MIT Cordis plugin on DeepSeek Harness. Each bot's memory is a Git repository the plugin commits. A paired phone steers the host."
+description: "MIT Cordis plugin on DeepSeek Harness whose bot memory is a Git repository the plugin commits, while a paired phone steers the host."
 resource: "https://github.com/BotHarness/DeepSeekBot/tree/71acbd541947013b9b122d8ca122130c28ce9f0d"
 tags: [harness, memory, plugin, mobile, peer-executor]
 status: stable
@@ -37,7 +37,7 @@ sources:
 
 # Tobs
 
-- **Stack:** TypeScript plugin, package `@botharness/tobs`, MIT.[^tobs-license] It runs inside [DeepSeek Harness](./deepseek-harness.md). The package description calls it the compatible entry point for DeepSeekBot.[^tobs-pkg] The [tierroom board](https://my-tierroom.party/agents/tobs) and [tobs.app](https://tobs.app/en/) are live pages and are not pinned. The board cites `fb4086b0`; this clone is `71acbd54`.
+- **Stack:** TypeScript plugin, package `@botharness/tobs`, MIT.[^tobs-license] It runs inside [DeepSeek Harness](./deepseek-harness.md). The package description calls it the compatible entry point for DeepSeekBot.[^tobs-pkg] The [tierroom board](https://my-tierroom.party/agents/tobs) and [tobs.app](https://tobs.app/en/) are live pages and are not pinned.
 
 Tobs adds named bots, shared tasks, and inspectable memory on top of the harness. The harness note owns the host's session projection and approvals. This note owns what the plugin adds. Source inspection of the memory git helper and the plugin entry; nothing was run.
 

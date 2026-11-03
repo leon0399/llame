@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "OpenTeam"
-description: "GPL-3.0 self-hosted bot team. SSE replays an Event sequence. Bots share one Linux computer container, and passwordless sudo inside it is documented."
+description: "GPL-3.0 bot team whose SSE replays an Event sequence, with every bot sharing one Linux computer that documents passwordless sudo."
 resource: "https://github.com/raghavpillai/openteam/tree/32f903eaa56a2489cbdf0b10753afa74bc9f06aa"
 tags: [harness, sandbox, desktop, routines, mobile]
 status: stable

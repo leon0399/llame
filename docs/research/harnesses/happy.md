@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Happy"
-description: "MIT mobile, web, and legacy CLI clients plus a relay. Session bodies travel as encrypted containers. The desktop harness is a separate repository."
+description: "MIT mobile, web, and legacy CLI clients plus a relay, with encrypted session bodies and the desktop harness in a separate repository."
 resource: "https://github.com/slopus/happy/tree/10c605bfdb22c0889c79df7c20982bc2da931e9d"
 tags: [harness, mobile, relay, encryption, peer-executor]
 status: stable

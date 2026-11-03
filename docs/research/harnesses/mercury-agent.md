@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Mercury Agent"
-description: "MIT Node agent. A second terminal attaches with SSE to a daemon that keeps running. Permission mode is ask-me or allow-all, shared by every surface."
+description: "MIT Node agent whose second terminal attaches over SSE to a running daemon, with one Ask Me or Allow All mode shared by every surface."
 resource: "https://github.com/cosmicstack-labs/mercury-agent/tree/fd8cf4a655caa7b81ecb8b1b7604188e729c895e"
 tags: [harness, tui, sse, permissions, daemon, memory]
 status: stable
@@ -34,7 +34,7 @@ sources:
 
 # Mercury Agent
 
-- **Stack:** Node.js, a terminal UI, and a local web dashboard. MIT.[^mercury-license] The [tierroom board](https://my-tierroom.party/agents/mercury-agent) and [mercuryagent.sh](https://mercuryagent.sh/) are live pages and are not pinned. The board cites release commit `92a5ceeb` (1.4.2). This clone is `fd8cf4a6`, whose commit message says 1.5.1.
+- **Stack:** Node.js, a terminal UI, and a local web dashboard. MIT.[^mercury-license] The [tierroom board](https://my-tierroom.party/agents/mercury-agent) and [mercuryagent.sh](https://mercuryagent.sh/) are live pages and are not pinned.
 
 Mercury is a self-hosted personal agent. The README says it asks before it acts, remembers, and keeps working when the person leaves.[^mercury-readme] Source inspection of the attach path and the permission prompt; the memory schema and routine scheduler were not opened, and nothing was run.
 

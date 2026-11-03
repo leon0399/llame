@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "AionUi"
-description: "Apache-2.0 Electron desktop. A built-in agent plus detected CLIs, a README team mode over ACP, and cron ids on team conversations."
+description: "Apache-2.0 Electron shell over an external aioncore binary and detected CLIs, with team cron ids stored on conversations in this repo."
 resource: "https://github.com/iOfficeAI/AionUi/tree/11cd2a9a20d1e033157636efc570b41384c66d85"
 tags: [harness, desktop, peer-executor, acp, routines]
 status: stable

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Touri"
-description: "Tauri desktop over Codex, Claude Code, and OpenCode. Group delegation is depth 2 and six calls, enforced in the sidecar, and bot machines are optional containers."
+description: "Tauri desktop over Codex, Claude Code, and OpenCode, with group delegation enforced at depth 2 and six calls and optional container bot machines."
 resource: "https://github.com/touri-ai/touri/tree/24c4a45299f59ed9da54e42c42465b42d54cc595"
 tags: [harness, peer-executor, desktop, delegation, sandbox, routines]
 status: stable

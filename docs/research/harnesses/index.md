@@ -196,19 +196,19 @@ assessment.
 71. [GVS5H](./gvs5h.md) — Benchmark scaffold for ledger-based fresh-context orchestration; the multiagent engine runs public stdin samples, and the model has no tools
 72. [Rakazo](./rakazo.md) — TypeScript bot host: Postgres event cursors, in-process run wakeups, a sandbox-provider switch, and approval keys bound to arguments
 73. [Guilds](./guilds.md) — AGPL orchestrator: stored tool results are cut to 64 KiB, then the provider request stubs older ones
-74. [Clawboo](./clawboo.md) — Node team board with a seq SSE tail; peer coding CLIs start with approvals off; a hard budget cap is opt-in
-75. [Tucano](./tucano.md) — Electron workspace; peer CLIs take tools from a per-turn MCP gateway, and approval rechecks the grant
-76. [Codync](./codync.md) — Rust host for installed agent CLIs: ratatui, coalesced SQLite routines, and phones that attach to that computer
-77. [OpenGrokBot](./opengrokbot.md) — Gateway whose local shell stays off until the operator enables it, and that switch refuses without a passing Seatbelt or bubblewrap check
-78. [Mercury Agent](./mercury-agent.md) — Node daemon; a second terminal attaches over SSE; Ask Me or Allow All is one saved mode
-79. [Touri](./touri.md) — Tauri desktop over installed CLIs; group delegation is enforced at depth 2 and six calls
-80. [Lorca](./lorca.md) — Rust CLI is the agent loop; desktop runners execute; the relay stores ciphertext blobs
-81. [Tobs](./tobs.md) — Cordis plugin on DeepSeek Harness; each bot's memory is a Git repository the plugin commits
-82. [OpenTeam](./openteam.md) — GPL bot team: SSE replays an Event sequence, and bots share one Linux computer with passwordless sudo
-83. [AionUi](./aionui.md) — Electron shell over an external aioncore binary and detected CLIs; team mode and cron ids are in this repo's schema and README
-84. [Happy](./happy.md) — Mobile, web, and legacy CLI plus a relay; session bodies are encrypted containers; the desktop harness is another repo
-85. [CraftBot](./craftbot.md) — MIT self-hosted agent; Agent App is the in-workspace surface, and the theme wire is still `livingui-theme`
-86. [Tamekoshi](./tamekoshi.md) — Waitlist desktop companion; no public repository was located, so the note records site and board claims only
+74. [Clawboo](./clawboo.md) — MIT Node team service whose orchestration log tails by seq over SSE, while peer coding CLIs start with their own approvals off and a hard budget cap stays opt-in
+75. [Tucano](./tucano.md) — Apache-2.0 Electron workspace whose peer CLIs take tools from a per-turn MCP gateway and whose approval rechecks the grant before the stored call runs
+76. [Codync](./codync.md) — Rust host for installed agent CLIs: a ratatui client, SQLite routines that coalesce, and phones that attach to the computer that runs the bot
+77. [OpenGrokBot](./opengrokbot.md) — MIT gateway whose local shell stays off until the operator enables it and a Seatbelt or bubblewrap self-check passes, while Docker computers keep a shell
+78. [Mercury Agent](./mercury-agent.md) — MIT Node agent whose second terminal attaches over SSE to a running daemon, with one Ask Me or Allow All mode shared by every surface
+79. [Touri](./touri.md) — Tauri desktop over Codex, Claude Code, and OpenCode, with group delegation enforced at depth 2 and six calls and optional container bot machines
+80. [Lorca](./lorca.md) — GPL-3.0-only Rust CLI that owns the agent loop, with desktop runners executing bots, phones that only pair, and a relay that stores ciphertext blobs
+81. [Tobs](./tobs.md) — MIT Cordis plugin on DeepSeek Harness whose bot memory is a Git repository the plugin commits, while a paired phone steers the host
+82. [OpenTeam](./openteam.md) — GPL-3.0 bot team whose SSE replays an Event sequence, with every bot sharing one Linux computer that documents passwordless sudo
+83. [AionUi](./aionui.md) — Apache-2.0 Electron shell over an external aioncore binary and detected CLIs, with team cron ids stored on conversations in this repo
+84. [Happy](./happy.md) — MIT mobile, web, and legacy CLI clients plus a relay, with encrypted session bodies and the desktop harness in a separate repository
+85. [CraftBot](./craftbot.md) — MIT self-hosted agent whose in-workspace surface is Agent App, with the theme wire still named livingui-theme
+86. [Tamekoshi](./tamekoshi.md) — Waitlist desktop companion with no public repository located, so the note records only the site and the tierroom board
 
 ## Multi-machine and container placement
 

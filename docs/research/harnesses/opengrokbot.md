@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "OpenGrokBot"
-description: "MIT gateway with its own bot runtime. Local computers leave shell off until an OS sandbox exists; Docker computers keep a shell."
+description: "MIT gateway whose local shell stays off until the operator enables it and a Seatbelt or bubblewrap self-check passes, while Docker computers keep a shell."
 resource: "https://github.com/wolfqing/OpenGrokBot/tree/b50e71cdc96118406cbe560e317845f7f823e7da"
 tags: [harness, sandbox, routines, browser, self-hosted]
 status: stable
@@ -31,7 +31,7 @@ sources:
 
 # OpenGrokBot
 
-- **Stack:** Node gateway, web client, SQLite. MIT.[^ogb-license] The [tierroom board](https://my-tierroom.party/agents/opengrokbot) is a live page and is not pinned. The board's feature grid cites commit `15e42b1`; this note reads `b50e71cd`.
+- **Stack:** Node gateway, web client, SQLite. MIT.[^ogb-license] The [tierroom board](https://my-tierroom.party/agents/opengrokbot) is a live page and is not pinned.
 
 OpenGrokBot is a self-hosted team of bots with a browser each. The local-computers doc says the core is its own gateway, computers stay on the operator's machine, and Docker is one backend.[^ogb-local-doc] Source inspection of the gateway files below; nothing was run. The board says some older FAQ paragraphs still call Docker mandatory. The local-computers page says local mode has shipped and is the default when Docker is not running.[^ogb-local-doc]
 

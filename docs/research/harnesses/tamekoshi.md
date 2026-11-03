@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Tamekoshi"
-description: "Waitlist desktop companion advertised above coding agents. No public repository was located; the feature list is the site and the tierroom board."
+description: "Waitlist desktop companion with no public repository located, so the note records only the site and the tierroom board."
 resource: "https://www.tamekoshi.com/"
 tags: [harness, desktop, companion, closed]
 status: draft

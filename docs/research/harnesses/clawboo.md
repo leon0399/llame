@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Clawboo"
-description: "MIT Node service. Orchestration events tail by seq over SSE. Peer coding CLIs run with their own approvals off. A hard budget cap is opt-in."
+description: "MIT Node team service whose orchestration log tails by seq over SSE, while peer coding CLIs start with their own approvals off and a hard budget cap stays opt-in."
 resource: "https://github.com/clawboo/clawboo/tree/4a3c3068a9278c43e1ab18d8bd35371a0841ed39"
 tags: [harness, orchestration, peer-executor, budgets, approvals]
 status: stable
@@ -40,7 +40,7 @@ sources:
 
 # Clawboo
 
-- **Stack:** Node.js 22 service, browser dashboard, pnpm workspace. MIT.[^clawboo-license] The [tierroom board](https://my-tierroom.party/agents/clawboo) and [claw.boo](https://www.claw.boo) are live pages and are not pinned. The board's security notes cite `f8975179` and release 0.5.0. This clone is `4a3c3068`, later than that pin.
+- **Stack:** Node.js 22 service, browser dashboard, pnpm workspace. MIT.[^clawboo-license] The [tierroom board](https://my-tierroom.party/agents/clawboo) and [claw.boo](https://www.claw.boo) are live pages and are not pinned.
 
 Clawboo is a local team studio. The README says Boo Zero splits one request into board tasks and hands them to built-in agents or to Claude Code, Codex, Hermes, or OpenClaw. Source inspection of the peer drivers and the budget gate; nothing was run.
 
