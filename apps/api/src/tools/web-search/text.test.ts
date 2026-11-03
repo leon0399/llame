@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { type ToolResult } from '../types';
-import { renderWebSearchText } from './text';
+import {
+  renderWebSearchOutput,
+  renderWebSearchText,
+  webSearchOutputSchema,
+} from './text';
 
 /** Three ranked results, the second without a snippet or a date. */
 const threeResults: ToolResult = {
@@ -45,6 +49,43 @@ describe('the web search text shape', () => {
         '> Third snippet.',
       ].join('\n'),
     );
+  });
+
+  it('gives every result and answer block its artifact line range', () => {
+    const rendered = renderWebSearchOutput(
+      webSearchOutputSchema.parse(threeResults),
+    );
+
+    expect(rendered?.blocks).toEqual([
+      {
+        locators: ['https://a.example/one'],
+        start: 2,
+        end: 5,
+        text: [
+          '## 1. First',
+          'https://a.example/one',
+          'a.example · 2026-10-08',
+          '> First snippet.',
+        ].join('\n'),
+      },
+      {
+        locators: ['https://b.example/two'],
+        start: 7,
+        end: 9,
+        text: ['## 2. Second', 'https://b.example/two', 'b.example'].join('\n'),
+      },
+      {
+        locators: ['https://c.example/three'],
+        start: 11,
+        end: 14,
+        text: [
+          '## 3. Third',
+          'https://c.example/three',
+          'c.example',
+          '> Third snippet.',
+        ].join('\n'),
+      },
+    ]);
   });
 
   it('renders an aggregate answer after the fifth result with its citations', () => {
@@ -309,4 +350,68 @@ describe('the web search text shape', () => {
       }),
     ).toBeUndefined();
   });
+});
+
+it('counts an 8,000-unit answer line as the pieces the reader numbers', () => {
+  const longAnswer: ToolResult = {
+    status: 'success',
+    kind: 'answer',
+    engine: 'hosted',
+    query: 'question',
+    answer: 'a'.repeat(8000),
+    citations: [
+      { url: 'https://example.test/one' },
+      { url: 'https://example.test/two' },
+    ],
+  };
+
+  const rendered = renderWebSearchOutput(
+    webSearchOutputSchema.parse(longAnswer),
+  );
+
+  // Framing line 1; the `> ` prefix pushes the answer over 8,000 units, so it
+  // is two artifact lines and the block ends after both citations.
+  expect(rendered?.blocks).toEqual([
+    {
+      locators: ['https://example.test/one', 'https://example.test/two'],
+      start: 2,
+      end: 6,
+      text: [
+        '## Answer (hosted)',
+        `> ${'a'.repeat(8000)}`,
+        '[1] https://example.test/one',
+        '[2] https://example.test/two',
+      ].join('\n'),
+    },
+  ]);
+});
+
+it('shifts a later block past the pieces of a long answer', () => {
+  const output: ToolResult = {
+    status: 'success',
+    kind: 'results',
+    engine: 'hosted',
+    query: 'question',
+    results: [{ title: 'First', url: 'https://example.test/first' }],
+    answers: [
+      {
+        engine: 'hosted',
+        answer: 'a'.repeat(8000),
+        citations: [{ url: 'https://example.test/cited' }],
+      },
+      {
+        engine: 'second',
+        answer: 'short',
+        citations: [{ url: 'https://example.test/second' }],
+      },
+    ],
+  };
+
+  const rendered = renderWebSearchOutput(webSearchOutputSchema.parse(output));
+
+  // Result lines 2-4, blank 5, then the long answer at 6 (heading, two
+  // answer pieces, citation) ends at 9, blank 10, so the next block starts 11.
+  expect(rendered?.blocks[1]?.start).toBe(6);
+  expect(rendered?.blocks[1]?.end).toBe(9);
+  expect(rendered?.blocks[2]?.start).toBe(11);
 });

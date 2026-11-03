@@ -37,7 +37,9 @@ export const TOOL_QUERY_MAX = 1000;
 export const ENGINE_LIMITS = {
   brave: { query: { codePoints: 600, words: 75 }, results: 20 },
   deepseek: { query: { codePoints: 128 }, results: 50 },
-  exa: { results: 100 },
+  // Exa's pricing lists requests above 25 results as an Enterprise feature,
+  // so the standard tier asks for at most 25 even though its API accepts 100.
+  exa: { results: 25 },
   'exa-mcp': {},
   parallel: { query: { codePoints: 200 }, results: 20 },
   'parallel-mcp': { query: { codePoints: 200 } },

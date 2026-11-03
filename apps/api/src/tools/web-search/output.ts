@@ -8,6 +8,7 @@ import {
   type SearchChainSuccess,
   answerLinkRanges,
 } from './chain';
+import { renderWebSearchOutput } from './text';
 
 export const WEB_SEARCH_URL_MAX_CODE_UNITS = 2048;
 export const WEB_SEARCH_OUTPUT_MAX_CODE_UNITS = 15_000;
@@ -155,7 +156,7 @@ function capFields(
 }
 
 const ANSWER_TRUNCATION_NOTE = 'answer truncated to 8000 characters';
-/** The note of an answer output whose own text is cut further. */
+/** The note of an answer output whose own text is cut further to fit. */
 const ANSWER_CUT_NOTE = 'answer cut to fit the output limit';
 /**
  * The note of a results output whose last answer text is cut. The step cuts at
@@ -202,8 +203,30 @@ function longestFittingPrefix(
   return fitting;
 }
 
-function isOverBudget(value: WebSearchSuccess): boolean {
-  return JSON.stringify(value).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
+/**
+ * Room kept for the one notice line the spill adds after the inline fit: the
+ * locator, its line count, the continuation line, and any host-file directory.
+ * A spill path passes it to {@link normalizeOutput}, so the body and its
+ * notice together stay inside the inline bound.
+ */
+export const INLINE_NOTICE_RESERVE = 256;
+
+/** The code units the model reads for one candidate output. */
+function inlineTextLength(value: WebSearchSuccess): number {
+  return renderWebSearchOutput(value)?.text.length ?? Number.POSITIVE_INFINITY;
+}
+
+/** Whether the output and any notice the caller adds fit inline. */
+function fitsInline(value: WebSearchSuccess, reserve: number): boolean {
+  return inlineTextLength(value) + reserve <= WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
+}
+
+/** Whether a candidate being trimmed also leaves the notice its room. */
+function isOverTrimmedBudget(value: WebSearchSuccess): boolean {
+  return (
+    inlineTextLength(value) >
+    WEB_SEARCH_OUTPUT_MAX_CODE_UNITS - INLINE_NOTICE_RESERVE
+  );
 }
 
 /** What each trim step removed, formatted into one note per step. */
@@ -244,7 +267,7 @@ type NoteInputs = {
   readonly notes: ReadonlyArray<string>;
   /** The count notes of the trim steps that ran. */
   readonly counts: TrimCounts;
-  /** Whether the answer was cut further to fit beside one citation. */
+  /** Whether an answer output's own text was cut further to fit. */
   readonly answerCut: boolean;
   /** Entries the call removed, for the note that comes before the others. */
   readonly removed: number | undefined;
@@ -287,6 +310,44 @@ function dropTrailing<T>(
   }
 }
 
+function fitAnswer(
+  initial: AnswerOutput,
+  notes: ReadonlyArray<string>,
+  removed: number | undefined,
+  reserve: number,
+): WebSearchSuccess {
+  const unchanged = withNotes(initial, {
+    notes,
+    counts: NO_TRIM_COUNTS,
+    answerCut: false,
+    removed,
+  });
+  if (fitsInline(unchanged, reserve)) return unchanged;
+  const counts: TrimCounts = { ...NO_TRIM_COUNTS };
+  let citations = initial.citations;
+  const render = (): WebSearchSuccess =>
+    withNotes(
+      { ...initial, citations },
+      { notes, counts, answerCut: false, removed },
+    );
+  const over = dropTrailing(
+    initial.citations,
+    1,
+    () => isOverTrimmedBudget(render()),
+    (kept) => {
+      citations = kept;
+      counts.citations += 1;
+    },
+  );
+  return over
+    ? cutAnswer({ ...initial, citations }, notes, counts, removed)
+    : render();
+}
+
+/**
+ * Cuts an answer output's text to the longest prefix that fits beside its one
+ * citation. The prefix stops before a link or bare URL, so a URL is never cut.
+ */
 function cutAnswer(
   output: AnswerOutput,
   notes: ReadonlyArray<string>,
@@ -300,35 +361,9 @@ function cutAnswer(
     );
   const fitting = longestFittingPrefix(
     output.answer,
-    (candidate) => !isOverBudget(render(candidate)),
+    (candidate) => !isOverTrimmedBudget(render(candidate)),
   );
   return render(fitting ?? '');
-}
-
-function fitAnswer(
-  initial: AnswerOutput,
-  notes: ReadonlyArray<string>,
-  removed: number | undefined,
-): WebSearchSuccess {
-  const counts: TrimCounts = { ...NO_TRIM_COUNTS };
-  let citations = initial.citations;
-  const render = (): WebSearchSuccess =>
-    withNotes(
-      { ...initial, citations },
-      { notes, counts, answerCut: false, removed },
-    );
-  const over = dropTrailing(
-    initial.citations,
-    1,
-    () => isOverBudget(render()),
-    (kept) => {
-      citations = kept;
-      counts.citations += 1;
-    },
-  );
-  return over
-    ? cutAnswer({ ...initial, citations }, notes, counts, removed)
-    : render();
 }
 
 /** A results output while its trim steps run, with the notes they carry. */
@@ -361,7 +396,7 @@ function renderTrimmed(trim: ResultsTrim): WebSearchSuccess {
 
 /** Second trim step: each attached answer loses citations from its end. */
 function trimAnswerCitations(trim: ResultsTrim): void {
-  let over = isOverBudget(renderTrimmed(trim));
+  let over = isOverTrimmedBudget(renderTrimmed(trim));
   for (let index = trim.answers.length - 1; index >= 0 && over; index -= 1) {
     const answer = trim.answers[index];
     over = dropTrailing(
@@ -371,7 +406,7 @@ function trimAnswerCitations(trim: ResultsTrim): void {
       (kept) => {
         trim.answers[index] = { ...answer, citations: kept };
         trim.counts.citations += 1;
-        over = isOverBudget(renderTrimmed(trim));
+        over = isOverTrimmedBudget(renderTrimmed(trim));
       },
     );
   }
@@ -385,22 +420,35 @@ function trimAnswerCitations(trim: ResultsTrim): void {
  */
 function cutLastAnswerText(trim: ResultsTrim): void {
   const index = trim.answers.length - 1;
-  if (index < 0) return;
+  if (index < 0 || !isOverTrimmedBudget(renderTrimmed(trim))) return;
   const answer = trim.answers[index];
-  if (answer.answer === '' || !isOverBudget(renderTrimmed(trim))) return;
   // The note of this cut joins its own measurement.
   trim.counts.answerCut = true;
-  trim.answers[index] = { ...answer, answer: '' };
-  if (isOverBudget(renderTrimmed(trim))) {
+  const fitting = longestFittingPrefix(answer.answer, (candidate) => {
+    trim.answers[index] = { ...answer, answer: candidate };
+    return !isOverTrimmedBudget(renderTrimmed(trim));
+  });
+  if (fitting === undefined) {
     trim.answers[index] = answer;
     trim.counts.answerCut = false;
     return;
   }
-  const fitting = longestFittingPrefix(answer.answer, (candidate) => {
-    trim.answers[index] = { ...answer, answer: candidate };
-    return !isOverBudget(renderTrimmed(trim));
-  });
-  trim.answers[index] = { ...answer, answer: fitting ?? '' };
+  trim.answers[index] = { ...answer, answer: fitting };
+}
+
+/** The last three trim steps, from citations to whole attached answers. */
+function trimAnswers(trim: ResultsTrim): void {
+  trimAnswerCitations(trim);
+  cutLastAnswerText(trim);
+  dropTrailing(
+    trim.answers,
+    0,
+    () => isOverTrimmedBudget(renderTrimmed(trim)),
+    (kept) => {
+      trim.answers = kept;
+      trim.counts.answers += 1;
+    },
+  );
 }
 
 /**
@@ -413,7 +461,15 @@ function fitResults(
   initial: ResultsOutput,
   notes: ReadonlyArray<string>,
   removed: number | undefined,
+  reserve: number,
 ): WebSearchSuccess {
+  const unchanged = withNotes(initial, {
+    notes,
+    counts: NO_TRIM_COUNTS,
+    answerCut: false,
+    removed,
+  });
+  if (fitsInline(unchanged, reserve)) return unchanged;
   const trim: ResultsTrim = {
     initial,
     notes,
@@ -425,25 +481,13 @@ function fitResults(
   dropTrailing(
     trim.results,
     0,
-    () => isOverBudget(renderTrimmed(trim)),
+    () => isOverTrimmedBudget(renderTrimmed(trim)),
     (kept) => {
       trim.results = kept;
       trim.counts.results += 1;
     },
   );
-  if (trim.answers.length > 0) {
-    trimAnswerCitations(trim);
-    cutLastAnswerText(trim);
-    dropTrailing(
-      trim.answers,
-      0,
-      () => isOverBudget(renderTrimmed(trim)),
-      (kept) => {
-        trim.answers = kept;
-        trim.counts.answers += 1;
-      },
-    );
-  }
+  trimAnswers(trim);
   return renderTrimmed(trim);
 }
 
@@ -462,7 +506,43 @@ function truncatedAnswersNote(source: ResultSource): string | undefined {
 export function normalizeOutput(
   source: SearchChainSuccess,
   limit: number,
+  noticeReserve = 0,
 ): WebSearchSuccess {
+  const { output, notes } = boundedOutput(source, limit);
+  return output.kind === 'results'
+    ? fitResults(output, notes, source.removed, noticeReserve)
+    : fitAnswer(output, notes, source.removed, noticeReserve);
+}
+
+/**
+ * The whole normalized output of a call, with every fetched result and no
+ * inline-size cut (tool-result-artifacts D9). It is what the call's artifact
+ * holds; `normalizeOutput` is its inline fit.
+ */
+export function normalizeFullOutput(
+  source: SearchChainSuccess,
+  fetchSize: number,
+): WebSearchSuccess {
+  const { output, notes } = boundedOutput(source, fetchSize);
+  return withNotes(output, {
+    notes,
+    counts: NO_TRIM_COUNTS,
+    answerCut: false,
+    removed: source.removed,
+  });
+}
+
+/** The bounded fields of one chain result and the notes before the fit. */
+type BoundedOutput = {
+  readonly output: WebSearchSuccess;
+  readonly notes: Array<string>;
+};
+
+/** The bounded fields of one chain result, its notes, and its count. */
+function boundedOutput(
+  source: SearchChainSuccess,
+  count: number,
+): BoundedOutput {
   const notes = source.notes === undefined ? [] : [...source.notes];
   const truncation =
     source.kind === 'answer'
@@ -471,8 +551,5 @@ export function normalizeOutput(
         : undefined
       : truncatedAnswersNote(source);
   if (truncation !== undefined) notes.unshift(truncation);
-  const initial = capFields(source, limit);
-  return initial.kind === 'results'
-    ? fitResults(initial, notes, source.removed)
-    : fitAnswer(initial, notes, source.removed);
+  return { output: capFields(source, count), notes };
 }

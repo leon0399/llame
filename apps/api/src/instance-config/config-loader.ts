@@ -42,6 +42,7 @@ import type {
   WebSearchConfig,
   WebSearchEngineConfig,
 } from './web-search-config';
+import { WEB_SEARCH_FETCH_LIMIT_DEFAULT } from './web-search-config';
 import type { MachineHostConfig } from './machines-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type { RequestHeaderTemplates } from '../models/request-headers';
@@ -632,7 +633,11 @@ function resolveWebSearch(
     providersById,
   );
   assertWebSearchChain(section.chain, engines);
-  return { engines, chain: section.chain };
+  return {
+    engines,
+    chain: section.chain,
+    fetchLimit: section.fetchLimit ?? WEB_SEARCH_FETCH_LIMIT_DEFAULT,
+  };
 }
 
 function resolveWebSearchTimeout(

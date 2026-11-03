@@ -1,8 +1,15 @@
 import { parseWebLocator } from '../web-read/locator';
 import {
   canonicalUrl as canonicalizeSearchUrl,
+  normalizeFullOutput,
   normalizeOutput as normalizeSearchOutput,
+  type WebSearchSuccess,
 } from './output';
+import { renderWebSearchOutput } from './text';
+
+function renderedLength(output: WebSearchSuccess): number {
+  return renderWebSearchOutput(output)?.text.length ?? 0;
+}
 import {
   type RawCitation,
   type RawResult,
@@ -314,7 +321,7 @@ it('keeps the first citation while dropping oversized answer citations', () => {
   expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
 
-it('notes when an answer is cut further to fit with one citation', () => {
+it('keeps a maximal answer when its one citation and the text fit', () => {
   const output = normalizeSearchOutput(
     answerSource(
       'a'.repeat(8000),
@@ -324,10 +331,15 @@ it('notes when an answer is cut further to fit with one citation', () => {
     ),
     10,
   );
-  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
-  expect(JSON.stringify(output)).toContain('answer cut to fit');
+  if (output.kind !== 'answer') throw new Error('expected answer output');
+  // The rendered text is the bound, and this shape fits it whole.
+  expect(
+    (renderWebSearchOutput(output)?.text ?? '').length,
+  ).toBeLessThanOrEqual(15_000);
+  expect(output.answer).toBe('a'.repeat(8000));
+  expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
-it('finds the largest answer that exactly fits the serialized budget', () => {
+it('measures the escape-free answer length, not its JSON spelling', () => {
   const output = normalizeSearchOutput(
     answerSource(
       'a'.repeat(8000),
@@ -338,9 +350,13 @@ it('finds the largest answer that exactly fits the serialized budget', () => {
     10,
   );
   if (output.kind !== 'answer') throw new Error('expected answer output');
-  expect(output.answer).toBe('a'.repeat(5088));
-  expect(JSON.stringify(output).length).toBe(15_000);
-  expect(output.notes).toContain('answer cut to fit the output limit');
+  expect(output.answer).toBe('a'.repeat(8000));
+  // The NUL notes escape to six units each in JSON, so the text is the bound.
+  expect(JSON.stringify(output).length).toBeGreaterThan(15_000);
+  expect(
+    (renderWebSearchOutput(output)?.text ?? '').length,
+  ).toBeLessThanOrEqual(15_000);
+  expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
 it('does not add an answer-cut note at the exact output limit', () => {
   const output = normalizeSearchOutput(
@@ -522,7 +538,7 @@ it('drops whole attached answers from the end last', () => {
   ]);
 });
 
-it('drops every attached answer when none fits', () => {
+it('measures the rendered text, not the JSON escaping of two answers', () => {
   const output = normalizeSearchOutput(
     {
       ...resultsSource([]),
@@ -534,10 +550,14 @@ it('drops every attached answer when none fits', () => {
     },
     10,
   );
-  expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
   if (output.kind !== 'results') throw new Error('expected results output');
-  expect(output.answers).toBeUndefined();
-  expect(output.notes).toContain('2 answers dropped to fit the output limit');
+  expect(
+    (renderWebSearchOutput(output)?.text ?? '').length,
+  ).toBeLessThanOrEqual(15_000);
+  // Quotes are escaped in JSON, so this output fits as text only.
+  expect(JSON.stringify(output).length).toBeGreaterThan(15_000);
+  expect(output.answers).toHaveLength(2);
+  expect(output.notes).toContain('1 answer cut to fit the output limit');
 });
 
 const longUrl = (stem: string, length: number): string =>
@@ -689,13 +709,13 @@ it('cuts the last answer outside a bare URL', () => {
       attachedAnswer('c', lastAnswer, [{ url: longUrl('c', 1000) }]),
     ],
   });
-  const plain = normalizeSearchOutput(source('c'.repeat(3000)), 10);
+  const plain = normalizeSearchOutput(source('c'.repeat(8000)), 10);
   if (plain.kind !== 'results') throw new Error('expected results output');
   const budget = plain.answers?.[2]?.answer.length;
   if (budget === undefined) throw new Error('expected a third answer');
   const filler = 'a'.repeat(budget - 10);
   // The URL starts just before the calibrated cut and ends after it.
-  const text = `${filler} ${longUrl('u', 300)}`;
+  const text = `${filler} ${longUrl('u', 300)} ${'z'.repeat(2000)}`;
   expect(text.length).toBeGreaterThan(budget);
 
   const output = normalizeSearchOutput(source(text), 10);
@@ -705,23 +725,184 @@ it('cuts the last answer outside a bare URL', () => {
   expect(output.notes).toEqual(['1 answer cut to fit the output limit']);
 });
 
-it('cuts an answer outside a Markdown link', () => {
-  const source = (answer: string): SearchChainSuccess => ({
-    kind: 'answer',
-    engine: 'hosted',
-    query: 'q'.repeat(100),
-    answer,
-    citations: [{ url: 'https://example.test/a' }],
-    notes: Array.from({ length: 10 }, () => '\u0000'.repeat(200)),
+it('cuts the last attached answer outside a Markdown link', () => {
+  const source = (lastAnswer: string) => ({
+    ...resultsSource([]),
+    answers: [
+      attachedAnswer('a', 'a'.repeat(8000), [
+        { url: 'https://example.test/short' },
+      ]),
+      attachedAnswer('b', 'b'.repeat(3000), [{ url: longUrl('b', 2048) }]),
+      attachedAnswer('c', lastAnswer, [{ url: longUrl('c', 1000) }]),
+    ],
   });
-  const cut = normalizeSearchOutput(source('a'.repeat(8000)), 10);
-  if (cut.kind !== 'answer') throw new Error('expected answer output');
-  const budget = cut.answer.length;
+  const plain = normalizeSearchOutput(source('c'.repeat(8000)), 10);
+  if (plain.kind !== 'results') throw new Error('expected results output');
+  const budget = plain.answers?.[2]?.answer.length;
+  if (budget === undefined) throw new Error('expected a third answer');
   const filler = 'a'.repeat(budget - 10);
   const link = '[Docs](https://example.test/x)';
 
-  const output = normalizeSearchOutput(source(`${filler} ${link} tail`), 10);
-  if (output.kind !== 'answer') throw new Error('expected answer output');
-  expect(output.answer).toBe(`${filler} `);
+  const output = normalizeSearchOutput(
+    source(`${filler} ${link} ${'z'.repeat(2000)}`),
+    10,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.answers?.[2]?.answer).toBe(`${filler} `);
+  expect(output.notes).toContain('1 answer cut to fit the output limit');
+});
+
+it('keeps every fetched result in the full output up to the fetch size', () => {
+  const output = normalizeFullOutput(
+    resultsSource(
+      Array.from({ length: 25 }, (_unused, index) =>
+        result(`https://example.test/${index}`, index),
+      ),
+    ),
+    20,
+  );
+
+  if (output.kind !== 'results') throw new Error('expected a results output');
+  expect(output.results).toHaveLength(20);
+  expect(output.results.at(-1)?.url).toBe('https://example.test/19');
+});
+
+it('keeps the whole serialized output that the inline fit would shorten', () => {
+  const results = Array.from({ length: 20 }, (_unused, index) => ({
+    ...result(`https://example.test/${index}/${'u'.repeat(500)}`, index),
+    title: 't'.repeat(200),
+    snippet: 's'.repeat(300),
+  }));
+
+  const full = normalizeFullOutput(resultsSource(results), 20);
+  const inline = normalizeSearchOutput(resultsSource(results), 20);
+
+  if (full.kind !== 'results' || inline.kind !== 'results')
+    throw new Error('expected results outputs');
+  expect(full.results).toHaveLength(20);
+  expect(inline.results.length).toBeLessThan(20);
+});
+
+it('keeps a results output at exactly the inline limit', () => {
+  const results = Array.from({ length: 20 }, (_unused, index) => ({
+    title: 't'.repeat(200),
+    url: `https://example.test/${index}/${'u'.repeat(1)}`,
+    snippet: 's'.repeat(300),
+  }));
+  const notes = Array.from({ length: 10 }, () => 'n'.repeat(200));
+  const query = 'q'.repeat(1000);
+  const build = (extra: number) =>
+    resultsSource(
+      results.map((result, index) =>
+        index === 0
+          ? { ...result, url: `${result.url}${'u'.repeat(extra)}` }
+          : result,
+      ),
+      notes,
+      query,
+    );
+
+  const extra = 15_000 - renderedLength(normalizeSearchOutput(build(0), 20));
+  expect(extra).toBeGreaterThanOrEqual(0);
+  expect(extra).toBeLessThanOrEqual(2000);
+  const output = normalizeSearchOutput(build(extra), 20);
+
+  expect(renderedLength(output)).toBe(15_000);
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.results).toHaveLength(20);
+  expect(output.notes).toEqual(notes);
+});
+
+it('keeps an answer output at exactly the inline limit', () => {
+  const notes = Array.from({ length: 10 }, () => 'n'.repeat(200));
+  const query = 'q'.repeat(1000);
+  const minimal = { url: 'https://example.test/c' };
+  const build = (thirdUrlLength: number) =>
+    answerSource(
+      'a'.repeat(8000),
+      [
+        { url: longUrl('a', 2048) },
+        { url: 'https://example.test/b' },
+        thirdUrlLength === minimal.url.length
+          ? minimal
+          : { url: longUrl('c', thirdUrlLength) },
+      ],
+      query,
+      notes,
+    );
+
+  const base = normalizeSearchOutput(build(minimal.url.length), 10);
+  const extra = 15_000 - renderedLength(base);
+  const thirdUrlLength = minimal.url.length + extra;
+  expect(thirdUrlLength).toBeLessThanOrEqual(2048);
+  const output = normalizeSearchOutput(build(thirdUrlLength), 10);
+
+  expect(renderedLength(output)).toBe(15_000);
+  if (output.kind !== 'answer') throw new Error('expected an answer output');
+  expect(output.citations).toHaveLength(3);
+  expect(output.notes).toEqual(notes);
+});
+
+it('stops dropping results exactly at the notice-reserved limit', () => {
+  const notes = Array.from({ length: 10 }, () => 'n'.repeat(200));
+  const query = 'q'.repeat(1000);
+  const maxResult = (index: number) => ({
+    title: 't'.repeat(200),
+    url: `https://example.test/${index}/${'u'.repeat(1)}`,
+    snippet: 's'.repeat(300),
+  });
+  const tunable = (pad: number) => ({
+    title: 'sixth',
+    url: `https://example.test/tunable/${'u'.repeat(pad)}`,
+    snippet: 's'.repeat(300),
+  });
+  const small = {
+    title: 'small',
+    url: 'https://example.test/small',
+    snippet: 's'.repeat(300),
+  };
+  const build = (pad: number, withSmall: boolean) =>
+    resultsSource(
+      [
+        ...Array.from({ length: 18 }, (_unused, index) => maxResult(index)),
+        tunable(pad),
+        ...(withSmall ? [small] : []),
+      ],
+      notes,
+      query,
+    );
+  const measure = (pad: number) =>
+    renderedLength(normalizeSearchOutput(build(pad, true), 20));
+
+  // Start already over the inline limit, so the small result leaves; in that
+  // regime the padded URL moves the remaining text one unit per unit.
+  const pad = 1700 + (14_744 - measure(1700));
+  expect(pad).toBeGreaterThanOrEqual(0);
+  expect(pad).toBeLessThanOrEqual(2000);
+  const output = normalizeSearchOutput(build(pad, true), 20);
+
+  if (output.kind !== 'results') throw new Error('expected results output');
+  // The small result leaves, and the exact reserved boundary keeps the rest.
+  expect(output.results).toHaveLength(19);
+  expect(renderedLength(output)).toBe(14_744);
+  expect(output.notes).toContain('2 more engines');
+});
+
+it('cuts a multi-line answer output that still does not fit', () => {
+  const source = answerSource(
+    'a\n'.repeat(4000),
+    [{ url: longUrl('c', 2048) }],
+    'q'.repeat(1000),
+    Array.from({ length: 10 }, () => 'n'.repeat(200)),
+  );
+
+  const output = normalizeSearchOutput(source, 10);
+
+  expect(renderedLength(output)).toBeLessThanOrEqual(15_000);
+  if (output.kind !== 'answer') throw new Error('expected an answer output');
+  // The rendered text is far over the bound while the stored answer is not.
+  expect(source.answer).toHaveLength(8000);
+  expect(output.answer.length).toBeLessThan(8000);
+  expect(output.citations).toHaveLength(1);
   expect(output.notes).toContain('answer cut to fit the output limit');
 });

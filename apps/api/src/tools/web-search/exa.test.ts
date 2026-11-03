@@ -163,7 +163,7 @@ describe('Exa adapter', () => {
     });
   });
 
-  it('sends the objective and clamps the count to the Exa maximum', async () => {
+  it('sends the objective and clamps the count to the Exa standard maximum', async () => {
     const recorded = captureFixture({ results: [] });
     await createExaEngine(
       { key: 'secret' },
@@ -178,7 +178,7 @@ describe('Exa adapter', () => {
     expect(await parseBody(recorded.seen().init)).toMatchObject({
       query: 'plain',
       objective: 'compare pgvector benchmarks',
-      numResults: 100,
+      numResults: 25,
     });
   });
 

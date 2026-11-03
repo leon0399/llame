@@ -76,6 +76,43 @@ describe('loadInstanceConfig — webSearch', () => {
     expect(Object.hasOwn(config, 'webSearch')).toBe(false);
   });
 
+  it('defaults the web search fetch size to 20', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: { engines: [brave()], chain: ['brave'] },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch?.fetchLimit).toBe(20);
+  });
+
+  it.each([1, 100])('loads a configured fetch size of %i', (fetchLimit) => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: { engines: [brave()], chain: ['brave'], fetchLimit },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch?.fetchLimit).toBe(fetchLimit);
+  });
+
+  it.each([500, 0, 1.5])(
+    'rejects a fetch size of %s and names its config path',
+    (fetchLimit) => {
+      writeConfig(
+        JSON.stringify({
+          webSearch: {
+            engines: [brave()],
+            chain: ['brave'],
+            fetchLimit,
+          },
+        }),
+      );
+
+      expect(() => loadInstanceConfig()).toThrow(/webSearch\/fetchLimit/u);
+    },
+  );
+
   it('rejects an empty resolved timeout and names its config path', () => {
     writeConfig(
       JSON.stringify({
@@ -135,6 +172,7 @@ describe('loadInstanceConfig — webSearch', () => {
         },
       ],
       chain: ['brave'],
+      fetchLimit: 20,
     });
   });
 
@@ -158,6 +196,7 @@ describe('loadInstanceConfig — webSearch', () => {
         },
       ],
       chain: ['exa'],
+      fetchLimit: 20,
     });
   });
 
@@ -197,6 +236,7 @@ describe('loadInstanceConfig — webSearch', () => {
           },
         ],
         chain: ['exa-mcp'],
+        fetchLimit: 20,
       });
     },
   );
@@ -214,6 +254,7 @@ describe('loadInstanceConfig — webSearch', () => {
     expect(loadInstanceConfig().webSearch).toStrictEqual({
       engines: [{ id: 'duckduckgo', type: 'duckduckgo', timeoutSeconds: 60 }],
       chain: ['duckduckgo'],
+      fetchLimit: 20,
     });
   });
 
@@ -252,6 +293,7 @@ describe('loadInstanceConfig — webSearch', () => {
         },
       ],
       chain: ['searxng'],
+      fetchLimit: 20,
     });
   });
 
@@ -485,6 +527,7 @@ describe('loadInstanceConfig — webSearch', () => {
         },
       ],
       chain: ['aggregate'],
+      fetchLimit: 20,
     });
   });
   it('rejects timeoutSeconds on an aggregate as an unknown key', () => {
@@ -600,6 +643,7 @@ describe('loadInstanceConfig — webSearch', () => {
           },
         ],
         chain: ['hosted'],
+        fetchLimit: 20,
       });
     },
   );
@@ -773,6 +817,7 @@ describe('loadInstanceConfig — webSearch', () => {
         },
       ],
       chain: ['deepseek'],
+      fetchLimit: 20,
     });
   });
 
@@ -812,6 +857,7 @@ describe('loadInstanceConfig — webSearch', () => {
         },
       ],
       chain: ['parallel'],
+      fetchLimit: 20,
     });
   });
 
@@ -894,6 +940,7 @@ describe('loadInstanceConfig — webSearch', () => {
         { id: 'parallel-mcp', type: 'parallel-mcp', timeoutSeconds: 60 },
       ],
       chain: ['parallel-mcp'],
+      fetchLimit: 20,
     });
   });
 
@@ -947,6 +994,7 @@ describe('loadInstanceConfig — webSearch', () => {
         },
       ],
       chain: ['yandex'],
+      fetchLimit: 20,
     });
   });
 

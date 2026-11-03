@@ -955,3 +955,144 @@ it('runs a hosted child inside an aggregate and returns its answer', async () =>
     ],
   });
 });
+
+it('asks each engine for the fetch size and clamps it to the vendor maximum', async () => {
+  const fetch = vi.fn<VendorFetch>(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          web: {
+            results: [{ title: 'Result', url: 'https://example.test/a' }],
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          { id: 'brave', type: 'brave', key: 'test-key', timeoutSeconds: 60 },
+        ],
+        chain: ['brave'],
+        fetchLimit: 100,
+      },
+    };
+
+    await webSearchTool.execute(context, { query: 'llame', limit: 10 });
+
+    const [url] = fetch.mock.calls[0] ?? [];
+    const requestUrl =
+      url instanceof Request ? url.url : url instanceof URL ? url.href : url;
+    expect(new URL(requestUrl).searchParams.get('count')).toBe('20');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('passes a fetch size below the vendor maximum through unchanged', async () => {
+  const fetch = vi.fn<VendorFetch>(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          results: [{ title: 'Result', url: 'https://example.test/a' }],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          {
+            id: 'deepseek',
+            type: 'deepseek',
+            key: 'test-key',
+            timeoutSeconds: 60,
+          },
+        ],
+        chain: ['deepseek'],
+        fetchLimit: 5,
+      },
+    };
+
+    await webSearchTool.execute(context, { query: 'llame', limit: 5 });
+
+    const body: unknown = JSON.parse(
+      await new Response(fetch.mock.calls[0]?.[1]?.body ?? null).text(),
+    );
+    expect(body).toMatchObject({ count: 5 });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('cuts the aggregate merge to the fetch size', async () => {
+  const fetch = vi.fn<VendorFetch>((_input, init) => {
+    const key = new Headers(init?.headers).get('X-Subscription-Token');
+    const offset = key === 'first-key' ? 0 : 5;
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          web: {
+            results: Array.from({ length: 5 }, (_unused, index) => ({
+              title: `Result ${offset + index + 1}`,
+              url: `https://example.test/r/${offset + index + 1}`,
+            })),
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    );
+  });
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          { id: 'first', type: 'brave', key: 'first-key', timeoutSeconds: 60 },
+          {
+            id: 'second',
+            type: 'brave',
+            key: 'second-key',
+            timeoutSeconds: 60,
+          },
+          { id: 'mix', type: 'aggregate', engines: ['first', 'second'] },
+        ],
+        chain: ['mix'],
+        fetchLimit: 5,
+      },
+    };
+
+    const result = await webSearchTool.execute(context, {
+      query: 'llame',
+      limit: 5,
+    });
+
+    expect(result).toMatchObject({ kind: 'results' });
+    if (result.status !== 'success') return;
+    expect(result['results']).toHaveLength(5);
+    expect(result).not.toHaveProperty('artifact');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

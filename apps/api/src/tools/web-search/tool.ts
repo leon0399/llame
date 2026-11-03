@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { loadPackagedToolDescription } from '../../prompts/tool-descriptions';
 import { type Tool, type ToolContext, type ToolResult } from '../types';
 import {
+  WEB_SEARCH_FETCH_LIMIT_DEFAULT,
   type WebSearchConfig,
   type WebSearchEngineConfig,
 } from '../../instance-config/web-search-config';
@@ -13,9 +14,9 @@ import {
   type EngineLookup,
   type EngineRequest,
 } from './chain';
-import { normalizeOutput } from './output';
 import { splitSiteFilters } from './query';
 import { createResultRemoval } from './removal';
+import { spillWebSearchResult } from './artifact';
 import { ENGINE_LIMITS, TOOL_QUERY_MAX } from './limits';
 
 export const webSearchInputSchema = z.strictObject({
@@ -118,10 +119,34 @@ function unknownEngineFailure(
   };
 }
 
+/** The engine request one call sends, with the fetched size as its limit. */
+function searchRequest(
+  context: ToolContext,
+  input: WebSearchArguments,
+  fetchSize: number,
+): EngineRequest {
+  return {
+    query: input.query,
+    objective: input.objective,
+    engines: input.engines,
+    limit: fetchSize,
+    signal: context.abortSignal ?? new AbortController().signal,
+    recency: input.recency,
+    userAgent: context.productUserAgent,
+    chatId: context.chatId,
+    removal: createResultRemoval(
+      context,
+      splitSiteFilters(input.query).exclude,
+    ),
+    modelClients: context.modelClients,
+  };
+}
+
 export const webSearchTool: Tool<WebSearchArguments> = {
   id: 'web_search',
   description: loadPackagedToolDescription('web_search'),
   classification: 'read_only',
+  spill: 'tool',
   inputSchema: webSearchInputSchema,
   async execute(
     context: ToolContext,
@@ -136,27 +161,22 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       };
     const unknownEngine = unknownEngineFailure(config, input.engines);
     if (unknownEngine !== undefined) return unknownEngine;
-    const signal = context.abortSignal ?? new AbortController().signal;
-    const request: EngineRequest = {
-      query: input.query,
-      objective: input.objective,
-      engines: input.engines,
-      limit: input.limit,
-      signal,
-      recency: input.recency,
-      userAgent: context.productUserAgent,
-      chatId: context.chatId,
-      removal: createResultRemoval(
-        context,
-        splitSiteFilters(input.query).exclude,
-      ),
-      modelClients: context.modelClients,
-    };
+    // The engines fetch the operator's size, clamped by each vendor; `limit`
+    // still bounds what the model reads inline (tool-result-artifacts D9).
+    const fetchSize = Math.max(
+      input.limit,
+      config.fetchLimit ?? WEB_SEARCH_FETCH_LIMIT_DEFAULT,
+    );
     const result = await executeSearchChain(
       config,
-      request,
+      searchRequest(context, input, fetchSize),
       engineLookupFor(config),
     );
-    return 'status' in result ? result : normalizeOutput(result, input.limit);
+    return 'status' in result
+      ? result
+      : spillWebSearchResult(context, result, {
+          limit: input.limit,
+          fetchSize,
+        });
   },
 };

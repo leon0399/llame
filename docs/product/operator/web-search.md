@@ -61,11 +61,13 @@ Add optional top-level `webSearch`; `engines` contains operator-owned entries an
       { "id": "brave", "type": "brave", "key": "{env:BRAVE_API_KEY}" },
     ],
     "chain": ["brave"],
+    "fetchLimit": 20,
   },
 }
 ```
 
-Engine ids are unique strings of 1-64 characters; every chain id must exist, the chain is non-empty and has no repeats. There is no built-in engine/chain; omit `webSearch` to leave search unconfigured.
+Engine ids are unique strings of 1-64 characters; every chain id must exist, the chain is non-empty and has no repeats. There is no built-in engine/chain; omit `webSearch` to leave search unconfigured. An optional `fetchLimit` from 1 to 100, default 20, sets how many results every call asks its engines for. The model's `limit` still bounds what it reads inline, so results fetched beyond that stay in the call's artifact.
+
 Each non-aggregate engine's positive-integer `timeoutSeconds` defaults to 60 seconds. The whole call (all chain steps) uses existing `tools.callTimeoutSeconds`, default 120 seconds; do not add another web-search call timeout. Engine timeouts are `timeout` and advance; other failures and empty results also advance. The first non-empty result/grounded answer ends the call. If all attempts fail, the fixed error names engine ids/classes, never an upstream response or credential.
 
 ## Select engines for one call
@@ -100,29 +102,44 @@ The value is literal text: an `{env:...}` or `{path:...}` token or a line break 
 
 Each engine type declares its vendor's query limit in code. llame checks the submitted query before any request and never truncates it:
 
-| Type           | Query limit                  | Result count                       |
-| -------------- | ---------------------------- | ---------------------------------- |
-| `brave`        | 600 code points and 75 words | `count`, at most 20                |
-| `deepseek`     | 128 code points              | `count`, at most 50                |
-| `exa`          | the tool's 1,000 units       | `numResults`, at most 100          |
-| `parallel`     | 200 code points              | `max_results`, at most 20          |
-| `parallel-mcp` | 200 code points              | cut to `limit` after normalization |
-| `perplexity`   | the tool's 1,000 units       | `max_results`, at most 20          |
-| `exa-mcp`      | the tool's 1,000 units       | the hosted tool's `numResults`     |
-| `searxng`      | the tool's 1,000 units       | cut to `limit` after normalization |
-| `duckduckgo`   | the tool's 1,000 units       | cut to `limit` after normalization |
-| `model-hosted` | the tool's 1,000 units       | not applicable                     |
-| `yandex`       | 400 code points and 40 words | `groupsOnPage`, at most 100        |
-| `aggregate`    | each child's own limit       | merged, then cut to `limit`        |
+| Type           | Query limit                  | Result count                               |
+| -------------- | ---------------------------- | ------------------------------------------ |
+| `brave`        | 600 code points and 75 words | `count`, at most 20                        |
+| `deepseek`     | 128 code points              | `count`, at most 50                        |
+| `exa`          | the tool's 1,000 units       | `numResults`, at most 25 (Enterprise: 100) |
+| `parallel`     | 200 code points              | `max_results`, at most 20                  |
+| `parallel-mcp` | 200 code points              | cut to the fetch size after normalization  |
+| `perplexity`   | the tool's 1,000 units       | `max_results`, at most 20                  |
+| `exa-mcp`      | the tool's 1,000 units       | the hosted tool's `numResults`             |
+| `searxng`      | the tool's 1,000 units       | cut to the fetch size after normalization  |
+| `duckduckgo`   | the tool's 1,000 units       | cut to the fetch size after normalization  |
+| `model-hosted` | the tool's 1,000 units       | not applicable                             |
+| `yandex`       | 400 code points and 40 words | `groupsOnPage`, at most 100                |
+| `aggregate`    | each child's own limit       | merged, then cut to the fetch size         |
 
 A word is a run of non-space characters; lengths are code points, so a character outside the Basic Multilingual Plane counts once. The check covers the query the model submitted, before an engine moves `site:` hosts to filters or appends a date, so the model can predict it from the description.
 
 A query over an engine's limit skips that engine: it sends nothing, the call records `<id>: unsupported`, and a later engine answers. When every chain engine is skipped, the call fails with the fixed error and class `unsupported`. An aggregate runs only the children that accept the query, notes each skipped child as `unsupported`, and fails with `unsupported` when it skips every child.
 
-`limit` is 1-20 for the model and is clamped to the vendor maximum, so a
-vendor that caps fewer results never fails a call. `searxng`, `duckduckgo`, and
-`parallel-mcp` take no count, so their normalized results are cut to `limit`
-after URLs that fail validation are dropped.
+`limit` is 1-20 for the model and bounds the results the model reads inline.
+Each call asks its engines for the fetch size: the larger of `limit` and
+`webSearch.fetchLimit` (default 20). The fetch size is clamped to the vendor
+maximum, so a vendor that caps fewer results never fails a call. `searxng`,
+`duckduckgo`, and `parallel-mcp` take no count, so their normalized results are
+cut to the fetch size after URLs that fail validation are dropped.
+
+A call that leaves any result, answer, or citation out of its inline text
+stores the whole normalized output as `artifact://web_search-<n>` and ends the
+inline text with a notice that names the locator and the line to continue from.
+The artifact holds every result up to the fetch size, so the model can read the
+rest with `read("artifact://web_search-<n>:<line>-")`. A Run that cannot read
+artifacts keeps the inline result and a `[left out: <n> results; full result not
+stored]` line instead. Every result is billed by the vendor whether or not it
+fits inline, so a fetch size above 10 increases cost on a vendor that bills per
+result: Exa and Parallel bill each result above ten at $1 per 1,000 results
+(with Exa's `auto` base of $7 per 1,000 requests, the 20-result default costs
+about $17 per 1,000 calls), while Brave, DeepSeek, Perplexity, and Yandex bill
+per request.
 
 ## Objective
 
@@ -165,10 +182,10 @@ children. Cost
 multiplies by child count, while latency is the slowest child within those
 deadlines, so a hosted child's 10 to 30 seconds sets the aggregate's latency.
 The output bounds each attached answer at 8,000 units and 20 citations; when
-the serialized output exceeds 15,000 units, it drops results from the end
+the inline text exceeds 15,000 units, it drops results from the end
 first, then citations from the last answer's end while each answer keeps one,
 then answer text from the last answer backwards, then whole answers from the
-end, one note per step.
+end, one note per step. Anything so left out stays in the call's artifact.
 
 ## Model-hosted
 
@@ -244,7 +261,7 @@ Redirects are refused, so the key cannot follow a redirect to another host. Resp
 }
 ```
 
-`key` is required; llame sends it as `x-api-key` to `https://api.exa.ai/search`. A `site:host` token becomes `includeDomains` and a `-site:host` token becomes `excludeDomains`, and those tokens are removed from the outbound query. Only an operator that stands alone as a whitespace-delimited token is translated; one wrapped in quotes or parentheses (`"rust site:docs.rs"`, `(site:a.com OR site:b.com)`) stays in the query text and reaches no filter. `recency` becomes `startPublishedDate` using the current date; `limit` becomes `numResults`.
+`key` is required; llame sends it as `x-api-key` to `https://api.exa.ai/search`. A `site:host` token becomes `includeDomains` and a `-site:host` token becomes `excludeDomains`, and those tokens are removed from the outbound query. Only an operator that stands alone as a whitespace-delimited token is translated; one wrapped in quotes or parentheses (`"rust site:docs.rs"`, `(site:a.com OR site:b.com)`) stays in the query text and reaches no filter. `recency` becomes `startPublishedDate` using the current date; `limit` becomes `numResults`, clamped to 25 because Exa's pricing lists requests above 25 results as an Enterprise feature (its API accepts up to 100). Exa bills the first ten results with the request and each result above ten at $1 per 1,000 results, so the 20-result fetch default raises an `auto` call from $7 to about $17 per 1,000 requests.
 
 ## Exa MCP
 
