@@ -202,19 +202,28 @@ unknown Machine returns `machine_not_found` and no other scope is searched.
 
 `tools.permissionModes` is an ordered list of per-Run modes. It defaults to
 `["default"]` and must always include `default`, so a fresh install does not
-offer `bypass`. Add `bypass` to make it selectable:
+offer `bypass` or `read-only`. Add them to make them selectable:
 
 ```json
 {
   "tools": {
-    "permissionModes": ["default", "bypass"]
+    "permissionModes": ["default", "read-only", "bypass"]
   }
 }
 ```
 
-The setting is instance-wide: enabling `bypass` enables it for every
+The setting is instance-wide: enabling a mode enables it for every
 authenticated user, with no per-user gate. Restart the API and every worker
-after changing it so the enabled list is consistent.
+after changing it so the enabled list is consistent. A Run accepted as
+`read-only` stays `read-only` on every worker even after the mode is withdrawn,
+because a downgrade would widen authority; the accepted mode never does.
+
+`read-only` needs no further settings. It admits only the tools classified
+`read_only` (reads, `grep`, the Knowledge and conversation tools, and
+`web_search`), `exit_workspace`, and `enter_workspace` without a `worktree`
+argument; every other call is refused before the operator policy is evaluated.
+It starts no Workspace MCP server. It is not an egress or exfiltration control:
+`read` and `web_search` still reach the network under the operator policy.
 
 Treat `bypass` as a destructive operator choice. A fetched page can steer the
 model into any tool call in the admitted catalog, including calls that the
@@ -224,7 +233,7 @@ as the `llame` user. Enabling `bypass` therefore exposes every authenticated
 user to prompt-injection and Workspace MCP risks; keep it off unless that
 instance-wide trust boundary is intended.
 
-What an effective `bypass` mode admits and records for one Run is documented in
+What an effective mode admits and records for one Run is documented in
 [permission modes](../reference/permission-modes.md).
 
 ## Workspace entry

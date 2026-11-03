@@ -127,20 +127,23 @@ describe('ChatLoopService pre-transaction guards', () => {
     expect(dispatchRun).not.toHaveBeenCalled();
   });
 
-  it('rejects a disabled permission mode before opening a tenant transaction or dispatching', async () => {
-    const { service, runAs, dispatchRun } = makeService();
+  it.each(['bypass', 'read-only'] as const)(
+    'rejects a disabled %s mode before opening a tenant transaction or dispatching',
+    async (permissionMode) => {
+      const { service, runAs, dispatchRun } = makeService();
 
-    await expect(
-      service.createMessageStream({ ...input, permissionMode: 'bypass' }),
-    ).rejects.toMatchObject({
-      constructor: PermissionModeNotAvailableError,
-      mode: 'bypass',
-      code: 'permission_mode_not_available',
-      statusCode: 422,
-    });
-    expect(runAs).not.toHaveBeenCalled();
-    expect(dispatchRun).not.toHaveBeenCalled();
-  });
+      await expect(
+        service.createMessageStream({ ...input, permissionMode }),
+      ).rejects.toMatchObject({
+        constructor: PermissionModeNotAvailableError,
+        mode: permissionMode,
+        code: 'permission_mode_not_available',
+        statusCode: 422,
+      });
+      expect(runAs).not.toHaveBeenCalled();
+      expect(dispatchRun).not.toHaveBeenCalled();
+    },
+  );
 
   // Model first, then effort: a level's legality is defined by the resolved
   // model, so an unavailable model must be reported without the effort ever

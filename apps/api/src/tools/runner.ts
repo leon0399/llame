@@ -16,6 +16,7 @@ import { refuseUnsearchableGrepScopes } from './grep-scopes';
 import {
   admitPermission,
   evaluateSubmittedThenProjected,
+  readOnlyCeiling,
 } from './permissions/admit';
 import { isBashCommandField } from './permissions/bash-command-field';
 import { declaredStringProperties } from './permissions/declared-fields';
@@ -354,6 +355,9 @@ export function previewToolPermission(
   args: SubmittedToolArguments,
   context: ToolContext,
 ): boolean {
+  // The `read-only` ceiling refuses before anything else, exactly as in
+  // `runTool`, so no caller plans a call the attempt cannot make.
+  if (readOnlyCeiling(context, tool, args) !== undefined) return false;
   // A preview is synchronous: it cannot resolve an ssh destination, and the
   // allow must be decided on the resolved locator, so it fails closed.
   if (isSshRead(tool, args) || isSshBash(tool, args)) return false;
@@ -384,7 +388,14 @@ export async function runTool(
   const admission = admitToolCall(tool, args, context, callTimeoutSeconds);
   if ('result' in admission) return admission.result;
   const { context: validContext, args: validArgs, submittedArgs } = admission;
-
+  // The `read-only` ceiling runs right after argument validation: a rejected
+  // call resolves no SSH destination, asks for no grep scope, and evaluates no
+  // permission group. It records the same decision path as a policy reject.
+  const ceiling = readOnlyCeiling(validContext, tool, submittedArgs);
+  if (ceiling !== undefined) {
+    if (onAdmitted !== undefined) await onAdmitted(ceiling);
+    return permissionDeniedResult(ceiling.reason);
+  }
   // Any other call keeps the synchronous permission path; an `ssh://` read or
   // `bash` cwd must resolve its destination first, so only those await.
   const pendingSsh = admitSshCall(tool, submittedArgs, validContext);
@@ -392,8 +403,8 @@ export async function runTool(
   if (ssh.kind === 'refused') return ssh.result;
   // Policy is not asked for a scope this process cannot search.
   if (tool.id === 'grep') {
-    const refused = refuseUnsearchableGrepScopes(submittedArgs, validContext);
-    if (refused !== undefined) return refused;
+    const scope = refuseUnsearchableGrepScopes(submittedArgs, validContext);
+    if (scope !== undefined) return scope;
   }
   const decision =
     ssh.kind === 'decided'
@@ -401,21 +412,8 @@ export async function runTool(
       : evaluateToolPermission(tool, submittedArgs, validContext);
   if (decision === undefined) return permissionDeniedResult('no_allow');
   if (onAdmitted !== undefined) await onAdmitted(decision);
-  if (decision.decision === 'reject') {
+  if (decision.decision === 'reject')
     return permissionDeniedResult(decision.reason);
-  }
-
-  // The awaited admission write can outlive a parent abort. Recheck before
-  // dispatch so an abort that landed during that write settles the call as
-  // cancelled instead of running an executor after terminalization.
-  if (validContext.abortSignal?.aborted) {
-    return {
-      status: 'error',
-      type: 'cancelled',
-      message: `Tool "${tool.id}" was cancelled.`,
-    };
-  }
-
   return executeAdmittedTool(
     tool,
     validArgs,
@@ -425,13 +423,21 @@ export async function runTool(
 }
 
 /** Run an admitted tool under its composed timeout/abort signal and map any
- *  failure to a structured result. Never throws. */
+ *  failure to a structured result. Never throws. An abort that landed during
+ *  the awaited admission write must not reach an executor. */
 async function executeAdmittedTool(
   tool: Tool,
   validArgs: UnknownRecord,
   context: ToolContext,
   callTimeoutSeconds: number,
 ): Promise<ToolResult> {
+  if (context.abortSignal?.aborted) {
+    return {
+      status: 'error',
+      type: 'cancelled',
+      message: `Tool "${tool.id}" was cancelled.`,
+    };
+  }
   const prepared = prepareToolExecution(tool, context, callTimeoutSeconds);
   return settleAdmittedExecution(tool, validArgs, context, prepared);
 }

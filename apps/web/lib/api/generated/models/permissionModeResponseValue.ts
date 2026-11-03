@@ -12,4 +12,5 @@ export type PermissionModeResponseValue =
 export const PermissionModeResponseValue = {
   default: "default",
   bypass: "bypass",
+  "read-only": "read-only",
 } as const;

@@ -328,6 +328,7 @@ import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
   WorkspaceMcpClients,
   type WorkspaceMcpKey,
+  type WorkspaceMcpListingCell,
 } from '../mcp/workspace-mcp-clients';
 import { ToolDescriptionRenderError } from '../tools/turn-tool-catalog';
 import {
@@ -687,11 +688,17 @@ export function classifyAbortedRun(
  * Resolve the permission mode accepted on a Run against the modes available
  * to the worker. Kept standalone so the worker's frozen mode decision can be
  * unit-tested without constructing the full execution service.
+ *
+ * `read-only` never downgrades: a process that has withdrawn it from
+ * `tools.permissionModes` would widen a queued Run if it resolved `default`,
+ * and all processes run one release, so every worker knows the mode. The
+ * enabled list gates acceptance at the API, not execution.
  */
 export function resolveEffectivePermissionMode(
   accepted: PermissionMode,
   workerModes: ReadonlyArray<PermissionMode>,
 ): PermissionMode {
+  if (accepted === 'read-only') return 'read-only';
   return accepted === 'bypass' && workerModes.includes('bypass')
     ? 'bypass'
     : 'default';
@@ -1164,9 +1171,20 @@ export class RunExecutionService {
       effectivePermissionMode,
     );
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
-    const workspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
+    // The attempt's one Workspace MCP listing, filled at attempt start or at
+    // the entry that sets a binding, so a same-root re-entry reads no
+    // configuration again (read-only-permission-mode D6).
+    const workspaceMcpListing: WorkspaceMcpListingCell = {};
+    const boundWorkspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
+    // A `read-only` attempt starts, holds, and composes no Workspace MCP
+    // client: no key reaches the catalog, the resolver, or the attempt hold.
     await this.restoreArtifactFiles(input, workspaceChat);
-    await this.startWorkspaceMcp(input.chatId, workspaceMcpKey);
+    const workspaceMcpKey = await this.startWorkspaceMcp(
+      input.chatId,
+      boundWorkspaceMcpKey,
+      effectivePermissionMode,
+      workspaceMcpListing,
+    );
     const attemptDynamicResolver = this.attemptDynamicResolver(workspaceMcpKey);
 
     // Explicit `$skill` activation runs BEFORE context assembly, because the
@@ -1449,6 +1467,7 @@ export class RunExecutionService {
       chatId: input.chatId,
       workspaceRoot,
       workspaceMcp: this.workspaceMcp,
+      workspaceMcpListing,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
@@ -2518,16 +2537,35 @@ export class RunExecutionService {
     };
   }
 
+  /**
+   * Prepare this Chat's Workspace MCP clients for the attempt. A `read-only`
+   * attempt starts none — it still discards stale generations and lists the
+   * binding's configuration once into the attempt's memory — while every other
+   * mode keeps the ordinary start.
+   */
   private async startWorkspaceMcp(
     chatId: string,
     key: WorkspaceMcpKey | undefined,
-  ): Promise<void> {
-    if (this.workspaceMcp === undefined) return;
+    mode: PermissionMode,
+    listing: WorkspaceMcpListingCell,
+  ): Promise<WorkspaceMcpKey | undefined> {
+    const clients = this.workspaceMcp;
+    // Without clients no key reaches anything downstream: the resolver, the
+    // attempt hold, and the catalog all require `this.workspaceMcp`.
+    if (clients === undefined) return undefined;
     if (key === undefined) {
-      await this.workspaceMcp.stopForChat(chatId);
-      return;
+      await clients.stopForChat(chatId);
+      return undefined;
     }
-    await this.workspaceMcp.startForChat(key);
+    if (mode === 'read-only') {
+      await Promise.all([
+        clients.stopStale(key),
+        clients.listUnstartedOnce(listing, key),
+      ]);
+      return undefined;
+    }
+    await clients.startForChat(key);
+    return key;
   }
 
   private attemptDynamicResolver(
@@ -2548,6 +2586,10 @@ export class RunExecutionService {
     );
   }
 
+  /**
+   * The Chat's bound Workspace identity, absent unless the preparation carries
+   * a root, the Chat row, and its binding generation.
+   */
   private workspaceMcpKey(
     preparation: WorkspacePreparation,
   ): WorkspaceMcpKey | undefined {

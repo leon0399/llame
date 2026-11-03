@@ -262,6 +262,20 @@ describe('resolveEffectivePermissionMode', () => {
       );
     },
   );
+
+  it('Read-only stays read-only on a process that does not enable it', () => {
+    expect(resolveEffectivePermissionMode('read-only', ['default'])).toBe(
+      'read-only',
+    );
+  });
+
+  it('Withdrawing read-only does not widen a queued Run', () => {
+    // The Run was accepted while the operator enabled `read-only`; the worker
+    // restarted with a list that no longer holds it.
+    expect(
+      resolveEffectivePermissionMode('read-only', ['default', 'bypass']),
+    ).toBe('read-only');
+  });
 });
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -1435,6 +1449,104 @@ describe('RunExecutionService executeRun', () => {
       await operator.stop();
     }
   });
+  it('stops Workspace MCP clients when a read-only Run has no bound Workspace', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      permissionMode: 'read-only',
+      followUpAction: null,
+      sourceRunId: null,
+    });
+    const operator = new McpRuntimeService({});
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () => Promise.resolve([]),
+    });
+    const stopForChat = vi.spyOn(workspaceMcp, 'stopForChat');
+    const stopStale = vi.spyOn(workspaceMcp, 'stopStale');
+    const listUnstartedOnce = vi.spyOn(workspaceMcp, 'listUnstartedOnce');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      { workspaceMcp, permissionModes: ['default', 'read-only'] },
+    );
+
+    try {
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      // An unbound Chat still stops its clients; only a bound one has a key.
+      expect(stopForChat).toHaveBeenCalledOnce();
+      expect(stopForChat).toHaveBeenCalledWith(chatId);
+      expect(stopStale).not.toHaveBeenCalled();
+      expect(listUnstartedOnce).not.toHaveBeenCalled();
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+    }
+  });
+
+  it('starts no Workspace MCP clients for a read-only Run with a bound Workspace', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      permissionMode: 'read-only',
+      followUpAction: null,
+      sourceRunId: null,
+    });
+    const root = mkdtempSync(path.join(tmpdir(), 'read-only-workspace-mcp-'));
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+      artifactSeq: 0,
+    });
+    const operator = new McpRuntimeService({});
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () => Promise.resolve([]),
+    });
+    const stopStale = vi.spyOn(workspaceMcp, 'stopStale');
+    const listUnstartedOnce = vi.spyOn(workspaceMcp, 'listUnstartedOnce');
+    const startForChat = vi.spyOn(workspaceMcp, 'startForChat');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+      {
+        allowed: ['enter_workspace'],
+        permissionPolicy: compileTestPermissionPolicy(['enter_workspace']),
+        workspaceMcp,
+        permissionModes: ['default', 'read-only'],
+      },
+    );
+
+    try {
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      // A bound read-only attempt discards every other generation and lists
+      // the binding's configuration into the attempt's memory instead of
+      // starting this one.
+      expect(stopStale).toHaveBeenCalledOnce();
+      expect(stopStale).toHaveBeenCalledWith({
+        chatId,
+        root,
+        generation: 4,
+      });
+      expect(listUnstartedOnce).toHaveBeenCalledOnce();
+      expect(startForChat).not.toHaveBeenCalled();
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('ends a Workspace attempt only once when its release callback repeats', async () => {
     mockNormalExecutionRepositories();
     const operator = new McpRuntimeService({});

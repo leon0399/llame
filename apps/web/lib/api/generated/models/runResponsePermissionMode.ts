@@ -15,4 +15,5 @@ export type RunResponsePermissionMode =
 export const RunResponsePermissionMode = {
   default: "default",
   bypass: "bypass",
+  "read-only": "read-only",
 } as const;

@@ -55,6 +55,7 @@ import { waitFor } from '../testing/support';
 import { type ScriptedBehavior } from './scripted-model-client';
 import { type DeclarationRecord } from './scripted-model-records';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
+import { type PermissionMode } from '../tools/permissions/permission-mode';
 
 /**
  * The Machine Workspace slice end to end: the real worker graph, the real model
@@ -537,6 +538,57 @@ describe('Machine Workspaces through the durable worker', () => {
     expect(text).not.toContain('/etc/llame/machine_known_hosts');
   });
 
+  it('reports a Machine Workspace MCP server that read-only did not start', async () => {
+    const root = join(ownersRoot, 'read-only-mcp');
+    await mkdir(root, { recursive: true });
+    await writeWorkspaceServer(root, 'read-only');
+    const chatId = await createChat(owner);
+    const openedBefore = devl
+      .calls()
+      .filter((call) => call.method === 'mcp.open').length;
+
+    const entered = await runScript({
+      userId: owner,
+      chatId,
+      tag: 'machine-read-only-mcp',
+      permissionMode: 'read-only',
+      calls: [
+        {
+          id: 'enter-read-only',
+          name: 'enter_workspace',
+          input: { path: `machine://devl${root}` },
+        },
+      ],
+    });
+
+    const output = await completedOutput(
+      entered.runId,
+      owner,
+      'enter-read-only',
+    );
+    expect(output).toMatchObject({
+      status: 'success',
+      root: `machine://devl${root}`,
+      mcpServers: [
+        {
+          id: 'repo',
+          state: 'unavailable',
+          reason: 'not started in a read-only Run',
+        },
+      ],
+    });
+    // The Machine answered which servers the Workspace declares, and the
+    // attempt asked it to open none.
+    expect(devl.calls()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ method: 'mcp.servers' }),
+      ]),
+    );
+    expect(
+      devl.calls().filter((call) => call.method === 'mcp.open'),
+    ).toHaveLength(openedBefore);
+  });
+
   it('detaches a Workspace whose Machine the operator removed', async () => {
     const chatId = await createChat(owner);
     await runScript({
@@ -620,6 +672,7 @@ describe('Machine Workspaces through the durable worker', () => {
     tag: string;
     calls: ReadonlyArray<ScriptedCall>;
     finalText?: string;
+    permissionMode?: PermissionMode;
   }): Promise<ScriptedRun> {
     const modelId = `${input.tag}-${randomUUID()}`;
     const behavior: Extract<ScriptedBehavior, { kind: 'tool-script' }> = {
@@ -637,6 +690,9 @@ describe('Machine Workspaces through the durable worker', () => {
       userId: input.userId,
       modelId,
       chatId: input.chatId,
+      ...(input.permissionMode !== undefined && {
+        permissionMode: input.permissionMode,
+      }),
     });
     await terminal(seeded.runId, input.userId);
     return {

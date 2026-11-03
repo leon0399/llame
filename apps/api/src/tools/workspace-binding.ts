@@ -1,6 +1,7 @@
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { machineExecutorId } from '../machines/machine-locator';
 import {
+  type WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
   type WorkspaceMcpKey,
 } from '../mcp/workspace-mcp-clients';
@@ -217,6 +218,22 @@ export function claimTransition(context: ToolContext): boolean {
   );
 }
 
+/**
+ * A `read-only` entry reports the servers the binding's configuration names,
+ * each unavailable because the attempt started none of them. The attempt
+ * lists once for each binding: a same-root re-entry returns the listing it
+ * already made and takes no tool from a client another attempt started.
+ */
+async function readOnlyWorkspaceMcpServers(
+  context: ToolContext,
+  clients: WorkspaceMcpClients,
+  key: WorkspaceMcpKey,
+): Promise<WorkspaceMcpEntryState['servers']> {
+  const cell = context.workspaceMcpListing;
+  if (cell === undefined) return clients.listUnstarted(key);
+  return clients.listUnstartedOnce(cell, key);
+}
+
 async function workspaceMcpServers(
   context: ToolContext,
   root: string,
@@ -230,6 +247,11 @@ async function workspaceMcpServers(
     root,
     generation,
   };
+  // A `read-only` attempt starts no client, holds none, and adds no Workspace
+  // declaration: it reports the attempt's own listing instead.
+  if (context.permissionMode === 'read-only') {
+    return readOnlyWorkspaceMcpServers(context, clients, key);
+  }
   const state = start
     ? await clients.startForChat(key)
     : clients.stateForKey(key);

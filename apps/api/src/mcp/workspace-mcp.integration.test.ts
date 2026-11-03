@@ -513,6 +513,229 @@ describe('Workspace MCP production integration', () => {
     }
   });
 
+  /** A started Run for one Chat, with its `run.started` delivery sequence. */
+  async function seedStartedRun(
+    chatId: string,
+    title: string,
+    text: string,
+  ): Promise<{ runId: string; deliverySequence: number }> {
+    return tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title,
+      });
+      const message = await new MessagesRepository(tx).create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text }],
+      });
+      const run = await new RunsRepository(tx).create({
+        chatId,
+        messageId: message.id,
+        userId,
+        modelId: `test:${crypto.randomUUID()}`,
+      });
+      const started = await new RunsRepository(tx).markStarted(run.id, userId);
+      if (!started) throw new Error('Test Run did not start.');
+      const event = await new RunEventsRepository(tx).append(
+        run.id,
+        'run.started',
+      );
+      return { runId: run.id, deliverySequence: event.sequence };
+    });
+  }
+
+  function readOnlyEntryContext(
+    seeded: { runId: string; deliverySequence: number },
+    chatId: string,
+    clients: WorkspaceMcpClients,
+    toolCallId: string,
+  ) {
+    return {
+      runId: seeded.runId,
+      nativeExecutorId: 'integration-worker',
+      nativeDeliverySequence: seeded.deliverySequence,
+      toolCallId,
+      userId,
+      chatId,
+      tenantDb,
+      permissionPolicy: compileTestPermissionPolicy(),
+      permissionMode: 'read-only' as const,
+      workspaceRoot: createWorkspaceRootCell(undefined),
+      workspaceMcp: clients,
+      workspaceMcpListing: {},
+    };
+  }
+
+  it('lists the servers a read-only entry did not start, once per binding', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-'));
+    const chatId = crypto.randomUUID();
+    const operator = new McpRuntimeService({});
+    const clients = new WorkspaceMcpClients(operator);
+    try {
+      await writeConfig(root, {
+        docs: { type: 'streamable-http', url: 'http://127.0.0.1:1/mcp' },
+      });
+      const seeded = await seedStartedRun(
+        chatId,
+        'Workspace read-only entry',
+        'Enter the Workspace read-only.',
+      );
+      const context = readOnlyEntryContext(
+        seeded,
+        chatId,
+        clients,
+        'enter-read-only',
+      );
+
+      const entry = await enterWorkspaceTool.execute(context, { path: root });
+      expect(entry).toMatchObject({
+        status: 'success',
+        state: 'bound',
+        mcpServers: [
+          {
+            id: 'docs',
+            state: 'unavailable',
+            reason: 'not started in a read-only Run',
+          },
+        ],
+      });
+      // The attempt started no client, so no cached set exists for the key.
+      expect(
+        clients.stateForKey({ chatId, root, generation: 1 }),
+      ).toBeUndefined();
+
+      // A same-root re-entry reports the listing the attempt made once and
+      // reads no configuration: the file now declares a different server.
+      await writeConfig(root, {
+        other: { type: 'streamable-http', url: 'http://127.0.0.1:1/mcp' },
+      });
+      context.workspaceRoot?.beginStep();
+      const sameRoot = await enterWorkspaceTool.execute(
+        { ...context, toolCallId: 're-enter-read-only' },
+        { path: root },
+      );
+      expect(sameRoot).toMatchObject({
+        status: 'success',
+        state: 'unchanged',
+        mcpServers: [
+          {
+            id: 'docs',
+            state: 'unavailable',
+            reason: 'not started in a read-only Run',
+          },
+        ],
+      });
+    } finally {
+      await clients.onModuleDestroy();
+      await operator.stop();
+      await rm(root, { recursive: true, force: true });
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
+  });
+
+  it('keeps a malformed read-only Workspace configuration diagnostic', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-bad-'));
+    const chatId = crypto.randomUUID();
+    const operator = new McpRuntimeService({});
+    const clients = new WorkspaceMcpClients(operator);
+    try {
+      await writeFile(join(root, '.mcp.json'), '{ malformed', 'utf8');
+      const seeded = await seedStartedRun(
+        chatId,
+        'Workspace read-only malformed',
+        'Enter the malformed Workspace.',
+      );
+      const entry = await enterWorkspaceTool.execute(
+        readOnlyEntryContext(seeded, chatId, clients, 'enter-read-only-bad'),
+        { path: root },
+      );
+
+      expect(entry).toMatchObject({
+        status: 'success',
+        mcpServers: [
+          {
+            id: '.mcp.json',
+            state: 'unavailable',
+            reason: 'configuration file .mcp.json is malformed',
+          },
+        ],
+      });
+    } finally {
+      await clients.onModuleDestroy();
+      await operator.stop();
+      await rm(root, { recursive: true, force: true });
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
+  });
+
+  it('reports a same-root re-entry over default-started clients as read-only', async () => {
+    const fixture = await httpFixture('read-only-same-root');
+    const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-same-'));
+    const chatId = crypto.randomUUID();
+    const operator = new McpRuntimeService({});
+    const clients = new WorkspaceMcpClients(operator);
+    try {
+      await writeConfig(root, {
+        web: { type: 'streamable-http', url: fixture.url },
+      });
+      const seeded = await seedStartedRun(
+        chatId,
+        'Workspace read-only same root',
+        'Enter the same root read-only.',
+      );
+      await tenantDb.runAs(userId, (tx) =>
+        new WorkspaceBindingRepository(tx).enter({
+          chatId,
+          ownerUserId: userId,
+          runId: seeded.runId,
+          deliverySequence: seeded.deliverySequence,
+          executorId: 'integration-worker',
+          root,
+          bindExecutorId: 'integration-worker',
+        }),
+      );
+      // A `default` Run started the clients of this very binding.
+      await clients.startForChat({ chatId, root, generation: 1 });
+      expect(
+        clients.stateForKey({ chatId, root, generation: 1 }),
+      ).toMatchObject({ servers: [{ id: 'web', state: 'available' }] });
+      const requestsBefore = fixture.requestSummaries().length;
+      const addToAttempt = vi.spyOn(clients, 'addToAttempt');
+      const context = readOnlyEntryContext(
+        seeded,
+        chatId,
+        clients,
+        're-enter-same-root',
+      );
+
+      const entry = await enterWorkspaceTool.execute(context, { path: root });
+
+      expect(entry).toMatchObject({
+        status: 'success',
+        state: 'unchanged',
+        mcpServers: [
+          {
+            id: 'web',
+            state: 'unavailable',
+            reason: 'not started in a read-only Run',
+          },
+        ],
+      });
+      // No configuration read, no tool taken from the default Run's clients.
+      expect(fixture.requestSummaries()).toHaveLength(requestsBefore);
+      expect(addToAttempt).not.toHaveBeenCalled();
+    } finally {
+      await clients.onModuleDestroy();
+      await operator.stop();
+      await fixture.close();
+      await rm(root, { recursive: true, force: true });
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
+  });
+
   it('leaves entry successful when Workspace MCP files or transports are invalid', async () => {
     const malformedRoot = await mkdtemp(
       join(tmpdir(), 'workspace-mcp-bad-file-'),

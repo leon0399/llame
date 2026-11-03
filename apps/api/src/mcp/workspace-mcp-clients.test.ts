@@ -33,6 +33,7 @@ import {
   WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
   type WorkspaceMcpKey,
+  type WorkspaceMcpListingCell,
 } from './workspace-mcp-clients';
 import { type WorkspaceMcpServerConfig } from '@workspace/mcp-workspace';
 import {
@@ -606,6 +607,126 @@ describe('WorkspaceMcpClients', () => {
   });
 });
 
+describe('WorkspaceMcpClients in a read-only attempt', () => {
+  it('lists configured servers as unstarted and starts nothing', async () => {
+    const { runtime } = operatorRuntime();
+    const { provider, clients } = workspaceProvider(runtime, (root) => [
+      config('web', root),
+    ]);
+    const workspace = key('chat-1', '/workspace/read-only');
+
+    const servers = await provider.listUnstarted(workspace);
+
+    expect(servers).toEqual([
+      {
+        id: 'web',
+        state: 'unavailable',
+        reason: 'not started in a read-only Run',
+      },
+    ]);
+    expect(clients).toEqual([]);
+    expect(provider.stateForKey(workspace)).toBeUndefined();
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('keeps a file diagnostic the reader already reported', async () => {
+    const { runtime } = operatorRuntime();
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: () =>
+        Promise.resolve([
+          {
+            id: '.mcp.json',
+            state: 'unavailable' as const,
+            reason: 'configuration file .mcp.json is malformed',
+          },
+        ]),
+    });
+
+    const servers = await provider.listUnstarted(key('chat-1', '/malformed'));
+
+    expect(servers).toEqual([
+      {
+        id: '.mcp.json',
+        state: 'unavailable',
+        reason: 'configuration file .mcp.json is malformed',
+      },
+    ]);
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('keeps a cached client set for the same key', async () => {
+    const { runtime } = operatorRuntime();
+    const { provider, clients } = workspaceProvider(runtime, () => [
+      config('web', 'same-key'),
+    ]);
+    const current = key('chat-1', '/workspace/same');
+
+    await provider.startForChat(current);
+    await provider.stopStale(current);
+
+    expect(clients).toHaveLength(1);
+    expect(clients[0].close).not.toHaveBeenCalled();
+    expect(provider.stateForKey(current)).toMatchObject({
+      servers: [{ id: 'web', state: 'available' }],
+    });
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('stops an in-flight start it cannot register', async () => {
+    const { runtime } = operatorRuntime();
+    const gate = deferred<void>();
+    const created: Array<FakeClient> = [];
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: () => Promise.resolve([config('web', 'in-flight')]),
+      clientFactory: (input) => {
+        const started = client(input.serverId, 'in-flight');
+        created.push(started);
+        return gate.promise.then(() => started);
+      },
+    });
+    const inFlight = key('chat-1', '/workspace/in-flight', 2);
+    const next = key('chat-1', '/workspace/next', 3);
+
+    // A settled stop leaves a recorded epoch for the generation the in-flight
+    // start will carry, so only the bump below can invalidate it.
+    await provider.stopForChat('chat-1');
+    const started = provider.startForChat(inFlight);
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+    const stopped = provider.stopStale(next);
+    gate.resolve();
+    await stopped;
+    await started;
+
+    // The stop-epoch bump is what makes this complete: without it the start
+    // would register its clients after the discard and report them available.
+    expect(provider.stateForKey(inFlight)).toBeUndefined();
+    expect(created[0]?.close).toHaveBeenCalledOnce();
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('stops an earlier generation without starting the current one', async () => {
+    const { runtime } = operatorRuntime();
+    const { provider, clients } = workspaceProvider(runtime, () => [
+      config('web', 'stale'),
+    ]);
+    const stale = key('chat-1', '/workspace/a', 1);
+    const current = key('chat-1', '/workspace/b', 2);
+
+    await provider.startForChat(stale);
+    await provider.stopStale(current);
+
+    expect(clients[0].close).toHaveBeenCalledOnce();
+    expect(provider.stateForKey(stale)).toBeUndefined();
+    expect(provider.stateForKey(current)).toBeUndefined();
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+});
+
 /**
  * A Machine Workspace whose server is a scripted in-process MCP server: the
  * peer answers `mcp.servers` and holds `mcp.open`, and every JSON-RPC request
@@ -952,6 +1073,77 @@ describe('WorkspaceMcpClients over a Machine', () => {
       { id: 'storybook', state: 'available' },
     ]);
     expect(configurationRequests(machine.peer)).toBe(2);
+
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('lists a binding once and serves a same-root re-entry from the attempt cell', async () => {
+    const { runtime } = operatorRuntime();
+    const readConfig = vi.fn((root: string) => [config('web', root)]);
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: (root) => Promise.resolve(readConfig(root)),
+    });
+    const workspace = key('chat-1', '/workspace/listed');
+    const cell: WorkspaceMcpListingCell = {};
+
+    const first = await provider.listUnstartedOnce(cell, workspace);
+    const again = await provider.listUnstartedOnce(cell, workspace);
+
+    expect(first).toEqual([
+      {
+        id: 'web',
+        state: 'unavailable',
+        reason: 'not started in a read-only Run',
+      },
+    ]);
+    expect(again).toBe(first);
+    expect(readConfig).toHaveBeenCalledOnce();
+    // Another binding is a different listing: it reads configuration again.
+    const next = await provider.listUnstartedOnce(
+      cell,
+      key('chat-1', '/workspace/next', 2),
+    );
+    expect(next).not.toBe(first);
+    expect(readConfig).toHaveBeenCalledTimes(2);
+
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('lists the Machine Workspace servers without opening a server channel', async () => {
+    const machine = fakeMachine([
+      { name: 'storybook', transport: 'http', state: 'available' },
+      {
+        name: 'broken',
+        state: 'unavailable',
+        diagnostic: 'unset variable REPO_TOKEN',
+      },
+    ]);
+    const { runtime } = operatorRuntime();
+    const provider = new WorkspaceMcpClients(runtime, {
+      connector: machine.connector,
+    });
+    const workspace = key('chat-1', MACHINE_ROOT);
+
+    const servers = await provider.listUnstarted(workspace);
+
+    expect(servers).toEqual([
+      {
+        id: 'storybook',
+        state: 'unavailable',
+        reason: 'not started in a read-only Run',
+      },
+      {
+        id: 'broken',
+        state: 'unavailable',
+        reason: 'unset variable REPO_TOKEN',
+      },
+    ]);
+    // The Machine answered `mcp.servers` and was asked to open no server.
+    const session = await machine.peer.session(0);
+    expect([...session.requests]).toEqual(['mcp.servers']);
+    expect(provider.stateForKey(workspace)).toBeUndefined();
 
     await provider.onModuleDestroy();
     await runtime.stop();

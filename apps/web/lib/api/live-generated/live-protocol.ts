@@ -175,7 +175,7 @@ export const runResponseSchema = z.object({
     )
     .optional(),
   permissionMode: z
-    .enum(["default", "bypass"])
+    .enum(["default", "bypass", "read-only"])
     .describe("Accepted permission mode for this run."),
   status: z.enum([
     "queued",

@@ -15,4 +15,5 @@ export type ContextReceiptResponsePermissionMode =
 export const ContextReceiptResponsePermissionMode = {
   default: "default",
   bypass: "bypass",
+  "read-only": "read-only",
 } as const;

@@ -12,4 +12,5 @@ export type ChatLatestRunResponsePermissionMode =
 export const ChatLatestRunResponsePermissionMode = {
   default: "default",
   bypass: "bypass",
+  "read-only": "read-only",
 } as const;

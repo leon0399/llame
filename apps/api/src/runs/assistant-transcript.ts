@@ -484,6 +484,7 @@ const PERMISSION_REASONS: ReadonlySet<string> = new Set([
   'input_limit',
   'matched_allow',
   'permission_mode_bypass',
+  'permission_mode_read_only',
 ]);
 
 function isPermissionReason(value: unknown): value is PermissionDecisionReason {
