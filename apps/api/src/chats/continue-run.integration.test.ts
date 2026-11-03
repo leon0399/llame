@@ -756,6 +756,40 @@ describeIfDb('a Continue Run', () => {
     );
   });
 
+  it('replays a refused kept call with the SDK error text, as the live step sent it', async () => {
+    const sdkErrorText = 'Invalid input for tool "read"';
+    const turn = await seedContinuedTurn({
+      replyParts: [
+        keptParts[1],
+        {
+          type: 'tool-read',
+          toolCallId: CALL_ID,
+          state: 'output-error',
+          input: { path: 7 },
+          errorText: 'llame refusal message',
+          outcome: 'invalid_input',
+          sdkRefusal: { errorText: sdkErrorText, input: { path: 7 } },
+        },
+      ],
+    });
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
+        requests,
+      }),
+    );
+
+    // The SDK refused the call before llame ran it, so the live step sent the
+    // SDK's text; the owner-facing refusal message never reaches the model.
+    const result = toolResultOf(requests[0]?.messages ?? [], CALL_ID);
+    expect(result?.output).toEqual({ type: 'error-text', value: sdkErrorText });
+    expect(JSON.stringify(requests[0]?.messages)).not.toContain(
+      'llame refusal message',
+    );
+  });
+
   it('numbers its own parts after a kept step', async () => {
     const turn = await seedContinuedTurn({ replyParts: keptPartsAtStepOne });
 
