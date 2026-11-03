@@ -54,7 +54,8 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: both `openspec validate --strict` runs pass; markdownlint, the link check, `pnpm format:check` over the repository, and `git diff --check` are clean on 3fdd6231.
 - [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
   - Evidence: round 1 (spec consistency and feasibility reviewers; 13 P1, 15 P2; fixes in 52254f1b) and round 2 (4 P1, 20 P2; fixes in 3fdd6231). design.md "Revision history" records each round.
-- [ ] 1.3 Obtain Leo's approval of the published revision, including A7 and A8 in proposal.md.
+- [x] 1.3 Obtain Leo's approval of the published revision, including A7 and A8 in proposal.md.
+  - Evidence: Leo, in chat on 2026-11-03: "Spec is approved." This approves the published revision, A7 and A8 included; the rebase onto 013f62cb changed no approved scope.
 
 ## 2. seams
 
