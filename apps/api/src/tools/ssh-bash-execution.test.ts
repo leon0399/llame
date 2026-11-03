@@ -38,8 +38,8 @@ type Remote = {
 
 /** The local bounds this call shares with a local `bash`. */
 function localBounds() {
-  const { inputBound, outputBound } = managedBashContext(context(remote()));
-  return { inputBound, outputBound };
+  const { inputBound } = managedBashContext(context(remote()));
+  return { inputBound };
 }
 
 /** A client whose answer is built from the nonce the script drew. */
@@ -138,10 +138,10 @@ describe('ssh bash request bounds', () => {
       cwd: CWD,
     });
 
-    const { outputBound } = localBounds();
     const run = remoteClient.runs[0];
     expect(run?.deadlineMs).toBe(1000);
-    expect(run?.maxStdoutBytes).toBe(outputBound * 3 + SSH_READ_NOISE_BYTES);
+    // The default byte bound, pinned independently of the code that sets it.
+    expect(run?.maxStdoutBytes).toBe(8_388_608 + SSH_READ_NOISE_BYTES);
     expect(run).not.toHaveProperty('signal');
   });
 

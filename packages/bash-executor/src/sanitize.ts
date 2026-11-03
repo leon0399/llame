@@ -1,4 +1,8 @@
-import { cutStringAtCodePointBoundary } from "@workspace/runtime-safety";
+import {
+  cutToBound,
+  streamOutputBound,
+  type StreamBound,
+} from "./output-bound";
 import type {
   BashExecutorContext,
   BashKnownResult,
@@ -16,7 +20,7 @@ export function requireManagedBoundary(
   if (
     !context.secretBoundary ||
     !context.processIsolation ||
-    context.outputBound <= 0 ||
+    streamOutputBound(context).limit <= 0 ||
     context.inputBound <= 0 ||
     context.durationMs <= 0 ||
     context.maxProcesses <= 0
@@ -35,7 +39,7 @@ export function sanitizeKnownResult(
   context: BashExecutorContext,
   protectedValues: ReadonlyArray<string> = [],
 ): BashKnownResult {
-  const bound = context.outputBound;
+  const bound = streamOutputBound(context);
   const stdout = sanitizeStream(result.stdout, bound, protectedValues);
   const stderr = sanitizeStream(result.stderr, bound, protectedValues);
   return {
@@ -48,13 +52,13 @@ export function sanitizeKnownResult(
 
 function sanitizeStream(
   value: string,
-  bound: number,
+  bound: StreamBound,
   protectedValues: ReadonlyArray<string>,
 ): SanitizedStream {
   let text = value;
   for (const secret of protectedValues) {
     if (secret.length > 0) text = text.split(secret).join("[REDACTED]");
   }
-  const clipped = cutStringAtCodePointBoundary(text, bound);
-  return { text: clipped, truncated: clipped.length < text.length };
+  const clipped = cutToBound(text, bound);
+  return { text: clipped, truncated: clipped !== text };
 }

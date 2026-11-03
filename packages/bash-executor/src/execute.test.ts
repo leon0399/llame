@@ -459,6 +459,56 @@ describe("managed executor contract", () => {
     });
   });
 
+  it("keeps a 3 MB stream whole under the default byte bound", async () => {
+    const result = await executeManagedBash(
+      {
+        command: "bash",
+        args: ["-c", String.raw`head -c 3000000 /dev/zero | tr '\0' a`],
+      },
+      context(directory, { outputBoundBytes: 8_388_608 }),
+    );
+    expect(result).toMatchObject({ status: "success", truncated: false });
+    if (result.status !== "success") return;
+    expect(result.stdout).toHaveLength(3_000_000);
+  });
+
+  it("bounds a multibyte stream by bytes rather than code units", async () => {
+    const result = await executeManagedBash(
+      { command: "bash", args: ["-c", "printf 'é%.0s' {1..20}"] },
+      context(directory, { outputBoundBytes: 30 }),
+    );
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (result.status !== "success") return;
+    expect(result.stdout).toBe("é".repeat(15));
+    expect(Buffer.byteLength(result.stdout, "utf8")).toBe(30);
+  });
+
+  it("keeps a stream full once the byte cut lands short of the bound", async () => {
+    // The first chunk is a two-byte character under a one-byte bound: the cut
+    // keeps nothing, and the later ASCII chunk must not reopen the stream.
+    const result = await executeManagedBash(
+      {
+        command: "bash",
+        args: ["-c", "printf '\u00e9'; sleep 0.05; printf x"],
+      },
+      context(directory, { outputBoundBytes: 1 }),
+    );
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (result.status !== "success") return;
+    expect(result.stdout).toBe("");
+  });
+
+  it("keeps no byte after an exceeded bound reaches the result", async () => {
+    const result = await executeManagedBash(
+      { command: "bash", args: ["-c", "printf abcdefghij"] },
+      context(directory, { outputBoundBytes: 8 }),
+    );
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (result.status !== "success") return;
+    expect(result.stdout).toBe("abcdefgh");
+    expect(result.stdout).not.toContain("ij");
+  });
+
   it("measures the command, argv, cwd, and additions as UTF-8 bytes", () => {
     expect(measureManagedInput({ command: "bash" })).toBe(4);
     expect(measureManagedInput({ command: "bash", args: ["-s"] })).toBe(7);

@@ -16,7 +16,7 @@ import {
   type SshRunRequest,
 } from '../ssh/ssh-client';
 import { managedBashContext } from './bash-limits';
-import { executeSshBash } from './ssh-bash';
+import { decodeUtf8, executeSshBash } from './ssh-bash';
 import { type ToolContext } from './types';
 
 const BINDING: SshBinding = {
@@ -130,6 +130,41 @@ function stubFence() {
   return { begin, append };
 }
 
+describe('the ssh utf-8 decode', () => {
+  it('keeps text after an invalid byte as a replacement character', () => {
+    const bytes = Buffer.from([0x61, 0xff, 0x62]);
+    expect(decodeUtf8(bytes)).toBe('a\uFFFDb');
+  });
+
+  it.each([
+    // A 2-byte lead at the exact lower boundary, complete and incomplete.
+    [[0x61, 0xc2, 0x80], 'a\u0080'],
+    [[0x61, 0xc2], 'a'],
+    // 0xDF ends the 2-byte range; 0xE0 starts the 3-byte one.
+    [[0x61, 0xdf], 'a'],
+    [[0x61, 0xe0, 0xa0, 0x80], 'a\u0800'],
+    [[0x61, 0xef], 'a'],
+    // 0xF0 starts the 4-byte range; 0xF4 ends it.
+    [[0x61, 0xf0], 'a'],
+    [[0x61, 0xf4, 0x80, 0x80, 0x80], 'a\u{100000}'],
+    // An invalid lead is replaced, not trimmed.
+    [[0x61, 0xc1], 'a\uFFFD'],
+    [[0x61, 0xf5], 'a\uFFFD'],
+    [[0x61, 0x80], 'a\uFFFD'],
+    [[0x61, 0x80, 0x80, 0x80, 0x80], 'a\uFFFD\uFFFD\uFFFD\uFFFD'],
+  ])('decodes the lead boundaries at the end of the buffer', (bytes, text) => {
+    expect(decodeUtf8(Buffer.from(bytes))).toBe(text);
+  });
+
+  it('drops only an incomplete trailing sequence', () => {
+    // The first byte of an emoji with no continuation bytes.
+    expect(decodeUtf8(Buffer.from('a😀', 'utf8').subarray(0, 2))).toBe('a');
+    // Two of its three continuation bytes.
+    expect(decodeUtf8(Buffer.from('a😀', 'utf8').subarray(0, 4))).toBe('a');
+    expect(decodeUtf8(Buffer.from('a😀', 'utf8'))).toBe('a😀');
+  });
+});
+
 describe('ssh bash execution', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -163,9 +198,8 @@ describe('ssh bash execution', () => {
       resolved: { user: 'box', host: 'box', port: 22 },
       remoteCommand: ['bash', '-s'],
     });
-    expect(run?.stderrTailBytes).toBe(
-      managedBashContext(context(remoteClient)).outputBound * 3,
-    );
+    // The default byte bound, pinned independently of the code that sets it.
+    expect(run?.stderrTailBytes).toBe(8_388_608);
     const script = String(run?.input);
     expect(script).toContain("p='/tmp'");
     // The entries are exported inside the command's subshell, so no key can
@@ -269,17 +303,21 @@ describe('ssh bash execution', () => {
     );
   });
 
-  it('clips the command output to the local output bound', async () => {
-    const remoteClient = remote(completed('x'.repeat(40_000), '', 0));
+  it('clips the command output at the byte bound', async () => {
+    const remoteClient = remote(completed('é'.repeat(40_000), '', 0));
     stubFence();
 
-    const result = await executeSshBash(context(remoteClient), {
-      command: 'yes x | head -c 40000',
-      cwd: CWD,
-    });
+    const result = await executeSshBash(
+      context(remoteClient, { artifactMaxBytes: 31 }),
+      {
+        command: 'yes x | head -c 40000',
+        cwd: CWD,
+      },
+    );
 
     expect(result).toMatchObject({ status: 'success', cut: true });
-    expect(String(result['stdout'])).toHaveLength(32_000);
+    // Fifteen two-byte characters and no split half of one.
+    expect(String(result['stdout'])).toBe('é'.repeat(15));
   });
 
   it('reports a started command without its trailer as an unknown outcome', async () => {

@@ -7,6 +7,7 @@ import { isNativeFileTool } from './native-files';
 import { isWorkspaceTool } from './workspace';
 import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
+import { spillBashResult } from './bash-spill';
 import { executeSshBash } from './ssh-bash';
 import { isSshLocator } from '../ssh/ssh-locator';
 import {
@@ -198,7 +199,7 @@ async function runMachineBash(
       const result = readProcBashResult(raw);
       return result === undefined
         ? machineUnusableResult(name)
-        : toToolResult(result);
+        : spillBashResult(context, result);
     },
   );
 }
@@ -248,7 +249,7 @@ async function runAdmittedBash(
       }),
     );
     if (prior) return prior;
-    const result = toToolResult(await admitted.run());
+    const result = await spillBashResult(context, await admitted.run());
     await context.tenantDb.runAs(userId, async (db) => {
       await new RunEventsRepository(db).append(runId, 'native.result', {
         toolCallId,
@@ -265,6 +266,10 @@ async function runAdmittedBash(
 export const bashTool: Tool<BashInput> = {
   id: 'bash',
   classification: 'execute_code',
+  // Its own result already carries the bounded streams, the preview, and the
+  // artifact notice, so the generic result cap must not shorten it again
+  // (tool-result-artifacts D3).
+  spill: 'tool',
   description: loadPackagedToolDescription('bash'),
   inputSchema: z.strictObject({
     command: z.string().min(1),

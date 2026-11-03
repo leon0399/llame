@@ -19,6 +19,7 @@ import {
   measureManagedInput,
   reserveManagedProcessSlot,
   sanitizeKnownResult,
+  streamOutputBound,
   unusableWorkingDirectory,
   type BashExecutorContext,
 } from '@workspace/bash-executor';
@@ -44,11 +45,9 @@ import {
 } from '../ssh/ssh-script';
 import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
+import { spillBashResult } from './bash-spill';
 import { sshUnavailableResult, sshUnsupportedHostResult } from './ssh-results';
 import { type ToolContext, type ToolResult } from './types';
-
-/** The output bound in UTF-8 bytes: three bytes per UTF-16 code unit. */
-const UTF8_BYTES_PER_CODE_UNIT = 3;
 
 const OUTCOME_UNKNOWN_MESSAGE =
   'The remote command may have executed; the connection ended without its end trailer. It will not be replayed automatically.';
@@ -103,25 +102,81 @@ function verdictResult(
 /** An SSH run that ended on its own: its streams and trailer are trustworthy. */
 type EndedRun = Extract<SshRunOutcome, { readonly outcome: 'ended' }>;
 
+/**
+ * Decode the retained bytes, dropping only an incomplete trailing sequence:
+ * the byte bound can cut a UTF-8 character, and half of one must not become a
+ * replacement character in the result or the artifact. Any other invalid byte
+ * — a remote command writing raw 0xff, say — decodes as the replacement
+ * character the stream itself produced, and never costs the text after it.
+ */
+export function decodeUtf8(bytes: Buffer): string {
+  return new TextDecoder('utf-8').decode(
+    bytes.subarray(0, completeSequenceEnd(bytes)),
+  );
+}
+
+const CONTINUATION_FLOOR = 0x80;
+const CONTINUATION_CEILING = 0xbf;
+const TWO_BYTE_LEAD = 0xc2;
+const THREE_BYTE_LEAD = 0xe0;
+const FOUR_BYTE_LEAD = 0xf0;
+const FOUR_BYTE_LIMIT = 0xf4;
+
+/**
+ * The offset where the last complete UTF-8 sequence ends. A trailing run of
+ * continuation bytes under a valid lead that promises more of them is an
+ * incomplete character and is dropped; every other trailing byte stands, so an
+ * invalid byte decodes as a replacement character instead of costing text.
+ */
+function completeSequenceEnd(bytes: Buffer): number {
+  const lead = leadIndex(bytes);
+  if (lead === undefined) return bytes.length;
+  const expected = expectedSequenceLength(bytes[lead]);
+  if (expected === 0) return bytes.length;
+  return bytes.length - lead < expected ? lead : bytes.length;
+}
+
+/** The lead byte of the trailing sequence, or undefined when none is within four bytes. */
+function leadIndex(bytes: Buffer): number | undefined {
+  const earliest = Math.max(0, bytes.length - 4);
+  for (let index = bytes.length - 1; index >= earliest; index -= 1) {
+    if (!isContinuation(bytes[index])) return index;
+  }
+  return undefined;
+}
+
+function isContinuation(byte: number): boolean {
+  return byte >= CONTINUATION_FLOOR && byte <= CONTINUATION_CEILING;
+}
+
+/** How many bytes a valid UTF-8 lead promises; zero for anything invalid. */
+function expectedSequenceLength(lead: number): number {
+  if (lead >= TWO_BYTE_LEAD && lead <= 0xdf) return 2;
+  if (lead >= THREE_BYTE_LEAD && lead <= 0xef) return 3;
+  if (lead >= FOUR_BYTE_LEAD && lead <= FOUR_BYTE_LIMIT) return 4;
+  return 0;
+}
+
 /** The finished command as the local result shape, under the local bounds. */
-function knownResult(
-  frames: SshBashFrames,
+async function knownResult(
+  request: RemoteCommand,
   outcome: EndedRun,
-  executorContext: BashExecutorContext,
+  frames: SshBashFrames,
   wallTimeMs: number,
-): ToolResult {
+): Promise<ToolResult> {
   const status = frames.status ?? 0;
-  return toToolResult(
+  return spillBashResult(
+    request.context,
     sanitizeKnownResult(
       {
         status: status === 0 ? 'success' : 'error',
         exitCode: status,
-        stdout: frames.stdout.toString('utf8'),
+        stdout: decodeUtf8(frames.stdout),
         stderr: frames.stderr,
         truncated: outcome.stdoutOverflow || outcome.stderrOverflow,
         wallTimeMs,
       },
-      executorContext,
+      request.executorContext,
     ),
   );
 }
@@ -139,12 +194,12 @@ type RemoteCommand = {
 };
 
 /** The result one command's frames become, complete or not. */
-function commandResult(
+async function commandResult(
   request: RemoteCommand,
   outcome: SshRunOutcome,
   frames: SshBashFrames,
   wallTimeMs: number,
-): ToolResult {
+): Promise<ToolResult> {
   // Only the host can test the cwd, so the durable attempt precedes SSH and a
   // failed `cd` arrives as a refusal frame: a known result, not an attempt-free
   // refusal as a local unusable cwd is.
@@ -157,7 +212,7 @@ function commandResult(
   // The classifier reports complete only for an ended process; a failed one
   // cannot carry a trailer to trust.
   return outcome.outcome === 'ended'
-    ? knownResult(frames, outcome, request.executorContext, wallTimeMs)
+    ? knownResult(request, outcome, frames, wallTimeMs)
     : sshOutcomeUnknownResult();
 }
 
@@ -177,15 +232,16 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
       env: request.input.env ?? {},
       command: request.input.command,
     }),
+    // The bound is already in bytes (D4), so the buffer takes it as it is:
+    // one byte of stream per byte of bound, plus the framing noise the script
+    // adds around the command's own output.
     maxStdoutBytes:
-      request.executorContext.outputBound * UTF8_BYTES_PER_CODE_UNIT +
-      SSH_READ_NOISE_BYTES,
+      streamOutputBound(request.executorContext).limit + SSH_READ_NOISE_BYTES,
     deadlineMs: request.budgetMs,
     // A command's own stderr precedes the trailer, so the head alone would
     // lose it for a chatty command. The tail is the local output bound in
     // bytes, so a command that reaches the bound still keeps its trailer.
-    stderrTailBytes:
-      request.executorContext.outputBound * UTF8_BYTES_PER_CODE_UNIT,
+    stderrTailBytes: streamOutputBound(request.executorContext).limit,
     ...(context.abortSignal !== undefined && { signal: context.abortSignal }),
   });
   return commandResult(

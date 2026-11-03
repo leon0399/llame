@@ -25,6 +25,7 @@ import {
 } from '../ssh/ssh-client';
 import * as bashExecutor from '@workspace/bash-executor';
 import { bashTool } from './bash';
+import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
@@ -525,6 +526,15 @@ describe('bash durable admission', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('bounds a host stream in bytes from tools.artifacts.maxBytes', () => {
+    const bounds = managedBashContext({
+      ...testContext(),
+      artifactMaxBytes: 131_072,
+    });
+    expect(bounds.outputBoundBytes).toBe(131_072);
+    expect(bounds.outputBound).toBeUndefined();
   });
 
   it('returns a proven timeout with partial output and admits the next call', async () => {

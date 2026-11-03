@@ -11,7 +11,14 @@ export type BashExecutorContext = {
   readonly workingDirectory: string;
   readonly secretBoundary: boolean;
   readonly processIsolation: boolean;
-  readonly outputBound: number;
+  /** The per-stream bound in UTF-16 code units; a Machine keeps this one. */
+  readonly outputBound?: number;
+  /**
+   * The per-stream bound in UTF-8 bytes. The hub sets it, because its bound is
+   * `tools.artifacts.maxBytes` and a spilled part is stored at that size
+   * (tool-result-artifacts D4). When present it replaces {@link outputBound}.
+   */
+  readonly outputBoundBytes?: number;
   readonly inputBound: number;
   readonly durationMs: number;
   readonly maxProcesses: number;

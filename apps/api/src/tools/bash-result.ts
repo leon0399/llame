@@ -20,32 +20,58 @@ import {
 
 import { type ToolResult } from './types';
 
+/**
+ * The artifact one spilled call stored: its locator and the notice line that
+ * ends the text (without brackets, as the cap's own notice is stored).
+ */
+export type BashSpill = {
+  readonly artifact: string;
+  readonly notice: string;
+};
+
+/** A failure that carries the executor's streams, in the bash text shape. */
+function failureResult(
+  type: 'timed_out' | 'command_failed',
+  result: BashKnownResult | BashTimedOutResult,
+  spill: BashSpill | undefined,
+): ToolResult {
+  return {
+    status: 'error',
+    type,
+    message: renderBashText({
+      ...result,
+      // A notice also tells the renderer the result was shortened, so the
+      // executor's own cut must be explicit or its marker disappears.
+      ...(result.truncated && { cut: true }),
+      ...(spill !== undefined && { truncationNotice: spill.notice }),
+    }),
+    ...(spill !== undefined && { artifact: spill.artifact }),
+  };
+}
+
 /** A failure the executor already classified; a timeout keeps its streams. */
 function typedFailureResult(
   result: BashTimedOutResult | BashUnknownResult | BashUnavailableResult,
+  spill: BashSpill | undefined,
 ): ToolResult {
   if (result.type !== 'timed_out')
     return { status: 'error', type: result.type, message: result.message };
-  return {
-    status: 'error',
-    type: 'timed_out',
-    // The type tells the renderer this command was stopped, not exited, so the
-    // header names the measured elapsed time and no exit code.
-    message: renderBashText(result),
-  };
+  return failureResult('timed_out', result, spill);
 }
 
 /** A command that ended non-zero: the same shape, with its own exit code. */
-function commandFailedResult(result: BashKnownResult): ToolResult {
-  return {
-    status: 'error',
-    type: 'command_failed',
-    message: renderBashText(result),
-  };
+function commandFailedResult(
+  result: BashKnownResult,
+  spill: BashSpill | undefined,
+): ToolResult {
+  return failureResult('command_failed', result, spill);
 }
 
 /** The observation the model reads, with the exit code and streams it holds. */
-export function toToolResult(result: BashResult): ToolResult {
+export function toToolResult(
+  result: BashResult,
+  spill?: BashSpill,
+): ToolResult {
   if (result.status === 'success') {
     return {
       status: 'success',
@@ -59,8 +85,12 @@ export function toToolResult(result: BashResult): ToolResult {
       // streams").
       ...(result.truncated && { cut: true }),
       ...(result.wallTimeMs !== undefined && { wallTimeMs: result.wallTimeMs }),
+      ...(spill !== undefined && {
+        artifact: spill.artifact,
+        truncationNotice: spill.notice,
+      }),
     };
   }
-  if ('type' in result) return typedFailureResult(result);
-  return commandFailedResult(result);
+  if ('type' in result) return typedFailureResult(result, spill);
+  return commandFailedResult(result, spill);
 }
