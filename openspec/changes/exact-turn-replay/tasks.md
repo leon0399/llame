@@ -121,7 +121,7 @@ over. Every other layer stays inside about 2,000 lines.
 
 ## 9. continue
 
-- [ ] 9.1 Build the Continue request through the projection, from the kept parts and their `step` (design D11). Remove the `steps` and `results` maps from `run.continued`. Verify each scenario of "Continue requests the next step of the same turn", "Continue and a later turn replay a reply the same way", and "Continue keeps the reasoning of a failed Run".
+- [ ] 9.1 Build the Continue request through the projection, from the kept parts and their `step` (design D11). Remove the `steps` and `results` maps from `run.continued`. Verify each scenario of "Continue requests the next step of the same turn", "Continue and a later turn replay a reply the same way", and "Continue keeps the reasoning of a failed Run", and the scenario "A kept part of a Continue Run replays in the key order of the event log".
 - [ ] 9.2 Update `docs/product/reference/continue-a-turn.md`, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [ ] 9.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused Continue and regenerate tests, `pnpm format:check`, `git diff --check`.
 - [ ] 9.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.

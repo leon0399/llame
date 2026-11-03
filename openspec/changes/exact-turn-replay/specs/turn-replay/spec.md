@@ -179,10 +179,11 @@ consecutive tool parts and the text and reasoning before it form one step.
 
 The storage of message parts in the `messages` row MUST keep the members of each
 object in the order in which the system wrote them. A tool input and a JSON
-result that replay from that row MUST keep the member order of the live call and
-of the live result. The Run event log stores its payloads as `jsonb`, which does
-not keep member order. Parts that the system rebuilds from the event log,
-including the kept parts of a Continue Run, replay in the key order of `jsonb`.
+result that the system stores from the live step MUST keep the member order of
+the live call and of the live result. The Run event log stores its payloads as
+`jsonb`, which does not keep member order. Parts that the system rebuilds from
+the event log, including the kept parts of a Continue Run, replay in the key
+order of `jsonb`.
 
 #### Scenario: A tool input keeps its member order
 
