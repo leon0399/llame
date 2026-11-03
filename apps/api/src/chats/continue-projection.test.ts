@@ -1,40 +1,32 @@
 /**
- * The Continue projection (turn-actions D5/D6): the kept parts of a source
- * reply as the messages a Continue Run sends. A step is one model response —
- * its reasoning, its text, and all its calls — followed by one message with the
- * results; a kept in-Run item follows its step's results, and no budget applies.
+ * The Continue Run's kept-part records (turn-actions D5/D11): the state its
+ * event log starts from, the step numbers admission stamps, and the request
+ * the shared projection builds from the kept parts. Grouping and rendering
+ * themselves belong to `context-builder.test.ts`; these cases pin what a
+ * Continue Run contributes to them.
  */
 
-import type { AssistantContent, ModelMessage, ToolResultPart } from 'ai';
+import type { ModelMessage } from 'ai';
 
-import { asDouble } from '../testing/support';
-import type { RetainedMediaJson } from '../media/retained-media';
-import { isContextItemPart } from './context-item';
-import { composeStepMessages } from '../models/step-composer';
-import { renderToolResultText } from '../tools/model-text';
-import type { ToolResult } from '../tools/types';
-import { fakeResolver } from '../media/media-fixtures';
-import type { MessagePart } from './context-builder';
+import { isNumber, isRecord } from '@workspace/runtime-safety';
+
+import { continuedMediaKey } from '../media/retained-media';
+import { type MessagePart, projectStoredReplyParts } from './context-builder';
 import {
   continueStateFromEvents,
   continuedRecords,
   continueStepOffset,
   ownSnapshotParts,
-  projectContinueParts,
   withKeptSteps,
-  type ContinueState,
+  type ContinuedEvent,
 } from './continue-projection';
 
 const CALL_ID = 'call-1';
 const CALL_ID_2 = 'call-2';
 
-function toolPart(
-  toolCallId: string,
-  output: string,
-  toolName = 'read',
-): MessagePart {
+function toolPart(toolCallId: string, output: string): MessagePart {
   return {
-    type: `tool-${toolName}`,
+    type: 'tool-read',
     toolCallId,
     state: 'output-available',
     input: { path: `/work/${toolCallId}` },
@@ -43,683 +35,38 @@ function toolPart(
   };
 }
 
-function reasoning(text: string, signature?: string): MessagePart {
+function requestEvent(toolCallId: string, stepNumber: number): ContinuedEvent {
   return {
-    type: 'reasoning',
-    text,
-    ...(signature !== undefined && {
-      providerMetadata: { anthropic: { signature } },
-    }),
+    eventType: 'tool.requested',
+    payload: { toolCallId, stepNumber },
   };
 }
 
-function contextItem(text: string): MessagePart {
-  return {
-    type: 'data-context',
-    data: {
-      v: 1,
-      producer: 'instructions',
-      runId: '0192f3a4-5b6c-7d8e-9f01-000000000001',
-      payload: {},
-      text,
-    },
-  };
+/** The step a stored part records, when it records one. */
+function stepOf(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the stored part union is jsonb; `isRecord` narrows it here.
+  part: unknown,
+): number | undefined {
+  return isRecord(part) && isNumber(part['step']) ? part['step'] : undefined;
 }
 
-/** The assistant content parts of the message at `index`. */
-function assistantContent(
-  messages: Array<ModelMessage>,
-  index: number,
-): Array<AssistantContent[number]> {
-  const message = messages[index];
-  if (message?.role !== 'assistant') {
-    throw new TypeError(`message ${index} is not an assistant message`);
-  }
-  return Array.isArray(message.content)
-    ? message.content
-    : [{ type: 'text' as const, text: message.content }];
+/** A kept part as the projection reads it after admission stamped it. */
+function keptPart(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- admission returns the stored parts with a step added; the cases read them as parts.
+  part: unknown,
+): MessagePart {
+  // SAFETY: the kept parts are the reply's stored UI parts; admission only
+  // adds the step numbers these cases assert on.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return part as MessagePart;
 }
 
-function toolResults(
-  messages: Array<ModelMessage>,
-  index: number,
-): Array<ToolResultPart> {
-  const message = messages[index];
-  if (message?.role !== 'tool' || !Array.isArray(message.content)) {
-    throw new TypeError(`message ${index} is not a tool message`);
-  }
-  // The tool role's content is a list of tool-result parts in the SDK's own
-  // `ModelMessage` union, and the guard above narrowed the message to it.
-  return message.content.filter((part) => part.type === 'tool-result');
+function project(parts: ReadonlyArray<unknown>): Array<ModelMessage> {
+  return projectStoredReplyParts(
+    parts.map((part) => keptPart(part)),
+    { privateParts: true, mediaKey: continuedMediaKey },
+  ).messages;
 }
-
-/** The kept messages of a Continue Run, without the entries they name. */
-function projected(...args: Parameters<typeof projectContinueParts>) {
-  return projectContinueParts(...args).messages;
-}
-
-function state(parts: Array<MessagePart>, steps: Record<string, number> = {}) {
-  return {
-    parts,
-    stepNumbers: new Map(Object.entries(steps)),
-    results: new Map(),
-  } satisfies ContinueState;
-}
-
-describe('the Continue projection', () => {
-  it('keeps parallel calls of one step in one assistant turn, then their results', () => {
-    const messages = projected(
-      state(
-        [
-          reasoning('thinking', 'sig-1'),
-          { type: 'text', text: 'reading both' },
-          toolPart(CALL_ID, 'first'),
-          toolPart(CALL_ID_2, 'second'),
-        ],
-        { [CALL_ID]: 0, [CALL_ID_2]: 0 },
-      ),
-    );
-
-    expect(messages).toHaveLength(2);
-    expect(assistantContent(messages, 0)).toEqual([
-      {
-        type: 'reasoning',
-        text: 'thinking',
-        providerOptions: { anthropic: { signature: 'sig-1' } },
-      },
-      { type: 'text', text: 'reading both' },
-      {
-        type: 'tool-call',
-        toolCallId: CALL_ID,
-        toolName: 'read',
-        input: { path: `/work/${CALL_ID}` },
-      },
-      {
-        type: 'tool-call',
-        toolCallId: CALL_ID_2,
-        toolName: 'read',
-        input: { path: `/work/${CALL_ID_2}` },
-      },
-    ]);
-    expect(
-      toolResults(messages, 1).map(({ toolCallId }) => toolCallId),
-    ).toEqual([CALL_ID, CALL_ID_2]);
-  });
-
-  it('keeps two sequential steps with no text between them as two steps', () => {
-    const messages = projected(
-      state([toolPart(CALL_ID, 'first'), toolPart(CALL_ID_2, 'second')], {
-        [CALL_ID]: 0,
-        [CALL_ID_2]: 1,
-      }),
-    );
-
-    expect(messages).toHaveLength(4);
-    expect(assistantContent(messages, 0)).toEqual([
-      expect.objectContaining({ toolCallId: CALL_ID }),
-    ]);
-    expect(toolResults(messages, 1)).toHaveLength(1);
-    expect(assistantContent(messages, 2)).toEqual([
-      expect.objectContaining({ toolCallId: CALL_ID_2 }),
-    ]);
-    expect(toolResults(messages, 3)).toHaveLength(1);
-  });
-
-  it('falls back to one step for a run of consecutive calls without step numbers', () => {
-    const messages = projected(
-      state([toolPart(CALL_ID, 'first'), toolPart(CALL_ID_2, 'second')]),
-    );
-
-    expect(messages).toHaveLength(2);
-    expect(assistantContent(messages, 0)).toHaveLength(2);
-    expect(toolResults(messages, 1)).toHaveLength(2);
-  });
-
-  it('keeps a reasoning part with its own step', () => {
-    const messages = projected(
-      state(
-        [
-          reasoning('first thought'),
-          toolPart(CALL_ID, 'first'),
-          reasoning('second thought'),
-          toolPart(CALL_ID_2, 'second'),
-        ],
-        { [CALL_ID]: 0, [CALL_ID_2]: 1 },
-      ),
-    );
-
-    expect(assistantContent(messages, 0)).toEqual([
-      { type: 'reasoning', text: 'first thought' },
-      expect.objectContaining({ toolCallId: CALL_ID }),
-    ]);
-    expect(assistantContent(messages, 2)).toEqual([
-      { type: 'reasoning', text: 'second thought' },
-      expect.objectContaining({ toolCallId: CALL_ID_2 }),
-    ]);
-  });
-
-  it('places each kept in-Run item after its own step results', () => {
-    const messages = projected(
-      state(
-        [
-          toolPart(CALL_ID, 'first'),
-          contextItem('<system-reminder>step one</system-reminder>'),
-          toolPart(CALL_ID_2, 'second'),
-        ],
-        { [CALL_ID]: 0, [CALL_ID_2]: 1 },
-      ),
-    );
-
-    expect(messages.map(({ role }) => role)).toEqual([
-      'assistant',
-      'tool',
-      'user',
-      'assistant',
-      'tool',
-    ]);
-    expect(messages[2]).toEqual({
-      role: 'user',
-      content: [
-        { type: 'text', text: '<system-reminder>step one</system-reminder>' },
-      ],
-    });
-  });
-
-  it('sends kept results of more than 32,000 characters in full', () => {
-    const long = 'x'.repeat(20_000);
-    const messages = projected(
-      state([toolPart(CALL_ID, long), toolPart(CALL_ID_2, long)], {
-        [CALL_ID]: 0,
-        [CALL_ID_2]: 0,
-      }),
-    );
-
-    const results = toolResults(messages, 1);
-    const text = results
-      .flatMap((result) =>
-        result.output.type === 'text' ? [result.output.value] : [],
-      )
-      .join('\n');
-    expect(text).toContain(long);
-    expect(text.match(/x{20000}/gu)).toHaveLength(2);
-    expect(text).not.toContain('omitted');
-  });
-
-  it('replays a kept read without retained bytes as its result text alone', async () => {
-    const imageResult: MessagePart = {
-      type: 'tool-read',
-      toolCallId: CALL_ID,
-      state: 'output-available',
-      input: { path: '/work/shot.png' },
-      output: {
-        status: 'success',
-        kind: 'image',
-        mediaType: 'image/png',
-        width: 1600,
-        height: 900,
-        path: '/work/shot.png',
-      },
-      outcome: 'success',
-    };
-    const projection = projectContinueParts(
-      state([imageResult], { [CALL_ID]: 0 }),
-    );
-    expect(projection.retainedMedia.size).toBe(0);
-    const composed = await composeStepMessages(projection.messages, {
-      // A reply stored before retention kept no bytes and names no marker.
-      resolver: fakeResolver([]).resolver,
-      context: {
-        input: ['text', 'image'],
-        contextWindowTokens: 128_000,
-        reservedOutputTokens: null,
-      },
-    });
-    const [{ output }] = toolResults(composed, 1);
-    const text = output.type === 'text' ? output.value : '';
-    expect(text).toContain('"kind":"image"');
-    expect(text).not.toContain('not retained');
-    expect(text).not.toContain('not attached');
-  });
-
-  it('attaches a kept read that kept its bytes, and a legacy kept read stays text', async () => {
-    const variant = Buffer.from([0x73]);
-    const result = {
-      status: 'success',
-      kind: 'image',
-      mediaType: 'image/png',
-      width: 1600,
-      height: 900,
-      path: '/work/shot.png',
-    } as const;
-    const readPart = (retainedMedia?: RetainedMediaJson): MessagePart => ({
-      type: 'tool-read',
-      toolCallId: CALL_ID,
-      state: 'output-available',
-      input: { path: '/work/shot.png' },
-      output: result,
-      outcome: 'success',
-      ...(retainedMedia !== undefined && { retainedMedia }),
-    });
-    const projection = projectContinueParts(
-      state(
-        [
-          readPart({
-            mediaType: 'image/png',
-            width: 1600,
-            height: 900,
-            data: variant.toString('base64'),
-          }),
-        ],
-        { [CALL_ID]: 0 },
-      ),
-    );
-    // The kept part's entry is keyed by its position among the kept parts.
-    expect([...projection.retainedMedia.keys()]).toEqual(['continued:0']);
-
-    const resolver = fakeResolver([]).resolver;
-    for (const [key, entry] of projection.retainedMedia) {
-      resolver.retainedMedia.set(key, entry);
-    }
-    const composed = await composeStepMessages(projection.messages, {
-      resolver,
-      context: {
-        input: ['text', 'image'],
-        contextWindowTokens: 128_000,
-        reservedOutputTokens: null,
-      },
-    });
-    const [{ output }] = toolResults(composed, 1);
-    expect(output).toMatchObject({
-      type: 'content',
-      value: [
-        { type: 'text' },
-        {
-          type: 'image-data',
-          data: variant.toString('base64'),
-          mediaType: 'image/png',
-        },
-      ],
-    });
-    expect(
-      output?.type === 'content' && output.value[0]?.type === 'text'
-        ? output.value[0].text
-        : '',
-    ).toContain('"kind":"image"');
-
-    // The same reply without retention replays as text.
-    const legacy = projectContinueParts(state([readPart()], { [CALL_ID]: 0 }));
-    expect(legacy.retainedMedia.size).toBe(0);
-    const [legacyResult] = toolResults(
-      await composeStepMessages(legacy.messages, {
-        resolver: fakeResolver([]).resolver,
-        context: {
-          input: ['text', 'image'],
-          contextWindowTokens: 128_000,
-          reservedOutputTokens: null,
-        },
-      }),
-      1,
-    );
-    const legacyText =
-      legacyResult?.output.type === 'text' ? legacyResult.output.value : '';
-    expect(legacyText).toContain(renderToolResultText('read', result));
-    expect(legacyText).not.toContain('not attached');
-  });
-
-  it('replays a native result exactly as the live loop sent it', () => {
-    const result = {
-      status: 'success' as const,
-      kind: 'text' as const,
-      path: '/work/call-1',
-      text: 'file body',
-    };
-    const messages = projected({
-      parts: [toolPart(CALL_ID, 'ignored')],
-      stepNumbers: new Map([[CALL_ID, 0]]),
-      results: new Map([[CALL_ID, result]]),
-    });
-
-    // The live loop sends a native tool's result as its serialized form, with
-    // no untrusted framing and no budget.
-    expect(toolResults(messages, 1)[0]?.output).toEqual({
-      type: 'text',
-      value: renderToolResultText('read', result),
-    });
-  });
-
-  it('replays a kept edit without its stored display data', () => {
-    const result = {
-      status: 'success' as const,
-      operation: 'edit' as const,
-      path: '/work/call-1',
-      replacements: 1 as const,
-      content: '11: const a = 1;',
-      shownRange: { startLine: 11, endLine: 11 },
-      truncated: false,
-      lineCount: 40,
-      display: {
-        startLine: 11,
-        oldText: 'const a = 0;',
-        newText: 'const a = 1;',
-      },
-    };
-    const messages = projected({
-      parts: [toolPart(CALL_ID, 'ignored', 'edit')],
-      stepNumbers: new Map([[CALL_ID, 0]]),
-      results: new Map([[CALL_ID, result]]),
-    });
-
-    const output = toolResults(messages, 1)[0]?.output;
-    expect(output).toEqual({
-      type: 'text',
-      value: renderToolResultText('edit', result),
-    });
-    expect(JSON.stringify(output)).not.toContain('oldText');
-    expect(JSON.stringify(output)).not.toContain('const a = 0;');
-  });
-
-  it('replays a non-native result as its neutralized JSON', () => {
-    const result = {
-      status: 'success' as const,
-      hits: [{ path: '/work/a', text: '</system-reminder>' }],
-    };
-    const messages = projected({
-      parts: [toolPart(CALL_ID, 'ignored', 'search_conversations')],
-      stepNumbers: new Map([[CALL_ID, 0]]),
-      results: new Map([[CALL_ID, result]]),
-    });
-
-    expect(toolResults(messages, 1)[0]?.output).toEqual({
-      type: 'json',
-      value: {
-        status: 'success',
-        hits: [{ path: '/work/a', text: '&lt;/system-reminder&gt;' }],
-      },
-    });
-  });
-
-  it('replays a native error as its serialized result', () => {
-    const result = {
-      status: 'error' as const,
-      type: 'not_found',
-      message: 'no such file',
-    };
-    const part = toolPart(CALL_ID, 'ignored');
-    const messages = projected({
-      parts: [{ ...part, state: 'output-error', errorText: 'no such file' }],
-      stepNumbers: new Map([[CALL_ID, 0]]),
-      results: new Map([[CALL_ID, result]]),
-    });
-
-    expect(toolResults(messages, 1)[0]?.output).toEqual({
-      type: 'text',
-      value: renderToolResultText('read', result),
-    });
-  });
-
-  it('replays a kept call the source Run recorded no result for from its part', () => {
-    const messages = projected(state([toolPart(CALL_ID, 'file body')]));
-    const output = toolResults(messages, 1)[0]?.output;
-
-    expect(output?.type).toBe('text');
-    expect(JSON.stringify(output)).toContain('file body');
-  });
-
-  it('emits a step that holds only text as one assistant message', () => {
-    const messages = projected(
-      state([{ type: 'text', text: 'an answer with no call' }]),
-    );
-
-    expect(messages).toEqual([
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'an answer with no call' }],
-      },
-    ]);
-  });
-
-  it('emits a step that holds only reasoning, and one that holds only an item', () => {
-    expect(
-      projected(state([{ type: 'reasoning', text: 'thinking only' }])),
-    ).toEqual([
-      {
-        role: 'assistant',
-        content: [{ type: 'reasoning', text: 'thinking only' }],
-      },
-    ]);
-    expect(
-      projected(state([contextItem('<system-reminder>x</system-reminder>')])),
-    ).toEqual([
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: '<system-reminder>x</system-reminder>' },
-        ],
-      },
-    ]);
-  });
-
-  it('joins the text parts of one step with a newline', () => {
-    const messages = projected(
-      state([
-        { type: 'text', text: 'first paragraph' },
-        { type: 'text', text: 'second paragraph' },
-        toolPart(CALL_ID, 'done'),
-      ]),
-    );
-
-    expect(assistantContent(messages, 0)).toEqual([
-      { type: 'text', text: 'first paragraph\nsecond paragraph' },
-      expect.objectContaining({ type: 'tool-call', toolCallId: CALL_ID }),
-    ]);
-  });
-
-  it('keeps a legacy step open across a call whose step the source Run did not number', () => {
-    const messages = projected(
-      state([toolPart(CALL_ID, 'first'), toolPart(CALL_ID_2, 'second')], {
-        [CALL_ID]: 0,
-      }),
-    );
-
-    // The second call carries no step number, so it belongs to the open step.
-    expect(messages).toHaveLength(2);
-    expect(toolResults(messages, 1)).toHaveLength(2);
-  });
-
-  it('starts a step when a numbered call follows an unnumbered group', () => {
-    const messages = projected(
-      state([toolPart('call-0', 'first'), toolPart(CALL_ID, 'second')], {
-        [CALL_ID]: 0,
-      }),
-    );
-
-    // The unnumbered call states no step, so the numbered one opens its own.
-    expect(messages.map(({ role }) => role)).toEqual([
-      'assistant',
-      'tool',
-      'assistant',
-      'tool',
-    ]);
-  });
-
-  it('keeps a numbered call after an unnumbered one that followed a numbered step', () => {
-    const messages = projected(
-      state(
-        [
-          toolPart(CALL_ID, 'first'),
-          toolPart('call-middle', 'middle'),
-          toolPart(CALL_ID_2, 'third'),
-        ],
-        { [CALL_ID]: 0, [CALL_ID_2]: 0 },
-      ),
-    );
-
-    // The unnumbered middle call neither closes the step nor erases the step
-    // number the open one recorded, so the third call joins the same step.
-    expect(messages).toHaveLength(2);
-    expect(toolResults(messages, 1)).toHaveLength(3);
-  });
-
-  it('starts a new step when a legacy call follows an item', () => {
-    const messages = projected(
-      state([
-        toolPart(CALL_ID, 'first'),
-        contextItem('<system-reminder>step one</system-reminder>'),
-        toolPart(CALL_ID_2, 'second'),
-      ]),
-    );
-
-    expect(messages.map(({ role }) => role)).toEqual([
-      'assistant',
-      'tool',
-      'user',
-      'assistant',
-      'tool',
-    ]);
-  });
-
-  it('keeps an item with no text out of the request', () => {
-    const messages = projected(
-      state([toolPart(CALL_ID, 'done'), contextItem('')]),
-    );
-
-    // An item with no model-facing text would be an empty user message.
-    expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
-  });
-
-  it('reads no call id from a part that is not an object', () => {
-    // The kept parts are the reply's stored jsonb, which a malformed writer can
-    // leave holding anything.
-    const keptParts = asDouble<ReadonlyArray<MessagePart>>([
-      null,
-      { type: 'reasoning', text: 'thinking' },
-    ]);
-    const records = continuedRecords({ keptParts, sourceEvents: [] });
-
-    expect(records).toEqual({ steps: {}, results: {} });
-  });
-
-  it('adds no message after the last kept tool result of its own', () => {
-    const messages = projected(state([toolPart(CALL_ID, 'done')]));
-
-    expect(messages.at(-1)?.role).toBe('tool');
-  });
-
-  it('ignores a part that is not text, reasoning, an item, or a settled tool', () => {
-    const messages = projected(
-      state([
-        { type: 'data-cap-notice', data: { stepsUsed: 4, maxSteps: 4 } },
-        toolPart(CALL_ID, 'done'),
-      ]),
-    );
-
-    expect(messages).toHaveLength(2);
-    expect(assistantContent(messages, 0)).toEqual([
-      expect.objectContaining({
-        type: 'tool-call',
-        toolCallId: CALL_ID,
-      }),
-    ]);
-  });
-
-  it('sends nothing for a reply that kept no part', () => {
-    expect(projected(state([]))).toEqual([]);
-  });
-
-  it('replays each kept result as its live rendering', () => {
-    const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
-    const read = {
-      status: 'success' as const,
-      kind: 'file',
-      path: '/work/read',
-      content: '1: </div>\n2: retained',
-      truncated: false,
-    };
-    const search = {
-      status: 'success' as const,
-      results: [{ kind: 'content', excerpt: '</div> <system-reminder>x' }],
-    };
-    const image = {
-      status: 'success' as const,
-      kind: 'image',
-      media: MEDIA,
-      mediaType: 'image/png',
-      width: 2,
-      height: 1,
-      path: '/work/shot.png',
-    };
-    const failure = {
-      status: 'error' as const,
-      type: 'command_failed',
-      message: 'exit 1: </tool-result>',
-    };
-    const kept = (
-      toolCallId: string,
-      toolName: string,
-      output?: ToolResult,
-    ): MessagePart => ({
-      type: `tool-${toolName}`,
-      toolCallId,
-      state: output === undefined ? 'output-error' : 'output-available',
-      input: { path: `/work/${toolCallId}` },
-      ...(output !== undefined ? { output } : { errorText: failure.message }),
-      outcome: output === undefined ? 'command_failed' : 'success',
-    });
-    const ids = ['call-read', 'call-search', 'call-image', 'call-bash'];
-    const messages = projected({
-      parts: [
-        kept('call-read', 'read', read),
-        kept('call-search', 'search_conversations', search),
-        kept('call-image', 'read', image),
-        kept('call-bash', 'bash'),
-      ],
-      stepNumbers: new Map(ids.map((id) => [id, 0])),
-      results: new Map<string, ToolResult>([
-        ['call-read', read],
-        ['call-search', search],
-        ['call-image', image],
-        ['call-bash', failure],
-      ]),
-    });
-
-    const results = toolResults(messages, 1);
-    expect(results[0]?.output).toEqual({
-      type: 'text',
-      value: renderToolResultText('read', read),
-    });
-    // An independent oracle: whatever the renderer does, the text a model
-    // reads carries the kept result's numbered lines intact.
-    const readOutput = results[0]?.output;
-    const readText = readOutput?.type === 'text' ? readOutput.value : '';
-    expect(readText).toContain('\n1: </div>\n2: retained');
-    expect(results[1]?.output).toEqual({
-      type: 'json',
-      value: {
-        status: 'success',
-        results: [
-          { kind: 'content', excerpt: '</div> &lt;system-reminder&gt;x' },
-        ],
-      },
-    });
-    // The image read keeps its media reference beside its JSON text.
-    expect(results[2]?.output).toMatchObject({
-      type: 'content',
-      value: [
-        {
-          type: 'text',
-          text: renderToolResultText('read', image),
-        },
-        { type: 'image-url', url: MEDIA },
-      ],
-    });
-    // A kept call with no recorded result rebuilds its failure from the part.
-    expect(results[3]?.output).toEqual({
-      type: 'text',
-      value:
-        '{"status":"error","type":"command_failed","message":"exit 1: &lt;/tool-result&gt;"}',
-    });
-  });
-});
 
 describe('the Continue state of a Run', () => {
   const parts: Array<MessagePart> = [
@@ -727,7 +74,9 @@ describe('the Continue state of a Run', () => {
     toolPart(CALL_ID_2, 'second'),
   ];
 
-  it('reads the kept parts and the recorded step of each kept call', () => {
+  it('reads the kept parts and ignores the retired step and result maps', () => {
+    // An event written before D11 also holds `steps` and `results`; the parts
+    // carry both now, and nothing reads the maps.
     expect(
       continueStateFromEvents([
         { eventType: 'run.created', payload: {} },
@@ -737,14 +86,11 @@ describe('the Continue state of a Run', () => {
             sourceRunId: '0192f3a4-5b6c-7d8e-9f01-000000000000',
             parts,
             steps: { [CALL_ID]: 0 },
+            results: { [CALL_ID]: { status: 'success' } },
           },
         },
       ]),
-    ).toEqual({
-      parts,
-      stepNumbers: new Map([[CALL_ID, 0]]),
-      results: new Map(),
-    });
+    ).toEqual({ parts });
   });
 
   it('reports no state for a Run that continues nothing', () => {
@@ -757,368 +103,262 @@ describe('the Continue state of a Run', () => {
       ]),
     ).toBeUndefined();
   });
+});
 
-  it('keeps the artifact locator of a recorded error result', () => {
-    const state = continueStateFromEvents([
-      {
-        eventType: 'run.continued',
-        payload: {
-          parts: [],
-          steps: {},
-          results: {
-            [CALL_ID]: {
-              status: 'error',
-              type: 'command_failed',
-              message: 'exit 1',
-              artifact: 'artifact://bash-4/stderr',
-            },
-          },
-        },
-      },
-    ]);
-
-    expect(state?.results.get(CALL_ID)).toEqual({
-      status: 'error',
-      type: 'command_failed',
-      message: 'exit 1',
-      artifact: 'artifact://bash-4/stderr',
-    });
+describe('the step numbers a Continue Run adds (design D5)', () => {
+  it('starts one step after the highest kept step', () => {
+    expect(
+      continueStepOffset({
+        parts: [
+          { ...toolPart(CALL_ID, 'first'), step: 1 },
+          toolPart(CALL_ID_2, 'second'),
+          { type: 'text', text: 'a', step: 4 },
+        ],
+      }),
+    ).toBe(5);
   });
 
-  it('drops an artifact value that is not a locator', () => {
-    const state = continueStateFromEvents([
-      {
-        eventType: 'run.continued',
-        payload: {
-          parts: [],
-          steps: {},
-          results: {
-            [CALL_ID]: {
-              status: 'error',
-              type: 'command_failed',
-              message: 'exit 1',
-              artifact: 'artifact://bash-4/stderr:1-5',
-            },
-          },
-        },
-      },
-    ]);
-
-    expect(state?.results.get(CALL_ID)).toEqual({
-      status: 'error',
-      type: 'command_failed',
-      message: 'exit 1',
-    });
+  it('starts at zero for a Run that keeps no numbered part', () => {
+    expect(continueStepOffset(undefined)).toBe(0);
+    expect(continueStepOffset({ parts: [toolPart(CALL_ID, 'first')] })).toBe(0);
   });
+});
+
+describe('the records a Continue Run stores for its kept parts', () => {
+  const parts: Array<MessagePart> = [
+    toolPart(CALL_ID, 'first'),
+    toolPart(CALL_ID_2, 'second'),
+  ];
 
   it('maps only the kept calls of the source Run events', () => {
     expect(
       continuedRecords({
         keptParts: parts,
         sourceEvents: [
-          {
-            eventType: 'tool.requested',
-            payload: { toolCallId: CALL_ID, stepNumber: 0 },
-          },
-          {
-            eventType: 'tool.requested',
-            payload: { toolCallId: 'not-kept', stepNumber: 1 },
-          },
+          requestEvent(CALL_ID, 0),
+          requestEvent('not-kept', 1),
           // A call the source Run made before it recorded step numbers.
           { eventType: 'tool.requested', payload: { toolCallId: CALL_ID_2 } },
         ],
       }),
-    ).toEqual({ steps: { [CALL_ID]: 0 }, results: {} });
-  });
-
-  it("keeps a chained Continue's steps apart by renumbering the source Run's own", () => {
-    // The source Run continued two steps of its own source (0 and 1) and then
-    // made a step of its own, which its events number from 0 again. The chain
-    // must not merge that step with the first kept one.
-    expect(
-      continuedRecords({
-        keptParts: [
-          toolPart(CALL_ID, 'first'),
-          toolPart('call-0', 'second'),
-          toolPart(CALL_ID_2, 'third'),
-        ],
-        sourceContinued: {
-          parts: [],
-          stepNumbers: new Map([
-            [CALL_ID, 0],
-            ['call-0', 1],
-          ]),
-          results: new Map(),
-        },
-        sourceEvents: [
-          {
-            eventType: 'tool.requested',
-            payload: { toolCallId: CALL_ID_2, stepNumber: 0 },
-          },
-        ],
-      }).steps,
-    ).toEqual({ [CALL_ID]: 0, 'call-0': 1, [CALL_ID_2]: 2 });
-  });
-
-  it('re-reads a recorded error result with its refused locator', () => {
-    const state = continueStateFromEvents([
-      {
-        eventType: 'run.continued',
-        payload: {
-          parts,
-          steps: {},
-          results: {
-            [CALL_ID]: {
-              status: 'error',
-              type: 'permission_denied',
-              message: 'the target was refused',
-              rejectedUrl: 'https://elsewhere.example/x',
-              permission: { ignored: true },
-            },
-            // Unreadable entries contribute nothing.
-            [CALL_ID_2]: { status: 'error', message: 7 },
-          },
-        },
-      },
-    ]);
-
-    expect(state?.results.get(CALL_ID)).toEqual({
-      status: 'error',
-      type: 'permission_denied',
-      message: 'the target was refused',
-      rejectedUrl: 'https://elsewhere.example/x',
-    });
-    expect(state?.results.has(CALL_ID_2)).toBe(false);
-  });
-
-  it('ignores a result or a step recorded on another event type', () => {
-    const records = continuedRecords({
-      keptParts: parts,
-      sourceEvents: [
-        {
-          eventType: 'model.delta',
-          payload: { toolCallId: CALL_ID, stepNumber: 3 },
-        },
-        {
-          eventType: 'run.failed',
-          payload: { toolCallId: CALL_ID, output: { status: 'success' } },
-        },
-      ],
-    });
-
-    expect(records).toEqual({ steps: {}, results: {} });
-  });
-
-  it('drops a chained step of a call the boundary kept nothing of', () => {
-    expect(
-      continuedRecords({
-        keptParts: parts,
-        sourceContinued: {
-          parts: [],
-          stepNumbers: new Map([
-            [CALL_ID, 0],
-            ['not-kept', 1],
-          ]),
-          results: new Map(),
-        },
-        sourceEvents: [],
-      }).steps,
     ).toEqual({ [CALL_ID]: 0 });
   });
 
-  it('offsets two of the source Run own steps after its chain', () => {
-    expect(
-      continuedRecords({
-        keptParts: [
-          toolPart(CALL_ID, 'chained'),
-          toolPart('call-own-1', 'own first'),
-          toolPart('call-own-2', 'own second'),
-        ],
-        sourceContinued: {
-          parts: [],
-          stepNumbers: new Map([[CALL_ID, 2]]),
-          results: new Map(),
-        },
-        sourceEvents: [
-          {
-            eventType: 'tool.requested',
-            payload: { toolCallId: 'call-own-1', stepNumber: 0 },
-          },
-          {
-            eventType: 'tool.requested',
-            payload: { toolCallId: 'call-own-2', stepNumber: 1 },
-          },
-        ],
-      }).steps,
-    ).toEqual({ [CALL_ID]: 2, 'call-own-1': 3, 'call-own-2': 4 });
-  });
-
-  it('carries the results a chained Continue inherited from its own source', () => {
-    const inherited = {
-      status: 'success' as const,
-      kind: 'text' as const,
-      path: '/work/a',
-      text: 'inherited body',
-    };
-    const own = { status: 'success' as const, text: 'own body' };
-
-    const records = continuedRecords({
-      keptParts: [toolPart(CALL_ID, 'stored'), toolPart(CALL_ID_2, 'stored')],
-      sourceContinued: {
-        parts: [],
-        stepNumbers: new Map([[CALL_ID, 0]]),
-        // The inherited call's result lives only here: the source Run never
-        // completed it itself.
-        results: new Map([[CALL_ID, inherited]]),
-      },
-      sourceEvents: [
-        {
-          eventType: 'tool.completed',
-          payload: { toolCallId: CALL_ID_2, status: 'success', output: own },
-        },
-      ],
-    });
-
-    expect(records.results).toEqual({
-      [CALL_ID]: inherited,
-      [CALL_ID_2]: own,
-    });
-  });
-
-  it('drops an inherited result the boundary kept nothing of', () => {
-    expect(
-      continuedRecords({
-        keptParts: [toolPart(CALL_ID, 'stored')],
-        sourceContinued: {
-          parts: [],
-          stepNumbers: new Map([[CALL_ID, 0]]),
-          results: new Map([
-            [CALL_ID, { status: 'success' as const, text: 'kept' }],
-            ['not-kept', { status: 'success' as const, text: 'dropped' }],
-          ]),
-        },
-        sourceEvents: [],
-      }).results,
-    ).toEqual({ [CALL_ID]: { status: 'success', text: 'kept' } });
-  });
-
-  it('lets the source Run own completion win over an inherited result', () => {
-    expect(
-      continuedRecords({
-        keptParts: [toolPart(CALL_ID, 'stored')],
-        sourceContinued: {
-          parts: [],
-          stepNumbers: new Map(),
-          results: new Map([
-            [CALL_ID, { status: 'success' as const, text: 'stale' }],
-          ]),
-        },
-        sourceEvents: [
-          {
-            eventType: 'tool.completed',
-            payload: {
-              toolCallId: CALL_ID,
-              status: 'success',
-              output: { status: 'success', text: 'fresh' },
-            },
-          },
-        ],
-      }).results,
-    ).toEqual({ [CALL_ID]: { status: 'success', text: 'fresh' } });
-  });
-
-  it('records the model-facing result of each kept call', () => {
-    const output = {
-      status: 'success',
-      kind: 'text',
-      text: 'file body',
-      truncated: false,
-    };
+  it('ignores a step recorded on another event type', () => {
     expect(
       continuedRecords({
         keptParts: parts,
         sourceEvents: [
           {
-            eventType: 'tool.completed',
-            payload: { toolCallId: CALL_ID, status: 'success', output },
-          },
-          {
-            eventType: 'tool.completed',
-            payload: {
-              toolCallId: 'not-kept',
-              status: 'success',
-              output,
-            },
+            eventType: 'model.delta',
+            payload: { toolCallId: CALL_ID, stepNumber: 3 },
           },
         ],
-      }).results,
-    ).toEqual({ [CALL_ID]: output });
+      }),
+    ).toEqual({});
+  });
+
+  it("renumbers the source Run's own steps after the ones its parts record", () => {
+    // The kept parts already record the steps the source Run continued (0 and
+    // 1); the step it made itself is numbered from 0 again by its events, and
+    // the chain must not merge it with the first kept one.
+    expect(
+      continuedRecords({
+        keptParts: [
+          { ...toolPart(CALL_ID, 'first'), step: 0 },
+          { ...toolPart('call-0', 'second'), step: 1 },
+          toolPart(CALL_ID_2, 'third'),
+        ],
+        sourceEvents: [requestEvent(CALL_ID_2, 0)],
+      }),
+    ).toEqual({ [CALL_ID]: 0, 'call-0': 1, [CALL_ID_2]: 2 });
+  });
+
+  it('keeps the step a kept part already records over its event number', () => {
+    expect(
+      continuedRecords({
+        keptParts: [{ ...toolPart(CALL_ID, 'first'), step: 4 }],
+        sourceEvents: [requestEvent(CALL_ID, 0)],
+      }),
+    ).toEqual({ [CALL_ID]: 4 });
+  });
+});
+
+describe('the step numbers admission stamps on the kept parts', () => {
+  const reasoning: MessagePart = { type: 'reasoning', text: 'plan' };
+  const text: MessagePart = { type: 'text', text: 'reading' };
+
+  it("copies a kept call's step from the source Run's recorded event", () => {
+    const original = toolPart(CALL_ID, 'first');
+
+    const stamped = withKeptSteps([original], { [CALL_ID]: 0 });
+
+    expect(stamped).toEqual([{ ...original, step: 0 }]);
+    // The stored source is never mutated.
+    expect(original).not.toHaveProperty('step');
+  });
+
+  it('numbers the text and reasoning before a kept call with its step', () => {
+    const parts = [reasoning, text, toolPart(CALL_ID, 'first')];
+
+    const stamped = withKeptSteps(parts, { [CALL_ID]: 3 });
+
+    // The live step sent one assistant message with all three, so the kept
+    // parts must carry the same number.
+    expect(stamped.map((part) => stepOf(part))).toEqual([3, 3, 3]);
+  });
+
+  it('keeps text between calls of one step in that step', () => {
+    const between: MessagePart = { type: 'text', text: 'between' };
+    const parts = [
+      toolPart(CALL_ID, 'first'),
+      between,
+      toolPart(CALL_ID_2, 'second'),
+    ];
+
+    const stamped = withKeptSteps(parts, {
+      [CALL_ID]: 0,
+      [CALL_ID_2]: 0,
+    });
+
+    expect(project(stamped).map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+    ]);
+    expect(project(stamped)[0]?.content).toEqual([
+      expect.objectContaining({ toolCallId: CALL_ID }),
+      { type: 'text', text: 'between' },
+      expect.objectContaining({ toolCallId: CALL_ID_2 }),
+    ]);
+  });
+
+  it('numbers text after a step with the next step it leads into', () => {
+    const parts = [
+      toolPart(CALL_ID, 'first'),
+      { type: 'text', text: 'then' },
+      toolPart(CALL_ID_2, 'second'),
+    ];
+
+    const stamped = withKeptSteps(parts, {
+      [CALL_ID]: 0,
+      [CALL_ID_2]: 1,
+    });
+
+    // The consecutive rule places text after a step's calls at the start of
+    // the next step; one number per part keeps it there.
+    expect(stamped.map((part) => stepOf(part))).toEqual([0, 1, 1]);
+  });
+
+  it('keeps an existing step and adds none to a part no record numbers', () => {
+    const numbered: MessagePart = { ...toolPart(CALL_ID, 'first'), step: 2 };
+    const unrecorded = toolPart(CALL_ID_2, 'second');
+
+    expect(
+      withKeptSteps([numbered, unrecorded], { [CALL_ID]: 0, [CALL_ID_2]: 5 }),
+    ).toEqual([numbered, { ...unrecorded, step: 5 }]);
+    expect(withKeptSteps([unrecorded], {})).toEqual([unrecorded]);
+  });
+
+  it('groups a mixed numbered and unnumbered reply like the live step', () => {
+    // A source Run recorded before parts recorded a step: admission stamps
+    // its calls and their text, then the Continue Run's own parts follow. The
+    // kept step and the new one stay separate.
+    const sourceParts = [reasoning, text, toolPart(CALL_ID, 'first')];
+    const steps = continuedRecords({
+      keptParts: sourceParts,
+      sourceEvents: [requestEvent(CALL_ID, 0)],
+    });
+    const kept = withKeptSteps(sourceParts, steps);
+    const reply = [...kept, { type: 'text', text: 'done', step: 1 }];
+
+    const messages = project(reply);
+
+    expect(messages.map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'assistant',
+    ]);
+    expect(messages[0]?.content).toEqual([
+      { type: 'reasoning', text: 'plan' },
+      { type: 'text', text: 'reading' },
+      expect.objectContaining({ toolCallId: CALL_ID }),
+    ]);
+    expect(messages[2]?.content).toEqual([{ type: 'text', text: 'done' }]);
+  });
+
+  it('sends kept results of more than 100,000 characters in full', () => {
+    const long = 'x'.repeat(60_000);
+
+    const lines = project([
+      { ...toolPart(CALL_ID, long), step: 0 },
+      { ...toolPart(CALL_ID_2, long), step: 0 },
+    ]);
+
+    const serialized = JSON.stringify(lines);
+    expect(serialized.match(/x{60000}/gu)).toHaveLength(2);
+    expect(serialized).not.toContain('omitted');
+  });
+
+  it('replays a kept reasoning part and its metadata on the same model', () => {
+    const metadata = { openai: { itemId: 'rs-1', encryptedContent: 'ENC' } };
+    const lines = project([
+      {
+        type: 'reasoning',
+        text: 'thinking',
+        providerMetadata: metadata,
+        step: 0,
+      },
+      {
+        type: 'text',
+        text: 'reading',
+        providerMetadata: { openai: { itemId: 't-1' } },
+        step: 0,
+      },
+      { ...toolPart(CALL_ID, 'first'), step: 0 },
+    ]);
+
+    // Only the model check applies to a kept part, even though the source Run
+    // failed: the parts are the same turn (design D7).
+    expect(lines[0]?.content).toEqual([
+      { type: 'reasoning', text: 'thinking', providerOptions: metadata },
+      {
+        type: 'text',
+        text: 'reading',
+        providerOptions: { openai: { itemId: 't-1' } },
+      },
+      expect.objectContaining({ toolCallId: CALL_ID }),
+    ]);
   });
 });
 
 describe('the snapshot parts a Continue rebuild owns', () => {
   it("keeps every non-item part and only this Run's items", () => {
     const ownRunId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
-    const foreignItem = contextItem('foreign');
-    const own = contextItem('own');
-    if (!isContextItemPart(own)) throw new TypeError('expected an item');
-    const ownItem = { ...own, data: { ...own.data, runId: ownRunId } };
+    const ownItem = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'instructions',
+        runId: ownRunId,
+        payload: {},
+        text: 'own',
+      },
+    };
+    const keptItem = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'instructions',
+        runId: '0192f3a4-5b6c-7d8e-9f01-00000000000b',
+        payload: {},
+        text: 'kept',
+      },
+    };
+    const text: MessagePart = { type: 'text', text: 'half' };
 
-    expect(
-      ownSnapshotParts(
-        [toolPart(CALL_ID, 'done'), foreignItem, ownItem],
-        ownRunId,
-      ),
-    ).toEqual([toolPart(CALL_ID, 'done'), ownItem]);
-  });
-});
-
-describe('the step numbers a Continue Run adds (design D5)', () => {
-  it('starts one step after the highest kept step', () => {
-    // The kept reply ends with a call at step 1; its chain's own recorded map
-    // names an earlier call at step 0.
-    expect(
-      continueStepOffset({
-        parts: [
-          { type: 'text', text: 'kept answer', step: 1 },
-          { ...toolPart(CALL_ID, 'first'), step: 1 },
-        ],
-        stepNumbers: new Map([[CALL_ID_2, 0]]),
-        results: new Map(),
-      }),
-    ).toBe(2);
-  });
-
-  it('starts at zero for a Run that keeps no numbered part', () => {
-    expect(continueStepOffset(undefined)).toBe(0);
-    expect(continueStepOffset(state([toolPart(CALL_ID, 'first')]))).toBe(0);
-  });
-
-  it('copies a kept call’s step from the source Run’s recorded event only when it has none', () => {
-    const original = [
-      reasoning('kept thinking'),
-      toolPart(CALL_ID, 'first'),
-      { ...toolPart(CALL_ID_2, 'second'), step: 3 },
-      { type: 'text', text: 'kept answer' },
-    ];
-
-    const stepped = withKeptSteps(original, { [CALL_ID]: 1 });
-
-    expect(stepped).toEqual([
-      original[0],
-      { ...toolPart(CALL_ID, 'first'), step: 1 },
-      // A part that already records a step keeps it: the map cannot rename the
-      // step a live Run wrote.
-      { ...toolPart(CALL_ID_2, 'second'), step: 3 },
-      original[3],
+    expect(ownSnapshotParts([text, keptItem, ownItem], ownRunId)).toEqual([
+      text,
+      ownItem,
     ]);
-    // The stored source reply is never rewritten; admission copies.
-    expect(original[1]).not.toHaveProperty('step');
-  });
-
-  it('keeps no step for a call that no event numbered', () => {
-    expect(
-      withKeptSteps([toolPart('unrecorded', 'first')], { [CALL_ID]: 1 }),
-    ).toEqual([toolPart('unrecorded', 'first')]);
   });
 });

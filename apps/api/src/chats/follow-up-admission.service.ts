@@ -55,9 +55,8 @@ import { type MessagePart } from './context-builder';
 import { discardsNonReadOnlyCall } from './regenerate-notice';
 import {
   continuedRecords,
-  continueStateFromEvents,
   withKeptSteps,
-  type ContinuedRecords,
+  type KeptStepNumbers,
 } from './continue-projection';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { createRunForMessage, type FollowUpRunInput } from './run-creation';
@@ -450,8 +449,9 @@ export class FollowUpAdmissionService {
 
   /**
    * What the Continue Run's event log starts from: the reply's kept parts
-   * through its last settled tool part, the step each kept call belongs to, and
-   * whether the reply already recorded usage (turn-actions D4, D6, D11).
+   * through its last settled tool part, each kept call numbered with the step
+   * it belongs to, and whether the reply already recorded usage (turn-actions
+   * D4, D6, D11).
    */
   private async continueFollowUp(
     tx: Db,
@@ -460,57 +460,39 @@ export class FollowUpAdmissionService {
     source: Message,
   ): Promise<FollowUpRunInput> {
     const keptParts = continueKeptParts(source.parts);
-    const records = await this.continueRecords(
-      tx,
-      userId,
-      sourceRunId,
-      keptParts,
-    );
+    const steps = await this.keptSteps(tx, userId, sourceRunId, keptParts);
     return {
       action: 'continue',
       sourceRunId,
-      // A kept tool part stored before step numbers gets its step from the
-      // source Run's own `tool.requested` event, so the continued reply keeps
-      // its step boundaries (design D5).
-      keptParts: withKeptSteps(keptParts, records.steps),
-      keptStepNumbers: records.steps,
-      keptResults: records.results,
+      // The kept parts carry the step each call belongs to, so the continued
+      // reply groups the way the source Run's live step sent it (design D5).
+      keptParts: withKeptSteps(keptParts, steps),
       replacesUsage: source.usage !== null,
     };
   }
 
   /**
-   * What the Continue Run records about its kept calls: the step each belongs
-   * to — the source Run's own steps follow the ones it continued, so a chain
-   * never merges two responses — and the result the source Run sent the model
-   * (turn-actions D6).
+   * The step of each kept call, from the steps the kept parts record and the
+   * source Run's own `tool.requested` events (turn-actions D6). A kept call
+   * whose part records none gets the number its request recorded, and the
+   * text and reasoning of that step follow it.
    */
-  private async continueRecords(
+  private async keptSteps(
     tx: Db,
     userId: string,
     sourceRunId: string,
     keptParts: ReadonlyArray<unknown>,
-  ): Promise<ContinuedRecords> {
-    const events = new RunEventsRepository(tx);
+  ): Promise<KeptStepNumbers> {
     // SAFETY: the kept parts are the reply's own stored UI parts, and the
     // projection re-validates every part it reads.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     const parts = keptParts as ReadonlyArray<MessagePart>;
-    const sourceEvents = await events.listByRunId(sourceRunId, userId, {
-      eventTypes: ['tool.requested', 'tool.completed'],
-    });
-    const sourceContinued = await events.findFirstByType(
+    const sourceEvents = await new RunEventsRepository(tx).listByRunId(
       sourceRunId,
       userId,
-      'run.continued',
+      { eventTypes: ['tool.requested'] },
     );
-    return continuedRecords({
-      keptParts: parts,
-      ...(sourceContinued !== undefined && {
-        sourceContinued: continueStateFromEvents([sourceContinued]),
-      }),
-      sourceEvents,
-    });
+    return continuedRecords({ keptParts: parts, sourceEvents });
   }
 
   /**

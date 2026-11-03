@@ -355,7 +355,7 @@ describeIfDb('follow-up admission', () => {
     );
   }
 
-  const settledCall = (toolCallId: string, step?: number): Array<unknown> => [
+  const settledCall = (toolCallId: string): Array<unknown> => [
     { type: 'reasoning', text: 'think' },
     { type: 'text', text: 'done' },
     {
@@ -364,7 +364,6 @@ describeIfDb('follow-up admission', () => {
       state: 'output-available',
       input: { path: '/tmp/file.txt' },
       output: { content: 'file body' },
-      ...(step !== undefined && { step }),
     },
   ];
 
@@ -417,10 +416,6 @@ describeIfDb('follow-up admission', () => {
       expect(events[1]?.payload).toEqual({
         sourceRunId: fixture.runId,
         parts: settledCall('call-1'),
-        // The source Run recorded no step number, so the projection takes its
-        // consecutive-call fallback (turn-actions D6).
-        steps: {},
-        results: {},
       });
     });
 
@@ -443,11 +438,20 @@ describeIfDb('follow-up admission', () => {
       const events = await eventsOfRun(admitted.runId);
       expect(events[1]?.payload).toEqual({
         sourceRunId: fixture.runId,
-        // Admission copies the recorded step onto the kept call, so the
+        // Admission numbers the whole kept step with the recorded step, so the
         // source Run's boundaries survive (design D5).
-        parts: settledCall('call-1', 2),
-        steps: { 'call-1': 2 },
-        results: {},
+        parts: [
+          { type: 'reasoning', text: 'think', step: 2 },
+          { type: 'text', text: 'done', step: 2 },
+          {
+            type: 'tool-read',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { path: '/tmp/file.txt' },
+            output: { content: 'file body' },
+            step: 2,
+          },
+        ],
       });
     });
 

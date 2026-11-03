@@ -332,26 +332,36 @@ type OpenStep = {
   readonly content: Array<ReplayedAssistantPart>;
   /** One result per call of `content`, in call order. */
   readonly results: Array<ToolResultPart>;
-  readonly number: number | undefined;
+  /** The step number the step records, once a numbered part joins it. */
+  number: number | undefined;
 };
 
 /**
  * Whether `partNumber`/`isTool` begins a new step instead of joining `open`.
  *
- * Two numbered parts with different numbers are different steps, and a row
- * that mixes numbered with legacy parts keeps them apart. A part with no step
- * number follows the Continue rule: each run of consecutive tool parts, with
- * the text and the reasoning before it, is one step — so a call after the open
- * step's calls begins the next one, and so does text or reasoning after a call.
+ * Two numbered parts with different numbers are different steps. A row that
+ * mixes numbered with legacy parts — a Continue reply whose kept prefix was
+ * stored before step numbers — keeps the live shape at the seam: an unnumbered
+ * part that precedes the open step's calls joins the numbered step it leads
+ * into, and a numbered part after an unnumbered step's calls begins a new one.
+ * A part with no step number follows the Continue rule: each run of consecutive
+ * tool parts, with the text and the reasoning before it, is one step — so a
+ * call after the open step's calls begins the next one, and so does text or
+ * reasoning after a call.
  */
 function startsNewStep(
   open: OpenStep,
   partNumber: number | undefined,
   isTool: boolean,
 ): boolean {
-  if (open.number !== undefined || partNumber !== undefined) {
+  if (open.number !== undefined && partNumber !== undefined) {
     return partNumber !== open.number;
   }
+  // The numbered side decides: an unnumbered part after numbered calls starts
+  // a legacy step, and a numbered part after unnumbered calls starts a new
+  // step. Before the calls, the two sides are the same response.
+  if (open.number !== undefined) return open.results.length > 0;
+  if (partNumber !== undefined) return open.results.length > 0;
   const calls = open.results.length;
   const lastWasTool = open.content.at(-1)?.type === 'tool-call';
   return isTool ? calls > 0 && !lastWasTool : calls > 0;
@@ -368,6 +378,8 @@ function startsNewStep(
  * history. `privateParts` carries the model rule
  * of `reasoning-output` (D7) — when it is false, a reasoning part is omitted
  * and every text and tool part keeps its text but loses its provider metadata.
+ * `mediaKey` names the retained bytes behind each part's media marker, so the
+ * caller owns the row identity the marker is scoped to.
  */
 class StoredReplyProjection {
   private readonly messages: Array<ModelMessage> = [];
@@ -376,22 +388,19 @@ class StoredReplyProjection {
   constructor(
     private readonly privateParts: boolean,
     private readonly retainedMedia: Map<string, RetainedMedia>,
+    private readonly mediaKey: (partIndex: number) => string,
   ) {}
 
   /** The reply's messages, writing the retained entries its markers name. */
-  project(parts: Array<MessagePart>, messageId: string): Array<ModelMessage> {
+  project(parts: ReadonlyArray<MessagePart>): Array<ModelMessage> {
     for (const [partIndex, part] of parts.entries()) {
-      this.appendPart(part, partIndex, messageId);
+      this.appendPart(part, partIndex);
     }
     this.closeStep();
     return this.messages;
   }
 
-  private appendPart(
-    part: MessagePart,
-    partIndex: number,
-    messageId: string,
-  ): void {
+  private appendPart(part: MessagePart, partIndex: number): void {
     // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guard narrows it to the replayable variant.
     if (isTextPart(part)) {
       this.appendText(part);
@@ -406,10 +415,7 @@ class StoredReplyProjection {
       this.appendContextItem(part.data.text);
       return;
     }
-    const observation = projectStoredToolPart(
-      part,
-      storedToolPartMediaKey(messageId, partIndex),
-    );
+    const observation = projectStoredToolPart(part, this.mediaKey(partIndex));
     if (observation !== undefined) {
       this.appendTool(partStep(part), observation);
     }
@@ -463,7 +469,12 @@ class StoredReplyProjection {
 
   private openStep(stepNumber: number | undefined, isTool: boolean): OpenStep {
     const { open } = this;
-    if (open !== null && !startsNewStep(open, stepNumber, isTool)) return open;
+    if (open !== null && !startsNewStep(open, stepNumber, isTool)) {
+      // A numbered part that leads into the open unnumbered step adopts it, so
+      // the rest of that response joins the same assistant message.
+      open.number ??= stepNumber;
+      return open;
+    }
     this.closeStep();
     const created: OpenStep = {
       content: [],
@@ -507,6 +518,34 @@ class StoredReplyProjection {
       ? { ...pair.toolResultPart, providerOptions: pair.providerMetadata }
       : pair.toolResultPart;
   }
+}
+
+/** What a request that replays stored parts needs from them. */
+export type StoredReplyProjectionOptions = {
+  /** Whether reasoning and provider metadata replay (the model rule). */
+  privateParts: boolean;
+  /** The retained-media marker key of the part at this index. */
+  mediaKey: (partIndex: number) => string;
+};
+
+/**
+ * One stored reply, or the kept parts of a Continue Run, as the model messages
+ * the live loop sent (D5, D11, D14). Every request that replays stored parts
+ * calls this: a later turn, a compaction request, and a Continue Run, so the
+ * three cannot drift. The caller states the model rule and the retained-media
+ * scope; nothing here decides either.
+ */
+export function projectStoredReplyParts(
+  parts: ReadonlyArray<MessagePart>,
+  options: StoredReplyProjectionOptions,
+): Pick<ModelRequestContext, 'messages' | 'retainedMedia'> {
+  const retainedMedia = new Map<string, RetainedMedia>();
+  const messages = new StoredReplyProjection(
+    options.privateParts,
+    retainedMedia,
+    options.mediaKey,
+  ).project(parts);
+  return { messages, retainedMedia };
 }
 
 /**
@@ -601,6 +640,8 @@ function appendAssistantMessage(
   // Model rule of `reasoning-output` (D7): same model, completed reply.
   const privateParts = replaysPrivateParts(m.usage, modelId);
   result.push(
-    ...new StoredReplyProjection(privateParts, retained).project(m.parts, m.id),
+    ...new StoredReplyProjection(privateParts, retained, (partIndex) =>
+      storedToolPartMediaKey(m.id, partIndex),
+    ).project(m.parts),
   );
 }

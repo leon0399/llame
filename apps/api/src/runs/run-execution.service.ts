@@ -53,6 +53,7 @@ import {
 import {
   buildContext,
   partsToText,
+  projectStoredReplyParts,
   userPartsToModelContent,
   type ModelRequestContext,
   type MessagePart,
@@ -107,6 +108,7 @@ import {
   type RetainedSettlement,
 } from '../media/attempt-media';
 import {
+  continuedMediaKey,
   retainedPartsBase64,
   type RetainedMediaJson,
 } from '../media/retained-media';
@@ -153,7 +155,6 @@ import { isModelSwitchItem } from '../chats/accepted-turn-parts.repository';
 import {
   continueStateFromEvents,
   continueStepOffset,
-  projectContinueParts,
   type ContinueState,
 } from '../chats/continue-projection';
 import { createDeltaBuffer } from './delta-buffer';
@@ -4583,11 +4584,16 @@ export class RunExecutionService {
     continued: ContinueState | undefined;
   }): Promise<PreparedFirstStep> {
     // One projection for the whole attempt: both passes and the compaction
-    // trigger measure and send the same kept messages.
+    // trigger measure and send the same kept messages. The kept parts are the
+    // same Turn, so only the model check of `reasoning-output` applies (D7) —
+    // admission runs the Continue Run on the source Run's model.
     const kept =
       input.continued === undefined
         ? { messages: [], retainedMedia: new Map<string, RetainedMedia>() }
-        : projectContinueParts(input.continued);
+        : projectStoredReplyParts(input.continued.parts, {
+            privateParts: true,
+            mediaKey: continuedMediaKey,
+          });
     const estimatePass = await this.prepareAttemptContext(
       input.run,
       input.attemptId,

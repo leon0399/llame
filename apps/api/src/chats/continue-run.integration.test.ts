@@ -28,11 +28,12 @@ import { isContextItemPart } from '../chats/context-item';
 import { createTemporalItem } from '../chats/context-item-producers';
 import { type MessagePart } from '../chats/context-builder';
 import { createRunForMessage } from '../chats/run-creation';
-import type { ToolResult } from '../tools/types';
 
 import {
   continuedRecords,
+  withKeptSteps,
   type ContinuedEvent,
+  type KeptStepNumbers,
 } from '../chats/continue-projection';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -147,26 +148,39 @@ describeIfDb('a Continue Run', () => {
     messageId: string;
     runId: string;
     seq: number;
+    /** The kept parts admission recorded, each numbered with its step. */
+    keptParts: Array<unknown>;
   };
 
   /**
-   * The source Run's own event log — the results it sent, its chain, and the
-   * extra step it made — and the records the Continue Run stores for the kept
-   * calls, derived from it.
+   * The source Run's own event log — the requests that number its calls, the
+   * results it sent, and the extra step it made — and the step records the
+   * Continue Run's admission derives from it.
    */
   async function seedSourceRecords(
     tx: Parameters<Parameters<TenantDbService['runAs']>[1]>[0],
     sourceRunId: string,
     sourceParts: ReadonlyArray<unknown>,
     options: Parameters<typeof seedContinuedTurn>[0],
-  ) {
+  ): Promise<KeptStepNumbers> {
     const sourceEvents = new RunEventsRepository(tx);
     const sourceRecorded: Array<ContinuedEvent> = [];
-    const inherited = options?.inheritedResults ?? {};
+    const steps = options?.keptSteps ?? [];
+    let callIndex = 0;
     for (const part of sourceParts) {
       const record = keptResultOf(part);
-      // An inherited call's result is not this Run's completion to record.
-      if (record === undefined || record.toolCallId in inherited) continue;
+      if (record === undefined) continue;
+      const requested = {
+        toolCallId: record.toolCallId,
+        toolName: 'read',
+        input: record.input,
+        // The request that made the call is the one record of its step, so a
+        // reply stored before parts recorded one keeps its boundaries (D5).
+        stepNumber: steps[callIndex] ?? 0,
+      };
+      callIndex += 1;
+      await sourceEvents.append(sourceRunId, 'tool.requested', requested);
+      sourceRecorded.push({ eventType: 'tool.requested', payload: requested });
       const payload = {
         toolCallId: record.toolCallId,
         toolName: 'read',
@@ -174,7 +188,6 @@ describeIfDb('a Continue Run', () => {
         output: record.output,
       };
       await sourceEvents.append(sourceRunId, 'tool.completed', payload);
-      sourceRecorded.push({ eventType: 'tool.completed', payload });
     }
     if (options?.chainedOwnCall === true) {
       const payload = {
@@ -186,31 +199,11 @@ describeIfDb('a Continue Run', () => {
       await sourceEvents.append(sourceRunId, 'tool.requested', payload);
       sourceRecorded.push({ eventType: 'tool.requested', payload });
     }
-    const chained = options?.sourceContinued === true;
-    if (chained) {
-      await sourceEvents.append(sourceRunId, 'run.continued', {
-        sourceRunId: crypto.randomUUID(),
-        parts: [],
-        steps: { [CALL_ID]: 0 },
-        results: options?.inheritedResults ?? {},
-      });
-    }
     // SAFETY: the seeded reply parts are stored UI parts, and the projection
     // re-validates every part it reads.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     const keptParts = sourceParts as ReadonlyArray<MessagePart>;
-    return continuedRecords({
-      keptParts,
-      ...(chained && {
-        sourceContinued: {
-          parts: [],
-          stepNumbers: new Map([[CALL_ID, 0]]),
-          // The results that Run inherited, as its `run.continued` holds them.
-          results: new Map<string, ToolResult>(Object.entries(inherited)),
-        },
-      }),
-      sourceEvents: sourceRecorded,
-    });
+    return continuedRecords({ keptParts, sourceEvents: sourceRecorded });
   }
 
   /**
@@ -230,15 +223,10 @@ describeIfDb('a Continue Run', () => {
     promptImportsItem?: boolean;
     /** One skill an earlier Run already activated on this turn. */
     skillActivationItem?: string;
-    /** Whether the source Run was itself a Continue Run. */
-    sourceContinued?: boolean;
+    /** The step number each kept call's request recorded, in call order. */
+    keptSteps?: ReadonlyArray<number>;
     /** Whether the source Run made a second read of its own. */
     chainedOwnCall?: boolean;
-    /**
-     * Results the source Run inherited from the Run it continued: they live
-     * only in its `run.continued`, never in its own completion events.
-     */
-    inheritedResults?: Record<string, ToolResult>;
   }): Promise<ContinuedTurn> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -369,6 +357,7 @@ describeIfDb('a Continue Run', () => {
         sourceParts,
         options,
       );
+      const numberedKeptParts = withKeptSteps(sourceParts, records);
       const { run } = await createRunForMessage(
         tx,
         {
@@ -381,15 +370,19 @@ describeIfDb('a Continue Run', () => {
           followUp: {
             action: 'continue',
             sourceRunId: sourceRun.id,
-            keptParts: sourceParts,
-            keptStepNumbers: records.steps,
-            keptResults: records.results,
+            keptParts: numberedKeptParts,
             replacesUsage: true,
           },
         },
         trigger,
       );
-      return { chatId, messageId, runId: run.id, seq: trigger.seq };
+      return {
+        chatId,
+        messageId,
+        runId: run.id,
+        seq: trigger.seq,
+        keptParts: numberedKeptParts,
+      };
     });
   }
 
@@ -522,9 +515,17 @@ describeIfDb('a Continue Run', () => {
     );
 
     const reply = await replyOf(turn);
+    // The source reply stored its parts before step numbers existed, so
+    // admission numbers the whole kept step — its reasoning and text with its
+    // call — and the reply keeps it as one step (design D5).
+    expect(turn.keptParts.slice(0, 3)).toEqual([
+      { type: 'reasoning', text: 'I should read the file first', step: 0 },
+      { type: 'text', text: KEPT_TEXT, step: 0 },
+      expect.objectContaining({ toolCallId: CALL_ID, step: 0 }),
+    ]);
     expect(reply?.parts).toEqual([
-      ...keptParts,
-      { type: 'text', text: 'done', step: 0 },
+      ...turn.keptParts,
+      { type: 'text', text: 'done', step: 1 },
     ]);
     expect(reply?.usage).toMatchObject({
       status: 'completed',
@@ -533,6 +534,88 @@ describeIfDb('a Continue Run', () => {
       complete: false,
     });
     expect((await runOf(turn.runId))?.status).toBe('completed');
+  });
+
+  it('keeps the sequential steps of a reply stored before step numbers', async () => {
+    // The source reply has no step on any part, and its requests recorded two
+    // responses: the consecutive rule recovers them, so the calls stay in two
+    // assistant messages (turn-actions D6, design D5).
+    const secondCall = {
+      type: 'tool-read',
+      toolCallId: 'call-second',
+      state: 'output-available',
+      input: { path: '/tmp/second.txt' },
+      output: { status: 'success', text: 'second body' },
+      outcome: 'success',
+    };
+    const turn = await seedContinuedTurn({
+      keptSteps: [0, 1],
+      replyParts: [
+        { type: 'text', text: 'first read' },
+        keptParts[2],
+        { type: 'text', text: 'second read' },
+        secondCall,
+      ],
+    });
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
+        requests,
+      }),
+    );
+
+    const sent = requests[0]?.messages ?? [];
+    expect(sent.slice(-4).map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+    ]);
+    const callsPerMessage = sent
+      .slice(-4)
+      .map(({ role, content }) =>
+        role === 'assistant' && Array.isArray(content)
+          ? content.flatMap((part) =>
+              part.type === 'tool-call' ? [part.toolCallId] : [],
+            )
+          : [],
+      );
+    expect(callsPerMessage).toEqual([[CALL_ID], [], ['call-second'], []]);
+  });
+
+  it('replays the reasoning of a failed Run with its provider metadata', async () => {
+    const metadata = { test: { signature: 'kept-reasoning' } };
+    const turn = await seedContinuedTurn({
+      replyParts: [
+        { type: 'reasoning', text: 'kept thought', providerMetadata: metadata },
+        keptParts[1],
+        keptParts[2],
+      ],
+    });
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
+        requests,
+      }),
+    );
+
+    // The source Run failed, and its reasoning still reaches its own model:
+    // the kept parts are the same turn, so only the model check applies
+    // (design D7).
+    const assistant = requests[0]?.messages.at(-2);
+    expect(assistant?.content).toEqual(
+      expect.arrayContaining([
+        {
+          type: 'reasoning',
+          text: 'kept thought',
+          providerOptions: metadata,
+        },
+      ]),
+    );
   });
 
   it('numbers its own parts after a kept step', async () => {
@@ -547,7 +630,7 @@ describeIfDb('a Continue Run', () => {
     // request makes no tool step to stamp one (design D5).
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
-      ...keptPartsAtStepOne,
+      ...turn.keptParts,
       { type: 'text', text: 'done', step: 2 },
     ]);
   });
@@ -562,8 +645,8 @@ describeIfDb('a Continue Run', () => {
 
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
-      ...keptParts,
-      { type: 'text', text: 'partial', step: 0 },
+      ...turn.keptParts,
+      { type: 'text', text: 'partial', step: 1 },
     ]);
     expect(reply?.usage).toMatchObject({ status: 'error', runId: turn.runId });
     expect((await runOf(turn.runId))?.status).toBe('failed');
@@ -654,23 +737,16 @@ describeIfDb('a Continue Run', () => {
   });
 
   it("keeps a chained Continue's earlier steps separate from its own", async () => {
-    // The source Run was itself continued: it kept one step of its own source
-    // (its own events number its step 0, and so does the kept one) and made a
-    // second. The new Continue must send both as separate steps.
-    const inherited = {
-      status: 'success' as const,
-      kind: 'text' as const,
-      path: '/tmp/file.txt',
-      text: 'inherited body',
-    };
+    // The source Run was itself continued: its kept parts already record step
+    // 0, and the step it made itself is numbered from 0 again by its events.
+    // The new Continue must send both as separate steps, and the kept part
+    // carries the result the source Run sent.
     const turn = await seedContinuedTurn({
-      sourceContinued: true,
       chainedOwnCall: true,
-      inheritedResults: { [CALL_ID]: inherited },
       replyParts: [
-        keptParts[0],
-        keptParts[1],
-        keptParts[2],
+        { ...keptParts[0], step: 0 },
+        { ...keptParts[1], step: 0 },
+        { ...keptParts[2], step: 0 },
         {
           type: 'tool-read',
           toolCallId: 'call-own',
@@ -706,9 +782,8 @@ describeIfDb('a Continue Run', () => {
         : [],
     );
     expect(callIds).toEqual([CALL_ID, 'call-own']);
-    // The inherited call's result lives only in the source Run's
-    // `run.continued`, and it replays exactly as the live loop sent it rather
-    // than through the later-turn renderer.
+    // The inherited call replays the result its kept part stores, exactly as
+    // the live loop sent it rather than through the later-turn renderer.
     const inheritedResult = toolResultOf(sent, CALL_ID);
     expect(inheritedResult).toMatchObject({
       type: 'tool-result',
@@ -720,7 +795,11 @@ describeIfDb('a Continue Run', () => {
     const serialized = inheritedResult?.output;
     expect(
       serialized?.type === 'text' ? JSON.parse(serialized.value) : undefined,
-    ).toEqual(inherited);
+    ).toEqual({
+      status: 'success',
+      path: '/tmp/file.txt',
+      text: KEPT_RESULT,
+    });
   });
 
   it('reads the previous completed Run the reply names, not the newest one', async () => {
@@ -847,7 +926,7 @@ describeIfDb('a Continue Run', () => {
         chatId: turn.chatId,
         inReplyTo: turn.messageId,
         attemptId,
-        parts: [...keptParts, keptItem, ownItem],
+        parts: [...turn.keptParts, ownItem],
       });
     });
 
@@ -864,8 +943,7 @@ describeIfDb('a Continue Run', () => {
     // then the attempt's own item — no rebuilt part holds a kept call id, so it
     // goes at the start of the rebuilt reply — then the attempt's output.
     expect(reply?.parts).toEqual([
-      ...keptParts,
-      keptItem,
+      ...turn.keptParts,
       ownItem,
       { type: 'text', text: 'half' },
     ]);
@@ -918,7 +996,7 @@ describeIfDb('a Continue Run', () => {
     // live collector would have (design D5).
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
-      ...keptPartsAtStepOne,
+      ...turn.keptParts,
       { type: 'text', text: 'half', step: 2 },
     ]);
   });
@@ -940,10 +1018,12 @@ function toolResultOf(
 }
 
 /** The recorded result of one kept part, when it is a settled `read` call. */
-function keptResultOf(
-  part: unknown,
-):
-  | { toolCallId: string; output: { status: 'success' } & UnknownRecord }
+function keptResultOf(part: unknown):
+  | {
+      toolCallId: string;
+      input: unknown;
+      output: { status: 'success' } & UnknownRecord;
+    }
   | undefined {
   if (!isRecord(part)) return undefined;
   const toolCallId = part['toolCallId'];
@@ -951,6 +1031,10 @@ function keptResultOf(
   return isString(toolCallId) &&
     isRecord(output) &&
     output['status'] === 'success'
-    ? { toolCallId, output: { ...output, status: 'success' } }
+    ? {
+        toolCallId,
+        input: part['input'],
+        output: { ...output, status: 'success' },
+      }
     : undefined;
 }

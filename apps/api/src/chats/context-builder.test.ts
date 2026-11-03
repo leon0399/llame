@@ -12,6 +12,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildContext,
   partsToText,
+  projectStoredReplyParts,
   type MessagePart,
   type ModelMessage,
   type ModelRequestContext,
@@ -2295,6 +2296,97 @@ describe('buildContext', () => {
         ]);
         expect(messages[2].content).toEqual([
           expect.objectContaining({ toolCallId: 'read-b' }),
+        ]);
+      });
+    });
+
+    describe('one projection for a Continue Run and a later turn', () => {
+      const kept: Array<MessagePart> = [
+        {
+          type: 'reasoning',
+          text: 'Plan the read.',
+          providerMetadata: { openai: { itemId: 'rs-1' } },
+          step: 0,
+        },
+        {
+          type: 'text',
+          text: 'Reading.',
+          providerMetadata: { openai: { itemId: 't-1' } },
+          step: 0,
+        },
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'call-kept',
+          state: 'output-available',
+          input: { query: 'kept' },
+          output: { status: 'success', value: 'KEPT_RESULT' },
+          outcome: 'success',
+          step: 0,
+        },
+        { type: 'text', text: 'Done.', step: 1 },
+      ];
+
+      it('replays the kept parts of a reply the way a later turn does', () => {
+        const later = buildContext(
+          [
+            msg({
+              role: 'assistant',
+              usage: { status: 'completed', modelId: 'test-model' },
+              parts: kept,
+            }),
+          ],
+          { systemPrompt, modelId: 'test-model' },
+        ).messages;
+        const continued = projectStoredReplyParts(kept, {
+          privateParts: true,
+          mediaKey: (partIndex) => `continued:${partIndex}`,
+        }).messages;
+
+        // Same parts, same model: byte-identical messages (turn-replay).
+        expect(JSON.stringify(continued)).toBe(JSON.stringify(later));
+      });
+
+      it('groups a mixed numbered and unnumbered reply like the live step', () => {
+        // A Continue reply written before admission numbered the whole kept
+        // step: its reasoning and text carry no step and its call does. The
+        // text and reasoning lead into the numbered call, so they stay in its
+        // assistant message; the numbered text after it is a new step.
+        const { messages } = buildContext(
+          [
+            msg({
+              role: 'assistant',
+              usage: { status: 'completed', modelId: 'test-model' },
+              parts: [
+                { type: 'reasoning', text: 'Legacy plan.' },
+                { type: 'text', text: 'Legacy reading.' },
+                {
+                  type: 'tool-search_conversations',
+                  toolCallId: 'call-legacy',
+                  state: 'output-available',
+                  input: { query: 'legacy' },
+                  output: { status: 'success', value: 'LEGACY_RESULT' },
+                  outcome: 'success',
+                  step: 0,
+                },
+                { type: 'text', text: 'After the call.', step: 1 },
+              ],
+            }),
+          ],
+          { systemPrompt, modelId: 'test-model' },
+        );
+
+        expect(messages.map(({ role }) => role)).toEqual([
+          'assistant',
+          'tool',
+          'assistant',
+        ]);
+        expect(messages[0]?.content).toEqual([
+          { type: 'reasoning', text: 'Legacy plan.' },
+          { type: 'text', text: 'Legacy reading.' },
+          expect.objectContaining({ toolCallId: 'call-legacy' }),
+        ]);
+        expect(messages[2]?.content).toEqual([
+          { type: 'text', text: 'After the call.' },
         ]);
       });
     });

@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
+- A Continue Run now builds its kept steps through the same projection a later
+  turn and a compaction request use, so the request resends the reply's kept
+  reasoning, text, and calls exactly as the source Run's live step sent them,
+  provider metadata included, and no second renderer can drift from that. The
+  kept parts are the same turn, so the reasoning of a failed Run reaches its own
+  model; only the completion check does not apply. Admission numbers a whole
+  kept step — its text and reasoning with its calls — from the source Run's
+  `tool.requested` events, so a reply stored before parts recorded a step keeps
+  its boundaries and the continued reply groups the way the live step did. The
+  `run.continued` event now stores the kept parts alone: its retired `steps` and
+  `results` maps are no longer written, and an older event that holds them is
+  still readable because its parts are the source. No schema or stored-row
+  change. Refs [#1539](https://github.com/leon0399/llame/issues/1539).
+
 - A compaction request now replays the rows it absorbs through the same
   projection a later turn uses. Its reasoning parts and their provider metadata
   therefore reach the summarizer when they meet the model rule of
