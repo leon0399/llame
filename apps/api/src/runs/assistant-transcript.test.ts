@@ -144,6 +144,19 @@ describe('AssistantPartCollector', () => {
     ]);
   });
 
+  it('stamps a metadata-only reasoning start with the step it arrived in', () => {
+    const collector = createAssistantPartCollector();
+    const metadata = { openai: { itemId: 'rs_1' } };
+
+    collector.reasoning('step one', 'rs-0', undefined, 0);
+    collector.reasoning('', 'rs-1', metadata, 1);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'step one', step: 0 },
+      { type: 'reasoning', text: '', providerMetadata: metadata, step: 1 },
+    ]);
+  });
+
   it('holds a text part’s start metadata until its id produces text', () => {
     const collector = createAssistantPartCollector();
     const start = { openai: { itemId: 'msg_1' } };

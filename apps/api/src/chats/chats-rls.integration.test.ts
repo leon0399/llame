@@ -314,7 +314,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         toolCallId: 'call-edit',
         state: 'output-available',
         input: { path: '/work/a.md', oldText: 'before', newText: 'after' },
-        output: { status: 'success', replacements: 1 },
+        output: { replacements: 1, status: 'success' },
         outcome: 'success',
       },
     ];
@@ -339,7 +339,11 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
       expect(readBack.parts).toEqual(parts);
       const [part] = readBack.parts;
-      if (!isRecord(part) || !isRecord(part['input'])) {
+      if (
+        !isRecord(part) ||
+        !isRecord(part['input']) ||
+        !isRecord(part['output'])
+      ) {
         throw new TypeError('Expected the stored tool part with its input');
       }
       expect(Object.keys(part['input'])).toEqual([
@@ -347,6 +351,8 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         'oldText',
         'newText',
       ]);
+      // jsonb would store `status` (the shorter key) first.
+      expect(Object.keys(part['output'])).toEqual(['replacements', 'status']);
 
       await tx.execute(dsql`DELETE FROM chats WHERE id = ${chat.id}`); // cascades to messages
     });
