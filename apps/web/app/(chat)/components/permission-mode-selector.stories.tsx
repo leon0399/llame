@@ -200,6 +200,37 @@ export const ReadOnlySelected: Story = {
 };
 
 /**
+ * Choosing Read-only from the menu stores the selection and updates the
+ * trigger, so the composer sends the mode the owner picked rather than only
+ * rendering one installed through context.
+ *
+ * @summary choosing read-only from the menu updates the trigger
+ */
+export const ReadOnlyChosen: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    usePermissionModesQuery.mockReturnValue({
+      data: READ_ONLY_AVAILABLE,
+      isError: false,
+      isPending: false,
+    });
+  },
+  play: async ({ canvas }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Permission mode, Default" }),
+    );
+    await userEvent.click(
+      await within(document.body).findByRole("menuitemradio", {
+        name: /Read-only/,
+      }),
+    );
+    await waitFor(() => {
+      canvas.getByRole("button", { name: "Permission mode, Read-only" });
+    });
+  },
+};
+
+/**
  * While the enabled-mode listing is still loading, the selector stays absent
  * rather than showing an unusable empty trigger.
  *
