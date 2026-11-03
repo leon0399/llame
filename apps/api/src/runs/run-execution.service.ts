@@ -326,7 +326,6 @@ import {
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
-  listUnstartedOnce,
   WorkspaceMcpClients,
   type WorkspaceMcpKey,
   type WorkspaceMcpListingCell,
@@ -2551,17 +2550,16 @@ export class RunExecutionService {
     listing: WorkspaceMcpListingCell,
   ): Promise<WorkspaceMcpKey | undefined> {
     const clients = this.workspaceMcp;
-    if (mode === 'read-only') {
-      if (clients === undefined || key === undefined) return undefined;
-      await Promise.all([
-        clients.stopStale(key),
-        listUnstartedOnce(clients, listing, key),
-      ]);
-      return undefined;
-    }
-    if (clients === undefined) return key;
+    if (clients === undefined) return mode === 'read-only' ? undefined : key;
     if (key === undefined) {
       await clients.stopForChat(chatId);
+      return undefined;
+    }
+    if (mode === 'read-only') {
+      await Promise.all([
+        clients.stopStale(key),
+        clients.listUnstartedOnce(listing, key),
+      ]);
       return undefined;
     }
     await clients.startForChat(key);

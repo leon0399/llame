@@ -1449,6 +1449,45 @@ describe('RunExecutionService executeRun', () => {
       await operator.stop();
     }
   });
+  it('stops Workspace MCP clients when a read-only Run has no bound Workspace', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      permissionMode: 'read-only',
+      followUpAction: null,
+      sourceRunId: null,
+    });
+    const operator = new McpRuntimeService({});
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () => Promise.resolve([]),
+    });
+    const stopForChat = vi.spyOn(workspaceMcp, 'stopForChat');
+    const stopStale = vi.spyOn(workspaceMcp, 'stopStale');
+    const listUnstartedOnce = vi.spyOn(workspaceMcp, 'listUnstartedOnce');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      { workspaceMcp, permissionModes: ['default', 'read-only'] },
+    );
+
+    try {
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      // An unbound Chat still stops its clients; only a bound one has a key.
+      expect(stopForChat).toHaveBeenCalledOnce();
+      expect(stopForChat).toHaveBeenCalledWith(chatId);
+      expect(stopStale).not.toHaveBeenCalled();
+      expect(listUnstartedOnce).not.toHaveBeenCalled();
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+    }
+  });
+
   it('ends a Workspace attempt only once when its release callback repeats', async () => {
     mockNormalExecutionRepositories();
     const operator = new McpRuntimeService({});

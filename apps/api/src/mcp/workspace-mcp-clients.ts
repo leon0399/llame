@@ -72,24 +72,6 @@ export type WorkspaceMcpListingCell = {
   listing?: WorkspaceMcpListing;
 };
 
-/**
- * The attempt's listing for `key`, read once for each binding: a same-root
- * re-entry returns it and reads no configuration again.
- */
-export async function listUnstartedOnce(
-  clients: WorkspaceMcpClients,
-  cell: WorkspaceMcpListingCell,
-  key: WorkspaceMcpKey,
-): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
-  const current = cell.listing;
-  if (current !== undefined && sameKey(current.key, key)) {
-    return current.servers;
-  }
-  const servers = await clients.listUnstarted(key);
-  cell.listing = { key, servers };
-  return servers;
-}
-
 export type WorkspaceMcpClientsOptions = Readonly<{
   clientFactory?: McpRuntimeClientFactory;
   now?: () => number;
@@ -258,6 +240,23 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
         ),
       ),
     );
+  }
+
+  /**
+   * The attempt's listing for `key`, read once for each binding: a same-root
+   * re-entry returns it and reads no configuration again.
+   */
+  async listUnstartedOnce(
+    cell: WorkspaceMcpListingCell,
+    key: WorkspaceMcpKey,
+  ): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
+    const current = cell.listing;
+    if (current !== undefined && sameKey(current.key, key)) {
+      return current.servers;
+    }
+    const servers = await this.listUnstarted(key);
+    cell.listing = { key, servers };
+    return servers;
   }
 
   /**

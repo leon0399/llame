@@ -1,7 +1,6 @@
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { machineExecutorId } from '../machines/machine-locator';
 import {
-  listUnstartedOnce,
   type WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
   type WorkspaceMcpKey,
@@ -232,7 +231,7 @@ async function readOnlyWorkspaceMcpServers(
 ): Promise<WorkspaceMcpEntryState['servers']> {
   const cell = context.workspaceMcpListing;
   if (cell === undefined) return clients.listUnstarted(key);
-  return listUnstartedOnce(clients, cell, key);
+  return clients.listUnstartedOnce(cell, key);
 }
 
 async function workspaceMcpServers(
