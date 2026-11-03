@@ -2564,10 +2564,17 @@ describe('Machine pages within one call', () => {
     }
     const withSkip = await secondPageUnits(true);
     const withoutSkip = await secondPageUnits(false);
-    // The next response leaves room for the line the result will carry.
-    expect(withoutSkip - withSkip).toBe(
-      grepUnfinishedUnits(`machine://devl/srv/app/${skipped}`),
-    );
+    // The next response leaves room for the line the result will carry, read
+    // off the model text itself: the line and the newline that joins it.
+    const warnings = [{ kind: 'deadline', count: 1 }];
+    const before = renderGrepText({ results: [], complete: false, warnings });
+    const after = renderGrepText({
+      results: [],
+      complete: false,
+      warnings,
+      unfinishedFile: `machine://devl/srv/app/${skipped}`,
+    });
+    expect(withoutSkip - withSkip).toBe(after.length - before.length);
   });
 
   it('resumes after a skipped file when a later page kept nothing', async () => {
