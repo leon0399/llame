@@ -2,15 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
-- The `openai-responses` wire now sends `store: false` on every request, so a
-  response lives only in llame's own rows and a later turn never depends on a
-  provider-side item that could expire or belong to another request. An entry's
-  `"store": true` is not sent. A model entry that declares `reasoning` also
+- The `openai-responses` wire now sends `store: false` on every request, so the
+  provider keeps no response for later retrieval through the API and a later
+  turn never depends on a provider-side item that could expire or belong to
+  another request; an entry's `"store": true` is not sent. This does not change
+  the provider's own data-retention policy, and an endpoint at another
+  `baseUrl` follows its own. A model entry that declares `reasoning` also
   forces the adapter's reasoning treatment, so a model id the adapter does not
-  recognize still asks for `reasoning.encrypted_content`, and a replayed
-  reasoning part carries that encrypted content instead of a reference to a
-  stored item; a stored part with only an item id is omitted. Refs
-  [#1539](https://github.com/leon0399/llame/issues/1539).
+  recognize still asks for `reasoning.encrypted_content` (and sends the system
+  prompt with the `developer` role, as the adapter does for its own reasoning
+  models), and a replayed reasoning part carries that encrypted content instead
+  of a reference to a stored item; a stored part with only an item id is
+  omitted. Refs [#1539](https://github.com/leon0399/llame/issues/1539).
 
 - A stored text, reasoning, or tool part now records the model step that
   produced it, so a later turn can group a step's calls and its text exactly as

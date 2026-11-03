@@ -144,7 +144,28 @@ describe('createModelClient wire dispatch', () => {
   // The entry's `reasoning` declaration is the whole signal the Responses
   // client needs to force the adapter's reasoning treatment for any model id
   // (exact-turn-replay D12).
-  it('marks reasoningDeclared from the entry reasoning vocabulary', () => {
+  it.each([
+    {
+      name: 'marks reasoningDeclared from the entry reasoning vocabulary',
+      reasoning: {
+        effortLevels: [{ value: 'high' }],
+        defaultEffort: 'high',
+        cacheInvalidatedByEffortChange: false,
+      },
+      declared: true,
+    },
+    {
+      name: 'marks reasoningDeclared false when the entry declares no reasoning',
+      reasoning: null,
+      declared: false,
+    },
+  ])('$name', ({ reasoning, declared }) => {
+    const entry: Parameters<typeof createModelClient>[0]['model'] = {
+      ...model,
+      provider: 'responses',
+    };
+    if (reasoning !== null) entry.reasoning = reasoning;
+
     createModelClient(
       {
         userAgent: USER_AGENT,
@@ -155,42 +176,13 @@ describe('createModelClient wire dispatch', () => {
           baseUrl: null,
           headers: {},
         },
-        model: {
-          ...model,
-          provider: 'responses',
-          reasoning: {
-            effortLevels: [{ value: 'high' }],
-            defaultEffort: 'high',
-            cacheInvalidatedByEffortChange: false,
-          },
-        },
+        model: entry,
       },
       dependencies,
     );
 
     expect(createResponsesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ reasoningDeclared: true }),
-    );
-  });
-
-  it('marks reasoningDeclared false when the entry declares no reasoning', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        provider: {
-          id: 'responses',
-          type: 'openai-responses',
-          key: 'sk-key',
-          baseUrl: null,
-          headers: {},
-        },
-        model: { ...model, provider: 'responses' },
-      },
-      dependencies,
-    );
-
-    expect(createResponsesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ reasoningDeclared: false }),
+      expect.objectContaining({ reasoningDeclared: declared }),
     );
   });
 

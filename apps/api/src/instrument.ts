@@ -6,6 +6,7 @@
 import { config } from 'dotenv';
 import * as Sentry from '@sentry/nestjs';
 
+import { installAiSdkWarningLogger } from './ai-sdk-warnings';
 import { setUpSentry } from './sentry-setup';
 
 setUpSentry({
@@ -14,3 +15,7 @@ setUpSentry({
   loadEnvFile: config,
   init: Sentry.init,
 });
+
+// Redacts reasoning metadata from adapter warnings before any model call runs
+// (see the module: the SDK's default logger prints the whole skipped part).
+installAiSdkWarningLogger();

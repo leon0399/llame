@@ -406,15 +406,16 @@ export type OpenAIModelClientConfig = {
    * generation alike. Streaming composes it under the fixed precedence:
    * client defaults < operator < run effort < client invariants, with `null`
    * at any depth removing a defaulted key; a structured request carries the
-   * operator layer alone.
+   * operator layer and the wire's invariants (no default, no effort).
    */
   providerOptions?: ProviderOptionRecord;
   /**
    * Client-owned options no operator value — `null` included — can remove or
-   * replace (design D5). The codex subscription transport pins `store: false`
-   * and `reasoningSummary: 'auto'` here. This wire pins `store: false` itself
-   * for every request of either client (design D12), so a configured record
-   * can add to that invariant but never remove it.
+   * replace (design D5). The codex subscription transport pins
+   * `reasoningSummary: 'auto'` here; `store: false` is the Responses wire's
+   * own invariant, applied after this record to every request of either
+   * client (design D12). A configured record can add to those invariants but
+   * never remove them.
    */
   providerOptionInvariants?: ProviderOptionRecord;
   /**
@@ -474,43 +475,50 @@ const RESPONSES_RESERVED_PROVIDER_OPTION_PATHS: ReadonlyArray<string> = [
 ];
 
 /**
+ * The per-client pieces every request reuses, so they are built once when the
+ * client is created: the config never changes afterwards, and the invariants
+ * are derived from it.
+ */
+type ResponsesClientContext = {
+  openai: OpenAIProvider;
+  config: OpenAIModelClientConfig;
+  invariants: ProviderOptionRecord;
+};
+
+/**
  * One composed record under the Responses wire's `openai` namespace — the
  * namespace `@ai-sdk/openai` reads its own options from, for a streaming and a
- * structured-generation request alike. An empty composition contributes
- * nothing, so a request that composes to nothing sends exactly the body it
- * sent before this layer.
+ * structured-generation request alike. This wire always contributes at least
+ * `store: false`, so the empty composition the composer's type admits never
+ * arises here.
  */
 function responsesProviderOptions(
   composed: ProviderOptionRecord | undefined,
 ): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
-  return composed === undefined
-    ? {}
-    : { providerOptions: { openai: composed } };
+  return { providerOptions: { openai: composed ?? {} } };
 }
 
 /**
- * The Responses wire's own client invariants (design D12): llame keeps no
- * response on the provider's side, so the adapter may not fall back to a
- * server-side item the provider could expire or share.
- */
-const RESPONSES_INVARIANTS: ProviderOptionRecord = { store: false };
-
-/**
  * The invariants of one Responses request, applied as the composer's last
- * layer: this wire's own (design D12), the adapter's forced reasoning
- * treatment for an entry that declares `reasoning` — so an id the adapter
- * does not recognize still asks for `reasoning.encrypted_content` — and the
- * transport's configured record (the Codex client's). Client-owned like any
- * invariant: no operator value, `null` included, can remove or replace one.
- * An entry that declares no reasoning sends no `forceReasoning`, so the
- * adapter's model-id rule stays in force for it.
+ * layer. `store: false` (design D12) means the provider keeps no response for
+ * later retrieval through the API, so no request depends on a stored item
+ * that could expire or belong to another Chat; the provider's own retention
+ * policy is unchanged, and an endpoint at another `baseUrl` follows its own.
+ * The transport's configured record (the Codex client's) comes first, then
+ * this wire's key. A declared-reasoning entry also forces the adapter's
+ * reasoning treatment, so an id the adapter does not recognize still asks for
+ * `reasoning.encrypted_content`. Client-owned like any invariant: no operator
+ * value, `null` included, can remove or replace one. An entry that declares no
+ * reasoning sends no `forceReasoning`, so the adapter's model-id rule stays in
+ * force for it. `config` never changes after the client is created, so this is
+ * computed once per client.
  */
 function responsesInvariants(
   config: OpenAIModelClientConfig,
 ): ProviderOptionRecord {
   return {
     ...config.providerOptionInvariants,
-    ...RESPONSES_INVARIANTS,
+    store: false,
     ...(config.reasoningDeclared === true && { forceReasoning: true }),
   };
 }
@@ -537,19 +545,19 @@ function perCallHeaders(config: OpenAIModelClientConfig, chat: ChatIdentity) {
  * paths are stripped by the composer.
  *
  * Every Responses request carries at least the wire's own `store: false`
- * invariant (design D12), so the composed record is never empty and the
- * request always carries the `providerOptions` key. `!== undefined` rather
- * than truthiness for the effort — a level meaning "no reasoning" is an
- * instruction to send, not an absence.
+ * invariant (design D12), so the composed record is never empty.
+ * `!== undefined` rather than truthiness for the effort — a level meaning "no
+ * reasoning" is an instruction to send, not an absence.
  */
 function applyRequestOptions(
   streamOptions: Parameters<typeof streamText>[0],
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
+  invariants: ProviderOptionRecord,
 ): void {
   streamOptions.headers = perCallHeaders(config, input.chat);
   streamOptions.experimental_telemetry = agentTelemetry(input.chat);
-  const { providerOptions } = responsesProviderOptions(
+  streamOptions.providerOptions = responsesProviderOptions(
     composeProviderOptions({
       defaults: { reasoningSummary: 'auto' },
       ...(config.providerOptions !== undefined && {
@@ -558,13 +566,10 @@ function applyRequestOptions(
       ...(input.effort !== undefined && {
         effort: { reasoningEffort: input.effort },
       }),
-      invariants: responsesInvariants(config),
+      invariants,
       reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
     }),
-  );
-  if (providerOptions !== undefined) {
-    streamOptions.providerOptions = providerOptions;
-  }
+  ).providerOptions;
 }
 
 /**
@@ -579,14 +584,15 @@ function applyRequestOptions(
  * without adding a reasoning summary the path never sent.
  */
 function composeStructuredProviderOptions(
-  config: OpenAIModelClientConfig,
+  context: ResponsesClientContext,
 ): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
+  const { config, invariants } = context;
   return responsesProviderOptions(
     composeProviderOptions({
       ...(config.providerOptions !== undefined && {
         operator: config.providerOptions,
       }),
-      invariants: responsesInvariants(config),
+      invariants,
       reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
     }),
   );
@@ -601,11 +607,11 @@ function composeStructuredProviderOptions(
  * place (design D18).
  */
 function buildOpenAIStreamOptions(
-  openai: OpenAIProvider,
-  config: OpenAIModelClientConfig,
+  context: ResponsesClientContext,
   input: ModelStreamInput,
   gate: ToolCallGate,
 ): Parameters<typeof streamText>[0] & { model: LanguageModelV3 } {
+  const { openai, config, invariants } = context;
   const sanitize = streamSanitizer(config);
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
@@ -623,7 +629,7 @@ function buildOpenAIStreamOptions(
       maxOutputTokens: config.maxOutputTokens,
     }),
   };
-  applyRequestOptions(streamOptions, config, input);
+  applyRequestOptions(streamOptions, config, input, invariants);
   applyToolCallingOptions(streamOptions, input, gate);
   installStepPreparation(streamOptions, input, config);
   applyRequestUsageCallback(streamOptions, input);
@@ -632,13 +638,12 @@ function buildOpenAIStreamOptions(
 }
 
 function runOpenAIStream(
-  openai: OpenAIProvider,
-  config: OpenAIModelClientConfig,
+  context: ResponsesClientContext,
   dependencies: OpenAIModelClientDependencies,
   input: ModelStreamInput,
 ): ModelStreamResult {
   const gate = createToolCallGate();
-  const streamOptions = buildOpenAIStreamOptions(openai, config, input, gate);
+  const streamOptions = buildOpenAIStreamOptions(context, input, gate);
   // SDK callbacks return immediately so the `fullStream` stream branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D18).
@@ -651,7 +656,7 @@ function runOpenAIStream(
   return awaitSettlementAfter(
     result,
     settlement,
-    streamSanitizer(config),
+    streamSanitizer(context.config),
     terminals,
   );
 }
@@ -719,6 +724,28 @@ export async function generateToolBoundObject<OBJECT>(
 }
 
 /**
+ * Creates the provider and the per-client request context once: the config
+ * never changes afterwards and the invariants derive from it.
+ */
+function createResponsesClientContext(
+  config: OpenAIModelClientConfig,
+  dependencies: OpenAIModelClientDependencies,
+): ResponsesClientContext {
+  return {
+    config,
+    invariants: responsesInvariants(config),
+    openai: dependencies.createOpenAI({
+      // A keyless provider (empty/absent credential) still needs a non-empty
+      // apiKey passed through — see KEYLESS_PLACEHOLDER_API_KEY.
+      apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
+      ...(config.baseUrl && { baseURL: config.baseUrl }),
+      ...(config.headers && { headers: config.headers }),
+      ...(config.fetch && { fetch: config.fetch }),
+    }),
+  };
+}
+
+/**
  * Creates a model client that executes the Responses wire for an
  * `openai-responses` provider entry, at its configured `baseUrl` (default:
  * OpenAI's hosted API). The wire is fixed by construction, never inferred
@@ -733,14 +760,8 @@ export function createOpenAIModelClient(
   config: OpenAIModelClientConfig,
   dependencies: OpenAIModelClientDependencies = { createOpenAI, streamText },
 ): ModelClient {
-  const openai = dependencies.createOpenAI({
-    // A keyless provider (empty/absent credential) still needs a non-empty
-    // apiKey passed through — see KEYLESS_PLACEHOLDER_API_KEY.
-    apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
-    ...(config.baseUrl && { baseURL: config.baseUrl }),
-    ...(config.headers && { headers: config.headers }),
-    ...(config.fetch && { fetch: config.fetch }),
-  });
+  const context = createResponsesClientContext(config, dependencies);
+  const { openai } = context;
 
   return {
     model: config.modelId,
@@ -754,7 +775,7 @@ export function createOpenAIModelClient(
     ...(config.input !== undefined && { input: config.input }),
     streamText: (input: ModelStreamInput) => {
       try {
-        return runOpenAIStream(openai, config, dependencies, input);
+        return runOpenAIStream(context, dependencies, input);
       } catch (error) {
         throw config.sanitizeError?.(error) ?? error;
       }
@@ -763,7 +784,7 @@ export function createOpenAIModelClient(
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
         generateToolBoundObject(openai(config.providerModelId), input, {
           headers: perCallHeaders(config, input.chat),
-          ...composeStructuredProviderOptions(config),
+          ...composeStructuredProviderOptions(context),
           ...(config.maxOutputTokens !== undefined && {
             maxOutputTokens: config.maxOutputTokens,
           }),

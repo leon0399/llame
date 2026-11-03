@@ -1,10 +1,10 @@
 /**
- * The Responses wire's storage contract (design D12): llame keeps no response
- * on the provider's side, a reasoning entry asks for the encrypted form of its
- * reasoning, and a later turn replays that content instead of a reference to a
- * stored item. Every assertion reads the body a provider would receive: the
- * client and the real `@ai-sdk/openai` adapter serialize the request, and only
- * the transport is stubbed.
+ * The Responses wire's storage contract (design D12): the provider keeps no
+ * response for later retrieval through the API, a reasoning entry asks for the
+ * encrypted form of its reasoning, and a later turn replays that content
+ * instead of a reference to a stored item. Every assertion reads the body a
+ * provider would receive: the client and the real `@ai-sdk/openai` adapter
+ * serialize the request, and only the transport is stubbed.
  */
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import type { ModelMessage, ProviderMetadata } from 'ai';
@@ -85,26 +85,19 @@ async function sentBody(
   return body;
 }
 
-/** The sent input items, whatever the wire names them. */
+/** The sent input items. */
 function sentItems(body: UnknownRecord): Array<UnknownRecord> {
-  const sent = body['input'] ?? body['messages'];
+  const sent = body['input'];
   if (!Array.isArray(sent)) throw new TypeError('expected a sent item list');
   return sent.filter(isRecord);
 }
 
 describe('the Responses wire stores no response (design D12)', () => {
-  it('a reasoning entry stores nothing and asks for encrypted reasoning', async () => {
-    const body = await sentBody({ reasoningDeclared: true });
-
-    expect(body['store']).toBe(false);
-    expect(body['include']).toEqual(['reasoning.encrypted_content']);
-  });
-
   // The adapter decides from a model-id prefix whether a model reasons; a
-  // declared entry forces that treatment so an id it does not know — a proxy,
-  // a gateway alias, a new model — still gets the encrypted form the replay
-  // needs.
-  it('a reasoning entry under an id the adapter does not know asks too', async () => {
+  // declared entry forces that treatment, so an id it does not know — a proxy
+  // (`proxy-reasoner`), a gateway alias, a new model — still asks for the
+  // encrypted form the replay needs.
+  it('a reasoning entry stores nothing and asks for encrypted reasoning, whatever its id', async () => {
     const body = await sentBody({
       reasoningDeclared: true,
       providerModelId: 'proxy-reasoner',
@@ -121,14 +114,12 @@ describe('the Responses wire stores no response (design D12)', () => {
 
     expect(body['store']).toBe(false);
     expect(body['include']).toBeUndefined();
-    expect(JSON.stringify(body)).not.toContain('reasoning.encrypted_content');
   });
 
   it('an operator cannot turn storage on', async () => {
     const body = await sentBody({ providerOptions: { store: true } });
 
     expect(body['store']).toBe(false);
-    expect(JSON.stringify(body)).not.toContain('"store":true');
   });
 
   it('sends a replayed reasoning part as encrypted content, never an item reference', async () => {

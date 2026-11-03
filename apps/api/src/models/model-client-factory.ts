@@ -98,9 +98,6 @@ function createResponsesClient(
     contextWindowTokens: model.contextWindowTokens,
     userAgent,
     requestHeaders: provider.headers,
-    // The entry's `reasoning` declaration (presence of the vocabulary is the
-    // declaration), so a declared model forces the adapter's reasoning
-    // treatment whatever its id (design D12).
     reasoningDeclared: model.reasoning !== undefined,
   };
   assignModelMetadata(config, model);
