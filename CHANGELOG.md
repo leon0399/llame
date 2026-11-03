@@ -1,5 +1,14 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-03
+
+- An outbound link in the chat transcript shows a trailing outwards icon, and
+  its accessible name says it opens in a new tab. That covers assistant text,
+  the owner's own message, reasoning, and `web_search` results and citations.
+  A same-origin link, a `#fragment`, and a href that does not parse stay
+  plain. The click still asks before opening the address. Addresses
+  [#1533](https://github.com/leon0399/llame/issues/1533).
+
 # 2026-11-02
 
 - `grep` now stores its whole result as the Markdown artifact
