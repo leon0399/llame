@@ -72,7 +72,8 @@ zero and is reported separately in each PR.
   - Evidence: `pnpm --filter web exec vitest run --project stories` on `permission-mode-selector.stories.tsx` and `chat-message-row.stories.tsx` (43 passed); `pnpm --filter web test` (838 passed); `pnpm --filter web lint`, `pnpm --filter web typecheck`, `pnpm format:check`, `git diff --check`. The Storybook MCP is unavailable in this session, so the CLI story project rendered each story in Chromium and returned no preview URLs.
 - [x] 3.4 Add the web part of the `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
   - Evidence: `CHANGELOG.md` 2026-11-03 entry (composer listing, send, creation, Continue, Regenerate, quiet trigger, `default` on reopen); `pnpm lint:markdown`.
-- [ ] 3.5 SR before ready; GR through Ready-PR monitoring.
+- [x] 3.5 SR before ready; GR through Ready-PR monitoring.
+  - Evidence: Ready-PR monitoring on head `130aa988` (1 fix round). Two findings were accepted and fixed in one push: pullfrog's inline report that the read-only description was clipped by the fixed `w-72` popup (fixed in `779e6f33`, `w-auto min-w-72`) and CodeRabbit's suggestion to cover the menu path (fixed in `130aa988`, story `ReadOnlyChosen`). Both were replied to, the thread was resolved, and pullfrog's re-review of the new head reported no new issues while CodeRabbit kept its approval. 0 unresolved threads. CI green on `130aa988` (run 41567326371, attempt 2) after one rerun of an `ssh-isolation.integration.test.ts` `EPIPE` unhandled-error flake; `Tests / storybook`, `Typecheck`, `Lint`, and the mutation gate passed on the same run.
 
 ## 4. finalize
 
