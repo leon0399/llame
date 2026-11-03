@@ -538,6 +538,21 @@ describe('ChatLoopService.createMessageStream', () => {
     );
   });
 
+  it('persists an enabled read-only permission mode on an accepted Run', async () => {
+    const { service, createRun } = makeService({
+      permissionModes: ['default', 'read-only'],
+    });
+
+    await service.createMessageStream({
+      ...input,
+      permissionMode: 'read-only' as const,
+    });
+
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionMode: 'read-only' }),
+    );
+  });
+
   it('touches a pre-existing chat and aborts superseded retries after commit', async () => {
     const stale: Run = { ...run, id: 'stale-run' };
     const { service, touch, abort, cancelActiveRunsForMessage } = makeService();

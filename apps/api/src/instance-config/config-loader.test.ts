@@ -778,6 +778,17 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     expect(loadInstanceConfig().tools.permissionModes).toEqual(expected);
   });
 
+  it('Read-only is enabled explicitly', () => {
+    writeConfig(
+      '{ "tools": { "permissionModes": ["default", "read-only", "bypass"] } }',
+    );
+    expect(loadInstanceConfig().tools.permissionModes).toEqual([
+      'default',
+      'read-only',
+      'bypass',
+    ]);
+  });
+
   it('resolves tools.promptFiles into an id -> path map', () => {
     writeConfig(
       '{ "tools": { "promptFiles": { "bash": "prompts/bash.md", "read": "/etc/llame/read.md" } } }',

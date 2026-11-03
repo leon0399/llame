@@ -411,7 +411,7 @@ export const runs = pgTable(
     index('runs_source_run_id_user_id_idx').on(t.sourceRunId, t.userId),
     check(
       'runs_permission_mode_check',
-      sql`${t.permissionMode} IN ('default', 'bypass')`,
+      sql`${t.permissionMode} IN ('default', 'bypass', 'read-only')`,
     ),
     check(
       'runs_follow_up_action_check',

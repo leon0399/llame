@@ -39,6 +39,7 @@ import { ModelsService } from '../models/models.service';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { getRegisteredToolIds } from '../tools/registry';
 import { type PermissionGroup } from '../tools/permissions/types';
+import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
@@ -270,6 +271,8 @@ export async function seedRun(input: {
   chatId?: string;
   /** Persisted on the run exactly as the accepting API would have stored it. */
   effort?: string;
+  /** Persisted on the run exactly as the accepting API would have stored it. */
+  permissionMode?: PermissionMode;
 }): Promise<{
   chatId: string;
   runId: string;
@@ -302,6 +305,9 @@ export async function seedRun(input: {
       userId: input.userId,
       modelId: input.modelId,
       ...(input.effort !== undefined && { effort: input.effort }),
+      ...(input.permissionMode !== undefined && {
+        permissionMode: input.permissionMode,
+      }),
     });
     return {
       chatId,
@@ -351,6 +357,8 @@ export async function seedAndDispatchRun(
     chatId?: string;
     /** Persisted on the run exactly as the accepting API would have stored it. */
     effort?: string;
+    /** Persisted on the run exactly as the accepting API would have stored it. */
+    permissionMode?: PermissionMode;
     enqueueOptions?: EnqueueOptions;
   },
 ): Promise<{
@@ -365,6 +373,9 @@ export async function seedAndDispatchRun(
     text: input.text,
     chatId: input.chatId,
     ...(input.effort !== undefined && { effort: input.effort }),
+    ...(input.permissionMode !== undefined && {
+      permissionMode: input.permissionMode,
+    }),
   });
   await dispatchRun({
     queue: harness.queue,

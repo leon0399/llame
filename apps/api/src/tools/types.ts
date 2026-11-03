@@ -9,7 +9,10 @@ import {
 } from '../knowledge/knowledge-filesystem';
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
-import { type WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
+import {
+  type WorkspaceMcpClients,
+  type WorkspaceMcpListingCell,
+} from '../mcp/workspace-mcp-clients';
 import {
   type GrepBoundsConfig,
   type WebAdapterConfig,
@@ -198,6 +201,12 @@ export interface ToolContext {
   readonly toolAdditions?: AttemptToolAdditions;
   /** Process-local Workspace MCP clients for this Chat's current binding. */
   readonly workspaceMcp?: WorkspaceMcpClients;
+  /**
+   * The attempt's one `read-only` Workspace MCP listing. A `read-only`
+   * attempt starts no server, so entry reports the configuration it read here
+   * instead, and a same-root re-entry reads no configuration again.
+   */
+  readonly workspaceMcpListing?: WorkspaceMcpListingCell;
   /**
    * Operator-configured Machines this Run may address. Absent means no Machine
    * surface exists, so `machine://` is refused as an unknown scheme.

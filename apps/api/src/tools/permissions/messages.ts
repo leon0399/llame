@@ -23,6 +23,12 @@ const INVALID_FIELD =
 const INPUT_LIMIT =
   'Tool call rejected before execution by operator permissions. The submitted input exceeds the permission inspection limit. Do not retry unchanged or evade a reject by splitting, encoding, switching tools, or delegating. A smaller request may be submitted only as independently permitted work. In-run approval is unavailable; explain any blocked required step to the user.';
 
+/** The fixed `read-only` ceiling template. It names no permission mode and no
+ *  setting, and offers no way out (openspec/changes/read-only-permission-mode
+ *  "A read-only rejection uses a fixed message"). */
+export const READ_ONLY_REJECTION =
+  'Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, disguise the same action through different commands or tools, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+
 /** The fixed hop-rejection template: never interpolated, so it is exported
  *  as-is for the client-side failure the web read builds. */
 export const REJECTED_HOP_MESSAGE =
@@ -109,6 +115,8 @@ function messageFor(reason: PermissionRejectionReason): string {
       return INVALID_FIELD;
     case 'input_limit':
       return INPUT_LIMIT;
+    case 'permission_mode_read_only':
+      return READ_ONLY_REJECTION;
     default:
       return NO_ALLOW;
   }

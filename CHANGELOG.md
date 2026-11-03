@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
+- A third Run permission mode, `read-only`, caps the operator policy for one
+  send. `tools.permissionModes` accepts `"read-only"` (the default stays
+  `["default"]`), and a chat send, chat creation, or follow-up request accepts
+  `permissionMode: "read-only"` when the process enables it. A `read-only`
+  attempt admits only tools classified `read_only`, `exit_workspace`, and
+  `enter_workspace` without a `worktree`; every other schema-valid call —
+  `bash`, `edit`, `write`, worktree entry, and every MCP tool — is refused
+  before SSH resolution or any permission group, with reason
+  `permission_mode_read_only` and a fixed inert message. An admitted call still
+  needs the operator policy exactly as in `default`. A `read-only` attempt
+  starts and uses no Workspace MCP server, and entry reports each configured
+  server as `unavailable` with reason `not started in a read-only Run`. A Run
+  accepted as `read-only` executes as `read-only` on every worker, so
+  withdrawing the mode never widens a queued Run. Egress stays under the
+  operator policy: the mode prevents mutation, not exfiltration. See
+  [permission modes](docs/product/reference/permission-modes.md) and
+  [native files](docs/product/operator/native-files.md).
+
 - An outbound link in the chat transcript shows a trailing outwards icon, and
   its accessible name says it opens in a new tab. That covers assistant text,
   the owner's own message, reasoning, and `web_search` results and citations.
@@ -27,17 +45,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the head and ends with `[left out: <count> files; full result not stored]`.
   Addresses [#1519](https://github.com/leon0399/llame/issues/1519). See
   [grep](docs/product/reference/tools/grep.md).
-
-- An oversized tool result now spills by head: the runner and the MCP cap
-  store the whole model rendering as an artifact before cutting the result,
-  the inline part keeps the head of its shape, and the cap notice names the
-  artifact, its line count, and `artifact://<tool>-<n>:1-`. A rendering above
-  `tools.artifacts.maxBytes`, a failed write, or a write without a reader
-  leaves `[full result not stored]` or today's bounded result. A tool that
-  declares `spill: 'tool'` builds its own inline part and artifact, so the
-  result cap must not shorten it. See
-  [model output](docs/product/reference/tools/model-output.md) and
-  [MCP tools](docs/product/reference/tools/mcp-tools.md).
 
 - `web_search` now fetches more results than it shows and keeps the rest. A new
   `webSearch.fetchLimit` (integer 1-100, default 20) sets how many results every
@@ -91,6 +98,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `tools.artifacts.maxBytes` counted in UTF-8 bytes, so the `ssh://` buffers
   no longer triple it; a Machine keeps the 32,000-unit protocol bound. See
   [bash](docs/product/reference/tools/bash.md).
+
+- An oversized tool result now spills by head: the runner and the MCP cap
+  store the whole model rendering as an artifact before cutting the result,
+  the inline part keeps the head of its shape, and the cap notice names the
+  artifact, its line count, and `artifact://<tool>-<n>:1-`. A rendering above
+  `tools.artifacts.maxBytes`, a failed write, or a write without a reader
+  leaves `[full result not stored]` or today's bounded result. A tool that
+  declares `spill: 'tool'` builds its own inline part and artifact, so the
+  result cap must not shorten it. See
+  [model output](docs/product/reference/tools/model-output.md) and
+  [MCP tools](docs/product/reference/tools/mcp-tools.md).
 
 - Tool-result artifacts now check each `grep` and `web_search` finding again
   when `read` serves it: a `read` rule added after the artifact was stored

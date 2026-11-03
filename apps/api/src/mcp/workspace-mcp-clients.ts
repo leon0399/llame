@@ -55,6 +55,36 @@ export type WorkspaceMcpEntryState = Readonly<{
   servers: ReadonlyArray<WorkspaceMcpServerState>;
 }>;
 
+/** The reason every configured server reports when a `read-only` attempt did
+ *  not start it (openspec/changes/read-only-permission-mode "Workspace entry
+ *  reports a server that read-only did not start"). */
+export const READ_ONLY_MCP_REASON = 'not started in a read-only Run';
+
+/** One attempt's single Workspace MCP listing: the binding it describes and
+ *  the servers its configuration named. Held in attempt memory so a same-root
+ *  re-entry reports the same servers and reads no configuration again. */
+export type WorkspaceMcpListing = Readonly<{
+  root: string;
+  generation: number;
+  servers: ReadonlyArray<WorkspaceMcpServerState>;
+}>;
+
+/** Attempt-scoped holder for {@link WorkspaceMcpListing}. */
+export type WorkspaceMcpListingCell = Readonly<{
+  current: () => WorkspaceMcpListing | undefined;
+  commit: (listing: WorkspaceMcpListing) => void;
+}>;
+
+export function createWorkspaceMcpListingCell(): WorkspaceMcpListingCell {
+  let listing: WorkspaceMcpListing | undefined;
+  return {
+    current: () => listing,
+    commit: (next) => {
+      listing = next;
+    },
+  };
+}
+
 export type WorkspaceMcpClientsOptions = Readonly<{
   clientFactory?: McpRuntimeClientFactory;
   now?: () => number;
@@ -204,6 +234,44 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     if (record === undefined) return undefined;
     record.lastUsed = this.now();
     return this.describe(record);
+  }
+
+  /**
+   * Every server the binding's configuration names, read fresh, with each
+   * configured entry reported as unavailable because a `read-only` attempt
+   * starts none of them. Nothing starts: a local root reads both configuration
+   * files, and a `machine://` root asks the Machine for its `mcp.servers`. A
+   * file or server the reader already reports as unavailable keeps its own
+   * reason.
+   */
+  async listUnstarted(
+    key: WorkspaceMcpKey,
+  ): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
+    const target = machineWorkspaceTarget(key.root);
+    const configs =
+      target === undefined
+        ? await this.readLocalConfigs(key.root)
+        : await readMachineServerConfigs(this.connector, target);
+    return Object.freeze(
+      configs.map((config) =>
+        config.state === 'unavailable'
+          ? unavailable(config.id, config.reason)
+          : unavailable(config.id, READ_ONLY_MCP_REASON),
+      ),
+    );
+  }
+
+  /**
+   * Stop this Chat's clients for every other binding generation without
+   * starting the given key, for a `read-only` attempt. The stop-epoch bump is
+   * what makes it complete: a start already in flight for this Chat cannot
+   * register its clients afterwards. The cached set for `key` itself stays
+   * untouched for a later `default` attempt.
+   */
+  async stopStale(key: WorkspaceMcpKey): Promise<void> {
+    this.bumpStopEpoch(key.chatId);
+    await this.stopStaleForChat(key);
+    await this.awaitPendingStarts(key.chatId);
   }
 
   beginAttempt(key: WorkspaceMcpKey): void {

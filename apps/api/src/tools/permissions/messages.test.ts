@@ -25,6 +25,7 @@ describe('permissionDeniedResult', () => {
       'no_allow',
       'invalid_field',
       'input_limit',
+      'permission_mode_read_only',
     ] as const) {
       expect(Object.keys(permissionDeniedResult(reason)).sort()).toEqual([
         'message',

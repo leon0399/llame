@@ -194,7 +194,7 @@ function configFor(): LlameConfig {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: ['enter_workspace'],
       nativeExecutorId: 'creation-host',
-      permissionModes: ['default', 'bypass'],
+      permissionModes: ['default', 'bypass', 'read-only'],
       permissions: {
         enter_workspace: {
           allow: true,
@@ -360,6 +360,17 @@ describe('chat creation over HTTP', () => {
            FROM chats WHERE id = ${chatId}`,
     );
     return row;
+  }
+
+  async function runModesOf(chatId: string): Promise<Array<string>> {
+    const rows = await asOwner(
+      owner.userId,
+      (tx) =>
+        tx<
+          Array<{ permission_mode: string }>
+        >`SELECT permission_mode FROM runs WHERE chat_id = ${chatId} ORDER BY created_at`,
+    );
+    return rows.map((row) => row.permission_mode);
   }
 
   async function defaultsOf(project: string, repository: string) {
@@ -595,6 +606,46 @@ describe('chat creation over HTTP', () => {
       await chatOf(chatId).expect(404);
     });
 
+    it('read-only on a process without read-only stores nothing', async () => {
+      const restricted = await boot(
+        {
+          ...configFor(),
+          tools: {
+            ...configFor().tools,
+            permissionModes: ['default', 'bypass'],
+          },
+        },
+        { workers: false },
+      );
+      const chatId = newChatId();
+      try {
+        const response = await request(restricted.http)
+          .post('/api/v1/chats')
+          .set('Cookie', owner.cookie)
+          .send({
+            id: chatId,
+            message: {
+              id: crypto.randomUUID(),
+              modelId: MODEL_ID,
+              permissionMode: 'read-only',
+              parts: [
+                { type: 'text', text: 'This process refuses read-only.' },
+              ],
+            },
+          })
+          .expect(422);
+
+        expect(response.body).toMatchObject({
+          code: 'permission_mode_not_available',
+        });
+        await chatOf(chatId).expect(404);
+        expect(await countRows('messages', { chatId })).toBe(0);
+        expect(await countRows('runs', { chatId })).toBe(0);
+      } finally {
+        await restricted.app.close();
+      }
+    });
+
     it('rejects an invalid worktree argument before any write', async () => {
       const chatId = newChatId();
 
@@ -651,6 +702,36 @@ describe('chat creation over HTTP', () => {
         { path: source, decision: 'allow', reason: 'matched_allow' },
         { path: source, decision: 'allow', reason: 'matched_allow' },
       ]);
+    });
+
+    it('establishes the first binding for a read-only creation request', async () => {
+      const chatId = newChatId();
+
+      const response = await create({
+        id: chatId,
+        projectId,
+        repositoryId,
+        checkoutId: mainCheckoutId,
+        message: {
+          id: crypto.randomUUID(),
+          modelId: MODEL_ID,
+          permissionMode: 'read-only',
+          parts: [{ type: 'text', text: 'Start bound, read-only.' }],
+        },
+      }).expect(201);
+      const body = createResponseSchema.parse(response.body);
+
+      expect(body.workspace).toEqual({
+        status: 'bound',
+        root: source,
+        executorId: 'creation-host',
+      });
+      expect(await chatRow(chatId)).toMatchObject({
+        workspace_root: source,
+        workspace_executor_id: 'creation-host',
+        workspace_generation: 1,
+      });
+      expect(await runModesOf(chatId)).toEqual(['read-only']);
     });
 
     it('starts unbound without location ids, even with a remembered default', async () => {
@@ -825,6 +906,35 @@ describe('chat creation over HTTP', () => {
       ]);
       expect(await countRows('messages', { chatId })).toBe(1);
       expect(await countRows('runs', { chatId })).toBe(1);
+    });
+
+    it('creates the worktree a read-only request asks for', async () => {
+      const chatId = newChatId();
+
+      const response = await create({
+        id: chatId,
+        projectId,
+        repositoryId,
+        worktree: { name: 'creation-read-only' },
+        message: {
+          id: crypto.randomUUID(),
+          modelId: MODEL_ID,
+          permissionMode: 'read-only',
+          parts: [{ type: 'text', text: 'Start read-only in a worktree.' }],
+        },
+      }).expect(201);
+      const body = createResponseSchema.parse(response.body);
+
+      expect(body.workspace).toMatchObject({
+        status: 'bound',
+        executorId: 'creation-host',
+        worktree: { branch: 'llame/creation-read-only' },
+      });
+      expect(await chatRow(chatId)).toMatchObject({
+        workspace_generation: 1,
+      });
+      // The creation step decides as `default`; the first Run keeps the mode.
+      expect(await runModesOf(chatId)).toEqual(['read-only']);
     });
 
     it('reuses its lease and root on a resend that adds the message', async () => {

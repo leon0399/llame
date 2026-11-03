@@ -1,4 +1,5 @@
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type PermissionGroup } from '../tools/permissions/types';
 import { type ToolContext } from '../tools/types';
 import {
@@ -15,6 +16,7 @@ import {
 export function removalFor(
   read: PermissionGroup | undefined,
   excludedHosts: ReadonlyArray<string> = [],
+  permissionMode?: PermissionMode,
 ): ResultRemoval {
   return createResultRemoval(
     {
@@ -26,6 +28,7 @@ export function removalFor(
       ...(read !== undefined && {
         permissionPolicy: compileToolPermissionMap({ read }, 'test-policy'),
       }),
+      ...(permissionMode !== undefined && { permissionMode }),
     } satisfies ToolContext,
     excludedHosts,
   );

@@ -102,6 +102,10 @@ describe('live protocol contract', () => {
       { type: 'run.updated', run: liveRunRecord() },
       {
         type: 'run.updated',
+        run: liveRunRecord({ permissionMode: 'read-only' }),
+      },
+      {
+        type: 'run.updated',
         run: liveRunRecord({
           status: 'failed',
           effort: 'high',

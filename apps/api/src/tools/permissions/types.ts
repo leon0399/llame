@@ -37,7 +37,8 @@ export type PermissionDecisionReason =
   | 'invalid_field'
   | 'input_limit'
   | 'matched_allow'
-  | 'permission_mode_bypass';
+  | 'permission_mode_bypass'
+  | 'permission_mode_read_only';
 
 /** The reasons that describe a rejection; allow-only reasons are excluded. */
 export type PermissionRejectionReason = Exclude<

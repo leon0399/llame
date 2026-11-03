@@ -956,6 +956,40 @@ describe('reconstructDurableAssistant', () => {
     ]);
   });
 
+  it('keeps a read-only ceiling decision through a private reload', () => {
+    const permission = {
+      policyId: 'policy-read-only',
+      decision: 'reject' as const,
+      reason: 'permission_mode_read_only' as const,
+      reference: null,
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        input: { command: 'git push' },
+        permission,
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: {
+          status: 'error',
+          type: 'permission_denied',
+          message: 'rejected',
+        },
+      }),
+    ]);
+    const [part] = result.collector.parts();
+
+    // The stored tool part keeps the decision for the owner's reload; model
+    // replay, public shares, exports, and search project their own closed
+    // shape and receive no decision metadata.
+    expect(part).toMatchObject({ permission });
+    expect(JSON.stringify(project(result.collector.parts()))).not.toContain(
+      'policy-read-only',
+    );
+  });
+
   it('drops a stored decision with an unknown reason', () => {
     const permission = {
       policyId: 'policy-unknown',

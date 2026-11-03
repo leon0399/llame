@@ -926,7 +926,10 @@
         },
         "permissionModes": {
           "type": "array",
-          "items": { "type": "string", "enum": ["default", "bypass"] },
+          "items": {
+            "type": "string",
+            "enum": ["default", "bypass", "read-only"]
+          },
           "minItems": 1,
           "uniqueItems": true,
           "description": "Ordered per-Run permission modes enabled by the operator. Default: [\"default\"]."

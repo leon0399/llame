@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   admitPermission,
   decidePermission,
+  evaluatesPermission,
   type EvaluateCall,
   OWNER_ROUTE,
 } from './admit';
@@ -32,7 +33,9 @@ const NO_ALLOW: PermissionDecision = {
 const echo = (evaluate: EvaluateCall) =>
   evaluate({ toolId: 'echo', args: { text: 'refused' } });
 
-function context(permissionMode?: 'default' | 'bypass'): ToolContext {
+function context(
+  permissionMode?: 'default' | 'bypass' | 'read-only',
+): ToolContext {
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -43,7 +46,7 @@ function context(permissionMode?: 'default' | 'bypass'): ToolContext {
 }
 
 describe('decidePermission', () => {
-  it.each(['default', OWNER_ROUTE] as const)(
+  it.each(['default', 'read-only', OWNER_ROUTE] as const)(
     'evaluates the policy under %s',
     (mode) => {
       expect(decidePermission(policy, mode, echo)).toEqual(NO_ALLOW);
@@ -68,6 +71,7 @@ describe('admitPermission', () => {
     ['default', NO_ALLOW],
     [undefined, NO_ALLOW],
     ['bypass', BYPASS_ALLOW],
+    ['read-only', NO_ALLOW],
   ] as const)('decides a call in mode %s', (mode, expected) => {
     expect(admitPermission(context(mode), echo)).toEqual(expected);
   });
@@ -82,5 +86,16 @@ describe('admitPermission', () => {
 
     expect(admitPermission(noPolicy, decide)).toBeUndefined();
     expect(decide).not.toHaveBeenCalled();
+  });
+});
+
+describe('evaluatesPermission', () => {
+  it.each([
+    ['default', true],
+    ['read-only', true],
+    ['bypass', false],
+    [undefined, true],
+  ] as const)('evaluates %s as %s', (mode, expected) => {
+    expect(evaluatesPermission(context(mode))).toBe(expected);
   });
 });

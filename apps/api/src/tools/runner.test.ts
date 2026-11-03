@@ -9,10 +9,20 @@ import {
 } from '@workspace/runtime-safety';
 import { bashTool } from './bash';
 import { renderToolResultText } from './model-text';
-import { nativeEditTool, nativeReadTool } from './native-files';
+import {
+  nativeEditTool,
+  nativeReadTool,
+  nativeWriteTool,
+} from './native-files';
 import { previewToolPermission, runTool } from './runner';
+import {
+  type SshClient,
+  type SshResolution,
+  type SshResolvedDestination,
+} from '../ssh/ssh-client';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { READ_ONLY_REJECTION } from './permissions/messages';
 import { type ToolPermissionMap } from './permissions/types';
 import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -1896,6 +1906,288 @@ describe('Workspace argument projection for permissions', () => {
         bashTool,
         { command: 'pwd', cwd: '/srv/app/src' },
         context,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('runTool read-only ceiling', () => {
+  const RESOLVED: SshResolvedDestination = {
+    user: 'box',
+    host: 'box',
+    port: 22,
+  };
+
+  function fakeSsh(
+    resolution: SshResolution = {
+      outcome: 'resolved',
+      destination: RESOLVED,
+    },
+  ) {
+    const resolve = vi.fn<SshClient['resolve']>(() =>
+      Promise.resolve(resolution),
+    );
+    const client: SshClient = {
+      resolve,
+      run: vi.fn<SshClient['run']>(() =>
+        Promise.resolve({
+          outcome: 'failed',
+          reason: 'client_missing',
+          diagnostic: 'ssh is not installed',
+        }),
+      ),
+      sshConfigText: () => undefined,
+      dispose: () => undefined,
+    };
+    return { client, resolve };
+  }
+
+  /** A permissive trusted policy: every call the ceiling admits is allowed. */
+  function readOnlyContext(overrides: Partial<ToolContext> = {}): ToolContext {
+    return {
+      ...fakeContext(),
+      permissionPolicy: compileTestPermissionPolicy([
+        'bash',
+        'edit',
+        'write',
+        'read',
+        'grep',
+        'enter_workspace',
+        'exit_workspace',
+        'mcp__demo__write',
+        'echo',
+      ]),
+      permissionMode: 'read-only',
+      ...overrides,
+    };
+  }
+
+  const denied = (reason = READ_ONLY_REJECTION) => ({
+    status: 'error',
+    type: 'permission_denied',
+    message: reason,
+  });
+
+  it.each([
+    ['bash', bashTool, { command: 'echo hi' }],
+    ['edit', nativeEditTool, { path: '/tmp/x', oldText: 'a', newText: 'b' }],
+    ['write', nativeWriteTool, { path: '/tmp/x', content: 'hi' }],
+  ] as const)(
+    'rejects %s even when the operator policy allows it',
+    async (_id, tool, args) => {
+      const result = await runTool(tool, args, readOnlyContext(), 5);
+      expect(result).toEqual(denied());
+    },
+  );
+
+  it('rejects an allowlisted MCP tool', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const mcpTool: Tool = {
+      ...echoTool,
+      id: 'mcp__demo__write',
+      classification: 'unverified',
+      execute,
+    };
+    const result = await runTool(mcpTool, { value: 'x' }, readOnlyContext(), 5);
+    expect(result).toEqual(denied());
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('still asks the policy for an admitted read', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const grepTool: Tool<{ scopes: Array<string> }> = {
+      id: 'grep',
+      description: 'searches the scopes it names',
+      classification: 'read_only',
+      inputSchema: z.strictObject({ scopes: z.array(z.string()).min(1) }),
+      execute,
+    };
+    const result = await runTool(
+      grepTool,
+      { scopes: ['/repo/src'] },
+      {
+        ...readOnlyContext(),
+        permissionPolicy: compileToolPermissionMap({}, 'empty-policy'),
+      },
+      5,
+    );
+    expect(result).toMatchObject({ type: 'permission_denied' });
+    if (result.status !== 'error') throw new Error('expected a refusal');
+    expect(result.message).toContain('No allow rule permits this call.');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('executes a read the policy allows', async () => {
+    const result = await runTool(
+      echoTool,
+      { value: 'x' },
+      readOnlyContext(),
+      5,
+    );
+    expect(result).toEqual({ status: 'success', value: 'x' });
+  });
+
+  it('admits Workspace exit', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const exitTool: Tool<Record<never, never>> = {
+      id: 'exit_workspace',
+      description: 'clears the binding',
+      classification: 'write_low_risk',
+      inputSchema: z.strictObject({}),
+      execute,
+    };
+    const result = await runTool(exitTool, {}, readOnlyContext(), 5);
+    expect(result).toEqual({ status: 'success' });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it('admits a plain Workspace entry', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const enterTool: Tool<{ path: string; worktree?: { name?: string } }> = {
+      id: 'enter_workspace',
+      description: 'binds a root',
+      classification: 'execute_code',
+      inputSchema: z.strictObject({
+        path: z.string().min(1),
+        worktree: z.strictObject({ name: z.string().optional() }).optional(),
+      }),
+      execute,
+    };
+    const result = await runTool(
+      enterTool,
+      { path: '/repo' },
+      readOnlyContext(),
+      5,
+    );
+    expect(result).toEqual({ status: 'success' });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['a host path', '/repo'],
+    ['a Machine path', 'machine://devl/repo'],
+    ['an absent path', '/does-not-exist'],
+  ])('rejects a worktree entry on %s before any probe', async (_name, path) => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const enterTool: Tool<{ path: string; worktree?: { name?: string } }> = {
+      id: 'enter_workspace',
+      description: 'binds a root',
+      classification: 'execute_code',
+      inputSchema: z.strictObject({
+        path: z.string().min(1),
+        worktree: z.strictObject({ name: z.string().optional() }).optional(),
+      }),
+      execute,
+    };
+    const result = await runTool(
+      enterTool,
+      { path, worktree: { name: 'fix' } },
+      readOnlyContext(),
+      5,
+    );
+    expect(result).toEqual(denied());
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('records the ceiling reason and no clause reference before the policy', async () => {
+    const decisions: Array<unknown> = [];
+    const result = await runTool(
+      bashTool,
+      { command: 'git reset --hard HEAD' },
+      readOnlyContext({
+        permissionPolicy: compileToolPermissionMap(
+          {
+            bash: {
+              allow: true,
+              reject: [{ field: 'command', literal: 'git reset --hard HEAD' }],
+            },
+          },
+          'recommended',
+        ),
+      }),
+      5,
+      (decision) => {
+        decisions.push(decision);
+      },
+    );
+    expect(result).toEqual(denied());
+    expect(decisions).toEqual([
+      {
+        policyId: 'recommended',
+        decision: 'reject',
+        reason: 'permission_mode_read_only',
+        reference: null,
+      },
+    ]);
+  });
+
+  it('rejects a remote command before resolving its host', async () => {
+    const ssh = fakeSsh();
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'ssh://devbox/repo' },
+      readOnlyContext({ sshClient: ssh.client }),
+      5,
+    );
+    expect(result).toEqual(denied());
+    expect(ssh.resolve).not.toHaveBeenCalled();
+  });
+
+  it('evaluates an admitted call as default does', async () => {
+    const result = await runTool(
+      nativeReadTool,
+      { path: '/home/me/.ssh/id_ed25519' },
+      {
+        ...fakeContext(),
+        permissionMode: 'read-only',
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: true,
+              reject: [{ field: 'path', regex: '^/home/me/\\.ssh(?:/|$)' }],
+            },
+          },
+          'read-policy',
+        ),
+      },
+      5,
+    );
+    expect(result).toMatchObject({ type: 'permission_denied' });
+    if (result.status !== 'error') throw new Error('expected a refusal');
+    expect(result.message).toContain('A reject rule matched.');
+  });
+
+  it('refuses invalid arguments before the ceiling', async () => {
+    const result = await runTool(
+      bashTool,
+      { command: 123 },
+      readOnlyContext(),
+      5,
+    );
+    expect(result).toMatchObject({ type: 'invalid_input' });
+  });
+
+  it('reports the fixed text without naming the mode or a setting', () => {
+    expect(READ_ONLY_REJECTION).not.toContain('read-only');
+    expect(READ_ONLY_REJECTION).not.toContain('permissionModes');
+    expect(READ_ONLY_REJECTION).toContain(
+      'This Run permits only reads and Workspace entry or exit without a worktree.',
+    );
+  });
+
+  it('applies the ceiling to a preview', () => {
+    expect(
+      previewToolPermission(
+        bashTool,
+        { command: 'echo hi' },
+        readOnlyContext(),
+      ),
+    ).toBe(false);
+    expect(
+      previewToolPermission(
+        nativeReadTool,
+        { path: '/tmp/allowed.md' },
+        readOnlyContext(),
       ),
     ).toBe(true);
   });

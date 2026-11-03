@@ -74,7 +74,7 @@ Current roles are `owner`, `admin`, `maintainer`, `member`, `viewer`, `guest`, a
 
 ### 7.5 Approvals
 
-Operator allow/reject tool-call permissions ship: a startup-loaded `tools.permissions` policy is evaluated at the shared execution gate and a rejection is a non-fatal `permission_denied` observation. A per-Run `default | bypass` permission mode also ships, gated by `tools.permissionModes` (default `["default"]`); `bypass` skips `tools.permissions` evaluation while the other mandatory controls remain. An interactive approval workflow does not ship (#778). Authentication, RLS, tool classification, the static `tools.allowed` availability gate, and native effect fencing remain mandatory.
+Operator allow/reject tool-call permissions ship: a startup-loaded `tools.permissions` policy is evaluated at the shared execution gate and a rejection is a non-fatal `permission_denied` observation. A per-Run `default | read-only | bypass` permission mode also ships, gated by `tools.permissionModes` (default `["default"]`); `bypass` skips `tools.permissions` evaluation while the other mandatory controls remain, and `read-only` caps admission to reads and plain Workspace transitions before the policy is evaluated. An interactive approval workflow does not ship (#778). Authentication, RLS, tool classification, the static `tools.allowed` availability gate, and native effect fencing remain mandatory.
 
 ## 9. Chats and durable Runs
 
@@ -313,7 +313,7 @@ or `ssh://` `cwd` runs it on that remote host instead, under that host's login
 user and the shared bounds. This is
 explicit host authority, not tenant isolation: the model cannot select the
 executor or network mode. The owner, not the model, selects the Run's
-`default` or `bypass` permission mode per send; that mode is never model-visible.
+`default`, `read-only`, or `bypass` permission mode per send; that mode is never model-visible.
 A future managed Sandbox adapter and a separate permission proposal may
 strengthen isolation.
 

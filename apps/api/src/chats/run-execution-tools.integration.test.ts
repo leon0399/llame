@@ -36,6 +36,7 @@ import type { PermissionMode } from '../tools/permissions/permission-mode';
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -100,6 +101,13 @@ import { type DynamicToolExecutorResolver } from '../runs/snapshot-tool-executio
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { composeAttemptToolCatalog } from '../runs/effective-context-resolver';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
+import { WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
+import {
+  createMcpTestFixture,
+  mcpStreamableHttpInitialize,
+  type McpTestFixture,
+} from '../mcp/mcp-test-fixture';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -614,6 +622,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     knowledgeRoot?: string;
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
+    /** The process-local Workspace MCP clients an attempt may start. */
+    workspaceMcp?: WorkspaceMcpClients;
     dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
     inRunProducer?: InRunContextProducer;
   };
@@ -672,6 +682,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ]),
       snapshotCandidates: () => resolved.dynamicCandidates ?? [],
       dynamicToolResolver: resolved.dynamicToolResolver,
+      workspaceMcp: resolved.workspaceMcp,
       inRunProducer: resolved.inRunProducer,
     };
   }
@@ -713,7 +724,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
       resolved.dynamicToolResolver,
-      undefined,
+      resolved.workspaceMcp,
       resolved.inRunProducer,
     );
   }
@@ -4304,6 +4315,106 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
+  it('keeps the prompt prefix of a Chat with no Workspace MCP server on a read-only turn', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T12:00:00.000Z'));
+
+    const service = serviceWithTools({
+      allowed: ['search_conversations'],
+      permissionModes: ['default', 'read-only'],
+    });
+    const defaultSeeded = await seedBoundRun(
+      'permission-mode-read-only-context-isolation',
+      'default',
+    );
+    const readOnlySeeded = await seedBoundRun(
+      'permission-mode-read-only-context-isolation',
+      'read-only',
+    );
+    const calls: Array<ModelStreamInput> = [];
+    const model = new MockLanguageModelV3({
+      doStream: () => Promise.resolve(textResponse('context is unchanged')),
+    });
+
+    try {
+      const defaultResult = await executeSeeded(
+        defaultSeeded,
+        service,
+        recordingMockClient(model, calls),
+      );
+      await defaultResult.consumeStream?.();
+      const readOnlyResult = await executeSeeded(
+        readOnlySeeded,
+        service,
+        recordingMockClient(model, calls),
+      );
+      await readOnlyResult.consumeStream?.();
+
+      expect(calls).toHaveLength(2);
+      expect(model.doStreamCalls).toHaveLength(2);
+      const defaultRequest = calls[0];
+      const readOnlyRequest = calls[1];
+      if (defaultRequest === undefined || readOnlyRequest === undefined) {
+        throw new Error('Expected both model requests to be recorded');
+      }
+      expect(readOnlyRequest.system).toBe(defaultRequest.system);
+      expect(readOnlyRequest.messages).toEqual(defaultRequest.messages);
+      // The declarations are identical too: the mode is not model-visible.
+      expect(model.doStreamCalls[1]?.prompt).toEqual(
+        model.doStreamCalls[0]?.prompt,
+      );
+      expect(model.doStreamCalls[1]?.tools).toEqual(
+        model.doStreamCalls[0]?.tools,
+      );
+
+      const [defaultReceipts, readOnlyReceipts] = await tenantDb.runAs(
+        userId,
+        async (tx) => {
+          const receipts = new SystemPromptReceiptsRepository(tx);
+          return [
+            await receipts.findByOwnedRun(defaultSeeded.run.id, userId),
+            await receipts.findByOwnedRun(readOnlySeeded.run.id, userId),
+          ] as const;
+        },
+      );
+      expect(defaultReceipts).toHaveLength(1);
+      expect(readOnlyReceipts).toHaveLength(1);
+      expect(
+        readOnlyReceipts.map(({ source, systemPrompt, promptHash }) => ({
+          source,
+          systemPrompt,
+          promptHash,
+        })),
+      ).toEqual(
+        defaultReceipts.map(({ source, systemPrompt, promptHash }) => ({
+          source,
+          systemPrompt,
+          promptHash,
+        })),
+      );
+      for (const runId of [defaultSeeded.run.id, readOnlySeeded.run.id]) {
+        await waitForCompleted(runId);
+      }
+      const defaultParts = await storedContextParts(defaultSeeded.chatId);
+      const readOnlyParts = await storedContextParts(readOnlySeeded.chatId);
+      expect(defaultParts.length).toBeGreaterThan(0);
+      expect(readOnlyParts.map(persistedItem)).toEqual(
+        defaultParts.map(persistedItem),
+      );
+
+      for (const request of calls) {
+        expect(JSON.stringify(request)).not.toContain('read-only');
+      }
+      for (const part of [...defaultParts, ...readOnlyParts]) {
+        expect(JSON.stringify(part)).not.toContain('read-only');
+      }
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${defaultSeeded.chatId}`;
+      await sql`DELETE FROM chats WHERE id = ${readOnlySeeded.chatId}`;
+      vi.useRealTimers();
+    }
+  });
+
   it('bypasses a recommended-policy Bash reject and records the decision before tool.started', async () => {
     const cwd = mkdtempSync(path.join(tmpdir(), 'permission-mode-bash-'));
     const seeded = await seedBoundRun(
@@ -5892,6 +6003,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     async function seedRunOnChat(
       chat: Awaited<ReturnType<typeof seedBoundRun>>,
       key: string,
+      permissionMode: PermissionMode = 'default',
     ) {
       const messageId = crypto.randomUUID();
       const seeded = await tenantDb.runAs(userId, async (tx) => {
@@ -5907,6 +6019,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           messageId,
           userId,
           modelId: `test:${key}`,
+          permissionMode,
         });
         return { userMessage, run };
       });
@@ -6911,6 +7024,232 @@ describeIfDb('executeRun tool-loop persistence', () => {
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    /**
+     * One Workspace MCP HTTP server whose single tool is `mcp__docs__search`.
+     * Two connections are scripted so a wrongly started client would find a
+     * response rather than a 500 and be visible by its requests.
+     */
+    async function docsMcpFixture(): Promise<McpTestFixture> {
+      const declaration = {
+        name: 'search',
+        description: 'Search the docs.',
+        inputSchema: { type: 'object', properties: {} },
+      };
+      return createMcpTestFixture({
+        $get: Array.from({ length: 2 }, () => ({
+          kind: 'raw' as const,
+          status: 405,
+          body: '',
+        })),
+        initialize: Array.from({ length: 2 }, () =>
+          mcpStreamableHttpInitialize(),
+        ),
+        'notifications/initialized': Array.from({ length: 2 }, () => ({
+          kind: 'raw' as const,
+          status: 204,
+          body: '',
+        })),
+        'tools/list': Array.from({ length: 2 }, () => ({
+          kind: 'json' as const,
+          body: {
+            jsonrpc: '2.0',
+            id: 1,
+            result: { tools: [declaration] },
+          },
+        })),
+      });
+    }
+
+    /** Bind the Chat to `root` the way an entry commits it. */
+    async function bindChatWorkspace(chatId: string, root: string) {
+      await tenantDb.runAs(userId, (tx) =>
+        tx
+          .update(schema.chats)
+          .set({
+            workspaceRoot: root,
+            workspaceExecutorId: 'workspace-test-host',
+            workspaceGeneration: 1,
+          })
+          .where(eq(schema.chats.id, chatId)),
+      );
+    }
+
+    function textModel(text: string): MockLanguageModelV3 {
+      return new MockLanguageModelV3({
+        doStream: () => Promise.resolve(textResponse(text)),
+      });
+    }
+
+    function workspaceRootWithDocs(fixture: McpTestFixture): string {
+      const root = realpathSync(
+        mkdtempSync(path.join(tmpdir(), 'read-only-workspace-')),
+      );
+      writeFileSync(
+        path.join(root, '.mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            docs: { type: 'streamable-http', url: fixture.url },
+          },
+        }),
+      );
+      return root;
+    }
+
+    it('starts no Workspace MCP client for a read-only attempt', async () => {
+      const fixture = await docsMcpFixture();
+      const root = workspaceRootWithDocs(fixture);
+      const operator = new McpRuntimeService({});
+      const clients = new WorkspaceMcpClients(operator);
+      const seeded = await seedBoundRun(
+        `read-only-mcp-${crypto.randomUUID()}`,
+        'read-only',
+      );
+      const service = serviceWithTools({
+        allowed: ['read', 'enter_workspace', 'mcp__docs__search'],
+        nativeExecutorId: 'workspace-test-host',
+        permissionModes: ['default', 'read-only'],
+        workspaceMcp: clients,
+      });
+      await bindChatWorkspace(seeded.chatId, root);
+      try {
+        const calls: Array<ModelStreamInput> = [];
+        const result = await executeSeeded(
+          seeded,
+          service,
+          recordingMockClient(textModel('Read only.'), calls),
+        );
+        await result.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // No server process, no declaration, and no cached client set.
+        expect(fixture.requestSummaries()).toEqual([]);
+        expect(
+          clients.stateForKey({
+            chatId: seeded.chatId,
+            root,
+            generation: 1,
+          }),
+        ).toBeUndefined();
+        expect(Object.keys(calls[0]?.tools ?? {})).not.toContain(
+          'mcp__docs__search',
+        );
+
+        // The next default turn starts the clients before composing tools.
+        const second = await seedRunOnChat(
+          seeded,
+          `read-only-mcp-default-${crypto.randomUUID()}`,
+        );
+        const secondCalls: Array<ModelStreamInput> = [];
+        const secondResult = await executeSeeded(
+          second,
+          service,
+          recordingMockClient(textModel('Default again.'), secondCalls),
+        );
+        await secondResult.consumeStream?.();
+        await waitForCompleted(second.run.id);
+        expect(
+          fixture
+            .requestSummaries()
+            .some((request) => request.rpcMethod === 'initialize'),
+        ).toBe(true);
+        expect(Object.keys(secondCalls[0]?.tools ?? {})).toContain(
+          'mcp__docs__search',
+        );
+      } finally {
+        await clients.onModuleDestroy();
+        await operator.stop();
+        await fixture.close();
+        rmSync(root, { recursive: true, force: true });
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    });
+
+    it('reports the Workspace MCP tools as removed on a read-only turn', async () => {
+      const fixture = await docsMcpFixture();
+      const root = workspaceRootWithDocs(fixture);
+      const operator = new McpRuntimeService({});
+      const clients = new WorkspaceMcpClients(operator);
+      const seeded = await seedBoundRun(
+        `read-only-mcp-removed-${crypto.randomUUID()}`,
+        'default',
+      );
+      const service = serviceWithTools({
+        allowed: ['read', 'enter_workspace', 'mcp__docs__search'],
+        nativeExecutorId: 'workspace-test-host',
+        permissionModes: ['default', 'read-only'],
+        workspaceMcp: clients,
+      });
+      await bindChatWorkspace(seeded.chatId, root);
+      try {
+        const defaultCalls: Array<ModelStreamInput> = [];
+        const first = await executeSeeded(
+          seeded,
+          service,
+          recordingMockClient(textModel('Default.'), defaultCalls),
+        );
+        await first.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+        expect(Object.keys(defaultCalls[0]?.tools ?? {})).toContain(
+          'mcp__docs__search',
+        );
+        const requestsAfterDefault = fixture.requestSummaries().length;
+        const cached = {
+          chatId: seeded.chatId,
+          root,
+          generation: 1,
+        };
+
+        const second = await seedRunOnChat(
+          seeded,
+          `read-only-mcp-removed-next-${crypto.randomUUID()}`,
+          'read-only',
+        );
+        const readOnlyCalls: Array<ModelStreamInput> = [];
+        const secondResult = await executeSeeded(
+          second,
+          service,
+          recordingMockClient(textModel('Read only.'), readOnlyCalls),
+        );
+        await secondResult.consumeStream?.();
+        await waitForCompleted(second.run.id);
+
+        // The read-only attempt declares none of the client's tools, takes no
+        // tool from it, and leaves the cached set for a later default attempt.
+        expect(Object.keys(readOnlyCalls[0]?.tools ?? {})).not.toContain(
+          'mcp__docs__search',
+        );
+        expect(fixture.requestSummaries()).toHaveLength(requestsAfterDefault);
+        expect(clients.stateForKey(cached)).toMatchObject({
+          servers: [{ id: 'docs', state: 'available' }],
+        });
+        const availability = (
+          await messageContextParts(second.chatId, second.messageId)
+        ).find((part) => part.data.producer === 'tool-availability');
+        expect(availability?.data.text).toContain('Removed tools:');
+        expect(availability?.data.text).toContain('mcp__docs__search');
+        expect(
+          (
+            await tenantDb.runAs(userId, (tx) =>
+              new RunsRepository(tx).findById(second.run.id, userId),
+            )
+          )?.turnToolAvailability,
+        ).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: 'mcp__docs__search',
+              state: 'available',
+            }),
+          ]),
+        );
+      } finally {
+        await clients.onModuleDestroy();
+        await operator.stop();
+        await fixture.close();
+        rmSync(root, { recursive: true, force: true });
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       }
     });
   });

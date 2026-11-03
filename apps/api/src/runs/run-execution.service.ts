@@ -326,8 +326,10 @@ import {
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
+  createWorkspaceMcpListingCell,
   WorkspaceMcpClients,
   type WorkspaceMcpKey,
+  type WorkspaceMcpListingCell,
 } from '../mcp/workspace-mcp-clients';
 import { ToolDescriptionRenderError } from '../tools/turn-tool-catalog';
 import {
@@ -687,11 +689,17 @@ export function classifyAbortedRun(
  * Resolve the permission mode accepted on a Run against the modes available
  * to the worker. Kept standalone so the worker's frozen mode decision can be
  * unit-tested without constructing the full execution service.
+ *
+ * `read-only` never downgrades: a process that has withdrawn it from
+ * `tools.permissionModes` would widen a queued Run if it resolved `default`,
+ * and all processes run one release, so every worker knows the mode. The
+ * enabled list gates acceptance at the API, not execution.
  */
 export function resolveEffectivePermissionMode(
   accepted: PermissionMode,
   workerModes: ReadonlyArray<PermissionMode>,
 ): PermissionMode {
+  if (accepted === 'read-only') return 'read-only';
   return accepted === 'bypass' && workerModes.includes('bypass')
     ? 'bypass'
     : 'default';
@@ -1164,9 +1172,24 @@ export class RunExecutionService {
       effectivePermissionMode,
     );
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
-    const workspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
+    // The attempt's one Workspace MCP listing, filled at attempt start or at
+    // the entry that sets a binding, so a same-root re-entry reads no
+    // configuration again (read-only-permission-mode D6).
+    const workspaceMcpListing = createWorkspaceMcpListingCell();
+    const boundWorkspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
+    // A `read-only` attempt starts, holds, and composes no Workspace MCP
+    // client: no key reaches the catalog, the resolver, or the attempt hold.
+    const workspaceMcpKey = this.attemptWorkspaceMcpKey(
+      workspacePreparation,
+      effectivePermissionMode,
+    );
     await this.restoreArtifactFiles(input, workspaceChat);
-    await this.startWorkspaceMcp(input.chatId, workspaceMcpKey);
+    await this.startWorkspaceMcp(
+      input.chatId,
+      boundWorkspaceMcpKey,
+      effectivePermissionMode,
+      workspaceMcpListing,
+    );
     const attemptDynamicResolver = this.attemptDynamicResolver(workspaceMcpKey);
 
     // Explicit `$skill` activation runs BEFORE context assembly, because the
@@ -1449,6 +1472,7 @@ export class RunExecutionService {
       chatId: input.chatId,
       workspaceRoot,
       workspaceMcp: this.workspaceMcp,
+      workspaceMcpListing,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
@@ -2518,13 +2542,30 @@ export class RunExecutionService {
     };
   }
 
+  /**
+   * Prepare this Chat's Workspace MCP clients for the attempt. A `read-only`
+   * attempt starts none — it still discards stale generations and lists the
+   * binding's configuration once into the attempt's memory — while every other
+   * mode keeps the ordinary start.
+   */
   private async startWorkspaceMcp(
     chatId: string,
     key: WorkspaceMcpKey | undefined,
+    mode: PermissionMode,
+    listing: WorkspaceMcpListingCell,
   ): Promise<void> {
     if (this.workspaceMcp === undefined) return;
     if (key === undefined) {
       await this.workspaceMcp.stopForChat(chatId);
+      return;
+    }
+    if (mode === 'read-only') {
+      await this.workspaceMcp.stopStale(key);
+      listing.commit({
+        root: key.root,
+        generation: key.generation,
+        servers: await this.workspaceMcp.listUnstarted(key),
+      });
       return;
     }
     await this.workspaceMcp.startForChat(key);
@@ -2546,6 +2587,17 @@ export class RunExecutionService {
       permissionMode,
       this.instanceConfig.config.tools.permissionModes,
     );
+  }
+
+  /**
+   * The Workspace MCP key this attempt may compose tools from. A `read-only`
+   * attempt gets none, so no client, resolver, or hold is reached.
+   */
+  private attemptWorkspaceMcpKey(
+    preparation: WorkspacePreparation,
+    mode: PermissionMode,
+  ): WorkspaceMcpKey | undefined {
+    return mode === 'read-only' ? undefined : this.workspaceMcpKey(preparation);
   }
 
   private workspaceMcpKey(

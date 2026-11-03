@@ -254,6 +254,8 @@ describe('resolveEffectivePermissionMode', () => {
     ['bypass', ['default'], 'default'],
     ['default', ['default', 'bypass'], 'default'],
     ['default', ['default'], 'default'],
+    ['read-only', ['default'], 'read-only'],
+    ['read-only', ['default', 'read-only', 'bypass'], 'read-only'],
   ] as const)(
     'resolves accepted %s with worker modes %j to %s',
     (accepted, workerModes, expected) => {
@@ -262,6 +264,20 @@ describe('resolveEffectivePermissionMode', () => {
       );
     },
   );
+
+  it('Read-only stays read-only on a process that does not enable it', () => {
+    expect(resolveEffectivePermissionMode('read-only', ['default'])).toBe(
+      'read-only',
+    );
+  });
+
+  it('Withdrawing read-only does not widen a queued Run', () => {
+    // The Run was accepted while the operator enabled `read-only`; the worker
+    // restarted with a list that no longer holds it.
+    expect(
+      resolveEffectivePermissionMode('read-only', ['default', 'bypass']),
+    ).toBe('read-only');
+  });
 });
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
