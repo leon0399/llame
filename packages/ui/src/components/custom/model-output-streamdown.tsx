@@ -114,9 +114,10 @@ export const ModelOutputStreamdown = ({
   children,
   ...props
 }: ModelOutputStreamdownProps) => {
-  // SSR and hydration have no `window`. `""` matches on both, so absolute
-  // links render the icon in the server HTML; the real origin takes over
-  // after hydration without a mismatch.
+  // SSR and hydration share `""`, so the first HTML matches. Streamdown
+  // memoizes itself without comparing `rehypePlugins`, and its link renderer
+  // ignores children, so a later parse cannot take an icon back. Remounting
+  // when the origin arrives re-parses from scratch.
   const ownOrigin = useSyncExternalStore(
     subscribeToNothing,
     () => window.location.origin,
@@ -137,6 +138,7 @@ export const ModelOutputStreamdown = ({
     <RegexTesterProvider resolveOverlayContainer={resolveOverlayContainer}>
       <Streamdown
         {...props}
+        key={ownOrigin === "" ? "origin-pending" : ownOrigin}
         plugins={modelOutputPlugins}
         remarkPlugins={modelOutputRemarkPlugins}
         rehypePlugins={rehypePlugins}

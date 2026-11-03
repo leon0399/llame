@@ -46,8 +46,9 @@ const readHref = (node: HastNode): string | undefined => {
  *
  * Pass `window.location.origin` once it is known. Pass `""` during SSR and
  * hydration: absolute `http(s)` URLs are then outbound, so the server HTML
- * matches the first client render, and a same-origin absolute URL drops the
- * icon on the next render.
+ * matches the first client render. The renderer remounts when the origin
+ * becomes known, because Streamdown memoizes links without looking at their
+ * children.
  */
 export const isOutboundHref = (href: string, ownOrigin: string): boolean => {
   const trimmed = href.trim();
