@@ -206,17 +206,19 @@ function longestFittingPrefix(
 /**
  * Room kept for the one notice line the spill adds after the inline fit: the
  * locator, its line count, the continuation line, and any host-file directory.
+ * A spill path passes it to {@link normalizeOutput}, so the body and its
+ * notice together stay inside the inline bound.
  */
-const INLINE_NOTICE_RESERVE = 256;
+export const INLINE_NOTICE_RESERVE = 256;
 
 /** The code units the model reads for one candidate output. */
 function inlineTextLength(value: WebSearchSuccess): number {
   return renderWebSearchOutput(value)?.text.length ?? Number.POSITIVE_INFINITY;
 }
 
-/** Whether the whole output fits inline, with no notice. */
-function fitsInline(value: WebSearchSuccess): boolean {
-  return inlineTextLength(value) <= WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
+/** Whether the output and any notice the caller adds fit inline. */
+function fitsInline(value: WebSearchSuccess, reserve: number): boolean {
+  return inlineTextLength(value) + reserve <= WEB_SEARCH_OUTPUT_MAX_CODE_UNITS;
 }
 
 /** Whether a candidate being trimmed also leaves the notice its room. */
@@ -312,6 +314,7 @@ function fitAnswer(
   initial: AnswerOutput,
   notes: ReadonlyArray<string>,
   removed: number | undefined,
+  reserve: number,
 ): WebSearchSuccess {
   const unchanged = withNotes(initial, {
     notes,
@@ -319,7 +322,7 @@ function fitAnswer(
     answerCut: false,
     removed,
   });
-  if (fitsInline(unchanged)) return unchanged;
+  if (fitsInline(unchanged, reserve)) return unchanged;
   const counts: TrimCounts = { ...NO_TRIM_COUNTS };
   let citations = initial.citations;
   const render = (): WebSearchSuccess =>
@@ -434,6 +437,7 @@ function fitResults(
   initial: ResultsOutput,
   notes: ReadonlyArray<string>,
   removed: number | undefined,
+  reserve: number,
 ): WebSearchSuccess {
   const unchanged = withNotes(initial, {
     notes,
@@ -441,7 +445,7 @@ function fitResults(
     answerCut: false,
     removed,
   });
-  if (fitsInline(unchanged)) return unchanged;
+  if (fitsInline(unchanged, reserve)) return unchanged;
   const trim: ResultsTrim = {
     initial,
     notes,
@@ -478,11 +482,12 @@ function truncatedAnswersNote(source: ResultSource): string | undefined {
 export function normalizeOutput(
   source: SearchChainSuccess,
   limit: number,
+  noticeReserve = 0,
 ): WebSearchSuccess {
   const { output, notes } = boundedOutput(source, limit);
   return output.kind === 'results'
-    ? fitResults(output, notes, source.removed)
-    : fitAnswer(output, notes, source.removed);
+    ? fitResults(output, notes, source.removed, noticeReserve)
+    : fitAnswer(output, notes, source.removed, noticeReserve);
 }
 
 /**

@@ -136,8 +136,10 @@ rest with `read("artifact://web_search-<n>:<line>-")`. A Run that cannot read
 artifacts keeps the inline result and a `[left out: <n> results; full result not
 stored]` line instead. Every result is billed by the vendor whether or not it
 fits inline, so a fetch size above 10 increases cost on a vendor that bills per
-result: Parallel adds $1 per 1,000 results past ten, while Brave, DeepSeek,
-Exa, Perplexity, and Yandex bill per request.
+result: Exa and Parallel bill each result above ten at $1 per 1,000 results
+(with Exa's `auto` base of $7 per 1,000 requests, the 20-result default costs
+about $17 per 1,000 calls), while Brave, DeepSeek, Perplexity, and Yandex bill
+per request.
 
 ## Objective
 

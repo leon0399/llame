@@ -32,7 +32,11 @@ import {
   type RawResult,
   type SearchChainSuccess,
 } from './chain';
-import { normalizeFullOutput, type WebSearchSuccess } from './output';
+import {
+  normalizeFullOutput,
+  normalizeOutput,
+  type WebSearchSuccess,
+} from './output';
 import {
   renderWebSearchOutput,
   renderWebSearchText,
@@ -876,4 +880,46 @@ it('counts dropped answers once and kept answers’ lost citations', async () =>
   expect(inline.truncationNotice).toBe(
     'left out: 23 results; full result not stored',
   );
+});
+
+it('reserves the notice room when the inline body alone fits', async () => {
+  const base = Array.from({ length: 20 }, (_unused, index) =>
+    resultAt(index + 1, { title: 200, snippet: 300, url: 1 }),
+  );
+  const bodyLength = renderWebSearchOutput(
+    normalizeOutput(resultsSource(base), 10),
+  )?.text.length;
+  if (bodyLength === undefined) throw new Error('expected the inline body');
+  const target = 14_980;
+  const extra = target - bodyLength;
+  const per = Math.floor(extra / 10);
+  const remainder = extra % 10;
+  const source = resultsSource(
+    base.map((result, index) =>
+      index < 10
+        ? {
+            ...result,
+            url: `${result.url}${'u'.repeat(per + (index < remainder ? 1 : 0))}`,
+          }
+        : result,
+    ),
+  );
+
+  // The body alone fits the 15,000-unit bound, but the notice would not fit
+  // beside it (the reported 15,004-unit overflow).
+  const bodyOnly = renderWebSearchOutput(normalizeOutput(source, 10));
+  expect(bodyOnly?.text.length).toBe(target);
+  expect(target).toBeGreaterThan(14_744);
+  expect(target).toBeLessThan(15_000);
+
+  const result = await spillWebSearchResult(testContext(), source, {
+    limit: 10,
+    fetchSize: 20,
+  });
+
+  const text = renderWebSearchText(result) ?? '';
+  expect(text.length).toBeLessThanOrEqual(15_000);
+  const notice = spilled(result).truncationNotice;
+  expect(notice).toBeDefined();
+  expect(text.split('\n').at(-1)).toBe(`[${String(notice)}]`);
 });

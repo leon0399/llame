@@ -20,6 +20,7 @@ import { artifactHostFiles, storeSinglePartArtifact } from '../artifacts/spill';
 import { type ToolContext, type ToolResult } from '../types';
 import { type SearchChainSuccess } from './chain';
 import {
+  INLINE_NOTICE_RESERVE,
   normalizeFullOutput,
   normalizeOutput,
   type WebSearchSuccess,
@@ -46,9 +47,12 @@ export async function spillWebSearchResult(
   { limit, fetchSize }: WebSearchSpill,
 ): Promise<ToolResult> {
   const full = normalizeFullOutput(source, fetchSize);
-  const inline = normalizeOutput(source, limit);
-  if (JSON.stringify(full) === JSON.stringify(inline)) return inline;
+  const whole = normalizeOutput(source, limit);
+  if (JSON.stringify(full) === JSON.stringify(whole)) return whole;
 
+  // The inline body shares the 15,000-unit bound with the notice this path
+  // adds, so it is fitted with the notice's room kept back.
+  const inline = normalizeOutput(source, limit, INLINE_NOTICE_RESERVE);
   const rendered = renderWebSearchOutput(full);
   const written =
     rendered === undefined ? undefined : await storeArtifact(context, rendered);
