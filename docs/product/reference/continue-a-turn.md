@@ -80,8 +80,11 @@ it.
 The kept parts are the same turn as the new Run, so only the model check applies
 to their reasoning and provider metadata: a kept step of a failed Run still
 reaches that Run's model with its reasoning intact. Each kept result is sent as
-the earlier Run sent it, in full. The projection adds no user text of its own,
-so the request ends with the kept results.
+the earlier Run sent it, in full. The projection adds no user text of its own:
+the request ends with the last kept part, which is a kept result, or a kept
+in-Run context item in its own user message when one follows the last result.
+A kept tool input is sent in the key order of the Run event log, which stores
+it as `jsonb`; the Continue Run's own reply then stores that order.
 
 A source Run recorded before stored parts carried a step number keeps its step
 boundaries anyway. A kept call inherited from an earlier Run takes the number

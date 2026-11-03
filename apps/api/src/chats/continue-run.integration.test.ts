@@ -10,7 +10,7 @@
  */
 
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import type { ModelMessage, ToolResultPart } from 'ai';
+import type { ModelMessage, ToolCallPart, ToolResultPart } from 'ai';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { and, eq } from 'drizzle-orm';
@@ -787,6 +787,48 @@ describeIfDb('a Continue Run', () => {
     expect(result?.output).toEqual({ type: 'error-text', value: sdkErrorText });
     expect(JSON.stringify(requests[0]?.messages)).not.toContain(
       'llame refusal message',
+    );
+  });
+
+  it('replays a kept input in the key order of the event log, then stores that order', async () => {
+    // The source row keeps the live order `offset`, `path`; `run.continued` is
+    // `jsonb`, which puts the shorter key first.
+    const turn = await seedContinuedTurn({
+      replyParts: [
+        keptParts[1],
+        {
+          ...keptParts[2],
+          input: { offset: 2, path: '/tmp/file.txt' },
+        },
+      ],
+    });
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
+        requests,
+      }),
+    );
+
+    const call = requests[0]?.messages
+      .flatMap((message) =>
+        message.role === 'assistant' && Array.isArray(message.content)
+          ? message.content
+          : [],
+      )
+      .find(
+        (part): part is ToolCallPart =>
+          part.type === 'tool-call' && part.toolCallId === CALL_ID,
+      );
+    const jsonbOrder = '{"path":"/tmp/file.txt","offset":2}';
+    expect(JSON.stringify(call?.input)).toBe(jsonbOrder);
+    const reply = await replyOf(turn);
+    const stored = (reply?.parts ?? []).find(
+      (part) => isRecord(part) && part['toolCallId'] === CALL_ID,
+    );
+    expect(JSON.stringify(isRecord(stored) ? stored['input'] : null)).toBe(
+      jsonbOrder,
     );
   });
 
