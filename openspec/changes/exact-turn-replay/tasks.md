@@ -93,7 +93,7 @@ over. Every other layer stays inside about 2,000 lines.
 
 ## 6. harness
 
-- [ ] 6.1 Extend the scripted model client to emit a whole step through the production seams: parallel calls, text before and after a call, reasoning start and end with metadata, text and call metadata, and a refused call (design D14). Verify with focused harness tests that the stored parts match each scripted step.
+- [ ] 6.1 Extend the scripted model client to emit a whole step through the production seams: parallel calls, text before and after a call, reasoning start and end with metadata, text and call metadata, a refused call, and a stream error after a reasoning part (design D14). Verify with focused harness tests that the stored parts match each scripted step.
 - [ ] 6.2 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused harness tests, `pnpm format:check`, `git diff --check`.
 - [ ] 6.3 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 6.4 Pass the GitHub review and CI gate under Ready-PR monitoring.

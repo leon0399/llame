@@ -234,15 +234,23 @@ wrote keep the member order of the live step.
 An API integration test with the scripted model client and a test database runs
 two turns. The scripted client records each prompt after
 `installStepPreparation` today, but emits one call per step with no text and no
-metadata. The `replay` layer extends it to emit a whole step: parallel calls,
-text, reasoning start and end with metadata, and a refused call, through the
-same seams as the production clients. It records the messages each model request receives after
-`installStepPreparation`. Turn 1 holds a step with two parallel calls, a step
-with text before a call, a refused call, a result over the cap with an artifact, an MCP JSON
-result, an image read, and reasoning with metadata. The test asserts that the
-serialized messages of turn 2's first request start with those of turn 1's last
-request, then turn 1's last response messages. A second case switches model on
-turn 2 and asserts no reasoning part and no provider metadata of turn 1.
+metadata. The `harness` layer extends it to emit a whole step through the same
+seams as the production clients: parallel calls, text before and after a call,
+reasoning start and end with metadata, text and call metadata, a refused call,
+and a stream error after a reasoning part. Turn 1 holds a step with two parallel
+calls, a step with text before a call, a refused call, a result over the cap
+with an artifact, an MCP JSON result, an image read, and reasoning with
+metadata. The test asserts three cases on the serialized messages of turn 2's
+first request:
+
+- **Same model, completed.** They start with those of turn 1's last request,
+  then turn 1's last response messages.
+- **Model switch.** Turn 2 runs on another model. The same prefix holds with no
+  reasoning part and no provider metadata of turn 1.
+- **Failed reply.** The scripted client ends turn 1 with a stream error after a
+  reasoning part, so its Run fails, and turn 2 runs on the same model. The
+  prefix of turn 1's last request and the stored part of its response holds,
+  with no reasoning part and no provider metadata of turn 1.
 
 ## Risks / Trade-offs
 
@@ -293,6 +301,10 @@ when it was staged before any tool result is settled by D14.
 
 ## Revision history
 
+- **v5 (2026-11-03), GitHub review round 2 (#1551).** pullfrog: 1 finding,
+  accepted. D14 names its three cases, including the failed reply and the
+  scripted stream error that makes it, and the `harness` layer (not `replay`)
+  owns the scripted client.
 - **v4 (2026-11-03), GitHub review round 1 (#1551).** pullfrog: 2 findings,
   both accepted. The prefix rule after a model switch or a failed reply is now
   its own requirement ("A model switch keeps the previous request less the
