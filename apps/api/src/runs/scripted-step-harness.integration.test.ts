@@ -13,12 +13,17 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 import { MessagesRepository } from '../chats/chats-repository';
 import { waitFor } from '../testing/support';
 import { reconstructDurableAssistant } from './assistant-transcript';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { isTerminalRunStatus } from './run-status';
 import { type ScriptedBehavior } from './scripted-model-client';
 import {
   bootWorkerHarness,
@@ -41,17 +46,25 @@ const INVALID_CALL_METADATA = { test: { itemId: 'call-invalid' } };
 const FINAL_TEXT_METADATA = { test: { itemId: 'text-final' } };
 const FAILED_REASONING_METADATA = { test: { signature: 'reasoning-doomed' } };
 
-/** The JSON records a stored parts array holds, skipping anything malformed. */
-function storedParts(parts: ReadonlyArray<unknown>): Array<UnknownRecord> {
-  return parts.filter((part): part is UnknownRecord => isRecord(part));
-}
-
 /** Every stored part of one type, in transcript order. */
 function partsOf(
   parts: ReadonlyArray<UnknownRecord>,
   type: string,
 ): Array<UnknownRecord> {
   return parts.filter((part) => part['type'] === type);
+}
+
+/** A stored part's identity in transcript order: its text, call id, or type. */
+function partIdentity(part: UnknownRecord): string {
+  const text = part['text'];
+  if (
+    (part['type'] === 'reasoning' || part['type'] === 'text') &&
+    isString(text)
+  ) {
+    return text;
+  }
+  const toolCallId = part['toolCallId'];
+  return isString(toolCallId) ? toolCallId : String(part['type']);
 }
 
 /** The stored tool part a call id names. */
@@ -92,10 +105,7 @@ describeIfDb('whole-step scripted model client', () => {
         const run = await harness.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(runId, userId),
         );
-        return run &&
-          ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
-          ? run
-          : undefined;
+        return run && isTerminalRunStatus(run.status) ? run : undefined;
       },
       30_000,
       `scripted step Run ${runId} to settle`,
@@ -108,7 +118,9 @@ describeIfDb('whole-step scripted model client', () => {
     const assistant = messages.find((message) => message.role === 'assistant');
     if (assistant === undefined)
       throw new Error('The Run stored no assistant message.');
-    return storedParts(assistant.parts);
+    return assistant.parts.filter((part): part is UnknownRecord =>
+      isRecord(part),
+    );
   };
 
   it('stores each scripted step through the production seams and feeds its response to the next step', async () => {
@@ -176,6 +188,25 @@ describeIfDb('whole-step scripted model client', () => {
     const seeded = await seedAndDispatchRun(harness, { userId, modelId });
     expect((await terminal(seeded.runId)).status).toBe('completed');
     const parts = await assistantParts(seeded.chatId);
+
+    // The whole transcript order, not just each part's contents: a replay
+    // sends these parts back in exactly this order, so a swapped call or a
+    // text moved across a call would change the next request's prefix.
+    expect(
+      parts.filter((part) => part['step'] === 0).map(partIdentity),
+    ).toEqual([
+      'Plan the read.',
+      'Reading first. ',
+      'call-read',
+      'call-unknown',
+      'Both requested. ',
+    ]);
+    expect(
+      parts.filter((part) => part['step'] === 1).map(partIdentity),
+    ).toEqual(['Second look.', 'call-invalid']);
+    expect(
+      parts.filter((part) => part['step'] === 2).map(partIdentity),
+    ).toEqual(['Finished.']);
 
     // Step 0: reasoning, text, both calls, then text again — every part of
     // the step carries its own number and the provider metadata its wire part

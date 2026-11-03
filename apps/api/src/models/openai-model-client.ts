@@ -375,6 +375,34 @@ export function awaitSettlementAfter(
   });
 }
 
+/** The AI SDK streaming request a client composes. */
+type StreamOptions = Parameters<typeof streamText>[0];
+
+/**
+ * Runs one prepared stream request through the production channel: the
+ * terminal callbacks and the abort settlement queue behind the request's one
+ * `fullStream` consumer, and the returned result awaits both. `streamOptions`
+ * already carries the gate's tool options and the step preparation.
+ */
+export function runStreamChannel(run: {
+  streamOptions: StreamOptions & { model: LanguageModelV3 };
+  input: ModelStreamInput;
+  gate: ToolCallGate;
+  runStreamText: (options: StreamOptions) => ModelStreamResult;
+  sanitizeError?: (error: unknown) => Error;
+}): ModelStreamResult {
+  const { streamOptions, input, gate, runStreamText, sanitizeError } = run;
+  // SDK callbacks return immediately so the `fullStream` stream branch can
+  // close; the run's callbacks and abort persistence then execute in order
+  // behind that branch (D15/D18).
+  const terminals = deferTerminalCallbacks(streamOptions, input);
+  const settlement = trackAbortSettlement(input, terminals);
+  streamOptions.onAbort = settlement.onAbort;
+  const result = runStreamText(streamOptions);
+  bindStreamChannel(terminals, result, input, gate);
+  return awaitSettlementAfter(result, settlement, sanitizeError, terminals);
+}
+
 export type OpenAIModelClientConfig = {
   credential?: string;
   providerModelId: string;
@@ -644,21 +672,13 @@ function runOpenAIStream(
 ): ModelStreamResult {
   const gate = createToolCallGate();
   const streamOptions = buildOpenAIStreamOptions(context, input, gate);
-  // SDK callbacks return immediately so the `fullStream` stream branch can
-  // close; the run's callbacks and abort persistence then execute in order
-  // behind that branch (D18).
-  const terminals = deferTerminalCallbacks(streamOptions, input);
-  const settlement = trackAbortSettlement(input, terminals);
-  streamOptions.onAbort = settlement.onAbort;
-  const result = dependencies.streamText(streamOptions);
-  bindStreamChannel(terminals, result, input, gate);
-
-  return awaitSettlementAfter(
-    result,
-    settlement,
-    streamSanitizer(context.config),
-    terminals,
-  );
+  return runStreamChannel({
+    streamOptions,
+    input,
+    gate,
+    runStreamText: dependencies.streamText,
+    sanitizeError: streamSanitizer(context.config),
+  });
 }
 
 /**

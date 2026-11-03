@@ -39,7 +39,7 @@ export type ScriptedReasoning = {
 export type ScriptedText = {
   type: 'text';
   id: string;
-  text: string;
+  text?: string;
   providerMetadata?: ProviderMetadata;
 };
 
@@ -59,7 +59,7 @@ export type ScriptedToolCall = {
 /** A provider stream failure after everything the step delivered before it. */
 export type ScriptedStepFailure = {
   type: 'error';
-  message?: string;
+  message: string;
 };
 
 /** One delivery of a scripted provider step. */
@@ -72,72 +72,44 @@ export type ScriptedStepPart =
 /** One provider request of a scripted turn, in the order the SDK makes them. */
 export type ScriptedStep = ReadonlyArray<ScriptedStepPart>;
 
-/** Appends a reasoning block's start, text, and end parts in wire order. */
-function appendReasoning(
+/**
+ * Appends a reasoning or text block's start, text, and end parts in wire
+ * order. The block's metadata rides every part, and an empty block keeps its
+ * start and end without a delta.
+ */
+function appendSpan(
   parts: Array<LanguageModelV3StreamPart>,
-  part: ScriptedReasoning,
+  part: ScriptedReasoning | ScriptedText,
 ): void {
   const metadata = part.providerMetadata;
-  parts.push({
-    type: 'reasoning-start',
-    id: part.id,
-    ...(metadata !== undefined && { providerMetadata: metadata }),
-  });
-  if ((part.text ?? '').length > 0) {
-    parts.push({
-      type: 'reasoning-delta',
-      id: part.id,
-      delta: part.text ?? '',
-      ...(metadata !== undefined && { providerMetadata: metadata }),
-    });
+  const withMetadata =
+    metadata === undefined ? {} : { providerMetadata: metadata };
+  const text = part.text ?? '';
+  switch (part.type) {
+    case 'reasoning':
+      parts.push({ type: 'reasoning-start', id: part.id, ...withMetadata });
+      if (text.length > 0) {
+        parts.push({
+          type: 'reasoning-delta',
+          id: part.id,
+          delta: text,
+          ...withMetadata,
+        });
+      }
+      parts.push({ type: 'reasoning-end', id: part.id, ...withMetadata });
+      return;
+    case 'text':
+      parts.push({ type: 'text-start', id: part.id, ...withMetadata });
+      if (text.length > 0) {
+        parts.push({
+          type: 'text-delta',
+          id: part.id,
+          delta: text,
+          ...withMetadata,
+        });
+      }
+      parts.push({ type: 'text-end', id: part.id, ...withMetadata });
   }
-  parts.push({
-    type: 'reasoning-end',
-    id: part.id,
-    ...(metadata !== undefined && { providerMetadata: metadata }),
-  });
-}
-
-/** Appends a text block's start, text, and end parts in wire order. */
-function appendText(
-  parts: Array<LanguageModelV3StreamPart>,
-  part: ScriptedText,
-): void {
-  const metadata = part.providerMetadata;
-  parts.push({
-    type: 'text-start',
-    id: part.id,
-    ...(metadata !== undefined && { providerMetadata: metadata }),
-  });
-  if (part.text.length > 0) {
-    parts.push({
-      type: 'text-delta',
-      id: part.id,
-      delta: part.text,
-      ...(metadata !== undefined && { providerMetadata: metadata }),
-    });
-  }
-  parts.push({
-    type: 'text-end',
-    id: part.id,
-    ...(metadata !== undefined && { providerMetadata: metadata }),
-  });
-}
-
-/** Appends one call with its provider metadata, its input exactly as scripted. */
-function appendToolCall(
-  parts: Array<LanguageModelV3StreamPart>,
-  part: ScriptedToolCall,
-): void {
-  parts.push({
-    type: 'tool-call',
-    toolCallId: part.toolCallId,
-    toolName: part.toolName,
-    input: isString(part.input) ? part.input : JSON.stringify(part.input),
-    ...(part.providerMetadata !== undefined && {
-      providerMetadata: part.providerMetadata,
-    }),
-  });
 }
 
 /** Appends one scripted delivery as its provider stream parts. */
@@ -147,27 +119,31 @@ function appendBlock(
 ): void {
   switch (part.type) {
     case 'reasoning':
-      appendReasoning(parts, part);
-      return;
     case 'text':
-      appendText(parts, part);
+      appendSpan(parts, part);
       return;
     case 'tool-call':
-      appendToolCall(parts, part);
+      parts.push({
+        type: 'tool-call',
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        input: isString(part.input) ? part.input : JSON.stringify(part.input),
+        ...(part.providerMetadata !== undefined && {
+          providerMetadata: part.providerMetadata,
+        }),
+      });
       return;
     case 'error':
-      parts.push({
-        type: 'error',
-        error: new Error(part.message ?? 'scripted provider failure'),
-      });
+      parts.push({ type: 'error', error: new Error(part.message) });
   }
 }
 
 /**
  * The provider stream parts one scripted step emits. A step that requested a
  * tool finishes with `tool-calls` (so the SDK executes them and asks for the
- * next step); every other step finishes with `stop`. A failed step ends at its
- * `error` part instead — no finish, exactly as a dropped provider stream.
+ * next step); every other step finishes with `stop`. A step that fails ends
+ * at its `error` part — nothing after it is emitted, and no finish, exactly
+ * as a dropped provider stream.
  */
 export function scriptedStepParts(
   step: ScriptedStep,
@@ -175,9 +151,7 @@ export function scriptedStepParts(
   const parts: Array<LanguageModelV3StreamPart> = [];
   for (const part of step) {
     appendBlock(parts, part);
-  }
-  if (step.some((part) => part.type === 'error')) {
-    return parts;
+    if (part.type === 'error') return parts;
   }
   parts.push({
     type: 'finish',

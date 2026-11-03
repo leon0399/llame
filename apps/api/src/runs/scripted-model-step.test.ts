@@ -82,24 +82,24 @@ describe('scriptedStepParts', () => {
     ]);
   });
 
-  it('ends at the error part without a finish', () => {
+  it('ends at the error part, emitting nothing after it and no finish', () => {
     const parts = scriptedStepParts([
       { type: 'reasoning', id: 'r0', text: 'doomed' },
       { type: 'error', message: 'provider dropped' },
+      { type: 'text', id: 't0', text: 'after the drop' },
+      {
+        type: 'tool-call',
+        toolCallId: 'call-one',
+        toolName: 'record',
+        input: { value: 'one' },
+      },
     ]);
 
-    expect(parts.at(-1)).toEqual({
-      type: 'error',
-      error: new Error('provider dropped'),
-    });
-    expect(parts.some((part) => part.type === 'finish')).toBe(false);
-  });
-
-  it('defaults the error message when the script names none', () => {
-    const parts = scriptedStepParts([{ type: 'error' }]);
-
     expect(parts).toEqual([
-      { type: 'error', error: new Error('scripted provider failure') },
+      { type: 'reasoning-start', id: 'r0' },
+      { type: 'reasoning-delta', id: 'r0', delta: 'doomed' },
+      { type: 'reasoning-end', id: 'r0' },
+      { type: 'error', error: new Error('provider dropped') },
     ]);
   });
 });
