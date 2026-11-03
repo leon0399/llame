@@ -59,7 +59,8 @@ zero and is reported separately in each PR.
   - Evidence: `docs/product/reference/permission-modes.md`, `docs/product/operator/native-files.md`, `apps/api/llame.config.jsonc.example`, `README.md`, `SPEC.md`, `CHANGELOG.md` (2026-11-03); `pnpm lint:markdown`.
 - [x] 2.10 Run `pnpm --filter api lint`, `typecheck`, the focused unit and integration files above, `pnpm format:check`, and `git diff --check`.
   - Evidence: `pnpm --filter api lint`, `typecheck`, the focused unit files above, `pnpm format:check`, `git diff --check`.
-- [ ] 2.11 SR before ready; GR through Ready-PR monitoring.
+- [x] 2.11 SR before ready; GR through Ready-PR monitoring.
+  - Evidence: Ready-PR monitoring on head `3901ba68` (1 review round). pullfrog's one inline finding (`attemptWorkspaceMcpKey` had no callers) was fixed in `3901ba68`, replied to, and resolved; its re-review of that head reported no new issues. CodeRabbit raised no finding on the api layer. 0 unresolved threads. CI green on `3901ba68` (run 41566865310, attempt 2) after one rerun of the known `run-usage-accounting.integration.test.ts` "expected 999 to be greater than or equal to 1000" flake; the mutation gate and every other check passed on the same run.
 
 ## 3. web
 
