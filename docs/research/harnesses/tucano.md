@@ -30,6 +30,9 @@ sources:
   - id: tucano-decide
     resource: "https://github.com/eduwxyz/tucano/blob/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d/src/core/runs.ts#L1250-L1252"
     title: "Approving runs the stored call after another grant check"
+  - id: tucano-always
+    resource: "https://github.com/eduwxyz/tucano/blob/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d/src/core/runs.ts#L1258"
+    title: "always skips high-risk tools and GitHub, browser, and apps connectors"
   - id: tucano-decide-check
     resource: "https://github.com/eduwxyz/tucano/blob/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d/src/core/runs.ts#L1370"
     title: "decide refuses when the tool is no longer allowed"
@@ -43,8 +46,8 @@ Tucano is a desktop workspace of named agents on Claude Code, Codex, OpenCode, o
 
 **Study**
 
-1. **The gateway is the tool catalog.** `allowed` exposes a tool when it is enabled and the grant is `read_write`, or when the grant is `read` and the class is `read`.[^tucano-hash] A peer CLI that can also call its own shell would bypass this. The security note says the CLI is started without built-in tools.[^tucano-security] This pass did not read the process argv that enforces that sentence.
-2. **Sensitive calls are hashed, then checked again.** `approvalHash` is SHA-256 of `connectorId`, tool name, and canonical JSON of the arguments.[^tucano-hash] During a turn, a call returns "tool not allowed right now" when the live grant no longer allows it. The comment calls that a defense against grants changing since the turn started.[^tucano-recheck] `decide` says approving runs the stored call after checking the grant again.[^tucano-decide] The branch this pass read refuses the stored tool when `allowed` is false for the current grant.[^tucano-decide-check] `always` can add a tool to `autoApprove` except for high-risk tools and a few named connectors.[^tucano-decide]
+1. **The gateway is the tool catalog.** `allowed` exposes a tool when it is enabled and the grant is `read_write`, or when the grant is `read` and the class is `read`.[^tucano-hash] A peer CLI that can also call its own shell would bypass this. The security note says the CLI is started without built-in tools.[^tucano-security] `claudeArgs` passes `--tools` as the web-tool list, empty unless web is on. The comment names those tools as web search and page reading.[^tucano-claude-web]
+2. **Sensitive calls are hashed, then checked again.** `approvalHash` is SHA-256 of `connectorId`, tool name, and canonical JSON of the arguments.[^tucano-hash] During a turn, a call returns "tool not allowed right now" when the live grant no longer allows it. The comment calls that a defense against grants changing since the turn started.[^tucano-recheck] `decide` says approving runs the stored call after checking the grant again.[^tucano-decide] The branch this pass read refuses the stored tool when `allowed` is false for the current grant.[^tucano-decide-check] `always` can add a tool to `autoApprove` except for a high-risk tool and the GitHub, browser, and apps connectors.[^tucano-always]
 3. **Channels and routines are product surface around that gateway.** The board says @mentions and a router choose who speaks, and that schedules need the app running. Those behaviors were not traced in this pass. Telegram is described on the board as the approvals path, not a full phone client.
 
 **llame fit**
@@ -66,5 +69,7 @@ Tucano is a desktop workspace of named agents on Claude Code, Codex, OpenCode, o
 [^tucano-recheck]: [A tool call re-reads the grant before it runs](https://github.com/eduwxyz/tucano/blob/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d/src/core/runs.ts#L979-L981)
 
 [^tucano-decide]: [Approving runs the stored call after another grant check](https://github.com/eduwxyz/tucano/blob/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d/src/core/runs.ts#L1250-L1252)
+
+[^tucano-always]: [always skips high-risk tools and GitHub, browser, and apps connectors](https://github.com/eduwxyz/tucano/blob/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d/src/core/runs.ts#L1258)
 
 [^tucano-decide-check]: [decide refuses when the tool is no longer allowed](https://github.com/eduwxyz/tucano/blob/cdc70feb56f4ac29c74a9de46dff2d6b514ff61d/src/core/runs.ts#L1370)

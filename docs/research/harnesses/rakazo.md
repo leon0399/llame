@@ -24,6 +24,9 @@ sources:
   - id: rakazo-readme-stack
     resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/README.md#L47-L56"
     title: "Hono, Postgres, Graphile Worker, and Pi"
+  - id: rakazo-batch
+    resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/src/events.ts#L76"
+    title: "Event batches are 200 rows"
   - id: rakazo-follow
     resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/src/events.ts#L2180-L2234"
     title: "Realtime publishes a cursor; followers read events after that seq"
@@ -48,9 +51,15 @@ sources:
   - id: rakazo-approval
     resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/core/src/approval-effect-key.ts#L47-L59"
     title: "Approval key hashes canonical arguments and ignores model tool-call ids"
+  - id: rakazo-occurrence
+    resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/core/src/approval-effect-key.ts#L60-L69"
+    title: "A later identical call adds an occurrence suffix"
   - id: rakazo-rls
     resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/prisma/migrations/20261021140000_row_level_security/migration.sql#L1-L10"
-    title: "RLS is on for the app role; table owners bypass it"
+    title: "Table owners and superusers bypass the policies"
+  - id: rakazo-rls-policy
+    resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/prisma/migrations/20261021140000_row_level_security/migration.sql#L40-L49"
+    title: "RLS is enabled and the tenant policy matches app.space_id"
   - id: rakazo-wakeup
     resource: "https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/adapters/src/run-wakeup.ts#L136-L160"
     title: "run.continue sets wakeAt in Postgres; Graphile run deliveries are leftover no-ops"
@@ -67,10 +76,10 @@ Rakazo is a self-hosted bot host: persistent bots, their threads, and a computer
 
 **Study**
 
-1. **The thread event log is the reconnect cursor.** `events` are unique on `(threadId, seq)`.[^rakazo-event-row] `notifyRealtime` publishes `{ cursor }` on `thread:<id>`. `followThreadEvents` then reads `seq > cursor` in batches of 200 and waits for the next wake, or a poll timeout when realtime is absent.[^rakazo-follow] A missed wake is recovered from the table. That is the same split as llame's [append-only run events](../../../SPEC.md#94-run-events): the database is the log, and the push is a hint. llame streams the events themselves over SSE. Rakazo's follower refetches rows.
+1. **The thread event log is the reconnect cursor.** `events` are unique on `(threadId, seq)`.[^rakazo-event-row] `notifyRealtime` publishes `{ cursor }` on `thread:<id>`. `followThreadEvents` then reads `seq > cursor` in batches of 200 and waits for the next wake, or a poll timeout when realtime is absent.[^rakazo-batch][^rakazo-follow] A missed wake is recovered from the table. That is the same split as llame's [append-only run events](../../../SPEC.md#94-run-events): the database is the log, and the push is a hint. llame streams the events themselves over SSE. Rakazo's follower refetches rows.
 2. **A Run is a leased row, and the process that makes it due starts it.** `Run` carries `leaseOwner`, `leaseFence`, `leaseExpiresAt`, and `checkpoint`. A routine failure may be retried once (`retryOfRunId` is unique).[^rakazo-run-row] `RunJobPublisher` writes `wakeAt` and calls an in-process starter for `run.continue`. Its cancel path says legacy Graphile deliveries for a run key can drain as no-ops.[^rakazo-wakeup] The README still lists Graphile Worker in the stack.[^rakazo-readme-stack] Cancel writes `run.cancelled` in the same transaction as the status flip, then deletes transient progress rows. The comment says the new seq stays above every deleted row so a client whose cursor pointed at one does not treat later events as stale.[^rakazo-cancel]
 3. **The sandbox provider is a closed switch.** `createSandboxProvider` accepts `none | docker | e2b | novita | daytona | createos | boat | boxd | railway | kubernetes | wuying | desktop | fake` and throws on any other string. A remote kind without its API key returns `NoneSandboxProvider` with an unavailable message.[^rakazo-factory][^rakazo-missing] `SANDBOX_PROVIDER=desktop` throws outside Electron, development, and test, because it runs commands on the host.[^rakazo-desktop] Provider selection therefore does not fall through to the host. This pass did not trace a running computer's crash path. The README also names shared Team Computers and private computers, plus delegation to peer bots or short-lived subagents.[^rakazo-readme-features]
-4. **An approval names the arguments.** `approvalEffectKey` is `runId:toolName:` plus a SHA-256 of canonically serialized JSON. The comment says model tool-call ids change on replay, so they stay out of the key. A later identical call in the same attempt gets an occurrence suffix.[^rakazo-approval]
+4. **An approval names the arguments.** `approvalEffectKey` is `runId:toolName:` plus a SHA-256 of canonically serialized JSON. The comment says model tool-call ids change on replay, so they stay out of the key.[^rakazo-approval] `toolEffectIdempotencyKey` adds `:occurrence` when that count is greater than zero.[^rakazo-occurrence]
 5. **Routines are rows.** Cron expressions, timezone, webhook, GitHub, and a JSON watch live on `Routine`, indexed by `(active, nextRunAt)`.[^rakazo-routine] Overlap policy was not read in the scheduler implementation.
 
 **llame fit**
@@ -80,7 +89,7 @@ Rakazo is a self-hosted bot host: persistent bots, their threads, and a computer
 - Moderate: item 2's lease and single routine retry. llame's queue is pg-boss; the lease shape is the part to compare, and child-agent orchestration remains [behind the personal loop](../../../VISION.md#runs-are-the-unit-of-execution).
 - Low: the Expo clients. A phone that attaches to a host matches [a Surface, not a Node](../../../VISION.md#local-capability-is-not-a-thin-client) only when the host keeps Run authority. That split is visible here. The phone apps were not installed.
 
-**Caution:** Row-level security is enabled, with policies that match `app.space_id`, and a system bypass setting. The migration says table owners and superusers bypass those policies, and an install that still connects as the owner does not enforce them. `FORCE ROW LEVEL SECURITY` does not appear in that migration tree.[^rakazo-rls] llame forces RLS. A missing remote sandbox key yields a none provider, which is unavailable computers, and this pass did not prove every later failure path stays off the host.
+**Caution:** Row-level security is enabled, with a tenant policy that matches `app.space_id` and a system bypass setting.[^rakazo-rls-policy] The migration says table owners and superusers bypass those policies, and an install that still connects as the owner does not enforce them. `FORCE ROW LEVEL SECURITY` does not appear in that migration tree.[^rakazo-rls] llame forces RLS. A missing remote sandbox key yields a none provider, which is unavailable computers, and this pass did not prove every later failure path stays off the host.
 
 [^rakazo-license]: [Apache License 2.0 heading](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/LICENSE#L1-L3)
 
@@ -89,6 +98,8 @@ Rakazo is a self-hosted bot host: persistent bots, their threads, and a computer
 [^rakazo-readme-features]: [Bots, routines, delegation, and named sandbox providers](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/README.md#L24-L31)
 
 [^rakazo-readme-stack]: [Hono, Postgres, Graphile Worker, and Pi](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/README.md#L47-L56)
+
+[^rakazo-batch]: [Event batches are 200 rows](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/src/events.ts#L76)
 
 [^rakazo-follow]: [Realtime publishes a cursor; followers read events after that seq](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/src/events.ts#L2180-L2234)
 
@@ -106,7 +117,11 @@ Rakazo is a self-hosted bot host: persistent bots, their threads, and a computer
 
 [^rakazo-approval]: [Approval key hashes canonical arguments and ignores model tool-call ids](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/core/src/approval-effect-key.ts#L47-L59)
 
-[^rakazo-rls]: [RLS is on for the app role; table owners bypass it](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/prisma/migrations/20261021140000_row_level_security/migration.sql#L1-L10)
+[^rakazo-occurrence]: [A later identical call adds an occurrence suffix](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/core/src/approval-effect-key.ts#L60-L69)
+
+[^rakazo-rls]: [Table owners and superusers bypass the policies](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/prisma/migrations/20261021140000_row_level_security/migration.sql#L1-L10)
+
+[^rakazo-rls-policy]: [RLS is enabled and the tenant policy matches app.space_id](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/db/prisma/migrations/20261021140000_row_level_security/migration.sql#L40-L49)
 
 [^rakazo-wakeup]: [run.continue sets wakeAt in Postgres; Graphile run deliveries are leftover no-ops](https://github.com/elie222/rakazo/blob/59a7bad31fe7822fbc178965c552c265402eba28/packages/adapters/src/run-wakeup.ts#L136-L160)
 

@@ -18,6 +18,9 @@ sources:
   - id: lorca-readme
     resource: "https://github.com/egoist/lorca/blob/bf1ab709bc8df470016522578d7ae2df7740cd22/README.md#L3-L9"
     title: "CLI is the loop; desktop runners execute; phones are devices"
+  - id: lorca-opaque
+    resource: "https://github.com/egoist/lorca/blob/bf1ab709bc8df470016522578d7ae2df7740cd22/README.md#L16"
+    title: "The relay receives signed requests and opaque blobs"
   - id: lorca-ws
     resource: "https://github.com/egoist/lorca/blob/bf1ab709bc8df470016522578d7ae2df7740cd22/crates/cli/src/ws.rs#L1-L7"
     title: "The local websocket refuses a non-loopback Host and requires a bearer token"
@@ -36,7 +39,7 @@ Lorca's README says the CLI is a localhost websocket service and the agent loop,
 
 1. **The terminal process is the executor.** The local websocket speaks JSON `{ id, method, params }` and pushes `{ event, data }`. Every route refuses a request with an `Origin` or a `Host` other than loopback on this port. `/ws` accepts only `Authorization: Bearer` of the token in `serve-token` in the data directory.[^lorca-ws] The desktop is a client of that process. A phone does not become a second loop. llame's [CLI grant is placement provenance for one directory](../../../ROADMAP.md#backlog-standalone-personal-node-and-cli), and it is backlog. Lorca's CLI is the loop for every paired UI.
 2. **Runners are the machines that execute.** The README allows a bot on any paired runner.[^lorca-readme] Several desktops are several executors under one account. A phone reaches a runner; it does not run the bot. That is [execution follows the machine that can do the work](../../../VISION.md#execution-follows-intent-and-capability), with the account's encrypted provider credentials delivered to that runner, as the README states.
-3. **The relay stores ciphertext and also the envelope.** Postgres `blobs` has `kind`, `recipient_machine_pubkey`, `seq`, `ciphertext`, `size`, and `group_id`.[^lorca-blob] The README says traffic to the network is end-to-end encrypted and the relay receives opaque blobs.[^lorca-readme] The payload column is ciphertext. Kind, sequence, size, group id, and public keys are plaintext columns. The board says shell tools run as the OS user. That matches a runner with no sandbox in the files read here; the security doc on the website was not pinned.
+3. **The relay stores ciphertext and also the envelope.** Postgres `blobs` has `kind`, `recipient_machine_pubkey`, `seq`, `ciphertext`, `size`, and `group_id`.[^lorca-blob] The README says traffic to the network is end-to-end encrypted.[^lorca-readme] The stack list says the relay receives signed requests and opaque blobs.[^lorca-opaque] The payload column is ciphertext. Kind, sequence, size, group id, and public keys are plaintext columns. The board says shell tools run as the OS user. That matches a runner with no sandbox in the files read here; the security doc on the website was not pinned.
 
 **llame fit**
 
@@ -50,6 +53,8 @@ Lorca's README says the CLI is a localhost websocket service and the agent loop,
 [^lorca-license]: [GNU GPL version 3 heading](https://github.com/egoist/lorca/blob/bf1ab709bc8df470016522578d7ae2df7740cd22/LICENSE#L1-L4)
 
 [^lorca-readme]: [CLI is the loop; desktop runners execute; phones are devices](https://github.com/egoist/lorca/blob/bf1ab709bc8df470016522578d7ae2df7740cd22/README.md#L3-L9)
+
+[^lorca-opaque]: [The relay receives signed requests and opaque blobs](https://github.com/egoist/lorca/blob/bf1ab709bc8df470016522578d7ae2df7740cd22/README.md#L16)
 
 [^lorca-ws]: [The local websocket refuses a non-loopback Host and requires a bearer token](https://github.com/egoist/lorca/blob/bf1ab709bc8df470016522578d7ae2df7740cd22/crates/cli/src/ws.rs#L1-L7)
 

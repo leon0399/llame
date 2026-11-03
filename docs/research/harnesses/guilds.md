@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "Guilds"
-description: "AGPL orchestrator whose run transcript stays complete while the provider request stubs old tool results."
+description: "AGPL orchestrator. Stored tool results are cut to 64 KiB; the provider request then stubs older ones without rewriting the stored row."
 resource: "https://github.com/CigaleAI/guilds/tree/bb909023059a10bf6ba24ab3626b478c2404f76e"
 tags: [harness, runs, transcript, routines, orchestration]
 status: stable
@@ -24,15 +24,24 @@ sources:
   - id: guilds-projection
     resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L4-L14"
     title: "The store stays exact; the provider request is a projection"
+  - id: guilds-stub-bytes
+    resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L10-L11"
+    title: "Tool results smaller than 2048 bytes are not stubbed"
+  - id: guilds-floor
+    resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L64-L68"
+    title: "The keep floor is the current generation minus keep plus one"
   - id: guilds-stub-fn
     resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L70-L95"
     title: "A stub records source seq, tool name, and hint, and old generations stub by size"
   - id: guilds-truncate
-    resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/toolbox/index.ts#L101-L104"
-    title: "invokeTool stores a tool result already cut to TOOL_RESULT_MAX_BYTES"
+    resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/toolbox/index.ts#L160-L168"
+    title: "The stored tool payload is the cut content, with a truncated flag"
   - id: guilds-truncate-default
     resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/toolbox/index.ts#L179-L180"
     title: "The default cut is 65536 bytes"
+  - id: guilds-restart
+    resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/docs/concepts/runs.md#L132-L134"
+    title: "A restart marks unfinished tool calls interrupted and a one-shot run completed"
   - id: guilds-chain
     resource: "https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/docs/concepts/runs.md#L112-L126"
     title: "A coding run hands off into a fresh run, at most five"
@@ -47,8 +56,8 @@ Guilds is a self-hosted team of role agents with a browser UI. A run is the insp
 **Study**
 
 1. **Three run kinds share one transcript shape.** A direct run is a persistent chat. A group-chat run and a routine run are one-shot: one generation, then the run completes, and later messages wait until the operator resumes it into a conversation. An agent runs one thing at a time.[^guilds-runs] llame's [Run is one durable turn](../../../VISION.md#runs-are-the-unit-of-execution), and a Chat is where work continues. Guilds folds the continuing chat into the same run row and marks the one-shot kinds complete. The inspectable part is the shared idea: the operator can open the prompt, the messages, and each tool result.
-2. **Stubbing is a projection.** The module comment says the store stays exact and only the provider request replaces large old tool bodies, and that the same rules can be replayed from stored rows.[^guilds-projection] `stubToolResultPayload` writes `stub`, `source_seq`, `tool_name`, and a hint. Results in generations older than the keep-floor are stubbed when they are at least `TOOL_RESULT_STUB_MIN_BYTES` (2048).[^guilds-stub-fn] The concept doc says the stored run keeps the full results, and the default keep is the current turn.[^guilds-stub-doc] `invokeTool` cuts the stored tool message to `TOOL_RESULT_MAX_BYTES` before that, default 65536, and records `truncated` on the metadata.[^guilds-truncate][^guilds-truncate-default] The projection does not rewrite an already-stored row. The row was already bounded. llame's compaction replaces an explicit prefix of the Chat; Guilds leaves the run body, after that cut, and changes the request.
-3. **A long coding run continues as a new run.** The doc says a coding run that reaches 70% of the input limit asks for a summary and starts a fresh run from that summary. A chain holds at most five runs and keeps the kind, routine, or group delivery of the first.[^guilds-chain] An orchestrator restart marks unfinished tool calls interrupted so the transcript stays valid, and marks a one-shot run completed.[^guilds-runs]
+2. **Stubbing is a projection.** The module comment says the store stays exact and only the provider request replaces large old tool bodies, and that the same rules can be replayed from stored rows.[^guilds-projection] `stubToolResultPayload` writes `stub`, `source_seq`, `tool_name`, and a hint. Results in generations older than the keep-floor are stubbed when they are at least `TOOL_RESULT_STUB_MIN_BYTES` (2048).[^guilds-stub-bytes][^guilds-floor][^guilds-stub-fn] The concept doc says the stored run keeps the full results, and the default keep is the current turn.[^guilds-stub-doc] The stored tool payload is the content after a cut to `TOOL_RESULT_MAX_BYTES`, default 65536, and the metadata records `truncated`.[^guilds-truncate][^guilds-truncate-default] The projection does not rewrite an already-stored row. The row was already bounded. llame leaves absorbed messages in place and shows the model a checkpoint plus later messages ([SPEC §2.1](../../../SPEC.md#21-compaction-checkpoint)). Guilds leaves the run body, after that cut, and changes the request.
+3. **A long coding run continues as a new run.** The doc says a coding run that reaches 70% of the input limit asks for a summary and starts a fresh run from that summary. A chain holds at most five runs and keeps the kind, routine, or group delivery of the first.[^guilds-chain] An orchestrator restart marks unfinished tool calls interrupted so the transcript stays valid, and marks a one-shot run completed.[^guilds-restart]
 
 **llame fit**
 
@@ -67,10 +76,16 @@ Guilds is a self-hosted team of role agents with a browser UI. A run is the insp
 
 [^guilds-projection]: [The store stays exact; the provider request is a projection](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L4-L14)
 
+[^guilds-stub-bytes]: [Tool results smaller than 2048 bytes are not stubbed](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L10-L11)
+
+[^guilds-floor]: [The keep floor is the current generation minus keep plus one](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L64-L68)
+
 [^guilds-stub-fn]: [A stub records source seq, tool name, and hint, and old generations stub by size](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/conversation/projection.ts#L70-L95)
 
-[^guilds-truncate]: [invokeTool stores a tool result already cut to TOOL_RESULT_MAX_BYTES](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/toolbox/index.ts#L101-L104)
+[^guilds-truncate]: [The stored tool payload is the cut content, with a truncated flag](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/toolbox/index.ts#L160-L168)
 
 [^guilds-truncate-default]: [The default cut is 65536 bytes](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/apps/orchestrator/src/toolbox/index.ts#L179-L180)
+
+[^guilds-restart]: [A restart marks unfinished tool calls interrupted and a one-shot run completed](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/docs/concepts/runs.md#L132-L134)
 
 [^guilds-chain]: [A coding run hands off into a fresh run, at most five](https://github.com/CigaleAI/guilds/blob/bb909023059a10bf6ba24ab3626b478c2404f76e/docs/concepts/runs.md#L112-L126)

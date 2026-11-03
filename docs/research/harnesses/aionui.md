@@ -27,6 +27,9 @@ sources:
   - id: aionui-cron
     resource: "https://github.com/iOfficeAI/AionUi/blob/11cd2a9a20d1e033157636efc570b41384c66d85/tests/unit/renderer/team/removeTeamAssistantWithCronCleanup.test.ts#L10-L31"
     title: "Removing a team member removes its cron job first"
+  - id: aionui-nocron
+    resource: "https://github.com/iOfficeAI/AionUi/blob/11cd2a9a20d1e033157636efc570b41384c66d85/tests/unit/renderer/team/removeTeamAssistantWithCronCleanup.test.ts#L34-L48"
+    title: "A member with no cron id is removed without removeCronJob"
 ---
 
 # AionUi
@@ -39,7 +42,7 @@ AionUi is a desktop workspace around a built-in agent and whatever coding CLIs i
 
 1. **Peer CLIs sit next to a built-in engine that is not in this tree.** The README says the built-in agent uses an embedded `aionrs` engine and lists many external CLIs, including Claude Code, Codex, and OpenCode. Sessions are described as parallel and independent. MCP is "injected or synced" per agent.[^aionui-readme] `resolveBinaryPath` looks for an `aioncore` executable.[^aionui-binary][^aionui-resolve] The startup path that requires it was named in the desktop entry and was not line-read. The run loop, if it has an event log, is in that binary. This repo is the Electron shell, SQLite schema, and UI. llame keeps [Chat and Run identity](../../../VISION.md#runs-are-the-unit-of-execution) in the API. AionUi's comparable log was not available to read.
 2. **Team mode is a leader and a mailbox, in the README.** A leader splits work and delegates through a built-in Team MCP server. Teammates run in parallel, share an async mailbox, and write a task board. External agents connect through ACP. The same folder is shared, and each agent has its own permission dialog.[^aionui-readme] The shared folder is the placement fact to weigh against [a Sandbox that does not receive the whole Home](../../../VISION.md#portable-data-isolated-execution). This pass did not read the MCP server.
-3. **A team member can own a cron job.** The unit test stubs a conversation whose `extra.cron_job_id` is `cron-1` and expects `removeCronJob('cron-1')` before the member is removed. A conversation with no cron id is removed directly.[^aionui-cron] The host must be the process that fires that job. The board says scheduled tasks need the host awake. The scheduler loop was not opened.
+3. **A team member can own a cron job.** The unit test stubs a conversation whose `extra.cron_job_id` is `cron-1` and expects `removeCronJob('cron-1')` before the member is removed.[^aionui-cron] A conversation with no cron id is removed without calling `removeCronJob`.[^aionui-nocron] The host must be the process that fires that job. The board says scheduled tasks need the host awake. The scheduler loop was not opened.
 4. **Unattended mode is per agent.** The README says supported agents can expose YOLO or full-auto, and that the modes depend on the selected agent.[^aionui-readme] The board's terms excerpt says unattended execution can change or delete files. The terms page was not re-read here.
 
 **llame fit**
@@ -60,3 +63,5 @@ AionUi is a desktop workspace around a built-in agent and whatever coding CLIs i
 [^aionui-resolve]: [resolveBinaryPath is the lookup](https://github.com/iOfficeAI/AionUi/blob/11cd2a9a20d1e033157636efc570b41384c66d85/packages/desktop/src/process/backend/binaryResolver.ts#L71)
 
 [^aionui-cron]: [Removing a team member removes its cron job first](https://github.com/iOfficeAI/AionUi/blob/11cd2a9a20d1e033157636efc570b41384c66d85/tests/unit/renderer/team/removeTeamAssistantWithCronCleanup.test.ts#L10-L31)
+
+[^aionui-nocron]: [A member with no cron id is removed without removeCronJob](https://github.com/iOfficeAI/AionUi/blob/11cd2a9a20d1e033157636efc570b41384c66d85/tests/unit/renderer/team/removeTeamAssistantWithCronCleanup.test.ts#L34-L48)

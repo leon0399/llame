@@ -26,7 +26,13 @@ sources:
     title: "Catch-up records the lowest loaded seq per bot"
   - id: codync-routines
     resource: "https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/docs/features/routines.md#L79-L107"
-    title: "Due triggers coalesce; an acted run is not replayed into a new session"
+    title: "Due triggers coalesce; a lost session becomes interrupted instead of a new session"
+  - id: codync-retry
+    resource: "https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/docs/features/routines.md#L109-L130"
+    title: "Automatic retry is only when the turn has not acted; an acted failure keeps a manual retry"
+  - id: codync-list-bots
+    resource: "https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/host/src/chat/team/directory.rs#L1-L2"
+    title: "list_bots returns this computer's bots, then bots other computers offer"
   - id: codync-hooks
     resource: "https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/docs/features/routines.md#L176-L186"
     title: "Cloud webhooks are readable by the relay and kept up to 72 hours"
@@ -44,13 +50,13 @@ Codync messages agent CLIs that are already installed on a computer. The README 
 **Study**
 
 1. **The host owns the transcript seq.** The TUI module is "state and everything that changes it: host events, keys, mouse, replies."[^codync-tui] Catch-up stores, per bot, the lowest seq of the loaded main chat when the connection's catch-up began.[^codync-seq] The phone and the TUI are clients of that host. A first-party llame CLI is still [backlog](../../../ROADMAP.md#backlog-standalone-personal-node-and-cli); Codync is a case where the terminal UI is a client of the same log the phone reads, and the agent process stays on the computer.
-2. **Routines coalesce, and an acted run is not replayed.** The host checks deadlines every second with no client connected. Definitions and run records are SQLite (`routines.v1`). Due triggers become one run per routine, and only one routine per bot is dispatched at a time. Missed intervals coalesce. A run interrupted in execution becomes `recovering` and reloads its agent session. If the provider cannot load that session, the run becomes `interrupted` instead of starting the task again. The doc says session recovery cannot promise exactly-once side effects.[^codync-routines] A retry runs only when the turn has no tool call outside `read`, `search`, `fetch`, and `think`; an unknown kind counts as having acted.
+2. **Routines coalesce. Automatic retry stops after a side effect.** The host checks deadlines every second with no client connected. Definitions and run records are SQLite (`routines.v1`). Due triggers become one run per routine, and only one routine per bot is dispatched at a time. Missed intervals coalesce. A run interrupted in execution becomes `recovering` and reloads its agent session. If the provider cannot load that session, the run becomes `interrupted` instead of starting the task again. The doc says session recovery cannot promise exactly-once side effects.[^codync-routines] An automatic retry runs only when the turn has no tool call outside `read`, `search`, `fetch`, and `think`. An unknown kind counts as having acted. An acted failure, a timeout, or a third failed retry keeps the event and a retry button. That button calls `retryRoutineRun` and runs the work again.[^codync-retry]
 3. **The webhook cloud can read the delivery.** Public hooks go through Codync's cloud. The doc says deliveries are not end-to-end encrypted: the cloud terminates HTTPS, sees the body, and stores the signing key. Offline public deliveries are kept up to 72 hours. The host checks the key again before a run starts.[^codync-hooks]
-4. **Another computer is another host.** The network plan's recommended default keeps other computers' bots out of this computer's bot list. "A phone chats with a computer's own bots."[^codync-network] Opening a bot on a second machine does not move its execution. That matches [execution affinity](../../../VISION.md#execution-follows-intent-and-capability): observation is not a grant to run the work elsewhere.
+4. **Another computer is another host.** The network plan says the bot-list choice was still to be decided, and its recommended default keeps other computers' bots out of this computer's list. "A phone chats with a computer's own bots."[^codync-network] Shipped `list_bots` already returns this computer's bots and then bots other computers offer.[^codync-list-bots] Opening a bot on a second machine does not move its execution. That matches [execution affinity](../../../VISION.md#execution-follows-intent-and-capability): observation is not a grant to run the work elsewhere.
 
 **llame fit**
 
-- High: item 2's coalesce-and-do-not-replay-after-a-tool-call rule for any future scheduled Run. llame does not ship routines; this is a proposal input, not a shipped contract.
+- High: item 2's coalesce rule, and the split between an automatic retry that waits until the turn has not acted and a manual retry that can run an acted failure again. llame does not ship routines; this is a proposal input, not a shipped contract.
 - High: item 4. A paired phone is a Surface. The computer that holds the CLI is the executor.
 - Moderate: item 1's seq catch-up inside the TUI. llame's shipped replay is the API event log, not a terminal widget.
 - Avoid: item 3 as a pattern for owner data. A relay that stores webhook bodies is a second reader of the task.
@@ -65,7 +71,11 @@ Codync messages agent CLIs that are already installed on a computer. The README 
 
 [^codync-seq]: [Catch-up records the lowest loaded seq per bot](https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/host/src/tui/app/mod.rs#L148)
 
-[^codync-routines]: [Due triggers coalesce; an acted run is not replayed into a new session](https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/docs/features/routines.md#L79-L107)
+[^codync-routines]: [Due triggers coalesce; a lost session becomes interrupted instead of a new session](https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/docs/features/routines.md#L79-L107)
+
+[^codync-retry]: [Automatic retry is only when the turn has not acted; an acted failure keeps a manual retry](https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/docs/features/routines.md#L109-L130)
+
+[^codync-list-bots]: [list_bots returns this computer's bots, then bots other computers offer](https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/host/src/chat/team/directory.rs#L1-L2)
 
 [^codync-hooks]: [Cloud webhooks are readable by the relay and kept up to 72 hours](https://github.com/leepokai/Codync/blob/ed8daf11f89398e598ef1f791abc3014ded68496/docs/features/routines.md#L176-L186)
 

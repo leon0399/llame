@@ -195,11 +195,11 @@ assessment.
 70. [OpenDuet](./openduet.md) — Proactive agent on vendored CopilotKit OpenBot: per-bot computers, a deny-by-default action gateway, and credentials kept out of the transcript
 71. [GVS5H](./gvs5h.md) — Benchmark scaffold for ledger-based fresh-context orchestration; the multiagent engine runs public stdin samples, and the model has no tools
 72. [Rakazo](./rakazo.md) — TypeScript bot host: Postgres event cursors, in-process run wakeups, a sandbox-provider switch, and approval keys bound to arguments
-73. [Guilds](./guilds.md) — AGPL orchestrator whose run transcript stays complete while the provider request stubs old tool results
+73. [Guilds](./guilds.md) — AGPL orchestrator: stored tool results are cut to 64 KiB, then the provider request stubs older ones
 74. [Clawboo](./clawboo.md) — Node team board with a seq SSE tail; peer coding CLIs start with approvals off; a hard budget cap is opt-in
 75. [Tucano](./tucano.md) — Electron workspace; peer CLIs take tools from a per-turn MCP gateway, and approval rechecks the grant
 76. [Codync](./codync.md) — Rust host for installed agent CLIs: ratatui, coalesced SQLite routines, and phones that attach to that computer
-77. [OpenGrokBot](./opengrokbot.md) — Gateway whose local computers leave shell off until Seatbelt or bubblewrap is present
+77. [OpenGrokBot](./opengrokbot.md) — Gateway whose local shell stays off until the operator enables it, and that switch refuses without a passing Seatbelt or bubblewrap check
 78. [Mercury Agent](./mercury-agent.md) — Node daemon; a second terminal attaches over SSE; Ask Me or Allow All is one saved mode
 79. [Touri](./touri.md) — Tauri desktop over installed CLIs; group delegation is enforced at depth 2 and six calls
 80. [Lorca](./lorca.md) — Rust CLI is the agent loop; desktop runners execute; the relay stores ciphertext blobs
@@ -235,7 +235,7 @@ backend for agent execution):
 - [Agentastic](./agentastic.md) — SSH hosts plus Modal/Fly/Vercel (closed; site claims)
 - [OpenClaw](./openclaw.md) — tool sandboxes, Crabbox cloud workers, paired-device hosting
   (detail in the [execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md))
-- [Codync](./codync.md) — each computer is a host; a phone talks to that computer's bots, and other computers stay separate by default
+- [Codync](./codync.md) — each computer is a host; a phone talks to that computer's bots. `list_bots` also returns bots other computers offer. A network plan recommends keeping those off the bot list and says that choice was not built yet
 - [Lorca](./lorca.md) — a bot is created on a paired desktop runner; phones are devices and do not execute
 
 **Multi-container / cloud sandbox placement** (per-task or disposable runtime,
@@ -252,7 +252,7 @@ even with a single laptop UI):
 - [OpenShell](./openshell.md) — per-sandbox supervisor and workload; Docker, Podman, Kubernetes, and MicroVM fences
 - [OpenDuet](./openduet.md) — default one Docker computer per Bot; gVisor only when the computer runtime is set to runsc
 - [Rakazo](./rakazo.md) — one selected provider (Docker, Kubernetes, E2B, and the other named kinds); a missing remote key becomes a none provider
-- [OpenGrokBot](./opengrokbot.md) — Docker container per teammate, or a local browser profile whose shell stays off until Seatbelt or bubblewrap exists
+- [OpenGrokBot](./opengrokbot.md) — Docker container per teammate, with shell on. A local computer leaves shell off until the operator enables it, and that switch refuses unless Seatbelt or bubblewrap passes a self-check
 - [Touri](./touri.md) — optional bot machines: Apple container on macOS, rootless Podman or Docker on Linux (README; the container lifecycle was not re-read)
 - [OpenTeam](./openteam.md) — one shared Linux computer container for every bot's screen; passwordless sudo; not a VM boundary
 

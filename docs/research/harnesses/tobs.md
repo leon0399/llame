@@ -23,7 +23,10 @@ sources:
     title: "initializeMemoryGit commits the seed with a local identity"
   - id: tobs-plugin
     resource: "https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/core/src/plugin.ts#L1-L27"
-    title: "The plugin entry imports Cordis-side bot creation and channel services"
+    title: "The plugin entry imports bot creation, channels, and cloud work"
+  - id: tobs-cordis
+    resource: "https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/core/src/plugin.ts#L98"
+    title: "plugin.ts imports the Cordis Context type"
   - id: tobs-pkg
     resource: "https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/tobs/package.json#L1-L6"
     title: "Package description says it is a DeepSeekBot entry point"
@@ -41,7 +44,7 @@ Tobs adds named bots, shared tasks, and inspectable memory on top of the harness
 **Study**
 
 1. **Memory is a Git repository beside the bot.** The package README says each bot's memory is a plain Git repository, the sidebar shows which lines changed, and the person can edit them.[^tobs-readme] `initializeMemoryGit` runs `git init -b main` when `.git` is absent, sets a local `user.name` of `BotHarness` and `user.email` of `bot@botharness.local`, and turns signing off. `commitMemoryRepositorySeed` commits `Initialize memory repository` when there is a diff.[^tobs-git] That is an inspectable store with history. llame's [Knowledge is curated Markdown](../../../VISION.md#memory-has-distinct-stores), and episodic memory is the database. Tobs puts bot memory in Git, which is closer to Knowledge than to the run log. Pushing that repo to GitHub, which the README offers so the same bot can be used on several computers, publishes the memory. This pass did not read the push path.
-2. **The plugin is not a second harness.** `plugin.ts` imports bot creation, channels, and cloud work next to `@deepseek-ai/cordis` types used throughout the package tests.[^tobs-plugin] Runs, tool approvals, and the session projection stay in DeepSeek Harness unless this plugin replaces them. That replacement was not found in the files read here. llame's rule is the same shape: peers are [executor adapters](../../../VISION.md#runs-are-the-unit-of-execution), and a product layer should not invent a second session system.
+2. **The plugin is not a second harness.** `plugin.ts` imports bot creation, channels, and cloud work, and imports the Cordis `Context` type in the same file.[^tobs-plugin][^tobs-cordis] Runs, tool approvals, and the session projection stay in DeepSeek Harness unless this plugin replaces them. That replacement was not found in the files read here. llame's rule is the same shape: peers are [executor adapters](../../../VISION.md#runs-are-the-unit-of-execution), and a product layer should not invent a second session system.
 3. **The phone steers a machine that stays on.** The board says invitation-only iOS and Android builds control the same bots while the computer is awake, and that the npm release does not publish those apps. Pairing code was not read. A phone that does not execute matches a Surface. Live desktop streaming, which the board says needs Tailscale, was not read.
 
 **llame fit**
@@ -58,7 +61,9 @@ Tobs adds named bots, shared tasks, and inspectable memory on top of the harness
 
 [^tobs-git]: [initializeMemoryGit commits the seed with a local identity](https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/core/src/memory/git.ts#L79-L112)
 
-[^tobs-plugin]: [The plugin entry imports Cordis-side bot creation and channel services](https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/core/src/plugin.ts#L1-L27)
+[^tobs-plugin]: [The plugin entry imports bot creation, channels, and cloud work](https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/core/src/plugin.ts#L1-L27)
+
+[^tobs-cordis]: [plugin.ts imports the Cordis Context type](https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/core/src/plugin.ts#L98)
 
 [^tobs-pkg]: [Package description says it is a DeepSeekBot entry point](https://github.com/BotHarness/DeepSeekBot/blob/71acbd541947013b9b122d8ca122130c28ce9f0d/packages/tobs/package.json#L1-L6)
 

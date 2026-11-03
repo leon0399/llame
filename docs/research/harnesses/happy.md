@@ -18,6 +18,9 @@ sources:
   - id: happy-split
     resource: "https://github.com/slopus/happy/blob/10c605bfdb22c0889c79df7c20982bc2da931e9d/README.md#L42-L55"
     title: "This repo is the mobile app, original CLI, and relay; desktop is separate"
+  - id: happy-agent-line
+    resource: "https://github.com/slopus/happy/blob/10c605bfdb22c0889c79df7c20982bc2da931e9d/README.md#L69"
+    title: "happy-agent in this repo is remote session control, not the Happy Agent runtime"
   - id: happy-cli
     resource: "https://github.com/slopus/happy/blob/10c605bfdb22c0889c79df7c20982bc2da931e9d/README.md#L50-L64"
     title: "happy claude and happy codex; multi-model work points at the desktop app"
@@ -49,8 +52,8 @@ Happy continues coding-agent sessions from a phone. The original CLI wraps Claud
 
 **Study**
 
-1. **The phone is a client of a session the CLI already started.** `happy-app` is the mobile and web client. `happy-cli` is the original terminal wrapper. `happy-agent` in this repo is remote session control for that CLI, and the README says it is not the Happy Agent runtime.[^happy-split] Execution stays with the coding CLI on the machine that launched it. That is the [Surface versus executor](../../../VISION.md#local-capability-is-not-a-thin-client) split, for a product whose first-party terminal is a wrapper rather than the owner of the run log.
-2. **Session bodies on the wire are encrypted containers.** `happy-wire` says both legacy and new formats travel inside encrypted session messages.[^happy-wire] A server test emits a phone message whose content is `{ t: 'encrypted', c: 'ciphertext' }` and expects that container to be forwarded.[^happy-forward] The same server decrypts stored vendor tokens with `decryptString` on a path under the user id.[^happy-vendor] Encryption of the session body and server-held vendor tokens are different stores.
+1. **The phone is a client of a session the CLI already started.** `happy-app` is the mobile and web client. `happy-cli` is the original terminal wrapper. `happy-agent` in this repo is remote session control for that CLI, and the README says it is not the Happy Agent runtime.[^happy-agent-line] The repo table points the desktop runtime at `slopus/happy-agent`.[^happy-split] Execution stays with the coding CLI on the machine that launched it. That is the [Surface versus executor](../../../VISION.md#local-capability-is-not-a-thin-client) split, for a product whose first-party terminal is a wrapper rather than the owner of the run log.
+2. **Session bodies on the wire are encrypted containers.** `happy-wire` says both legacy and new formats travel inside encrypted session messages.[^happy-wire] A server test has the phone emit `message: 'ciphertext'`. The daemon is expected to see that string wrapped as `{ t: 'encrypted', c: 'ciphertext' }`.[^happy-forward] The same server decrypts stored vendor tokens with `decryptString` on a path under the user id.[^happy-vendor] Encryption of the session body and server-held vendor tokens are different stores.
 3. **Turning the CLI sandbox on forces Claude prompts off.** `SandboxConfigSchema.enabled` defaults to false.[^happy-sandbox-default] `applySandboxPermissionPolicy` returns `bypassPermissions` whenever the sandbox is enabled.[^happy-sandbox-bypass] `runClaude` then sets `dangerouslySkipPermissions` when that mode is bypass or yolo, when the sandbox is enabled, or when the argv already contains `--dangerously-skip-permissions`.[^happy-run-claude] The board's "sandboxed actions" line does not say this. The desktop harness in `slopus/happy-desktop` was not cloned.[^happy-split]
 
 **llame fit**
@@ -65,6 +68,8 @@ Happy continues coding-agent sessions from a phone. The original CLI wraps Claud
 [^happy-license]: [MIT License heading](https://github.com/slopus/happy/blob/10c605bfdb22c0889c79df7c20982bc2da931e9d/LICENSE#L1-L3)
 
 [^happy-split]: [This repo is the mobile app, original CLI, and relay; desktop is separate](https://github.com/slopus/happy/blob/10c605bfdb22c0889c79df7c20982bc2da931e9d/README.md#L42-L55)
+
+[^happy-agent-line]: [happy-agent in this repo is remote session control, not the Happy Agent runtime](https://github.com/slopus/happy/blob/10c605bfdb22c0889c79df7c20982bc2da931e9d/README.md#L69)
 
 [^happy-cli]: [happy claude and happy codex; multi-model work points at the desktop app](https://github.com/slopus/happy/blob/10c605bfdb22c0889c79df7c20982bc2da931e9d/README.md#L50-L64)
 
