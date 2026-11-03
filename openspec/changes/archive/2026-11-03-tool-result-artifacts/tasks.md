@@ -2,7 +2,7 @@ Track [#915](https://github.com/leon0399/llame/issues/915),
 [#1519](https://github.com/leon0399/llame/issues/1519),
 [#1525](https://github.com/leon0399/llame/issues/1525),
 [#1526](https://github.com/leon0399/llame/issues/1526), and their PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking).
 Implementation waits for Leo's approval of the published proposal revision.
 Keep live status in the Project.
 
