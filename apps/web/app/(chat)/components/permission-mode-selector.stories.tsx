@@ -4,6 +4,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
 import { ChatProvider, useChatContext } from "@/contexts/chat-context";
+import type { PermissionMode } from "@/lib/services/permission-modes/mode";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so this is the SAME hook instance the component reads.
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
@@ -24,15 +25,27 @@ const BOTH_MODES = {
   modes: [{ value: "default" }, { value: "bypass" }],
 } satisfies PermissionModesResponse;
 
-function BypassSelection({ children }: { children: React.ReactNode }) {
+const READ_ONLY_AVAILABLE = {
+  modes: [{ value: "default" }, { value: "read-only" }],
+} satisfies PermissionModesResponse;
+
+function ModeSelection({
+  mode,
+  children,
+}: {
+  mode: PermissionMode;
+  children: React.ReactNode;
+}) {
   const { setPermissionMode } = useChatContext();
+  // The provider recreates its setter on every render, so latch: an effect
+  // without the guard would set state again each render and never settle.
   const didSet = React.useRef(false);
 
   React.useEffect(() => {
     if (didSet.current) return;
     didSet.current = true;
-    setPermissionMode("chat-1", "bypass");
-  }, [setPermissionMode]);
+    setPermissionMode("chat-1", mode);
+  }, [setPermissionMode, mode]);
 
   return children;
 }
@@ -135,15 +148,85 @@ export const BypassSelected: Story = {
   tags: ["ai-generated"],
   parameters: contrastKnownIssue232,
   render: (args) => (
-    <BypassSelection>
+    <ModeSelection mode="bypass">
       <PermissionModeSelector {...args} />
-    </BypassSelection>
+    </ModeSelection>
   ),
   play: async ({ canvas }) => {
     const trigger = await waitFor(() =>
       canvas.getByRole("button", { name: "Permission mode, Bypass" }),
     );
     await expect(trigger).toHaveAttribute("data-variant", "destructive");
+  },
+};
+
+/**
+ * Read-only narrows authority instead of widening it, so the trigger stays a
+ * quiet ghost while the menu offers the mode with its one-line description.
+ *
+ * @summary read-only stays selected with a non-destructive trigger
+ */
+export const ReadOnlySelected: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    usePermissionModesQuery.mockReturnValue({
+      data: READ_ONLY_AVAILABLE,
+      isError: false,
+      isPending: false,
+    });
+  },
+  render: (args) => (
+    <ModeSelection mode="read-only">
+      <PermissionModeSelector {...args} />
+    </ModeSelection>
+  ),
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(() =>
+      canvas.getByRole("button", { name: "Permission mode, Read-only" }),
+    );
+    await expect(trigger).toHaveAttribute("data-variant", "ghost");
+
+    await userEvent.click(trigger);
+    const menu = within(document.body);
+    await expect(
+      await menu.findByText(
+        "Reads only. Edits, commands, and MCP tools are refused.",
+      ),
+    ).toBeTruthy();
+    await expect(
+      await menu.findByRole("menuitemradio", { name: /Read-only/ }),
+    ).toHaveAttribute("aria-checked", "true");
+  },
+};
+
+/**
+ * Choosing Read-only from the menu stores the selection and updates the
+ * trigger, so the composer sends the mode the owner picked rather than only
+ * rendering one installed through context.
+ *
+ * @summary choosing read-only from the menu updates the trigger
+ */
+export const ReadOnlyChosen: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    usePermissionModesQuery.mockReturnValue({
+      data: READ_ONLY_AVAILABLE,
+      isError: false,
+      isPending: false,
+    });
+  },
+  play: async ({ canvas }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Permission mode, Default" }),
+    );
+    await userEvent.click(
+      await within(document.body).findByRole("menuitemradio", {
+        name: /Read-only/,
+      }),
+    );
+    await waitFor(() => {
+      canvas.getByRole("button", { name: "Permission mode, Read-only" });
+    });
   },
 };
 
@@ -206,9 +289,9 @@ export const BackgroundRefetchFailed: Story = {
     });
   },
   render: (args) => (
-    <BypassSelection>
+    <ModeSelection mode="bypass">
       <PermissionModeSelector {...args} />
-    </BypassSelection>
+    </ModeSelection>
   ),
   play: async ({ canvas }) => {
     await expect(

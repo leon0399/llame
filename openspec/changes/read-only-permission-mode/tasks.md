@@ -64,11 +64,16 @@ zero and is reported separately in each PR.
 
 ## 3. web
 
-- [ ] 3.1 Regenerate the web client and the web live protocol, and widen the mode union in `chat-context.tsx`.
-- [ ] 3.2 Add `read-only` to the selector details with a non-destructive trigger, widen `isPermissionMode`, and send any non-default mode from the composer, creation, Continue, and Regenerate (design D8). Verify with selector, transport, and Turn-action stories or tests for "Read-only is sent when selected", a Continue with `read-only` that sends `permissionMode: "read-only"`, and the existing `bypass` scenarios.
-- [ ] 3.3 Run Storybook tests for the selector and return preview URLs; run `pnpm --filter web lint` and `typecheck`.
-- [ ] 3.4 Add the web part of the `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
-- [ ] 3.5 SR before ready; GR through Ready-PR monitoring.
+- [x] 3.1 Regenerate the web client and the web live protocol, and widen the mode union in `chat-context.tsx`.
+  - Evidence: `pnpm --filter web generate:client` regenerated every permission-mode enum under `apps/web/lib/api/generated/models/` with `read-only` and `apps/web/lib/api/live-generated/live-protocol.ts`; `apps/web/lib/services/permission-modes/mode.ts` types `PermissionMode` from the generated `PermissionModeResponseValue` and exports `isPermissionMode`, which `apps/web/contexts/chat-context.tsx` re-exports.
+- [x] 3.2 Add `read-only` to the selector details with a non-destructive trigger, widen `isPermissionMode`, and send any non-default mode from the composer, creation, Continue, and Regenerate (design D8). Verify with selector, transport, and Turn-action stories or tests for "Read-only is sent when selected", a Continue with `read-only` that sends `permissionMode: "read-only"`, and the existing `bypass` scenarios.
+  - Evidence: `apps/web/app/(chat)/components/permission-mode-selector.tsx` (`Read-only` details, destructive trigger stays bypass-only, shared `isPermissionMode`); `lib/services/chat/transport.ts` (`followUpRunRequest` parses `isPermissionMode` and keeps any non-default mode; a send carries any non-default mode) and `lib/services/chat/creation.ts`; `lib/services/chat/transport.test.ts` read-only send, `Continue`, Regenerate, and the existing `bypass` cases; `lib/services/chat/creation.test.ts` read-only creation; story `permission-mode-selector.stories.tsx` `ReadOnlySelected`. A read-only Continue is covered by the transport tests, because `ContinueButton` forwards the composer's mode unchanged. Restore from usage stays `bypass`-only.
+- [x] 3.3 Run Storybook tests for the selector and return preview URLs; run `pnpm --filter web lint` and `typecheck`.
+  - Evidence: `pnpm --filter web exec vitest run --project stories` on `permission-mode-selector.stories.tsx` and `chat-message-row.stories.tsx` (43 passed); `pnpm --filter web test` (838 passed); `pnpm --filter web lint`, `pnpm --filter web typecheck`, `pnpm format:check`, `git diff --check`. The Storybook MCP is unavailable in this session, so the CLI story project rendered each story in Chromium and returned no preview URLs.
+- [x] 3.4 Add the web part of the `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
+  - Evidence: `CHANGELOG.md` 2026-11-03 entry (composer listing, send, creation, Continue, Regenerate, quiet trigger, `default` on reopen); `pnpm lint:markdown`.
+- [x] 3.5 SR before ready; GR through Ready-PR monitoring.
+  - Evidence: Ready-PR monitoring on head `130aa988` (1 fix round). Two findings were accepted and fixed in one push: pullfrog's inline report that the read-only description was clipped by the fixed `w-72` popup (fixed in `779e6f33`, `w-auto min-w-72`) and CodeRabbit's suggestion to cover the menu path (fixed in `130aa988`, story `ReadOnlyChosen`). Both were replied to, the thread was resolved, and pullfrog's re-review of the new head reported no new issues while CodeRabbit kept its approval. 0 unresolved threads. CI green on `130aa988` (run 41567326371, attempt 2) after one rerun of an `ssh-isolation.integration.test.ts` `EPIPE` unhandled-error flake; `Tests / storybook`, `Typecheck`, `Lint`, and the mutation gate passed on the same run.
 
 ## 4. finalize
 

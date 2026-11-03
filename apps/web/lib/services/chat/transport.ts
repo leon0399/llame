@@ -1,4 +1,5 @@
 import type { ChatRequestOptions, UIMessage } from "ai";
+import { isPermissionMode } from "../permission-modes/mode";
 import type { PermissionModeResponseValue } from "../../api/generated/models";
 import { buildApiUrl } from "../../api/fetch";
 
@@ -86,10 +87,9 @@ export function followUpRunRequest(
   value: ChatRequestOptions["body"],
 ): FollowUpRunRequest | null {
   if (value === undefined) return null;
+  const rawMode = "permissionMode" in value ? value.permissionMode : undefined;
   const permissionMode =
-    "permissionMode" in value && value.permissionMode === "bypass"
-      ? "bypass"
-      : undefined;
+    isPermissionMode(rawMode) && rawMode !== "default" ? rawMode : undefined;
   if ("action" in value && value.action === "continue") {
     return {
       action: "continue",
@@ -157,7 +157,8 @@ function prepareChatSend(
       // Omitted, never sent as null or "": the api rejects a blank effort with
       // 400 and treats absence as "resolve this model's defaultEffort".
       ...(effort !== undefined && effort.length > 0 && { effort }),
-      ...(permissionMode === "bypass" && { permissionMode }),
+      ...(permissionMode !== undefined &&
+        permissionMode !== "default" && { permissionMode }),
       message: { id: message.id, parts: message.parts },
     },
   };

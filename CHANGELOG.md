@@ -16,7 +16,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   server as `unavailable` with reason `not started in a read-only Run`. A Run
   accepted as `read-only` executes as `read-only` on every worker, so
   withdrawing the mode never widens a queued Run. Egress stays under the
-  operator policy: the mode prevents mutation, not exfiltration. See
+  operator policy: the mode prevents mutation, not exfiltration. The web
+  composer lists `Read-only` whenever the process enables it, sends it on a
+  chat send, a chat creation, Continue, and Regenerate, and keeps the quiet
+  trigger style because the mode narrows authority; a reopened chat still
+  starts at `default`. See
   [permission modes](docs/product/reference/permission-modes.md) and
   [native files](docs/product/operator/native-files.md).
 

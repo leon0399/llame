@@ -2,7 +2,9 @@
 
 import { useState, createContext, useContext } from "react";
 
-export type PermissionMode = "default" | "bypass";
+import type { PermissionMode } from "@/lib/services/permission-modes/mode";
+
+export type { PermissionMode };
 
 export interface ChatContextType {
   // `undefined` = no model chosen yet (models still loading / none available).
