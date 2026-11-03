@@ -2424,8 +2424,7 @@ describe('buildContext', () => {
       ).length;
       // The cap drops whole oldest pairs, so every retained observation still
       // has its assistant message and its tool message.
-      expect(retainedPairs).toBeGreaterThan(0);
-      expect(retainedPairs).toBeLessThan(220);
+      expect(retainedPairs).toBe(113);
       expect(pairedMessages).toHaveLength(2 * retainedPairs);
       expect(pairedMessages.filter(({ role }) => role === 'tool')).toHaveLength(
         retainedPairs,

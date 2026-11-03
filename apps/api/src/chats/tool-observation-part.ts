@@ -126,7 +126,6 @@ export interface ToolObservationProjection {
 interface ObservationPayload {
   toolCallId: string;
   toolName: string;
-  outcome: string;
   partIndex: number;
   input: unknown;
   /** The output the live loop sent for this call, rebuilt from the part. */
@@ -135,10 +134,11 @@ interface ObservationPayload {
   clearedOutcome: string;
   /**
    * The image or PDF a `read` result names: its media id, or for an unstored
-   * file its submitted locator, dimensions or page count, and marker key. It
-   * replays only beside the retained payload, as a reference the step composer
-   * projects, so the budgets measure the text without the `thumbnail` and never
-   * the bytes (vision-media D6).
+   * file its submitted locator, dimensions or page count, and marker key. The
+   * Continue projection reuses it as the `retainedRef` when it rebuilds a
+   * recorded result; `output` already carries the reference itself, so the
+   * budgets measure the text without the `thumbnail` and never the bytes
+   * (vision-media D6).
    */
   media: ToolMediaRef | undefined;
   /** The entry `media` names, when the reference is retained. */
@@ -234,45 +234,46 @@ function failureResult(
   };
 }
 
-/** A stored result as the live builder reads it, or a legacy bare payload. */
-type StoredResultRendering =
-  | { readonly kind: 'result'; readonly result: ToolResult }
-  | { readonly kind: 'legacy'; readonly text: string };
-
 /**
- * The result a stored part rebuilds for the live builder: the success object
- * its executor settled with, or the failure object that
- * `tool-result-rendering` rebuilds from the stored outcome, error text, and
- * rejected locator. A part that stored no output is a failure too, because no
- * live success existed. A legacy part stored a bare payload instead of a
- * result object; it replays as that text, through the same neutralizer every
- * rendering uses.
+ * The output a stored part rebuilds for the live builder: the result its
+ * executor settled with, or the failure object that `tool-result-rendering`
+ * rebuilds from the stored outcome, error text, and rejected locator. A part
+ * that stored no output is a failure too, because no live success existed. A
+ * legacy part stored a bare payload instead of a result object; it replays as
+ * that text, through the same neutralizer every rendering uses.
  */
-function storedRendering(
+function storedOutput(
   part: StoredToolPart,
   toolName: string,
   outcome: string,
-): StoredResultRendering {
+  media: ToolMediaRef | undefined,
+): ToolResultOutput {
   if (part.state === 'output-available' && part.output !== undefined) {
     if (isRecord(part.output)) {
-      return {
-        kind: 'result',
-        result: { ...part.output, status: 'success' },
-      };
+      return modelToolOutput(
+        renderToolResultForModel(toolName, {
+          ...part.output,
+          status: 'success',
+        }),
+        media,
+      );
     }
-    return {
-      kind: 'legacy',
-      text: neutralizeReservedDelimiters(
+    return toolResultOutput(
+      neutralizeReservedDelimiters(
         isString(part.output)
           ? part.output
           : (JSON.stringify(part.output) ?? 'null'),
       ),
-    };
+      media,
+    );
   }
-  return {
-    kind: 'result',
-    result: failureResult(part, outcome, isHopRejection(toolName, outcome)),
-  };
+  return modelToolOutput(
+    renderToolResultForModel(
+      toolName,
+      failureResult(part, outcome, isHopRejection(toolName, outcome)),
+    ),
+    media,
+  );
 }
 
 function pairEnvelope(pair: ProjectedToolObservationPair): Array<ModelMessage> {
@@ -304,8 +305,7 @@ function makePair(
       type: 'tool-result',
       toolCallId: observation.toolCallId,
       toolName: observation.toolName,
-      // A cleared pair keeps its outcome token alone; the live builder's
-      // output returns with the replay layer that deletes this budget.
+      // A cleared pair keeps its outcome token alone.
       output: cleared
         ? toolResultOutput(observation.clearedOutcome, undefined)
         : observation.output,
@@ -525,12 +525,10 @@ function storedObservation(
     toolName === READ_TOOL_NAME && part.state === 'output-available'
       ? readObservationRef(part, mediaKey)
       : { media: undefined, retained: undefined };
-  const rendering = storedRendering(part, toolName, outcome);
   return {
     partIndex,
     toolCallId: part.toolCallId,
     toolName,
-    outcome,
     clearedOutcome:
       Object.hasOwn(PARTIAL_RESULT_TOOL_PARTS, part.type) &&
       part.state === 'output-available' &&
@@ -541,13 +539,7 @@ function storedObservation(
         ? 'incomplete'
         : outcome,
     input: part.input,
-    output:
-      rendering.kind === 'legacy'
-        ? toolResultOutput(rendering.text, media)
-        : modelToolOutput(
-            renderToolResultForModel(toolName, rendering.result),
-            media,
-          ),
+    output: storedOutput(part, toolName, outcome, media),
     media,
     retained,
   };

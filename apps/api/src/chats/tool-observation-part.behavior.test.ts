@@ -654,20 +654,21 @@ describe('tool observation replay budgets', () => {
   });
 
   it('drops the oldest cleared pairs until the turn envelope fits', () => {
-    // The outcome length sets each cleared pair's width, so the turn cap drops
-    // whole cleared pairs and the omission marker itself counts toward the
-    // measurement.
+    // The outcome length sets each cleared pair's width so that the omission
+    // marker's own size decides the final drop: 84 pairs fit without the
+    // marker and 83 fit with it, so a projection that leaves the marker out of
+    // its measurement keeps one pair more than fits.
     const partCount = 400;
+    const omittedCount = 317;
     const parts = Array.from({ length: partCount }, () =>
-      sizedPart(9000, 'r'.repeat(TOOL_OUTCOME_MAX_LENGTH - 8)),
+      sizedPart(9000, 'r'.repeat(116)),
     );
 
     const projection = project(parts);
-    const omitted = projection?.omittedCount ?? 0;
-    expect(omitted).toBeGreaterThan(0);
-    expect(projection?.pairs).toHaveLength(partCount - omitted);
+    expect(projection?.omittedCount).toBe(omittedCount);
+    expect(projection?.pairs).toHaveLength(partCount - omittedCount);
     expect(projection?.omissionPartIndex).toBe(0);
-    expect(projection?.pairs[0]?.partIndex).toBe(omitted);
+    expect(projection?.pairs[0]?.partIndex).toBe(omittedCount);
     expect(projection?.pairs.at(-1)?.partIndex).toBe(partCount - 1);
   });
 });
