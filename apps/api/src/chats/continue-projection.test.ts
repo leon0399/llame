@@ -14,7 +14,7 @@ import { continuedMediaKey } from '../media/retained-media';
 import { type MessagePart, projectStoredReplyParts } from './context-builder';
 import {
   continueStateFromEvents,
-  continuedRecords,
+  continuedCallSteps,
   continueStepOffset,
   ownSnapshotParts,
   withKeptSteps,
@@ -74,9 +74,9 @@ describe('the Continue state of a Run', () => {
     toolPart(CALL_ID_2, 'second'),
   ];
 
-  it('reads the kept parts and ignores the retired step and result maps', () => {
-    // An event written before D11 also holds `steps` and `results`; the parts
-    // carry both now, and nothing reads the maps.
+  it('stamps the step map an older event holds onto its unnumbered parts', () => {
+    // An event written before the parts carried a step records the numbers in
+    // its `steps` map; its retired `results` map stays unread.
     expect(
       continueStateFromEvents([
         { eventType: 'run.created', payload: {} },
@@ -85,12 +85,56 @@ describe('the Continue state of a Run', () => {
           payload: {
             sourceRunId: '0192f3a4-5b6c-7d8e-9f01-000000000000',
             parts,
-            steps: { [CALL_ID]: 0 },
+            steps: { [CALL_ID]: 0, [CALL_ID_2]: 1 },
             results: { [CALL_ID]: { status: 'success' } },
           },
         },
       ]),
-    ).toEqual({ parts });
+    ).toEqual({
+      parts: [
+        { ...parts[0], step: 0 },
+        { ...parts[1], step: 1 },
+      ],
+    });
+  });
+
+  it('keeps the step a stored part records over the legacy map', () => {
+    expect(
+      continueStateFromEvents([
+        {
+          eventType: 'run.continued',
+          payload: {
+            parts: [{ ...toolPart(CALL_ID, 'first'), step: 3 }],
+            steps: { [CALL_ID]: 0 },
+          },
+        },
+      ]),
+    ).toEqual({ parts: [{ ...toolPart(CALL_ID, 'first'), step: 3 }] });
+  });
+
+  it('keeps two back-to-back inherited steps of a master-era Continue apart', () => {
+    // Master-era admission stored no step on the parts and numbered the calls
+    // it inherited in the event's `steps` map, already offset for the chain.
+    // A rebuild or a finalizer after the deploy reads both back from it.
+    const state = continueStateFromEvents([
+      {
+        eventType: 'run.continued',
+        payload: {
+          parts,
+          steps: { [CALL_ID]: 0, [CALL_ID_2]: 1 },
+        },
+      },
+    ]);
+
+    // The Run's own parts start after the two it kept.
+    expect(continueStepOffset(state)).toBe(2);
+    // No text separates the two calls, so only the numbers keep them apart.
+    expect(project(state?.parts ?? []).map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+    ]);
   });
 
   it('reports no state for a Run that continues nothing', () => {
@@ -124,7 +168,7 @@ describe('the step numbers a Continue Run adds (design D5)', () => {
   });
 });
 
-describe('the records a Continue Run stores for its kept parts', () => {
+describe('the steps admission derives for the kept calls', () => {
   const parts: Array<MessagePart> = [
     toolPart(CALL_ID, 'first'),
     toolPart(CALL_ID_2, 'second'),
@@ -132,7 +176,7 @@ describe('the records a Continue Run stores for its kept parts', () => {
 
   it('maps only the kept calls of the source Run events', () => {
     expect(
-      continuedRecords({
+      continuedCallSteps({
         keptParts: parts,
         sourceEvents: [
           requestEvent(CALL_ID, 0),
@@ -146,7 +190,7 @@ describe('the records a Continue Run stores for its kept parts', () => {
 
   it('ignores a step recorded on another event type', () => {
     expect(
-      continuedRecords({
+      continuedCallSteps({
         keptParts: parts,
         sourceEvents: [
           {
@@ -160,10 +204,10 @@ describe('the records a Continue Run stores for its kept parts', () => {
 
   it("renumbers the source Run's own steps after the ones its parts record", () => {
     // The kept parts already record the steps the source Run continued (0 and
-    // 1); the step it made itself is numbered from 0 again by its events, and
-    // the chain must not merge it with the first kept one.
+    // 1), so they keep them; the step it made itself is numbered from 0 again
+    // by its events, and the chain must not merge it with the first kept one.
     expect(
-      continuedRecords({
+      continuedCallSteps({
         keptParts: [
           { ...toolPart(CALL_ID, 'first'), step: 0 },
           { ...toolPart('call-0', 'second'), step: 1 },
@@ -171,16 +215,51 @@ describe('the records a Continue Run stores for its kept parts', () => {
         ],
         sourceEvents: [requestEvent(CALL_ID_2, 0)],
       }),
-    ).toEqual({ [CALL_ID]: 0, 'call-0': 1, [CALL_ID_2]: 2 });
+    ).toEqual({ [CALL_ID_2]: 2 });
   });
 
-  it('keeps the step a kept part already records over its event number', () => {
+  it('keeps the step a kept part already records out of the derived map', () => {
+    // The part is the number; stamping it again would only copy it.
     expect(
-      continuedRecords({
+      continuedCallSteps({
         keptParts: [{ ...toolPart(CALL_ID, 'first'), step: 4 }],
         sourceEvents: [requestEvent(CALL_ID, 0)],
       }),
-    ).toEqual({ [CALL_ID]: 4 });
+    ).toEqual({});
+  });
+
+  it('numbers a Continue of a master-era Continue after the chain it kept', () => {
+    // The source Run continued an earlier one: its own `run.continued` holds
+    // the numbers of the two calls it inherited (one step), already offset,
+    // and its stored parts carry none. The Continue of it keeps those numbers
+    // and puts its own call after them.
+    const inherited = [
+      toolPart(CALL_ID, 'first'),
+      toolPart(CALL_ID_2, 'second'),
+    ];
+    const sourceContinued = continueStateFromEvents([
+      {
+        eventType: 'run.continued',
+        payload: { parts: inherited, steps: { [CALL_ID]: 0, [CALL_ID_2]: 0 } },
+      },
+    ]);
+    const sourceParts: Array<MessagePart> = [
+      ...inherited,
+      toolPart('call-own', 'own'),
+    ];
+
+    const steps = continuedCallSteps({
+      keptParts: sourceParts,
+      sourceContinued,
+      sourceEvents: [requestEvent('call-own', 0)],
+    });
+
+    expect(steps).toEqual({
+      [CALL_ID]: 0,
+      [CALL_ID_2]: 0,
+      'call-own': 1,
+    });
+    expect(withKeptSteps(sourceParts, steps).map(stepOf)).toEqual([0, 0, 1]);
   });
 });
 
@@ -259,12 +338,86 @@ describe('the step numbers admission stamps on the kept parts', () => {
     expect(withKeptSteps([unrecorded], {})).toEqual([unrecorded]);
   });
 
+  it('stops a step number at an unnumbered call instead of reaching across it', () => {
+    // The reply kept two parallel calls its own parts never numbered, then a
+    // text and a call admission numbered. The number of the later call must
+    // not pull the reasoning and text at the front away from the calls they
+    // led into: those stay in the consecutive rule's step, and the numbered
+    // text leads into the numbered call.
+    const parts = [
+      reasoning,
+      text,
+      toolPart(CALL_ID, 'first'),
+      toolPart(CALL_ID_2, 'second'),
+      { type: 'text', text: 'then' },
+      toolPart('call-later', 'later'),
+    ];
+
+    const stamped = withKeptSteps(parts, { 'call-later': 0 });
+
+    expect(stamped.map(stepOf)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      0,
+    ]);
+    // The live step sent the reasoning, the text, and both parallel calls as
+    // one assistant message; they stay one.
+    const messages = project(stamped);
+    expect(messages.map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+    ]);
+    expect(messages[0]?.content).toEqual([
+      { type: 'reasoning', text: 'plan' },
+      { type: 'text', text: 'reading' },
+      expect.objectContaining({ toolCallId: CALL_ID }),
+      expect.objectContaining({ toolCallId: CALL_ID_2 }),
+    ]);
+    expect(messages[2]?.content).toEqual([
+      { type: 'text', text: 'then' },
+      expect.objectContaining({ toolCallId: 'call-later' }),
+    ]);
+  });
+
+  it('keeps an unnumbered call beside the numbered call it was sent with', () => {
+    // One response sent the reasoning and both calls; only the first call's
+    // number was recorded. Both calls stay in one assistant message with the
+    // reasoning before them, so a thinking-enabled provider still sees the
+    // signed reasoning ahead of the calls it covers.
+    const parts = [
+      reasoning,
+      toolPart(CALL_ID, 'first'),
+      toolPart(CALL_ID_2, 'second'),
+    ];
+
+    const messages = project(withKeptSteps(parts, { [CALL_ID]: 0 }));
+
+    expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
+    expect(messages[0]?.content).toEqual([
+      { type: 'reasoning', text: 'plan' },
+      expect.objectContaining({ toolCallId: CALL_ID }),
+      expect.objectContaining({ toolCallId: CALL_ID_2 }),
+    ]);
+    expect(messages[1]).toMatchObject({
+      role: 'tool',
+      content: [
+        expect.objectContaining({ toolCallId: CALL_ID }),
+        expect.objectContaining({ toolCallId: CALL_ID_2 }),
+      ],
+    });
+  });
+
   it('groups a mixed numbered and unnumbered reply like the live step', () => {
     // A source Run recorded before parts recorded a step: admission stamps
     // its calls and their text, then the Continue Run's own parts follow. The
     // kept step and the new one stay separate.
     const sourceParts = [reasoning, text, toolPart(CALL_ID, 'first')];
-    const steps = continuedRecords({
+    const steps = continuedCallSteps({
       keptParts: sourceParts,
       sourceEvents: [requestEvent(CALL_ID, 0)],
     });

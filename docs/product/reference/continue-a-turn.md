@@ -84,10 +84,13 @@ the earlier Run sent it, in full. The projection adds no user text of its own,
 so the request ends with the kept results.
 
 A source Run recorded before stored parts carried a step number keeps its step
-boundaries anyway: admission takes each kept call's step from the request that
-made it, and numbers the text and reasoning of that step with it. A reply that
-stores no step at all falls back to the consecutive rule, where each run of
-consecutive calls is one step.
+boundaries anyway. A kept call inherited from an earlier Run takes the number
+the source Run's own `run.continued` event holds for it; a call the source Run
+made itself takes the number its `tool.requested` event recorded, after those.
+Admission numbers the text and reasoning of each step with its calls, so two
+back-to-back steps stay two assistant messages. A reply that stores no step at
+all falls back to the consecutive rule, where each run of consecutive calls is
+one step.
 
 A kept result's media follows the same rules as a live step: a stored
 `media://` reference replays from the media store, and an image or PDF the

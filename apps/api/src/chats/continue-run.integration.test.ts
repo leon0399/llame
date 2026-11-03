@@ -13,8 +13,9 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import type { ModelMessage, ToolResultPart } from 'ai';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
+  isNumber,
   isRecord,
   isString,
   type UnknownRecord,
@@ -30,7 +31,8 @@ import { type MessagePart } from '../chats/context-builder';
 import { createRunForMessage } from '../chats/run-creation';
 
 import {
-  continuedRecords,
+  continuedCallSteps,
+  continueStateFromEvents,
   withKeptSteps,
   type ContinuedEvent,
   type KeptStepNumbers,
@@ -166,10 +168,25 @@ describeIfDb('a Continue Run', () => {
     const sourceEvents = new RunEventsRepository(tx);
     const sourceRecorded: Array<ContinuedEvent> = [];
     const steps = options?.keptSteps ?? [];
+    const inherited = new Set(
+      Object.keys(options?.sourceContinued?.steps ?? {}),
+    );
+    if (options?.sourceContinued !== undefined) {
+      // A master-era Continue's own log: the parts it inherited, without a
+      // `step`, and their numbers in the retired `steps` map.
+      await sourceEvents.append(sourceRunId, 'run.continued', {
+        sourceRunId: crypto.randomUUID(),
+        parts: options.sourceContinued.parts,
+        steps: options.sourceContinued.steps,
+      });
+    }
     let callIndex = 0;
     for (const part of sourceParts) {
       const record = keptResultOf(part);
       if (record === undefined) continue;
+      // An inherited call was requested by the earlier Run, so the source Run
+      // recorded no request of its own for it.
+      if (inherited.has(record.toolCallId)) continue;
       const requested = {
         toolCallId: record.toolCallId,
         toolName: 'read',
@@ -203,7 +220,18 @@ describeIfDb('a Continue Run', () => {
     // re-validates every part it reads.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     const keptParts = sourceParts as ReadonlyArray<MessagePart>;
-    return continuedRecords({ keptParts, sourceEvents: sourceRecorded });
+    const sourceContinued = await sourceEvents.findFirstByType(
+      sourceRunId,
+      userId,
+      'run.continued',
+    );
+    return continuedCallSteps({
+      keptParts,
+      ...(sourceContinued !== undefined && {
+        sourceContinued: continueStateFromEvents([sourceContinued]),
+      }),
+      sourceEvents: sourceRecorded,
+    });
   }
 
   /**
@@ -227,6 +255,20 @@ describeIfDb('a Continue Run', () => {
     keptSteps?: ReadonlyArray<number>;
     /** Whether the source Run made a second read of its own. */
     chainedOwnCall?: boolean;
+    /**
+     * The `run.continued` event the source Run recorded itself: the parts it
+     * inherited, without a `step`, and their numbers in the retired map.
+     */
+    sourceContinued?: {
+      parts: ReadonlyArray<unknown>;
+      steps: Readonly<Record<string, number>>;
+    };
+    /**
+     * Whether the Continue Run was admitted before this change: its event
+     * stores the kept parts without a `step` and their numbers in the retired
+     * `steps` map, as master-era admission wrote them.
+     */
+    masterAdmitted?: boolean;
   }): Promise<ContinuedTurn> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -357,7 +399,11 @@ describeIfDb('a Continue Run', () => {
         sourceParts,
         options,
       );
-      const numberedKeptParts = withKeptSteps(sourceParts, records);
+      // SAFETY: the seeded reply parts are stored UI parts, and admission
+      // re-validates every part it reads.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      const storedKeptParts = sourceParts as ReadonlyArray<MessagePart>;
+      const numberedKeptParts = withKeptSteps(storedKeptParts, records);
       const { run } = await createRunForMessage(
         tx,
         {
@@ -376,12 +422,33 @@ describeIfDb('a Continue Run', () => {
         },
         trigger,
       );
+      if (options?.masterAdmitted === true) {
+        // Admission ran before the parts carried their own step: rewrite the
+        // event the way master-era admission wrote it, so a rebuild or a
+        // finalizer after the deploy reads the numbers back from the map.
+        await tx
+          .update(schema.runEvents)
+          .set({
+            payload: {
+              sourceRunId: sourceRun.id,
+              parts: sourceParts,
+              steps: records,
+            },
+          })
+          .where(
+            and(
+              eq(schema.runEvents.runId, run.id),
+              eq(schema.runEvents.eventType, 'run.continued'),
+            ),
+          );
+      }
       return {
         chatId,
         messageId,
         runId: run.id,
         seq: trigger.seq,
-        keptParts: numberedKeptParts,
+        keptParts:
+          options?.masterAdmitted === true ? sourceParts : numberedKeptParts,
       };
     });
   }
@@ -583,6 +650,77 @@ describeIfDb('a Continue Run', () => {
           : [],
       );
     expect(callsPerMessage).toEqual([[CALL_ID], [], ['call-second'], []]);
+  });
+
+  it('keeps the inherited steps of a master-era Continue apart', async () => {
+    // The source Run continued an earlier one before parts carried a step: the
+    // numbers of the two calls it inherited — two steps with no text between
+    // them — live in its own `run.continued` map, and the call it made itself
+    // is numbered from 0 again by its events. The Continue of it keeps both
+    // inherited numbers and offsets its own call after them.
+    const secondCall = {
+      type: 'tool-read',
+      toolCallId: 'call-second',
+      state: 'output-available',
+      input: { path: '/tmp/second.txt' },
+      output: { status: 'success', text: 'second body' },
+      outcome: 'success',
+    };
+    const ownCall = {
+      type: 'tool-read',
+      toolCallId: 'call-own',
+      state: 'output-available',
+      input: { path: '/tmp/own.txt' },
+      output: { status: 'success', text: 'own body' },
+      outcome: 'success',
+    };
+    const turn = await seedContinuedTurn({
+      replyParts: [keptParts[2], secondCall, ownCall],
+      sourceContinued: {
+        parts: [keptParts[2], secondCall],
+        steps: { [CALL_ID]: 0, 'call-second': 1 },
+      },
+    });
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID, {
+        requests,
+      }),
+    );
+
+    expect(
+      turn.keptParts.map((part) =>
+        isRecord(part) && isNumber(part['step']) ? part['step'] : undefined,
+      ),
+    ).toEqual([0, 1, 2]);
+    const sent = requests[0]?.messages ?? [];
+    expect(sent.slice(-6).map(({ role }) => role)).toEqual([
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+      'assistant',
+      'tool',
+    ]);
+    const callsPerMessage = sent
+      .slice(-6)
+      .map(({ role, content }) =>
+        role === 'assistant' && Array.isArray(content)
+          ? content.flatMap((part) =>
+              part.type === 'tool-call' ? [part.toolCallId] : [],
+            )
+          : [],
+      );
+    expect(callsPerMessage).toEqual([
+      [CALL_ID],
+      [],
+      ['call-second'],
+      [],
+      ['call-own'],
+      [],
+    ]);
   });
 
   it('replays the reasoning of a failed Run with its provider metadata', async () => {
@@ -997,6 +1135,73 @@ describeIfDb('a Continue Run', () => {
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
       ...turn.keptParts,
+      { type: 'text', text: 'half', step: 2 },
+    ]);
+  });
+
+  it('keeps a master-era Continue grouping and offset when it rebuilds', async () => {
+    // The Run was admitted before the parts carried their own step: its event
+    // holds the unnumbered parts and their numbers in the retired `steps` map.
+    // A settler after the deploy must send the two back-to-back kept steps
+    // separately and put its own part after the second.
+    const secondCall = {
+      type: 'tool-read',
+      toolCallId: 'call-second',
+      state: 'output-available',
+      input: { path: '/tmp/second.txt' },
+      output: { status: 'success', text: 'second body' },
+      outcome: 'success',
+    };
+    const turn = await seedContinuedTurn({
+      masterAdmitted: true,
+      keptSteps: [0, 1],
+      replyParts: [keptParts[2], secondCall],
+    });
+    await tenantDb.runAs(userId, async (tx) => {
+      const started = await new RunsRepository(tx).markStarted(
+        turn.runId,
+        userId,
+      );
+      const attemptId = started?.activeAttemptId;
+      if (!attemptId) throw new Error('Attempt A did not claim the Run.');
+      const events = new RunEventsRepository(tx);
+      await events.append(turn.runId, 'run.started');
+      await events.append(turn.runId, 'model.requested', {
+        modelId: MODEL_ID,
+        attemptId,
+      });
+      await events.append(turn.runId, 'model.delta', {
+        text: 'half',
+        stepNumber: 0,
+      });
+      await new RunningReplyRepository(tx).upsertRunningReply({
+        chatId: turn.chatId,
+        inReplyTo: turn.messageId,
+        usage: {
+          status: 'running',
+          complete: false,
+          runId: turn.runId,
+          attemptId,
+          modelId: MODEL_ID,
+        },
+        followUpAction: 'continue',
+      });
+    });
+
+    await runExecution.settleTerminalRun({
+      userId,
+      runId: turn.runId,
+      status: 'failed',
+      runPayload: { status: 'failed' },
+      error: { message: 'the worker died' },
+    });
+
+    // The rebuild reads both the chain's numbers and its offset back from the
+    // event, so it does not merge the two kept steps.
+    const reply = await replyOf(turn);
+    expect(reply?.parts).toEqual([
+      { ...keptParts[2], step: 0 },
+      { ...secondCall, step: 1 },
       { type: 'text', text: 'half', step: 2 },
     ]);
   });

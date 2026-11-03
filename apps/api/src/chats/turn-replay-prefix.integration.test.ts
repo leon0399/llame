@@ -28,7 +28,7 @@ import { waitFor } from '../testing/support';
 import { MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { continueKeptParts } from './continue-kept-parts';
-import { continuedRecords, withKeptSteps } from './continue-projection';
+import { continuedCallSteps, withKeptSteps } from './continue-projection';
 import { createRunForMessage } from './run-creation';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type ScriptedBehavior } from '../runs/scripted-model-client';
@@ -697,7 +697,7 @@ describeIfDb('turn replay prefix equality', () => {
             sourceRunId: seeded.runId,
             keptParts: withKeptSteps(
               kept,
-              continuedRecords({ keptParts: kept, sourceEvents }),
+              continuedCallSteps({ keptParts: kept, sourceEvents }),
             ),
             replacesUsage: true,
           },

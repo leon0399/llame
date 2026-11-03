@@ -344,10 +344,12 @@ type OpenStep = {
  * stored before step numbers — keeps the live shape at the seam: an unnumbered
  * part that precedes the open step's calls joins the numbered step it leads
  * into, and a numbered part after an unnumbered step's calls begins a new one.
- * A part with no step number follows the Continue rule: each run of consecutive
- * tool parts, with the text and the reasoning before it, is one step — so a
- * call after the open step's calls begins the next one, and so does text or
- * reasoning after a call.
+ * A call directly after the open step's call joins it whatever number each
+ * carries, because one response sent them together — so parallel calls stay in
+ * one assistant message with the reasoning that led into them. A part with no
+ * step number otherwise follows the Continue rule: each run of consecutive
+ * calls, with the text and the reasoning before it, is one step — so text or
+ * reasoning after a step's calls begins the next one.
  */
 function startsNewStep(
   open: OpenStep,
@@ -357,14 +359,14 @@ function startsNewStep(
   if (open.number !== undefined && partNumber !== undefined) {
     return partNumber !== open.number;
   }
-  // The numbered side decides: an unnumbered part after numbered calls starts
-  // a legacy step, and a numbered part after unnumbered calls starts a new
-  // step. Before the calls, the two sides are the same response.
-  if (open.number !== undefined) return open.results.length > 0;
-  if (partNumber !== undefined) return open.results.length > 0;
-  const calls = open.results.length;
-  const lastWasTool = open.content.at(-1)?.type === 'tool-call';
-  return isTool ? calls > 0 && !lastWasTool : calls > 0;
+  if (
+    isTool &&
+    partNumber === undefined &&
+    open.content.at(-1)?.type === 'tool-call'
+  ) {
+    return false;
+  }
+  return open.results.length > 0;
 }
 
 /**

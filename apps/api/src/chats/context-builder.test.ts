@@ -2206,6 +2206,29 @@ describe('buildContext', () => {
         expect(JSON.stringify(messages[1])).toContain('read-b');
       });
 
+      it('keeps an unnumbered call beside the numbered call it was sent with', () => {
+        // One response sent the text and both calls; only the first call's
+        // part records the step. The unnumbered call joins it, so the text
+        // stays in front of both calls (design D5).
+        const { messages } = buildContext(
+          [
+            assistantWith([
+              { type: 'text', text: 'Read both.' },
+              callPart('read-a', 2),
+              callPart('read-b'),
+            ]),
+          ],
+          { systemPrompt, modelId: 'test-model' },
+        );
+
+        expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
+        expect(messages[0].content).toEqual([
+          { type: 'text', text: 'Read both.' },
+          expect.objectContaining({ toolCallId: 'read-a' }),
+          expect.objectContaining({ toolCallId: 'read-b' }),
+        ]);
+      });
+
       it('replays sequential calls as two steps', () => {
         const { messages } = buildContext(
           [assistantWith([callPart('read-a', 2), callPart('read-b', 3)])],
