@@ -186,9 +186,11 @@ starts, holds, or reads a client.
 
 - **Attempt start.** `startWorkspaceMcp` still stops stale clients: it calls
   `stopForChat` when the Chat is unbound. For a bound Chat it calls a new
-  public `WorkspaceMcpClients.stopStale(key)`, which runs the private
-  stale-generation discard that `startForChat` runs today. It skips
-  `startForChat` when the mode is `read-only`.
+  public `WorkspaceMcpClients.stopStale(key)`. It bumps the stop epoch of
+  the Chat, as `startForChat` and `stopForChat` do, so a start still in
+  flight cannot register its clients afterwards, and then runs the private
+  stale-generation discard. It skips `startForChat` when the mode is
+  `read-only`.
 - **Attempt.** No key goes to `composeAttemptCatalog`,
   `attemptDynamicResolver`, or `beginWorkspaceAttempt`. A cached client set
   for the key stays untouched for a later `default` attempt, and its idle
@@ -201,8 +203,11 @@ starts, holds, or reads a client.
   `mcp.servers` request for a `machine://` root. Neither starts a process.
   Each returned server is `unavailable` with reason
   `not started in a read-only Run`. A file-level or server-level entry that
-  the reader already reports as unavailable keeps its own reason. A same-root
-  re-entry reads the configuration again for this listing.
+  the reader already reports as unavailable keeps its own reason. The
+  attempt lists once for each binding: at attempt start for a bound Chat, or
+  at the entry that sets a binding. It keeps the listing in attempt memory. A
+  same-root re-entry returns it and reads no configuration, as the canonical
+  re-entry rule requires.
 - **Reminder.** A previously available Workspace tool id goes to
   `Removed tools:`, through the existing comparison. No new reason code.
 
@@ -280,3 +285,17 @@ None that changes the specs or the task breakdown.
   canonical specs use for a Run with no `native.attempt`; positive admission
   scenarios; Continue and the selector guard in D8; two public client
   methods in D6; grilling codes in proposal.md.
+- **v4 (2026-11-03):** GitHub review round 1 on #1549 (cubic 8, CodeRabbit
+  1, pullfrog 6 inline plus 5 body points). Accepted: a MODIFIED
+  `Execution policy is frozen per process and reevaluated after restart` and
+  a MODIFIED `web-search` removal rule; the Workspace MCP listing happens
+  once for each binding, so a same-root re-entry reads no configuration;
+  `stopStale` bumps the stop epoch; normative verbs; schema-valid wording;
+  the shadowed-id case is scoped out of the removed-tools scenario; README
+  and SPEC updates; the Purpose narrows the turn display to `bypass`.
+  Rejected: a release boundary for mixed versions (all processes run one
+  release); `Became unavailable:` for skipped tools (the catalog has no
+  candidate, so the comparison reports `Removed tools:`); MODIFIED blocks for
+  the long `native-file-tools`, `mcp-tools`, `tool-calling`, and
+  `instance-config` requirements whose readings are recorded in
+  proposal.md.

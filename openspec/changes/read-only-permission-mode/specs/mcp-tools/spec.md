@@ -6,7 +6,8 @@ A `read-only` attempt MUST NOT start a Workspace MCP server, at attempt start or
 
 #### Scenario: A bound Workspace starts no server process
 
-- **WHEN** a Chat is bound to a Workspace whose `.mcp.json` declares a stdio server, and a Run whose mode is `read-only` of that Chat starts
+- **WHEN** a Chat is bound to a Workspace whose `.mcp.json` declares a stdio server
+- **AND** a Run of that Chat whose mode is `read-only` starts
 - **THEN** the system starts no process for that server
 - **AND** the attempt declares no tool of that server
 
@@ -29,7 +30,7 @@ A `read-only` attempt MUST NOT start a Workspace MCP server, at attempt start or
 
 ### Requirement: Workspace entry reports a server that read-only did not start
 
-When a `read-only` attempt enters a Workspace, the entry result MUST list each server that the Workspace MCP configuration declares as `unavailable`. The reason MUST be `not started in a read-only Run`. A server or a file that the configuration reports as unavailable MUST keep its own reason. This rule applies to a same-root re-entry, which then reads the configuration again, against the rule for other modes. The listing MUST start no process.
+A `read-only` attempt MUST list the configured Workspace MCP servers once for each binding: at attempt start, or at the entry that sets the binding. Each listed server is `unavailable` with reason `not started in a read-only Run`. A server or file that the configuration reports as unavailable MUST keep its own reason. The listing MUST start no process. The entry result MUST report this listing.
 
 #### Scenario: The entry result names the reason
 
@@ -51,4 +52,4 @@ When a `read-only` attempt enters a Workspace, the entry result MUST list each s
 
 - **WHEN** a `default` Run started the Workspace MCP clients of a Chat, and a `read-only` attempt then enters the same root again
 - **THEN** the entry result reports each server as `unavailable` with reason `not started in a read-only Run`
-- **AND** the attempt takes no tool from the clients that the `default` Run started
+- **AND** the attempt reads no Workspace configuration for that re-entry and takes no tool from the clients that the `default` Run started

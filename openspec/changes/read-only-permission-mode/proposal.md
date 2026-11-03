@@ -16,16 +16,19 @@ read-only MCP tools). Tracking: [#1488](https://github.com/leon0399/llame/issues
 - `tools.permissionModes` accepts `"read-only"`. A chat send, a chat creation
   message, and a follow-up request accept `permissionMode: "read-only"` when
   the API process enables it.
-- A `read-only` attempt admits a tool call only when the tool is classified
-  `read_only`, or the call is `exit_workspace`, or the call is
-  `enter_workspace` without `worktree`. Every other call, including `bash`,
-  `edit`, `write`, and every MCP tool, gets `permission_denied` with the new
-  reason `permission_mode_read_only`, before the operator policy is evaluated.
+- A `read-only` attempt admits a schema-valid tool call only when the tool is
+  classified `read_only`, or the call is `exit_workspace`, or the call is
+  `enter_workspace` without `worktree`. Every other schema-valid call,
+  including `bash`, `edit`, `write`, and every MCP tool, gets
+  `permission_denied` with the new reason `permission_mode_read_only`, before
+  the operator policy is evaluated. A schema-invalid call keeps its
+  invalid-arguments refusal.
 - An admitted call then passes the operator policy exactly as in `default`. No
   allow widens the mode, and no reject is relaxed.
 - A `read-only` attempt starts no Workspace MCP server and uses no Workspace
   MCP client that an earlier attempt started. Workspace entry reports each
-  Workspace MCP server as unavailable with a fixed reason.
+  configured server as unavailable with a fixed reason; a server or file that
+  the configuration already reports as unavailable keeps its own reason.
 - A Run accepted as `read-only` executes as `read-only` on every process. The
   enabled-mode list gates acceptance only, so a configuration change can never
   widen a queued `read-only` Run.
@@ -93,7 +96,10 @@ None.
   availability reminder reports it as removed), and `The composer offers the
   enabled modes per chat` (sends any non-default mode).
 - `tool-call-permissions`: MODIFIED `A Run's effective permission mode selects
-  whether the policy is evaluated` (the `read-only` value and its resolution).
+  whether the policy is evaluated` (the `read-only` value and its resolution)
+  and `Execution policy is frozen per process and reevaluated after restart`
+  (resolution through that rule; a withdrawn `read-only` does not widen a
+  queued Run).
   ADDED `A read-only attempt admits only reads and plain Workspace
   transitions`, `A read-only rejection is recorded before the policy is
   evaluated`, `A read-only rejection uses a fixed message`, and `A read-only
@@ -108,16 +114,20 @@ None.
 - `workspace-entry`: MODIFIED `The Workspace binding is Chat-scoped and
   persists across Runs` (a creation request can use any enabled mode; a
   `read-only` request decides paths as `default`).
+- `web-search`: MODIFIED `The call removes the results that the read
+  permission group rejects` (applies to `default` and `read-only`).
 
 Deliberately unchanged, with the reading under which each holds:
 
 - `tool-call-permissions` `Safe decision provenance and non-fatal rejection`:
   its fixed-template list is read as extended by the template that the ADDED
   `A read-only rejection uses a fixed message` fixes for its own reason.
-- `tool-call-permissions` `Execution policy is frozen per process and
-  reevaluated after restart`: "resolved against the enabled modes of the
-  process that executes it" holds under the modified resolution rule, which
-  takes the enabled modes as input and ignores them for `read-only`.
+- `tool-call-permissions` worktree requirements (`Worktree entry decides the
+  submitted path before any probe` through `Worktree creation verifies the
+  decided path`) and their scenarios, such as `Allows on every decision
+  create the worktree`: they govern an admitted `enter_workspace` call. In a
+  `read-only` attempt, the ceiling rejects a `worktree` call first, so none
+  of them runs.
 - `instance-config` `Operator tool permissions compile before process startup
   completes`, `mcp-tools` `MCP eligibility and execution authorization are
   separate`, `tool-calling` `Each execution attempt applies the operator
@@ -129,9 +139,6 @@ Deliberately unchanged, with the reading under which each holds:
   also governs an admitted call of a `read-only` attempt, because the
   modified effective-mode requirement says a `read-only` attempt evaluates
   the policy exactly as `default`.
-- `web-search` `The call removes the results that the read permission group
-  rejects`: "the effective permission mode is `default` here" holds for
-  `read-only`, which removes rejected hosts like `default`.
 - `mcp-tools` `Workspace MCP clients are isolated, generation-keyed, and
   lifecycle-managed per Chat`, `workspace-entry` `Entry switches one binding
   and exit clears it` and `Each Run attempt re-checks the binding and detaches
@@ -139,10 +146,11 @@ Deliberately unchanged, with the reading under which each holds:
   frozen context`, `remote-machines` `Machine Workspace MCP lifetime follows
   local Workspace rules`, and `tool-calling` `Trusted in-Run tool additions
   are admitted and made unavailable with Workspace state`: each statement
-  that starts clients, adds Workspace declarations, or makes a same-root
-  re-entry skip the configuration read governs a `default` or `bypass`
-  attempt. The two ADDED `mcp-tools` requirements state their precedence for
-  a `read-only` attempt. The attempt-start discard of stale clients still
+  that starts clients or adds Workspace declarations governs a `default` or
+  `bypass` attempt. The ADDED `A read-only attempt starts and uses no
+  Workspace MCP client` states its precedence for a `read-only` attempt. A
+  same-root re-entry still reads no configuration: it returns the listing
+  that the attempt made once for the binding. The attempt-start discard of stale clients still
   applies to `read-only`.
 - `mcp-tools` `Workspace MCP configuration is portable and protects
   interpolated values` and `remote-machines` `Workspace MCP servers of a

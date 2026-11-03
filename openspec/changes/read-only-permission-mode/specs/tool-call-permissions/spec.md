@@ -1,5 +1,43 @@
 ## MODIFIED Requirements
 
+### Requirement: Execution policy is frozen per process and reevaluated after restart
+
+Each API or worker process MUST load and compile one immutable effective policy at startup. A configuration change MUST require a restart of the affected installation processes. Each new invocation MUST use the policy of its executor process. This rule also applies to invocations from Runs that were queued or started under an earlier policy. A process MUST read `tools.permissionModes` once at startup. The system MUST resolve the effective permission mode of an attempt with the rule of `A Run's effective permission mode selects whether the policy is evaluated`. The enabled modes of the process that executes the attempt are the input of that rule. This also applies to Runs accepted under an earlier configuration. Invocation policy MUST stay independent of attempt-local tool membership and system-prompt receipts. A policy rejection MUST NOT remove a tool from the catalog of that attempt. Each fresh attempt MUST still resolve the current catalog of the executing worker. The system MUST NOT restore a historical declaration snapshot.
+
+Stored completed effects and observations MUST stay historical facts. The Run-level native recovery fence MUST keep precedence over the authorization of any new execution, in every permission mode. This capability MUST NOT add per-call resumption or known-result recovery. A policy reject MUST NOT disguise an effect that possibly occurred. A re-execution that the recovery contract permits for a call with no native mutation MUST pass the policy of the restarted process before dispatch. In an attempt whose effective mode is `bypass`, the system MUST instead record that re-execution as a bypass decision before dispatch.
+
+#### Scenario: Editing config without restart has no effect
+
+- **WHEN** the operator edits permissions while a worker stays in operation
+- **THEN** that worker continues to use its startup policy
+
+#### Scenario: Queued Run encounters a new reject after restart
+
+- **WHEN** a Run was queued under an allow, the operator changes the policy to reject, and the worker restarts before the call executes
+- **THEN** the call receives `permission_denied` under the new process policy
+- **AND** its original tool declaration stays the same
+
+#### Scenario: Recovery cannot hide an uncertain native effect
+
+- **WHEN** a native attempt possibly executed before a crash, and the restarted policy now rejects that call
+- **THEN** the native recovery fence settles the recovered Run without re-execution, with its `outcome_unknown` result when applicable
+- **AND** it does not execute the call again or replace the uncertainty with a claim that the system prevented the execution
+
+#### Scenario: Withdrawing bypass takes effect on restart
+
+- **WHEN** a Run accepted with `bypass` is still queued, and the operator removes `bypass` from `tools.permissionModes` and restarts the worker
+- **THEN** the next attempt of the Run executes with effective mode `default` under the policy of the worker
+
+#### Scenario: Bypass does not override the recovery fence
+
+- **WHEN** a native attempt of a `bypass` Run possibly executed before a crash
+- **THEN** the native recovery fence settles the recovered Run without re-execution, exactly as in `default`
+
+#### Scenario: Withdrawing read-only does not widen a queued Run
+
+- **WHEN** a Run accepted with `read-only` is still queued, and the operator removes `read-only` from `tools.permissionModes` and restarts the worker
+- **THEN** the next attempt of the Run executes with effective mode `read-only`
+
 ### Requirement: A Run's effective permission mode selects whether the policy is evaluated
 
 Each execution attempt MUST have one effective permission mode. The system MUST resolve it once, when the attempt is claimed. The effective mode is `bypass` when the Run has the accepted mode `bypass` and the executing process enables `bypass` in `tools.permissionModes`. The effective mode is `read-only` when the accepted mode of the Run is `read-only`, on every process. The effective mode is `default` in all other cases. A Run accepted with `bypass` on a process that does not enable `bypass` MUST execute in `default`.

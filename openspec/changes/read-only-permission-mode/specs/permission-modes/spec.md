@@ -2,7 +2,7 @@
 
 ### Requirement: Chat sends accept an optional permission mode
 
-A chat message request can carry an optional top-level `permissionMode`. Its value MUST be `"default"`, `"bypass"`, or `"read-only"`. An omitted `permissionMode` MUST mean `default`. The API MUST reject any other value with 400 as a malformed body. That includes a blank string, `null`, and a non-string. A 400 MUST create no message and no Run.
+The API MUST accept an optional top-level `permissionMode` on a chat message request. Its value MUST be `"default"`, `"bypass"`, or `"read-only"`. An omitted `permissionMode` MUST mean `default`. The API MUST reject any other value with 400 as a malformed body. That includes a blank string, `null`, and a non-string. A 400 MUST create no message and no Run.
 
 The API MUST validate a well-formed mode against the enabled modes of the API process (`tools.permissionModes`). It MUST do this before it creates a message or a Run. The API MUST reject a mode that is not enabled with 422 and `code = "permission_mode_not_available"`. That rejection MUST create no message and no Run. Model validation and effort validation MUST occur before mode validation. Thus the API MUST report an unavailable model or effort without an evaluation of the mode.
 
@@ -52,7 +52,7 @@ The mode MUST come only from the request of the authenticated sender. Model outp
 
 ### Requirement: The permission mode is not model-visible
 
-The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A change of mode between turns MUST NOT be a cause of an effective-context change. A `read-only` attempt has no Workspace MCP declaration, and the tool availability reminder reports that change. The model MUST learn of a policy decision only from `permission_denied` results, the `web_search` removal note, and the read-only Workspace MCP reason of `mcp-tools`.
+The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A change of mode between turns MUST NOT be a cause of an `effective-context-change` item. One other effect is permitted: a `read-only` attempt has no Workspace MCP declaration, and the tool availability reminder reports that change. The model MUST learn of a policy decision only from `permission_denied` results, the `web_search` removal note, that reminder, and the Workspace MCP reason of `mcp-tools`.
 
 #### Scenario: Switching mode preserves the prompt prefix
 
@@ -70,7 +70,7 @@ The system prompt, the system-prompt receipt, and model-visible context items MU
 #### Scenario: A read-only turn reports the Workspace MCP tools as removed
 
 - **WHEN** a `default` Run of a bound Chat had the Workspace MCP tool `mcp__docs__search`, and the next turn is `read-only`
-- **AND** no checkpoint publishes between the two turns
+- **AND** no checkpoint publishes between the two turns, and no operator MCP server has the server id `docs`
 - **THEN** the `read-only` attempt does not declare `mcp__docs__search`
 - **AND** its tool availability reminder lists `mcp__docs__search` under `Removed tools:`
 
