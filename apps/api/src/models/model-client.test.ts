@@ -346,7 +346,7 @@ describe('ModelClient', () => {
     const [streamOptions] = streamTextMock.mock.calls[0] ?? [];
     expect(streamOptions).toMatchObject({
       model: { provider: 'openai.responses', modelId: 'gpt-test' },
-      providerOptions: { openai: { reasoningSummary: 'auto' } },
+      providerOptions: { openai: { reasoningSummary: 'auto', store: false } },
     });
     // With no catalog cap configured the setting stays absent, so the
     // request is the pre-provider-options-layer one byte for byte.
@@ -617,7 +617,11 @@ describe('ModelClient', () => {
         expect(streamTextMock).toHaveBeenCalledWith(
           expect.objectContaining({
             providerOptions: {
-              openai: { reasoningSummary: 'auto', reasoningEffort: effort },
+              openai: {
+                reasoningSummary: 'auto',
+                reasoningEffort: effort,
+                store: false,
+              },
             },
           }),
         );
@@ -630,7 +634,11 @@ describe('ModelClient', () => {
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
           providerOptions: {
-            openai: { reasoningSummary: 'auto', reasoningEffort: 'max' },
+            openai: {
+              reasoningSummary: 'auto',
+              reasoningEffort: 'max',
+              store: false,
+            },
           },
         }),
       );
@@ -645,7 +653,11 @@ describe('ModelClient', () => {
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
           providerOptions: {
-            openai: { reasoningSummary: 'auto', reasoningEffort: 'none' },
+            openai: {
+              reasoningSummary: 'auto',
+              reasoningEffort: 'none',
+              store: false,
+            },
           },
         }),
       );
@@ -685,21 +697,81 @@ describe('ModelClient', () => {
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          providerOptions: { openai: { reasoningSummary: 'concise' } },
+          providerOptions: {
+            openai: { reasoningSummary: 'concise', store: false },
+          },
+        }),
+      );
+    });
+
+    // An entry that declares `reasoning` forces the adapter's reasoning
+    // treatment for any model id (design D12), and no operator value —
+    // `forceReasoning: false` included — can take that invariant back.
+    it('forces reasoning for a declared-reasoning entry over an operator refusal', () => {
+      const client = build({
+        reasoningDeclared: true,
+        providerOptions: { forceReasoning: false },
+      });
+      client.streamText({ chat: CHAT, messages });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            openai: {
+              reasoningSummary: 'auto',
+              store: false,
+              forceReasoning: true,
+            },
+          },
+        }),
+      );
+    });
+
+    // For an entry that declares no reasoning the adapter keeps its own
+    // model-id rule, so the client sends no `forceReasoning` of its own; an
+    // operator value still reaches the adapter unchanged (design D12).
+    it('sends no forceReasoning for an entry that declares no reasoning', () => {
+      const client = build();
+      client.streamText({ chat: CHAT, messages });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            openai: { reasoningSummary: 'auto', store: false },
+          },
+        }),
+      );
+    });
+
+    it('passes an operator forceReasoning through when the entry declares no reasoning', () => {
+      const client = build({ providerOptions: { forceReasoning: true } });
+      client.streamText({ chat: CHAT, messages });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            openai: {
+              reasoningSummary: 'auto',
+              store: false,
+              forceReasoning: true,
+            },
+          },
         }),
       );
     });
 
     // `null` at any depth removes a client default (design D5) — here the
-    // streaming wire's only default, so the composed record is empty and the
-    // request carries no provider options at all.
+    // streaming wire's only default — while the wire's own `store: false`
+    // invariant stays (design D12).
     it('lets an operator null remove the automatic reasoning summary', () => {
       const client = build({ providerOptions: { reasoningSummary: null } });
       client.streamText({ chat: CHAT, messages });
 
       const [streamTextCall] = streamTextMock.mock.calls[0] ?? [];
       expect(streamTextCall).toMatchObject({ messages });
-      expect(streamTextCall?.providerOptions).toBeUndefined();
+      expect(streamTextCall?.providerOptions).toEqual({
+        openai: { store: false },
+      });
     });
 
     it('keeps the run effort above the operator reasoning effort', () => {
@@ -709,7 +781,11 @@ describe('ModelClient', () => {
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
           providerOptions: {
-            openai: { reasoningSummary: 'auto', reasoningEffort: 'high' },
+            openai: {
+              reasoningSummary: 'auto',
+              reasoningEffort: 'high',
+              store: false,
+            },
           },
         }),
       );
@@ -738,7 +814,11 @@ describe('ModelClient', () => {
         expect(streamTextMock).toHaveBeenCalledWith(
           expect.objectContaining({
             providerOptions: {
-              openai: { reasoningSummary: 'auto', vendorNote: 'kept' },
+              openai: {
+                reasoningSummary: 'auto',
+                vendorNote: 'kept',
+                store: false,
+              },
             },
           }),
         );
@@ -878,16 +958,16 @@ describe('ModelClient', () => {
 
       // The entry's providerOptions reach structured generation too
       // (provider-api-selection: every language-model request carries them),
-      // under this wire's namespace and with the operator layer alone — the
-      // displayable reasoning summary is a streaming-only default, and a
-      // structured request carries no effort.
+      // under this wire's namespace with the wire's own `store: false`
+      // invariant (design D12) — the displayable reasoning summary is a
+      // streaming-only default, and a structured request carries no effort.
       it("carries the operator's options under the Responses namespace", async () => {
         const generateCall = await generateTitle({
           providerOptions: { vendorNote: 'kept' },
         });
 
         expect(generateCall?.providerOptions).toEqual({
-          openai: { vendorNote: 'kept' },
+          openai: { vendorNote: 'kept', store: false },
         });
       });
 
@@ -899,17 +979,19 @@ describe('ModelClient', () => {
           });
 
           expect(generateCall?.providerOptions).toEqual({
-            openai: { vendorNote: 'kept' },
+            openai: { vendorNote: 'kept', store: false },
           });
         },
       );
 
-      it('stays option-free when only reserved keys were configured', async () => {
+      it('carries only the wire invariant when only reserved keys were configured', async () => {
         const generateCall = await generateTitle({
           providerOptions: { previousResponseId: 'resp_operator' },
         });
 
-        expect(generateCall?.providerOptions).toBeUndefined();
+        expect(generateCall?.providerOptions).toEqual({
+          openai: { store: false },
+        });
       });
 
       it('forwards the catalog output cap alongside the composed options', async () => {
@@ -919,18 +1001,29 @@ describe('ModelClient', () => {
         });
 
         expect(generateCall?.providerOptions).toEqual({
-          openai: { vendorNote: 'kept' },
+          openai: { vendorNote: 'kept', store: false },
         });
         expect(generateCall?.maxOutputTokens).toBe(1024);
       });
 
-      // An entry with no configured options keeps structured generation's
-      // option-free request unchanged (provider-api-selection).
-      it('leaves the option-free structured generation request unchanged', async () => {
+      // An entry with no configured options still sends the wire's own
+      // `store: false` invariant, and nothing else (provider-api-selection,
+      // design D12).
+      it('sends only the wire invariant when the entry configures no options', async () => {
         const generateCall = await generateTitle();
 
-        expect(generateCall?.providerOptions).toBeUndefined();
+        expect(generateCall?.providerOptions).toEqual({
+          openai: { store: false },
+        });
         expect(generateCall?.maxOutputTokens).toBeUndefined();
+      });
+
+      it("forces the adapter's reasoning treatment for a declared-reasoning entry", async () => {
+        const generateCall = await generateTitle({ reasoningDeclared: true });
+
+        expect(generateCall?.providerOptions).toEqual({
+          openai: { store: false, forceReasoning: true },
+        });
       });
 
       it("lets an operator User-Agent replace llame's token on structured generation", async () => {

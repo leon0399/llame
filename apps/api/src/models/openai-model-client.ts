@@ -412,8 +412,9 @@ export type OpenAIModelClientConfig = {
   /**
    * Client-owned options no operator value — `null` included — can remove or
    * replace (design D5). The codex subscription transport pins `store: false`
-   * and `reasoningSummary: 'auto'` here; the plain Responses client leaves it
-   * unset.
+   * and `reasoningSummary: 'auto'` here. This wire pins `store: false` itself
+   * for every request of either client (design D12), so a configured record
+   * can add to that invariant but never remove it.
    */
   providerOptionInvariants?: ProviderOptionRecord;
   /**
@@ -434,6 +435,14 @@ export type OpenAIModelClientConfig = {
   compactionThresholdTokens?: number;
   /** Catalog `models[].input`; absent means `['text']`. */
   input?: ReadonlyArray<ModelInput>;
+  /**
+   * The entry's `models[].reasoning` declaration — presence of the vocabulary
+   * is the declaration, as on the Messages client. A declared entry forces the
+   * adapter's reasoning treatment (`forceReasoning: true`), so an id the
+   * adapter does not recognize still asks for `reasoning.encrypted_content`
+   * (design D12). Absent or false leaves the adapter's own id rule in force.
+   */
+  reasoningDeclared?: boolean;
 };
 
 /**
@@ -480,6 +489,33 @@ function responsesProviderOptions(
 }
 
 /**
+ * The Responses wire's own client invariants (design D12): llame keeps no
+ * response on the provider's side, so the adapter may not fall back to a
+ * server-side item the provider could expire or share.
+ */
+const RESPONSES_INVARIANTS: ProviderOptionRecord = { store: false };
+
+/**
+ * The invariants of one Responses request, applied as the composer's last
+ * layer: this wire's own (design D12), the adapter's forced reasoning
+ * treatment for an entry that declares `reasoning` — so an id the adapter
+ * does not recognize still asks for `reasoning.encrypted_content` — and the
+ * transport's configured record (the Codex client's). Client-owned like any
+ * invariant: no operator value, `null` included, can remove or replace one.
+ * An entry that declares no reasoning sends no `forceReasoning`, so the
+ * adapter's model-id rule stays in force for it.
+ */
+function responsesInvariants(
+  config: OpenAIModelClientConfig,
+): ProviderOptionRecord {
+  return {
+    ...config.providerOptionInvariants,
+    ...RESPONSES_INVARIANTS,
+    ...(config.reasoningDeclared === true && { forceReasoning: true }),
+  };
+}
+
+/**
  * Builds the per-call headers shared by streaming and structured requests.
  */
 function perCallHeaders(config: OpenAIModelClientConfig, chat: ChatIdentity) {
@@ -500,11 +536,11 @@ function perCallHeaders(config: OpenAIModelClientConfig, chat: ChatIdentity) {
  * the earlier ones set, never the other way around. The operator's reserved
  * paths are stripped by the composer.
  *
- * A request whose options compose to nothing (every default removed with
- * `null`, no operator or effort value) carries no `providerOptions` key at
- * all, so an entry with no configured options sends exactly the body it sent
- * before this layer. `!== undefined` rather than truthiness for the effort —
- * a level meaning "no reasoning" is an instruction to send, not an absence.
+ * Every Responses request carries at least the wire's own `store: false`
+ * invariant (design D12), so the composed record is never empty and the
+ * request always carries the `providerOptions` key. `!== undefined` rather
+ * than truthiness for the effort — a level meaning "no reasoning" is an
+ * instruction to send, not an absence.
  */
 function applyRequestOptions(
   streamOptions: Parameters<typeof streamText>[0],
@@ -522,9 +558,7 @@ function applyRequestOptions(
       ...(input.effort !== undefined && {
         effort: { reasoningEffort: input.effort },
       }),
-      ...(config.providerOptionInvariants !== undefined && {
-        invariants: config.providerOptionInvariants,
-      }),
+      invariants: responsesInvariants(config),
       reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
     }),
   );
@@ -536,13 +570,13 @@ function applyRequestOptions(
 /**
  * The structured-generation path's options: the operator's
  * `models[].providerOptions` under this wire's namespace with its reserved
- * paths stripped, and no other layer (provider-api-selection: the entry's
- * options reach every language-model request). The displayable reasoning
- * summary is a streaming default and is not added here; `ModelObjectInput`
- * carries no effort, so there is no run layer; and the Codex transport — the
- * only client that pins invariants — exposes no structured generation, so
- * none applies. Composes to nothing for an entry that configures no options,
- * which leaves this path's option-free request exactly as it was.
+ * paths stripped, and the wire's invariants (provider-api-selection: the
+ * entry's options, and `store: false`, reach every language-model request on
+ * this wire — design D12). The displayable reasoning summary is a streaming
+ * default and is not added here; `ModelObjectInput` carries no effort, so
+ * there is no run layer. A declared-reasoning entry forces the adapter's
+ * reasoning treatment here too, which asks for encrypted reasoning content
+ * without adding a reasoning summary the path never sent.
  */
 function composeStructuredProviderOptions(
   config: OpenAIModelClientConfig,
@@ -552,6 +586,7 @@ function composeStructuredProviderOptions(
       ...(config.providerOptions !== undefined && {
         operator: config.providerOptions,
       }),
+      invariants: responsesInvariants(config),
       reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
     }),
   );

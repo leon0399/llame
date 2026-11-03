@@ -87,9 +87,12 @@ over. Every other layer stays inside about 2,000 lines.
 
 ## 4. responses-store
 
-- [ ] 4.1 Pin `store: false` as an invariant of the `openai-responses` client, and pass `forceReasoning: true` for an entry that declares `reasoning` (design D12). Verify each scenario of "The Responses wire stores no response and carries encrypted reasoning", and update `continue-wire.test.ts` to assert encrypted content and no `item_reference`.
-- [ ] 4.2 Update the `openai-responses` operator documentation, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 4.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused model-client tests, `pnpm format:check`, `git diff --check`.
+- [x] 4.1 Pin `store: false` as an invariant of the `openai-responses` client, and pass `forceReasoning: true` for an entry that declares `reasoning` (design D12). Verify each scenario of "The Responses wire stores no response and carries encrypted reasoning", and update `continue-wire.test.ts` to assert encrypted content and no `item_reference`.
+  - Evidence: `responsesInvariants` (`apps/api/src/models/openai-model-client.ts`) applies `store: false` as the composer's last layer on every streaming and structured-generation request, adding `forceReasoning: true` only for a `reasoningDeclared` entry; `createResponsesClient` passes `reasoningDeclared: model.reasoning !== undefined`. `openai-responses-store.test.ts` asserts the six serialized request bodies (a reasoning entry, `proxy-reasoner`, `gpt-4.1`, an operator `store: true`, an encrypted replay, and an item-id-only omission), and `continue-wire.test.ts` asserts the encrypted reasoning item and no `item_reference`.
+- [x] 4.2 Update the `openai-responses` operator documentation, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `README.md`'s operator provider-options section states `store: false` and the encrypted reasoning include — the only operator documentation for the plain `openai-responses` wire, which has no `docs/product/operator/providers/` page; `CHANGELOG.md` carries the dated 2026-11-03 entry; `pnpm lint:markdown` reports 0 issues.
+- [x] 4.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused model-client tests, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter api typecheck` and `lint` pass; 24 focused model-client and Continue-wire test files pass (430 tests); `pnpm format`, `pnpm format:check`, and `git diff --check` are clean.
 - [ ] 4.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 4.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

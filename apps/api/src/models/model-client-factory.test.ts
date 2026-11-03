@@ -141,6 +141,59 @@ describe('createModelClient wire dispatch', () => {
     expect(createCompletionsClientMock).not.toHaveBeenCalled();
   });
 
+  // The entry's `reasoning` declaration is the whole signal the Responses
+  // client needs to force the adapter's reasoning treatment for any model id
+  // (exact-turn-replay D12).
+  it('marks reasoningDeclared from the entry reasoning vocabulary', () => {
+    createModelClient(
+      {
+        userAgent: USER_AGENT,
+        provider: {
+          id: 'responses',
+          type: 'openai-responses',
+          key: 'sk-key',
+          baseUrl: null,
+          headers: {},
+        },
+        model: {
+          ...model,
+          provider: 'responses',
+          reasoning: {
+            effortLevels: [{ value: 'high' }],
+            defaultEffort: 'high',
+            cacheInvalidatedByEffortChange: false,
+          },
+        },
+      },
+      dependencies,
+    );
+
+    expect(createResponsesClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningDeclared: true }),
+    );
+  });
+
+  it('marks reasoningDeclared false when the entry declares no reasoning', () => {
+    createModelClient(
+      {
+        userAgent: USER_AGENT,
+        provider: {
+          id: 'responses',
+          type: 'openai-responses',
+          key: 'sk-key',
+          baseUrl: null,
+          headers: {},
+        },
+        model: { ...model, provider: 'responses' },
+      },
+      dependencies,
+    );
+
+    expect(createResponsesClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningDeclared: false }),
+    );
+  });
+
   it('resolves two providers of one type independently', () => {
     createModelClient(
       {

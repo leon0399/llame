@@ -181,7 +181,9 @@ Messages). Boot validates shape only — the value must be an object, and
 `{env:...}`/`{path:...}` syntax in any string value at any depth fails startup
 before any token resolves — so the object is not a credential channel and its
 contents are never redacted. Every request composes four layers, highest
-first: client invariants (the Codex client always sends `store: false` and
+first: client invariants (the `openai-responses` wire always sends
+`store: false`, and a model that declares `reasoning` also sends
+`forceReasoning: true`; the Codex client always sends `store: false` and
 `reasoningSummary: 'auto'`; the Messages client always sends
 `sendReasoning: true` and, on every request that carries adaptive thinking,
 the drop-on-prefix-mismatch instruction), the run's resolved effort when the
@@ -203,6 +205,15 @@ decides the rest at request time: a value it recognizes and rejects fails that
 request under the existing failure contract, and an unrecognized key is dropped
 by the Responses and Anthropic adapters or forwarded into the request body by
 `openai-completions`.
+
+The `openai-responses` wire keeps no response in provider-side storage:
+`store: false` makes the adapter ask for `reasoning.encrypted_content` on a
+model it treats as a reasoning model — every model entry that declares
+`reasoning`, whatever its model id — and a later turn sends a stored reasoning
+part back as an item carrying that encrypted content, never as a reference to
+a stored item. An entry's `"store": true` is not sent, and a model entry that
+declares no `reasoning` keeps the adapter's own model-id rule, so `gpt-4.1`
+asks for no encrypted reasoning content.
 
 `models[].maxOutputTokens` is an optional positive integer (or whole-value
 interpolation token, like `contextWindowTokens`, validated after resolution —
