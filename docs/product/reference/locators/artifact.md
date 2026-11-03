@@ -52,7 +52,9 @@ keeps the locator in its tool part. The artifact holds the result as the tool
 built it, so an inline passage or result line has the same number in the
 artifact. Reading it changes nothing; the model reaches the content only through
 `read`. An artifact lives as long as its Chat and is never expired, so replay
-and compaction never include its content. An owner fork copies the artifacts
+and compaction never include its content. A replayed result keeps the cap
+notice that names its locator, as the live result sent it, and adds no separate
+artifact line. An owner fork copies the artifacts
 its copied tool parts name, with the same locators, and continues the source
 Chat's counter; a shared fork copies none.
 

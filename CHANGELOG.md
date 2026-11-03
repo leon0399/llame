@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
+- **BREAKING: a replayed tool result is now the result the live loop sent, with
+  no untrusted-output frame.** A later turn and a compaction request render each
+  stored tool part through the same function that rendered it live, so the text
+  is identical and the output type survives: a JSON tool result replays as a
+  JSON output, and a native file, `bash`, `grep`, or `web_search` result replays
+  as its text. The label, `Outcome:` line, and separate `Artifact:` line that
+  only replay added are gone, and reserved delimiters are still neutralized
+  once on both paths. A spilled result names its artifact in its cap notice,
+  exactly as the live result did. The model-visible text of earlier turns
+  therefore changes once for existing Chats; no stored row or schema changes.
+  The per-call and per-turn replay budget still applies in this revision, and a
+  pair that it clears now carries only its outcome token. Refs
+  [#1539](https://github.com/leon0399/llame/issues/1539).
+
 - The `openai-responses` wire now sends `store: false` on every request, so the
   provider keeps no response for later retrieval through the API and a later
   turn never depends on a provider-side item that could expire or belong to

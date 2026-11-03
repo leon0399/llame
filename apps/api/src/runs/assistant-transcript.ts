@@ -89,8 +89,9 @@ export type ToolActivityPart = {
   sdkRefusal?: SdkRefusal;
   /**
    * The artifact locator the call's result names (tool-result-artifacts D6).
-   * The replay renders `Artifact: <locator>` from it after payload clearing
-   * too (D8), and the web UI reads it from the history response.
+   * Replay does not render it as a separate line: a spilled result's cap
+   * notice names the locator exactly as the live result did. The web UI and
+   * fork copy read this field.
    */
   artifact?: string;
   /**

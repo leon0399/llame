@@ -1873,7 +1873,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         'transition-tool-call',
       );
       expect(JSON.stringify(targetRequest.messages)).not.toContain(
-        'Outcome: timeout',
+        '"toolCallId":"transition-tool-call"',
       );
       expect(JSON.stringify(targetRequest.messages)).not.toContain(
         'PRIVATE TRANSITION INPUT',

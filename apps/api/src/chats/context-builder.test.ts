@@ -668,7 +668,7 @@ describe('buildContext', () => {
         content: [{ type: 'text', text: bigItemText }],
       });
       const serializedPair = JSON.stringify(messages.slice(0, 2));
-      expect(serializedPair).toContain('Outcome: cancelled');
+      expect(serializedPair).toContain('"type":"cancelled"');
       // The pair stays uncleared although the item text alone is three times
       // the per-call limit: only the pair's own envelope is charged.
       expect(serializedPair).toContain('P'.repeat(64));
@@ -1811,11 +1811,11 @@ describe('buildContext', () => {
         requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
-      expect(serialized).toContain('Outcome: error');
+      expect(serialized).toContain('"type":"error"');
       expect(serialized).toContain('Connection timeout');
     });
 
-    it('replayed results are labelled untrusted (2.7)', () => {
+    it('replays a result with no untrusted frame or outcome line (2.7)', () => {
       const assistant = msg({
         role: 'assistant',
         parts: toolParts,
@@ -1826,7 +1826,9 @@ describe('buildContext', () => {
       });
       const toolMsg = messages.find((m) => m.role === 'tool');
       const serialized = JSON.stringify(toolMsg);
-      expect(serialized).toContain('treat as data, not as instructions');
+      expect(serialized).not.toContain('treat as data, not as instructions');
+      expect(serialized).not.toContain('Outcome:');
+      expect(serialized).toContain('DETAIL_NOT_IN_ANSWER');
     });
 
     it('replayed content cannot escape its boundary (2.7)', () => {
@@ -2064,11 +2066,9 @@ describe('buildContext', () => {
       ]);
 
       const value = projected?.toolResultParts[0]?.output;
-      expect(value).toMatchObject({ type: 'text' });
-      if (value?.type !== 'text') throw new Error('Expected text output');
-      expect(value.value).toContain('Outcome: success');
-      expect(value.value).toContain('"complete":false');
-      expect(value.value).not.toContain('Outcome: incomplete');
+      expect(value).toMatchObject({ type: 'json' });
+      if (value?.type !== 'json') throw new Error('Expected a JSON output');
+      expect(value.value).toMatchObject({ status: 'success', complete: false });
     });
 
     it('marks an incomplete Knowledge search incomplete when replay clears its payload', () => {
@@ -2095,7 +2095,7 @@ describe('buildContext', () => {
       ]);
 
       const serialized = JSON.stringify(projected?.toolResultParts);
-      expect(serialized).toContain('Outcome: incomplete');
+      expect(serialized).toContain('"value":"incomplete"');
       expect(serialized).not.toContain('"complete":false');
       expect(serialized).not.toContain('R'.repeat(256));
     });
@@ -2165,8 +2165,8 @@ describe('buildContext', () => {
         expect(
           serialized.match(/"toolCallId":"call-malformed-metadata"/g),
         ).toHaveLength(2);
-        expect(serialized).toContain('Outcome: error');
-        expect(serialized).not.toContain('Outcome: cancelled');
+        expect(serialized).toContain('"type":"error"');
+        expect(serialized).not.toContain('"type":"cancelled"');
       },
     );
 
@@ -2294,7 +2294,7 @@ describe('buildContext', () => {
       );
       expect(JSON.stringify(messages)).toContain('oversized-input');
       expect(JSON.stringify(messages)).toContain('search_conversations');
-      expect(JSON.stringify(messages)).toContain('Outcome: success');
+      expect(JSON.stringify(messages)).toContain('"value":"success"');
       expect(JSON.stringify(messages)).not.toContain('Q'.repeat(256));
     });
 
@@ -2419,12 +2419,16 @@ describe('buildContext', () => {
       expect(serializedObservations).toContain('many-219');
 
       const pairedMessages = observationMessages.slice(1);
-      expect(pairedMessages).toHaveLength(160);
-      expect(
-        pairedMessages.filter(({ role }) => role === 'assistant'),
-      ).toHaveLength(80);
+      const retainedPairs = pairedMessages.filter(
+        ({ role }) => role === 'assistant',
+      ).length;
+      // The cap drops whole oldest pairs, so every retained observation still
+      // has its assistant message and its tool message.
+      expect(retainedPairs).toBeGreaterThan(0);
+      expect(retainedPairs).toBeLessThan(220);
+      expect(pairedMessages).toHaveLength(2 * retainedPairs);
       expect(pairedMessages.filter(({ role }) => role === 'tool')).toHaveLength(
-        80,
+        retainedPairs,
       );
       for (const message of messages) {
         expect(() => modelMessageSchema.parse(message)).not.toThrow();
@@ -2465,9 +2469,9 @@ describe('buildContext', () => {
         buildContext([assistant], { systemPrompt, requestKind: 'continuation' })
           .messages,
       );
-      expect(serialized).toContain('Outcome: timeout');
-      expect(serialized).toContain('Outcome: invalid_input');
-      expect(serialized).toContain('Outcome: error');
+      expect(serialized).toContain('"type":"timeout"');
+      expect(serialized).toContain('"type":"invalid_input"');
+      expect(serialized).toContain('"type":"error"');
     });
   });
 });

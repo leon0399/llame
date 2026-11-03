@@ -2273,7 +2273,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const replayedHistory = JSON.stringify(replayedCalls[0].messages);
       expect(replayedHistory).toContain(`"toolName":"${validToolId}"`);
       expect(replayedHistory).toContain('"query":"alpha"');
-      expect(replayedHistory).toContain('\\\"echo\\\":\\\"alpha\\\"');
+      expect(replayedHistory).toContain('"echo":"alpha"');
       expect(replayedHistory).toContain(malformedToolId);
     } finally {
       unregisterTestOnlyTool(validToolId);
@@ -3454,7 +3454,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             toolName: 'knowledge_read',
             output: {
               type: 'text',
-              value: expect.stringContaining('Outcome: success'),
+              value: 'success',
             },
           },
         ],
