@@ -2,17 +2,17 @@
 
 ## Purpose
 
-Let a chat owner choose, per message, whether the Run it starts is governed by the operator's tool-call permission policy or bypasses it, within the modes the operator enables, and show that choice wherever the owner reviews the turn.
+Let a chat owner choose, per message, one of three Run permission modes — `default`, `bypass`, or `read-only` — within the modes the operator enables. `default` applies the operator's tool-call permission policy. `bypass` admits each call that the policy would decide. `read-only` admits only reads and plain Workspace entry or exit, and then applies the policy as `default` does. Every mode is reported on the Run and its context receipt, and the turn display marks only a `bypass` turn.
 
 ## Requirements
 
 ### Requirement: Chat sends accept an optional permission mode
 
-Creating a chat message SHALL accept an optional top-level `permissionMode` whose value is `"default"` or `"bypass"`. An omitted `permissionMode` SHALL mean `default`. Any other value, including a blank string, `null`, or a non-string, SHALL be rejected with 400 as a malformed body, creating no message and no Run.
+The API MUST accept an optional top-level `permissionMode` on a chat message request. Its value MUST be `"default"`, `"bypass"`, or `"read-only"`. An omitted `permissionMode` MUST mean `default`. The API MUST reject any other value with 400 as a malformed body. That includes a blank string, `null`, and a non-string. A 400 MUST create no message and no Run.
 
-A well-formed mode SHALL be validated against the API process's enabled modes (`tools.permissionModes`) before any message or Run is created. A mode that is not enabled SHALL be rejected with 422 and `code = "permission_mode_not_available"`, creating no message and no Run. Model validation and effort validation SHALL precede mode validation, so an unavailable model or effort is reported without the mode being evaluated.
+The API MUST validate a well-formed mode against the enabled modes of the API process (`tools.permissionModes`). It MUST do this before it creates a message or a Run. The API MUST reject a mode that is not enabled with 422 and `code = "permission_mode_not_available"`. That rejection MUST create no message and no Run. Model validation and effort validation MUST occur before mode validation. Thus the API MUST report an unavailable model or effort without an evaluation of the mode.
 
-The mode SHALL be supplied only by the authenticated sender's request. No model output, tool argument, tool result, skill text, or configuration value other than `tools.permissionModes` SHALL select or change a Run's mode.
+The mode MUST come only from the request of the authenticated sender. Model output, tool arguments, tool results, and skill text MUST NOT select or change the mode of a Run. A configuration value other than `tools.permissionModes` MUST NOT affect it.
 
 #### Scenario: Omitted mode resolves to default
 
@@ -37,13 +37,24 @@ The mode SHALL be supplied only by the authenticated sender's request. No model 
 
 #### Scenario: Unavailable model short-circuits mode validation
 
-- **WHEN** an owner posts a chat message naming an unavailable model with `permissionMode: "bypass"` while `bypass` is not enabled
-- **THEN** the API returns the model's 422 `model_not_available` rather than `permission_mode_not_available`
+- **WHEN** an owner posts a chat message that names an unavailable model with `permissionMode: "bypass"`, and `bypass` is not enabled
+- **THEN** the API returns the 422 `model_not_available` of the model, not `permission_mode_not_available`
 
 #### Scenario: A model argument cannot select a mode
 
-- **WHEN** a `default` Run's model submits tool arguments or text claiming `permissionMode: "bypass"`
-- **THEN** the Run's mode remains `default` and every call is evaluated against the operator policy
+- **WHEN** the model of a `default` Run submits tool arguments or text that claim `permissionMode: "bypass"`
+- **THEN** the mode of the Run stays `default`, and the operator policy decides each call
+
+#### Scenario: Enabled read-only is accepted
+
+- **WHEN** the operator enables `["default", "read-only"]` and an owner posts a chat message with `permissionMode: "read-only"`
+- **THEN** the API creates the message and a Run whose mode is `read-only`
+
+#### Scenario: Disabled read-only creates nothing
+
+- **WHEN** the operator enables only `["default", "bypass"]` and an owner posts a chat message with `permissionMode: "read-only"`
+- **THEN** the API returns 422 with `code = "permission_mode_not_available"`
+- **AND** it creates no chat, message, or Run and enqueues no execution
 
 ### Requirement: The accepted mode is fixed on its Run
 
@@ -104,13 +115,27 @@ isolation.
 
 ### Requirement: The permission mode is not model-visible
 
-The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A mode change between turns MUST NOT cause an effective-context change. The model MUST learn of a policy decision only through `permission_denied` tool results and the removal note of `web_search`, which `web-search` defines.
+The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A change of mode between turns MUST NOT be a cause of an `effective-context-change` item. One other effect is permitted: a `read-only` attempt has no Workspace MCP declaration, and the tool availability reminder reports that change. The model MUST learn of a policy decision only from `permission_denied` results, the `web_search` removal note, that reminder, and the Workspace MCP reason of `mcp-tools`.
 
 #### Scenario: Switching mode preserves the prompt prefix
 
-- **WHEN** an owner sends one turn in `default` and the next in `bypass` with the same model and effort
-- **THEN** the rendered system prompts and receipts of both Runs are identical, apart from changes that other contracts make
+- **WHEN** an owner sends one turn in `default` and the next turn in `bypass` with the same model and effort
+- **THEN** the rendered system prompts and receipts of the two Runs are identical, apart from changes that other contracts make
 - **AND** no context item mentions the mode
+
+#### Scenario: A read-only turn keeps the prompt prefix
+
+- **WHEN** an owner sends one turn in `default` and the next turn in `read-only` with the same model and effort
+- **AND** the Chat has no Workspace MCP server
+- **THEN** the rendered system prompts, receipts, and tool declarations of the two Runs are identical, apart from changes that other contracts make
+- **AND** no context item mentions the mode
+
+#### Scenario: A read-only turn reports the Workspace MCP tools as removed
+
+- **WHEN** a `default` Run of a bound Chat had the Workspace MCP tool `mcp__docs__search`, and the next turn is `read-only`
+- **AND** no checkpoint publishes between the two turns, and no operator MCP server has the server id `docs`
+- **THEN** the `read-only` attempt does not declare `mcp__docs__search`
+- **AND** its tool availability reminder lists `mcp__docs__search` under `Removed tools:`
 
 ### Requirement: Usage records a bypassed turn
 
@@ -138,9 +163,9 @@ An assistant message's persisted `usage` SHALL include `permissionMode: "bypass"
 
 ### Requirement: The composer offers the enabled modes per chat
 
-The web composer SHALL offer a permission-mode selector at the left of its toolbar, listing the modes returned by the enabled-mode listing with a title and a one-line description each. It SHALL render nothing when the listing has fewer than two modes or has not loaded successfully.
+The web composer MUST show a permission-mode selector at the left of its toolbar. The selector MUST list the modes from the enabled-mode listing, each with a title and a one-line description. The composer MUST show no selector when the listing has fewer than two modes or did not load.
 
-The selection SHALL start at `default` for every new chat, for every chat the owner navigates to, and after every page load; it SHALL NOT be written to any persistent storage. A send SHALL include `permissionMode: "bypass"` only while `bypass` is selected for that chat, and SHALL omit the field otherwise. While `bypass` is selected, the selector's trigger SHALL use the destructive button style. When a send is rejected with `permission_mode_not_available`, the client SHALL refetch the listing and reset that chat's selection to `default`.
+The selection MUST start at `default` for each new chat, for each chat that the owner opens, and after each page load. The client MUST NOT write the selection to persistent storage. A send MUST include `permissionMode` with the selected mode when that mode is not `default`. A send MUST NOT include `permissionMode` while `default` is selected. While `bypass` is selected, the trigger of the selector MUST use the destructive button style. For each other mode, the trigger MUST NOT use that style. When the API rejects a send with `permission_mode_not_available`, the client MUST fetch the listing again and set the selection of that chat to `default`.
 
 #### Scenario: Selector hidden on a default-only instance
 
@@ -151,23 +176,29 @@ The selection SHALL start at `default` for every new chat, for every chat the ow
 
 - **WHEN** the owner selects `bypass` and sends a message
 - **THEN** the request body carries `permissionMode: "bypass"`
-- **AND** after switching back to `default`, the next request body has no `permissionMode`
+- **AND** after the owner selects `default` again, the next request body has no `permissionMode`
 
 #### Scenario: Selection does not follow the owner to another chat
 
-- **WHEN** the owner selects `bypass` in one chat and navigates to another chat
-- **THEN** the other chat's selector shows `default`
-- **AND** reloading the first chat also shows `default`
+- **WHEN** the owner selects `bypass` in one chat and then opens another chat
+- **THEN** the selector of the other chat shows `default`
+- **AND** after a reload, the first chat also shows `default`
 
 #### Scenario: Bypass is visibly marked
 
 - **WHEN** `bypass` is selected
-- **THEN** the selector's trigger renders in the destructive style
+- **THEN** the trigger of the selector uses the destructive style
 
 #### Scenario: A withdrawn mode resets the selection
 
-- **WHEN** the operator disabled `bypass` after the listing loaded and the owner sends with `bypass` selected
-- **THEN** the send fails with `permission_mode_not_available`, the listing is refetched, and the chat's selection returns to `default`
+- **WHEN** the operator disabled `bypass` after the listing loaded, and the owner sends with `bypass` selected
+- **THEN** the send fails with `permission_mode_not_available`, the client fetches the listing again, and the selection of the chat returns to `default`
+
+#### Scenario: Read-only is sent when selected
+
+- **WHEN** the listing returns `default` and `read-only`, and the owner selects `read-only` and sends a message
+- **THEN** the request body carries `permissionMode: "read-only"`
+- **AND** the trigger of the selector does not use the destructive style
 
 ### Requirement: The usage badge marks a bypassed turn
 

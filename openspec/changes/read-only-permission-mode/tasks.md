@@ -77,8 +77,10 @@ zero and is reported separately in each PR.
 
 ## 4. finalize
 
-- [ ] 4.1 Enter `read-only-permission-mode/finalize` with `$gh-stack` before `$openspec-sync-specs` writes any canonical spec.
-- [ ] 4.2 Run `$openspec-sync-specs`; update the `permission-modes` Purpose to describe three modes, with the turn display limited to `bypass` (design D9) and every mode reported on the Run and its context receipt; check that each MODIFIED block keeps every canonical scenario and that the deliberately unchanged readings in proposal.md still hold against the synced text.
+- [x] 4.1 Enter `read-only-permission-mode/finalize` with `$gh-stack` before `$openspec-sync-specs` writes any canonical spec.
+  - Evidence: entered `read-only-permission-mode/finalize` with `gh stack add` before the sync wrote any canonical spec; the branch starts at `read-only-permission-mode/web` (a9e8b702).
+- [x] 4.2 Run `$openspec-sync-specs`; update the `permission-modes` Purpose to describe three modes, with the turn display limited to `bypass` (design D9) and every mode reported on the Run and its context receipt; check that each MODIFIED block keeps every canonical scenario and that the deliberately unchanged readings in proposal.md still hold against the synced text.
+  - Evidence: synced `permission-modes`, `tool-call-permissions`, `instance-config`, `mcp-tools`, `chat-creation`, `workspace-entry`, and `web-search` (9 MODIFIED and 6 ADDED requirements; no canonical scenario removed). The `permission-modes` Purpose now describes three modes, marks only a `bypass` turn in the turn display, and reports every mode on the Run and its context receipt. Each deliberately unchanged reading holds; no reading failed. `openspec validate read-only-permission-mode --strict` passes. `validate --specs --strict` and `validate --all --strict` report the same failing capabilities as a9e8b702 under the installed CLI 1.16.0 (the repo targets 1.13.1), plus one >500-character warning on the MODIFIED `The permission mode is not model-visible`, which must not be divided. `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass.
 - [ ] 4.3 Prove archive readiness: `openspec status --change read-only-permission-mode --json` reports every artifact done and every task above checked; `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
 
 ## Workflow follow-up
