@@ -6,6 +6,9 @@
  */
 
 import { getEventListeners } from 'node:events';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
@@ -14,8 +17,10 @@ import { type ToolContext, type ToolResult } from '../types';
 import * as schema from '../../db/schema';
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { ArtifactsRepository } from './artifacts-repository';
-import { artifactMaxBytes, capHeadResult, runCanReadArtifacts } from './spill';
+import { artifactDirectory } from './host-files';
+import { artifactMaxBytes, capHeadResult } from './spill';
 import { isString, RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
+import { createWorkspaceRootCell } from '../workspace-path';
 
 const TOOL = 'mcp__docs__fetch';
 const LOCATOR = 'artifact://mcp__docs__fetch-4';
@@ -80,15 +85,32 @@ function spyStorage(seq = 4): StorageSpies {
       .mockResolvedValue(seq),
     insertArtifact: vi
       .spyOn(ArtifactsRepository.prototype, 'insertArtifact')
-      .mockResolvedValue('artifact-id'),
+      .mockResolvedValue({
+        id: 'artifact-id',
+        createdAt: new Date('2026-11-02T12:00:00.000Z'),
+      }),
     insertParts: vi
       .spyOn(ArtifactsRepository.prototype, 'insertParts')
       .mockResolvedValue(undefined),
   };
 }
 
+const hostRoots: Array<string> = [];
+
+/** A private `$TMPDIR` for this test's host files. */
+function hostTmpdir(): string {
+  const root = mkdtempSync(join(tmpdir(), 'head-spill-host-'));
+  hostRoots.push(root);
+  vi.stubEnv('TMPDIR', root);
+  return root;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  for (const root of hostRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe('capHeadResult', () => {
@@ -108,6 +130,30 @@ describe('capHeadResult', () => {
     );
     expect(result.output.startsWith('xxxx')).toBe(true);
     expect(result.output.startsWith('x'.repeat(40_000))).toBe(false);
+  });
+
+  it('writes a host file and names its directory for a bash-capable Run', async () => {
+    spyStorage(4);
+    const hostRoot = mkdtempSync(join(tmpdir(), 'head-spill-host-'));
+    vi.stubEnv('TMPDIR', hostRoot);
+    try {
+      const result = await capHeadResult(
+        context({ artifactHostFiles: true }),
+        TOOL,
+        hugeResult(),
+      );
+
+      expect(noticeOf(result)).toContain(`[full result: ${LOCATOR} (`);
+      expect(noticeOf(result)).toContain(
+        `; host files in ${artifactDirectory('chat-1')}]`,
+      );
+      const file = join(artifactDirectory('chat-1'), 'mcp__docs__fetch-4.json');
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({
+        status: 'success',
+      });
+    } finally {
+      rmSync(hostRoot, { recursive: true, force: true });
+    }
   });
 
   it('does not cap a result that fits', async () => {
@@ -182,6 +228,71 @@ describe('capHeadResult', () => {
     expect(storage.insertArtifact).not.toHaveBeenCalled();
     expect(result).not.toHaveProperty('artifact');
     expect(noticeOf(result)).not.toContain('[full result not stored]');
+  });
+
+  it('stores a head artifact through host files when read is not a route', async () => {
+    const hostRoot = hostTmpdir();
+    spyStorage(4);
+
+    const result = await capHeadResult(
+      context({
+        artifactReadable: false,
+        artifactHostFiles: true,
+        permissionPolicy: compileToolPermissionMap(
+          { bash: { allow: true } },
+          'test-policy',
+        ),
+      }),
+      TOOL,
+      hugeResult(),
+    );
+
+    expect(result).toMatchObject({ artifact: LOCATOR });
+    expect(noticeOf(result)).toContain(
+      `; host files in ${artifactDirectory('chat-1')}]`,
+    );
+    expect(hostRoot).not.toBe('');
+  });
+
+  it('keeps the inline result when the host route has no file', async () => {
+    const hostRoot = hostTmpdir();
+    writeFileSync(join(hostRoot, 'llame'), '');
+    const storage = spyStorage(4);
+
+    const result = await capHeadResult(
+      context({
+        artifactReadable: false,
+        artifactHostFiles: true,
+        permissionPolicy: compileToolPermissionMap(
+          { bash: { allow: true } },
+          'test-policy',
+        ),
+      }),
+      TOOL,
+      hugeResult(),
+    );
+
+    // The row was written, but no file exists to name, and `read` is not a
+    // route, so nothing is advertised.
+    expect(storage.insertArtifact).toHaveBeenCalled();
+    expect(result).not.toHaveProperty('artifact');
+    expect(noticeOf(result)).toContain('[full result not stored]');
+  });
+
+  it('says the files are on the llame host only in a Machine Workspace', async () => {
+    hostTmpdir();
+    spyStorage(4);
+
+    const result = await capHeadResult(
+      context({
+        artifactHostFiles: true,
+        workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
+      }),
+      TOOL,
+      hugeResult(),
+    );
+
+    expect(noticeOf(result)).toContain('; host files on the llame host only]');
   });
 
   it('stores nothing outside a Run', async () => {
@@ -333,43 +444,6 @@ describe('capHeadResult', () => {
 
     expect(storage.insertArtifact).not.toHaveBeenCalled();
     expect(result).not.toHaveProperty('artifact');
-  });
-});
-
-describe('runCanReadArtifacts', () => {
-  it('needs read in tools.allowed', () => {
-    expect(
-      runCanReadArtifacts(context({ artifactReadable: false }), TOOL),
-    ).toBe(false);
-  });
-
-  it('needs the read group to admit the artifact locator', () => {
-    const denied = context({
-      artifactReadable: true,
-      permissionPolicy: compileToolPermissionMap(
-        { read: { allow: [{ field: 'path', literal: '/repo/**' }] } },
-        'test-policy',
-      ),
-    });
-    const allowed = context({
-      artifactReadable: true,
-      permissionPolicy: compileToolPermissionMap(
-        { read: { allow: [{ field: 'path', regex: '^artifact://' }] } },
-        'test-policy',
-      ),
-    });
-
-    expect(runCanReadArtifacts(denied, TOOL)).toBe(false);
-    expect(runCanReadArtifacts(allowed, TOOL)).toBe(true);
-  });
-
-  it('fails closed without a compiled policy', () => {
-    expect(
-      runCanReadArtifacts(
-        context({ artifactReadable: true, permissionPolicy: undefined }),
-        TOOL,
-      ),
-    ).toBe(false);
   });
 });
 

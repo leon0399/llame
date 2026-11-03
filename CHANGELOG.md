@@ -13,6 +13,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   [model output](docs/product/reference/tools/model-output.md) and
   [MCP tools](docs/product/reference/tools/mcp-tools.md).
 
+- Tool-result artifacts are now also files on the llame host when `bash` is
+  allowlisted and the process has a native executor: `$TMPDIR/llame/chats/<chatId>/artifacts/`
+  holds `<toolName>-<n>.<ext>`, and a `bash` artifact a `bash-<n>/`
+  directory with `stdout` and `stderr`. The directory is created private to the
+  worker (mode 0700) and is refused when it or its parent is a symlink or
+  another user's; a send to another host, a Machine, or an `ssh://` command
+  says the files are on the llame host only. Each file is written after the
+  artifact commits, rewritten at the start of each attempt and before each
+  host `bash` call when its size or modification time differs, and swept seven
+  days after the last reconcile. The artifact notice now names the artifact's
+  host directory. See [artifact](docs/product/reference/locators/artifact.md)
+  and the [native files runbook](docs/product/operator/native-files.md#host-files).
+
 - `bash` now keeps a stream that does not fit inline as its head lines, one
   `[lines <a>-<b> omitted; …]` line, and its tail lines, and stores the whole
   stream as `artifact://bash-<n>/stdout` or `artifact://bash-<n>/stderr` when

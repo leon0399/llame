@@ -1,5 +1,9 @@
 import { cutStringAtCodePointBoundary } from "./code-point-boundary";
-import { ARTIFACT_NOT_STORED, artifactNotice } from "./artifact-notice";
+import {
+  ARTIFACT_NOT_STORED,
+  artifactNotice,
+  type ArtifactNoticeHostFiles,
+} from "./artifact-notice";
 import {
   isBoolean,
   isNumber,
@@ -24,6 +28,8 @@ export type CappedResultSpill =
       readonly locator: string;
       /** The artifact's line count, in the reader's 8,000-unit pieces. */
       readonly lineCount: number;
+      /** The host files the write also made, when the Run keeps them (D10). */
+      readonly hostFiles?: ArtifactNoticeHostFiles;
     }
   | { readonly kind: "not-stored" };
 
@@ -199,6 +205,8 @@ function spillPhrase(spill: CappedResultSpill | undefined): string {
     [{ locator: spill.locator, lines: spill.lineCount }],
     {
       continueWith: { locator: spill.locator, next: 1 },
+      // Absent host files read as no clause, so the field needs no guard.
+      hostFiles: spill.hostFiles,
     },
   )}`;
 }

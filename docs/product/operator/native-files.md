@@ -284,6 +284,47 @@ Machine stream readable and the ceiling keeps a part small enough to read back.
 }
 ```
 
+The locator still resolves only inside the Chat that made it, under its
+owner's row-level security, so the clause widens which locators the model may
+try, never which rows it may see.
+
+### Host files
+
+When `bash` is in `tools.allowed` and the process has a `nativeExecutorId`,
+each artifact part is also a file on the llame host, and the spilled result's
+notice names the directory. The layout, the notice wording, and the refusal of
+an unsafe directory are documented with the locator in the
+[artifact reference](../reference/locators/artifact.md#host-files).
+
+`$TMPDIR` is the worker process's temporary directory (`/tmp` unless the
+environment sets another one). It is not shared between hosts, and a Run that
+moves to another worker or host finds no file: at the start of each attempt the
+system compares the Chat's files with their stored size and modification time
+and writes back what is absent or changed, and it does the same before every
+`bash` call. The files are a cache; Postgres holds every artifact, and a file
+that a command changed is rewritten from the store, not edited.
+
+Because `$TMPDIR` is shared, the worker creates `llame/` and `llame/chats/`
+with mode `0700` and checks them, the Chat directory, and the artifact
+directory on every use. A bad root (a symbolic link, another user's owner, or
+any group or other permission) disables host files for that process and logs
+one warning, without a path; an unsafe Chat or artifact directory refuses that
+write or reconcile quietly, and the next one tries again. Each file is written
+`0600` through a temporary name.
+
+The files are not isolated per owner. `bash` runs as the worker's own OS user,
+so any Run on that host can read or rewrite them, and a person with a shell on
+the host can too. Treat them as working copies, not as a secret store: `read`
+on an `artifact://` locator applies the `read` group, but a file opened through
+`bash` does not.
+
+At worker start and at each attempt start, the worker removes every Chat
+directory on that host that no attempt reconciled for seven days. The
+attempt-start sweep runs in the background, so it never delays the attempt.
+That is how the directory of a deleted Chat goes away; a live Chat gets its
+files back at its next reconcile. A worker that does not allowlist `bash`
+never sweeps.
+
 ## Instruction files
 
 Per-directory project instruction files are loaded into the model's context by

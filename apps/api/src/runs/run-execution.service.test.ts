@@ -9,8 +9,10 @@ import type { OpenAICompatibleProvider } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import type { MockInstance } from 'vitest';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  utimesSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -21,6 +23,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
+import {
+  artifactDirectory,
+  SWEEP_AFTER_MS,
+} from '../tools/artifacts/host-files';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -850,8 +857,177 @@ function serveCheckpointPublication(id = publishedCheckpointId) {
 }
 
 describe('RunExecutionService executeRun', () => {
+  const hostRoots: Array<string> = [];
+
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    for (const root of hostRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  const ARTIFACT_CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
+
+  /** A private `$TMPDIR` for host artifact files, scoped to one test. */
+  function hostTmpdir(): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'artifact-attempt-'));
+    hostRoots.push(root);
+    vi.stubEnv('TMPDIR', root);
+    return root;
+  }
+
+  /** Whether `restored` existed when the model was first called. */
+  function noteAtFirstRequest(
+    client: ModelClient,
+    restored: string,
+  ): () => boolean | undefined {
+    // A second fake client supplies the stream, so the spy wraps it.
+    const replay = createFakeModelClient(['answer']);
+    let seen: boolean | undefined;
+    vi.spyOn(client, 'streamText').mockImplementation((request) => {
+      seen = existsSync(restored);
+      return replay.streamText(request);
+    });
+    return () => seen;
+  }
+
+  /** One stored part of `artifact://bash-1/stdout`. */
+  function storedStdout(): void {
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'listChatPartFiles',
+    ).mockResolvedValue([
+      {
+        artifactId: 'artifact-1',
+        toolName: 'bash',
+        seq: 1,
+        createdAt: ARTIFACT_CREATED_AT,
+        name: 'stdout',
+        contentType: 'text/plain',
+        byteSize: 6,
+      },
+    ]);
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'findPartContent',
+    ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
+  }
+
+  it('restores the Chat artifact files before the first request and sweeps stale directories at attempt start', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      artifactSeq: 3,
+    });
+    storedStdout();
+    const hostRoot = hostTmpdir();
+    const restored = path.join(
+      artifactDirectory(chatId),
+      'bash-1',
+      'stdout.txt',
+    );
+    const staleChat = path.join(
+      hostRoot,
+      'llame',
+      'chats',
+      '0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11',
+    );
+    mkdirSync(staleChat, { recursive: true, mode: 0o700 });
+    const stale = new Date(Date.now() - SWEEP_AFTER_MS - 1);
+    utimesSync(staleChat, stale, stale);
+    const execution = makeExecutionService(undefined, undefined, 'host-a', {
+      allowed: ['bash'],
+    });
+    const seenAtRequest = noteAtFirstRequest(execution.client, restored);
+
+    await execution.service.executeRun(executionInput(execution.client));
+
+    expect(seenAtRequest()).toBe(true);
+    expect(readFileSync(restored, 'utf8')).toBe('hello\n');
+    // The attempt-start sweep runs in the background.
+    await vi.waitFor(() => expect(existsSync(staleChat)).toBe(false));
+  });
+
+  it('keeps no host file when bash is not allowlisted', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      artifactSeq: 3,
+    });
+    const list = vi.spyOn(ArtifactsRepository.prototype, 'listChatPartFiles');
+    hostTmpdir();
+
+    await makeExecutionService(undefined, undefined, 'host-a', {
+      allowed: ['read'],
+    }).service.executeRun(executionInput(createFakeModelClient(['answer'])));
+
+    expect(list).not.toHaveBeenCalled();
+    expect(existsSync(artifactDirectory(chatId))).toBe(false);
+  });
+
+  it('keeps no host file without a native executor', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      artifactSeq: 3,
+    });
+    const list = vi.spyOn(ArtifactsRepository.prototype, 'listChatPartFiles');
+    hostTmpdir();
+
+    await makeExecutionService(undefined, undefined, undefined, {
+      allowed: ['bash'],
+    }).service.executeRun(executionInput(createFakeModelClient(['answer'])));
+
+    expect(list).not.toHaveBeenCalled();
+    expect(existsSync(artifactDirectory(chatId))).toBe(false);
+  });
+
+  it('sweeps stale directories but reads no part for a Chat without artifacts', async () => {
+    mockNormalExecutionRepositories();
+    const list = vi.spyOn(ArtifactsRepository.prototype, 'listChatPartFiles');
+    const hostRoot = hostTmpdir();
+    const staleChat = path.join(
+      hostRoot,
+      'llame',
+      'chats',
+      '0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11',
+    );
+    mkdirSync(staleChat, { recursive: true, mode: 0o700 });
+    const stale = new Date(Date.now() - SWEEP_AFTER_MS - 1);
+    utimesSync(staleChat, stale, stale);
+
+    await makeExecutionService(undefined, undefined, 'host-a', {
+      allowed: ['bash'],
+    }).service.executeRun(executionInput(createFakeModelClient(['answer'])));
+
+    expect(list).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(existsSync(staleChat)).toBe(false));
+  });
+
+  it('continues the Run when the artifact files cannot be reconciled', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      artifactSeq: 3,
+    });
+    vi.spyOn(
+      ArtifactsRepository.prototype,
+      'listChatPartFiles',
+    ).mockRejectedValue(new Error('the store is unavailable'));
+    hostTmpdir();
+    const execution = makeExecutionService(undefined, undefined, 'host-a', {
+      allowed: ['bash'],
+    });
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).resolves.toBeDefined();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Artifact file reconcile failed'),
+    );
   });
 
   it('terminates a retried Run with a previous native mutation before invoking the model', async () => {

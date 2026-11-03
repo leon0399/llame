@@ -16,6 +16,7 @@
 import { once } from 'node:events';
 import {
   artifactNotice,
+  type ArtifactNoticeHostFiles,
   codePointSafeCutIndex,
   cutStringAtCodePointBoundary,
   RESULT_TRUNCATE_CHARS,
@@ -34,7 +35,8 @@ import {
 } from './artifacts/artifact-writer';
 import { artifactLineCount, artifactLinePieces } from './artifacts/lines';
 import { formatArtifactLocator } from './artifacts/locator';
-import { artifactMaxBytes, runCanReadArtifacts } from './artifacts/spill';
+import { canReadArtifacts, readAdmitsArtifact } from './artifacts/readable';
+import { artifactMaxBytes } from './artifacts/spill';
 import { toToolResult } from './bash-result';
 import { type ToolContext } from './types';
 
@@ -87,10 +89,16 @@ export type StreamPreview = {
 export async function spillBashResult(
   context: ToolContext,
   result: BashResult,
+  hostFilesOnly = false,
 ): Promise<ToolResult> {
   if (!carriesStreams(result)) return toToolResult(result);
   const streams = { stdout: result.stdout, stderr: result.stderr };
-  const spilled = await spillBashStreams(context, streams, !result.truncated);
+  const spilled = await spillBashStreams(
+    context,
+    streams,
+    !result.truncated,
+    hostFilesOnly,
+  );
   const inline: BashObservedResult = {
     ...result,
     stdout: spilled.streams.stdout,
@@ -125,6 +133,7 @@ export async function spillBashStreams(
   context: ToolContext,
   streams: BashStreams,
   complete = true,
+  hostFilesOnly = false,
 ): Promise<SpilledBashStreams> {
   const spilling = spillingStreams(streams);
   if (spilling.length === 0) return { streams };
@@ -137,7 +146,9 @@ export async function spillBashStreams(
   return {
     streams: { stdout, stderr },
     ...(written !== undefined && { artifact: written.locator }),
-    ...(written !== undefined && { notice: storedNotice(spilling, written) }),
+    ...(written !== undefined && {
+      notice: storedNotice(context, spilling, written, hostFilesOnly),
+    }),
   };
 }
 
@@ -305,15 +316,40 @@ function omittedLine(
  * one write failure loses every part of the call.
  */
 function storedNotice(
+  context: ToolContext,
   spilling: ReadonlyArray<SpillingStream>,
   written: WrittenArtifact,
+  elsewhere: boolean,
 ): string {
   const parts = spilling.map((stream) => ({
     locator: formatArtifactLocator('bash', written.seq, stream.name),
     lines: artifactLineCount(stream.text),
   }));
-  const notice = artifactNotice(parts);
+  const notice = artifactNotice(parts, {
+    hostFiles: bashHostFiles(context, written, elsewhere),
+  });
   return notice.slice(1, -1);
+}
+
+/**
+ * The host-file facts of the notice (tool-result-artifacts "The notice names
+ * the host files"), or undefined when no file was written. A call away from
+ * the llame host cannot open the directory, so only a Run that also reads the
+ * artifact is told the files are on the llame host only; a Run whose only
+ * route is a host `bash` is given the directory with that qualification.
+ */
+function bashHostFiles(
+  context: ToolContext,
+  written: WrittenArtifact,
+  elsewhere: boolean,
+): ArtifactNoticeHostFiles | undefined {
+  const directory = written.hostDirectory;
+  if (directory === undefined) return undefined;
+  return {
+    directory,
+    elsewhere,
+    readable: readAdmitsArtifact(context, 'bash', written.seq),
+  };
 }
 
 /**
@@ -328,7 +364,7 @@ async function writeStreamParts(
 ): Promise<WrittenArtifact | undefined> {
   const { runId, toolCallId, userId, chatId } = context;
   if (runId === undefined || toolCallId === undefined) return undefined;
-  if (!runCanReadArtifacts(context, 'bash')) return undefined;
+  if (!canReadArtifacts(context, 'bash')) return undefined;
   return writeWhileLive(context, async () => {
     const written = await writeToolArtifact(
       context.tenantDb,
@@ -348,12 +384,22 @@ async function writeStreamParts(
           content: Buffer.from(stream.text, 'utf8'),
         })),
       },
-      { maxBytes: artifactMaxBytes(context) },
+      {
+        maxBytes: artifactMaxBytes(context),
+        hostFiles: context.artifactHostFiles === true,
+        abortSignal: context.abortSignal,
+        timeoutSignal: context.timeoutSignal,
+      },
     );
     // The probe before the write cannot know the counter value, so the
     // allocated locator is judged again: a denied one is never advertised, and
-    // its row stays an orphan the store has no delete for (D4).
-    return runCanReadArtifacts(context, 'bash', written.seq)
+    // its row stays an orphan the store has no delete for (D4). A host route
+    // needs the file it would name; without one only `read` reaches it.
+    return (
+      written.hostDirectory === undefined
+        ? readAdmitsArtifact(context, 'bash', written.seq)
+        : canReadArtifacts(context, 'bash', written.seq)
+    )
       ? written
       : undefined;
   });

@@ -9,6 +9,15 @@
  * markFinished's first-writer-wins guard (a no-op when the run is already
  * terminal).
  */
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import path, { dirname } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -35,6 +44,10 @@ import {
   type RunUserMessage,
 } from './run-execution.service';
 import { RUN_EXECUTION_CEILING_SECONDS } from './run-queues';
+import {
+  artifactDirectory,
+  SWEEP_AFTER_MS,
+} from '../tools/artifacts/host-files';
 import { RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
@@ -76,6 +89,7 @@ function makeService(
     aborts?: RunAbortRegistrar;
     canonicalSearchCoverage?: CanonicalSearchCoverageGate;
     allowedTools?: Array<string>;
+    nativeExecutorId?: string;
     runsConcurrency?: number | null;
   } = {},
 ) {
@@ -104,6 +118,7 @@ function makeService(
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: overrides.allowedTools ?? [],
+        nativeExecutorId: overrides.nativeExecutorId,
       },
     },
   };
@@ -198,9 +213,23 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     userMessage: { id: 'msg-1', seq: 1, parts: [] },
   };
 
+  const hostRoots: Array<string> = [];
+
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    for (const root of hostRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
+
+  /** A private `$TMPDIR` for this test's artifact root. */
+  function hostTmpdir(): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
+    hostRoots.push(root);
+    vi.stubEnv('TMPDIR', root);
+    return root;
+  }
 
   it('registers a consumer on the runs.dead dead-letter queue at bootstrap', async () => {
     const tx = makeFakeTx();
@@ -210,6 +239,52 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
       expect.objectContaining({ name: 'runs.dead' }),
       expect.any(Function),
     );
+  });
+
+  it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
+    hostTmpdir();
+    const stale = path.join(
+      artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
+      'bash-1',
+    );
+    const live = path.join(
+      artifactDirectory('5d0e9d9e-9a5f-4cbb-8a0f-6c4a1f6a2e77'),
+      'bash-2',
+    );
+    mkdirSync(stale, { recursive: true, mode: 0o700 });
+    mkdirSync(live, { recursive: true, mode: 0o700 });
+    const staleSeen = new Date(Date.now() - SWEEP_AFTER_MS - 1);
+    utimesSync(dirname(dirname(stale)), staleSeen, staleSeen);
+    const tx = makeFakeTx();
+    const { service } = makeService(tx, {
+      allowedTools: ['bash'],
+      nativeExecutorId: 'host-a',
+    });
+
+    await service.onApplicationBootstrap();
+
+    // The startup sweep runs in the background.
+    await vi.waitFor(() =>
+      expect(existsSync(dirname(dirname(stale)))).toBe(false),
+    );
+    expect(existsSync(dirname(dirname(live)))).toBe(true);
+  });
+
+  it('sweeps nothing when the worker keeps no host files', async () => {
+    hostTmpdir();
+    const stale = path.join(
+      artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
+      'bash-1',
+    );
+    mkdirSync(stale, { recursive: true, mode: 0o700 });
+    const staleSeen = new Date(Date.now() - SWEEP_AFTER_MS - 1);
+    utimesSync(dirname(dirname(stale)), staleSeen, staleSeen);
+    const tx = makeFakeTx();
+    const { service } = makeService(tx, { allowedTools: ['read'] });
+
+    await service.onApplicationBootstrap();
+
+    expect(existsSync(dirname(dirname(stale)))).toBe(true);
   });
 
   it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {

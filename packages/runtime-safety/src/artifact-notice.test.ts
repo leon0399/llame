@@ -57,4 +57,59 @@ describe("artifactNotice", () => {
       artifactNotice([{ locator: "artifact://a-1\u2028b\u2029c", lines: 2 }]),
     ).toBe("[full result: artifact://a-1 b c (2 lines)]");
   });
+
+  it("names the host directory of a call on this host", () => {
+    expect(
+      artifactNotice([{ locator: "artifact://bash-5/stdout", lines: 5000 }], {
+        hostFiles: {
+          directory: "/tmp/llame/chats/c/artifacts/bash-5",
+          elsewhere: false,
+          readable: false,
+        },
+      }),
+    ).toBe(
+      "[full result: artifact://bash-5/stdout (5000 lines); host files in /tmp/llame/chats/c/artifacts/bash-5]",
+    );
+  });
+
+  it("says the llame host only when read is a route", () => {
+    expect(
+      artifactNotice([{ locator: "artifact://grep-7", lines: 3 }], {
+        continueWith: { locator: "artifact://grep-7", next: 2 },
+        hostFiles: {
+          directory: "/tmp/llame/chats/c/artifacts",
+          elsewhere: true,
+          readable: true,
+        },
+      }),
+    ).toBe(
+      "[full result: artifact://grep-7 (3 lines); continue with artifact://grep-7:2-; host files on the llame host only]",
+    );
+  });
+
+  it("names the directory with the llame-host qualifier when read is not a route", () => {
+    expect(
+      artifactNotice([{ locator: "artifact://bash-5/stdout", lines: 2 }], {
+        hostFiles: {
+          directory: "/tmp/llame/chats/c/artifacts/bash-5",
+          elsewhere: true,
+          readable: false,
+        },
+      }),
+    ).toBe(
+      "[full result: artifact://bash-5/stdout (2 lines); host files in /tmp/llame/chats/c/artifacts/bash-5 on the llame host]",
+    );
+  });
+
+  it("keeps a line break in the host directory on one line", () => {
+    expect(
+      artifactNotice([{ locator: "artifact://a-1", lines: 1 }], {
+        hostFiles: {
+          directory: "/tmp/a\nb",
+          elsewhere: false,
+          readable: false,
+        },
+      }),
+    ).toBe("[full result: artifact://a-1 (1 line); host files in /tmp/a b]");
+  });
 });
