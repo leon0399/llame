@@ -72,6 +72,7 @@ import {
   type DaemonAsk,
   type IgnoredAccumulator,
 } from './grep-machine-wire';
+import { type ScopePosition } from './grep-page';
 import { type ToolContext, type ToolResult } from './types';
 
 /** One Machine scope: the prefix the daemon searches and its glob suffix. */
@@ -308,66 +309,117 @@ type DaemonPage =
   | { readonly result: GrepToolError };
 
 /**
- * The caller's page from one Machine scope. A page whose every passage the
- * `read` group refuses is not a page: the next daemon page is asked for under
- * what the call has left, so a scope of hidden files can never answer an
- * incomplete page without a cursor. Every page reports what it consumed, so
- * the budget bounds the loop; a page that consumed nothing and named no new
- * cursor is the last one the call asks for. Progress belongs to the call: a
- * page that got past the start point lets the next request know, so its own
- * stop hides no file behind it.
+ * The caller's page from one Machine scope, paged on the daemon position: each
+ * response is asked on after the previous one's position, so a page of refused
+ * passages still advances the walk, and a page that kept a passage filled the
+ * call's page, so the call stops there.
+ *
+ * A page that stopped inside a file the daemon could not finish is skipped:
+ * the next request starts after that file and never opens it again in this
+ * call, while the segment still names it, because its walk is incomplete. A
+ * single-file scope records no position, so its stop ends the scope instead.
+ *
+ * Progress belongs to the call: a page that got past the start point lets the
+ * next request know, so its own stop hides no file behind it.
  */
 async function runDaemonPages(
   search: MachineGrepSearch,
   connector: MachineConnector,
   deadlineAt: number,
 ): Promise<MachineGrepSegment> {
-  const entries: Array<MachineGrepEntry> = [];
-  const counts = new Map<FsGrepWarningKind, number>();
-  const consumed = { files: 0, entries: 0, bytes: 0 };
-  const base = search.budget.fixedReserve;
-  let { budget, cursor, progressed } = daemonStart(search, deadlineAt);
-  const ignored = ignoredAccumulator(search.scope);
-  let last: FsGrepSuccess | undefined;
-  while (canAskPage(budget, search.scope.singleFile === true)) {
+  const run: MachineSegmentPage = {
+    ...daemonStart(search, deadlineAt),
+    entries: [],
+    warnings: new Map(),
+    consumed: { files: 0, entries: 0, bytes: 0 },
+    ignored: ignoredAccumulator(search.scope),
+    deadlineAt,
+    last: undefined,
+    unfinished: undefined,
+  };
+  while (canAskPage(run.budget, search.scope.singleFile === true)) {
     const asked = await requestPage(search, connector, {
-      budget,
-      cursor,
-      progressed,
+      budget: run.budget,
+      cursor: run.cursor,
+      progressed: run.progressed,
     });
     if ('result' in asked) return { status: 'error', result: asked.result };
-    last = asked.page;
-    const page = last;
-    mergePage(counts, consumed, ignored, page);
-    progressed = progressed || page.progressed;
-    const rendered = renderPage(search, page, entries);
-    if ('result' in rendered)
-      return { status: 'error', result: rendered.result };
-    const next = keepAsking(rendered.kept, page, cursor);
-    if (next === undefined) break;
-    cursor = next;
-    budget = spent(budget, page, deadlineAt, { base, counts, ignored });
+    const step = takePage(search, run, asked.page);
+    if ('result' in step) return { status: 'error', result: step.result };
+    if (step.ended) break;
   }
-  return segmentOfPages(search, {
-    entries,
-    warnings: counts,
-    consumed,
-    ignored,
-    last,
-    progressed,
+  return segmentOfPages(search, run);
+}
+
+/** One Machine scope's pages, as the loop between them carries them. */
+type MachineSegmentPage = {
+  readonly entries: Array<MachineGrepEntry>;
+  readonly warnings: Map<FsGrepWarningKind, number>;
+  readonly consumed: FsGrepConsumed;
+  readonly ignored: IgnoredAccumulator;
+  readonly deadlineAt: number;
+  budget: GrepBudget;
+  cursor: string | undefined;
+  progressed: boolean;
+  last: FsGrepSuccess | undefined;
+  /** The file the daemon stopped inside that the call skipped, if any. */
+  unfinished: string | undefined;
+};
+
+/** One page's effect on the run; `ended` says the scope has no next page. */
+type PageStep =
+  | { readonly ended: boolean }
+  | { readonly result: GrepToolError };
+
+/** Fold one page into the run, and say whether the scope has another. */
+function takePage(
+  search: MachineGrepSearch,
+  run: MachineSegmentPage,
+  page: FsGrepSuccess,
+): PageStep {
+  run.last = page;
+  mergePage(run.warnings, run.consumed, run.ignored, page);
+  run.progressed = run.progressed || page.progressed;
+  const rendered = renderPage(search, page, run.entries);
+  if ('result' in rendered) return { result: rendered.result };
+  if (page.unfinished !== undefined) {
+    // A second stop inside a file ends the scope at the first one: one call
+    // names one file, and the next call opens the second with a full budget.
+    if (run.unfinished !== undefined) return { ended: true };
+    run.unfinished = page.unfinished;
+    // A one-file walk ignores a cursor, so a stop in it can only end the scope;
+    // its ordinal moves past it for the next call (`unfinishedPosition`).
+    if (search.scope.singleFile === true) return { ended: true };
+  }
+  const next = keepAsking(rendered.kept, page, run.cursor);
+  if (next === undefined) return { ended: true };
+  run.cursor = next;
+  run.budget = spent(run.budget, page, run.deadlineAt, {
+    base: search.budget.fixedReserve,
+    counts: run.warnings,
+    ignored: run.ignored,
+    unfinished:
+      run.unfinished === undefined
+        ? undefined
+        : machineScopeLocator(search.scope, run.unfinished),
   });
+  return { ended: false };
 }
 
 /** One Machine scope's pages, as the segment the call's page appends. */
 function segmentOfPages(
   search: MachineGrepSearch,
-  pages: Omit<MachineSegmentPage, 'position'>,
+  pages: MachineSegmentPage,
 ): MachineGrepSegment {
   const { entries, last, warnings } = pages;
-  const position =
-    entries.length > 0 || last === undefined
-      ? undefined
-      : (unfinishedPosition(search, last) ?? stoppedPosition(search, last));
+  // The file the call names is where its walk must resume, so the next call
+  // opens it with a full budget: a page the call walked past it without
+  // keeping a passage is walked again, which costs a re-walk rather than a
+  // gap. A call that named no file resumes at the last page's own stop.
+  const stopped =
+    unfinishedPosition(search, pages) ??
+    (last === undefined ? undefined : stoppedPosition(search, last));
+  const position = entries.length > 0 ? undefined : stopped;
   // A scope whose bound was spent by an earlier segment is never asked, so
   // no page can name the stop: the segment reports it instead, in the order
   // the walk would have tripped it (entries while listing, then files, then
@@ -380,7 +432,7 @@ function segmentOfPages(
     spent !== undefined && !warnings.has(spent)
       ? new Map([...warnings, [spent, 1] as const])
       : warnings;
-  return segmentOf({ ...pages, warnings: counted, position });
+  return segmentOf({ ...pages, warnings: counted }, position);
 }
 
 /**
@@ -399,46 +451,37 @@ function spentBound(
 }
 
 /**
- * The next cursor to ask with, or undefined when this page ended the loop. A
- * page that stopped inside a file answered the call, so another page would
- * replace the daemon's unfinished file with an empty one.
+ * The next cursor to ask with, or undefined when this page ended the scope's
+ * walk. A page that kept a passage filled the call's page: the call stops and
+ * the next one resumes from that passage. A page that kept nothing — refused
+ * passages, a skip, or a reach with no match — still advanced the daemon
+ * position, so the next request asks on after it.
  */
 function keepAsking(
   kept: number,
   page: FsGrepSuccess,
   cursor: string | undefined,
 ): string | undefined {
-  if (kept > 0 || page.complete || page.unfinished !== undefined)
-    return undefined;
+  if (kept > 0 || page.complete) return undefined;
   return nextCursor(page, cursor);
 }
 
-/** What one Machine scope's pages add up to. */
-type MachineSegmentPage = {
-  readonly entries: ReadonlyArray<MachineGrepEntry>;
-  readonly warnings: ReadonlyMap<FsGrepWarningKind, number>;
-  readonly consumed: FsGrepConsumed;
-  readonly ignored: IgnoredAccumulator;
-  readonly last: FsGrepSuccess | undefined;
-  readonly position:
-    | { readonly scopeIndex: number; readonly rel: string }
-    | undefined;
-  readonly progressed: boolean;
-};
-
 /** The segment one Machine scope's pages add up to. */
-function segmentOf(page: MachineSegmentPage): MachineGrepSegment {
+function segmentOf(
+  page: MachineSegmentPage,
+  position: ScopePosition | undefined,
+): MachineGrepSegment {
   return {
     status: 'success',
     entries: page.entries,
-    complete: page.last?.complete === true,
+    // A skipped file leaves the walk incomplete even when a later page ended
+    // the scope: the call knows a file it could not finish.
+    complete: page.last?.complete === true && page.unfinished === undefined,
     warnings: [...page.warnings].map(([kind, count]) => ({ kind, count })),
     consumed: page.consumed,
     progressed: page.progressed,
-    ...(page.position !== undefined && { position: page.position }),
-    ...(page.last?.unfinished !== undefined && {
-      unfinished: page.last.unfinished,
-    }),
+    ...(position !== undefined && { position }),
+    ...(page.unfinished !== undefined && { unfinished: page.unfinished }),
     ...(page.ignored.paths.length > 0 && {
       ignored: {
         paths: page.ignored.paths,
@@ -516,7 +559,7 @@ async function requestPage(
 function stoppedPosition(
   search: MachineGrepSearch,
   page: FsGrepSuccess,
-): { readonly scopeIndex: number; readonly rel: string } | undefined {
+): ScopePosition | undefined {
   if (page.cursor === undefined) return undefined;
   const decoded = decodeGrepCursor(page.cursor, requestCursorKey(search));
   if ('error' in decoded) return undefined;

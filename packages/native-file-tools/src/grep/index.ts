@@ -51,6 +51,7 @@ export {
   grepFileLocator,
   grepIgnoredUnits,
   grepPassageUnits,
+  grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,
   renderGrepText,

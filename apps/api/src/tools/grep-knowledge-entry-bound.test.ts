@@ -115,5 +115,7 @@ describe('Knowledge entry bound', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+    // Writing and removing 20,001 links takes about five seconds on a WSL2
+    // host, so the default budget would decide this test by luck.
+  }, 15_000);
 });

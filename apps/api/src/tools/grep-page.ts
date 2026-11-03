@@ -13,6 +13,7 @@ import {
   grepFileLocator,
   grepIgnoredUnits,
   grepPassageUnits,
+  grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,
   spellGrepHostScopeLocator,
@@ -39,6 +40,12 @@ function spellIgnoredLocator(locator: string): string {
     : spellGrepHostScopeLocator(locator);
 }
 
+/** Where a walk stopped inside one scope: its ordinal and a relative path. */
+export type ScopePosition = {
+  readonly scopeIndex: number;
+  readonly rel: string;
+};
+
 /** One passage the call may emit, with the cursor point it ends at. */
 export type SegmentEntry = {
   readonly passage: GrepPassage;
@@ -64,7 +71,7 @@ export type SegmentPage = {
   /** The walk's own page end, when every entry of the segment is a kept one. */
   readonly last?: GrepPageEnd;
   /** Where a segment that emitted nothing stopped, for a bound-stop cursor. */
-  readonly position?: { readonly scopeIndex: number; readonly rel: string };
+  readonly position?: ScopePosition;
 };
 
 /** Where the call resumes: the last passage it emitted, or the last entry. */
@@ -247,13 +254,16 @@ export function appendSegment(
   mergeIgnored(state, page.ignored, admission, undefined);
   // A segment can contribute only warning counts. Their line still renders
   // beside the passages already kept, so a page that cannot hold it ends
-  // before the segment: the next call reports those counts (design D7).
+  // before the segment: the next call reports those counts (design D7). A file
+  // the segment stopped inside renders its own line too, even when later pages
+  // of the same segment kept passages, so its room is kept back as well.
   const merged = warningsWith(state.warnings, page.warnings);
   const reserve =
     budget.fixedReserve +
     grepWarningsUnits(merged) +
     deadlineUnits(merged) +
-    state.ignoredUnits;
+    state.ignoredUnits +
+    (page.unfinished === undefined ? 0 : grepUnfinishedUnits(page.unfinished));
   // A line that the passages already on the page cannot hold ends the page
   // before this segment; the next call reports the exclusions instead.
   if (!pageHolds(state, budget, reserve)) {

@@ -16,6 +16,7 @@ import {
   encodeGrepCursor,
   GREP_LIMITS,
   grepIgnoredUnits,
+  grepUnfinishedUnits,
   grepWarningsUnits,
   spellGrepHostScopeLocator,
   type DecodedGrepCursor,
@@ -162,20 +163,30 @@ export type IgnoredAccumulator = {
   readonly paths: Array<string>;
   /** Each locator's scope-relative path, so a page cut can filter them. */
   readonly rels: Array<string>;
-  recorded: number;
+  /** The paths already counted, so a repeated page counts its exclusions once. */
+  readonly seen: Set<string>;
   atLeast: boolean;
 };
 
 export function ignoredAccumulator(
   scope: MachineGrepScope,
 ): IgnoredAccumulator {
-  return { scope, paths: [], rels: [], recorded: 0, atLeast: false };
+  return {
+    scope,
+    paths: [],
+    rels: [],
+    seen: new Set(),
+    atLeast: false,
+  };
 }
 
 /**
  * Fold one daemon page's warnings, budget, and excluded directories into the
  * scope's totals. The daemon's own cap and this one both count recorded
- * directories, before the hub's `read` filter.
+ * directories, before the hub's `read` filter. A directory an earlier page of
+ * the same scope already reported is counted once: a page asked again after a
+ * position it shares lists the exclusion again, and the result names each
+ * directory once per call.
  */
 export function mergePage(
   warnings: Map<FsGrepWarningKind, number>,
@@ -194,11 +205,12 @@ export function mergePage(
   if (page.ignored === undefined) return;
   if (page.ignored.atLeast) ignored.atLeast = true;
   for (const rel of page.ignored.paths) {
-    if (ignored.recorded >= GREP_LIMITS.ignoredReported) {
+    if (ignored.seen.has(rel)) continue;
+    if (ignored.seen.size >= GREP_LIMITS.ignoredReported) {
       ignored.atLeast = true;
       break;
     }
-    ignored.recorded += 1;
+    ignored.seen.add(rel);
     const locator = machineScopeLocator(ignored.scope, rel);
     if (locator === undefined) continue;
     ignored.paths.push(locator);
@@ -241,12 +253,17 @@ export function spent(
     readonly base: number;
     readonly counts: ReadonlyMap<FsGrepWarningKind, number>;
     readonly ignored: IgnoredAccumulator;
+    /** The file the scope's walk stopped inside, as the result spells it. */
+    readonly unfinished: string | undefined;
   },
 ): GrepBudget {
   const consumed = page.consumed;
   const reserve =
     lines.base +
     grepWarningsUnits(lines.counts) +
+    (lines.unfinished === undefined
+      ? 0
+      : grepUnfinishedUnits(lines.unfinished)) +
     (lines.ignored.paths.length === 0 && !lines.ignored.atLeast
       ? 0
       : grepIgnoredUnits(

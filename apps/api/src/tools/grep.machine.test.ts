@@ -16,6 +16,7 @@ import {
 import {
   encodeGrepCursor,
   grepContinuationUnits,
+  grepUnfinishedUnits,
   spellGrepMachineScopeLocator,
   grepIgnoredUnits,
   grepPassageUnits,
@@ -2288,6 +2289,431 @@ describe('Machine resume', () => {
         }),
       }),
     });
+  });
+});
+
+describe('Machine pages within one call', () => {
+  /**
+   * A skipped path long enough that its `[not searched to the end: …]` line
+   * takes more units than the hub's own 120-unit reserve keeps back.
+   */
+  const SKIPPED_FILE =
+    'a-very-long-directory-name-for-the-skip-fixture/and-another-long-directory-name/and-a-third-one/with-a-long-file-name-that-keeps-going.log';
+
+  /** One passage whose rendered text takes the room the page has left. */
+  function filledPassage(
+    rel: string,
+    locator: string,
+    room: number,
+  ): FsGrepPassage {
+    return {
+      ...passage(rel, 1, 1),
+      content: `1: ${'x'.repeat(room)}`,
+      matches: [1],
+    };
+  }
+
+  /** The page key the daemon binds a request for one glob scope to. */
+  function daemonKey(globSuffix: string | undefined): string {
+    return fsGrepCursorKey({
+      path: '/srv/app',
+      globSuffix,
+      patterns: ['needle'],
+      literal: false,
+      ignoreCase: false,
+    });
+  }
+
+  it('skips the file a daemon page stopped inside and asks after it', async () => {
+    const scope = 'machine://devl/srv/app/**';
+    const stoppedAt = encodeGrepCursor({
+      kind: 'position',
+      scopeIndex: 0,
+      rel: 'a.go',
+      inputHash: daemonKey('**'),
+    });
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  unfinished: 'a.go',
+                  cursor: stoppedAt,
+                  warnings: [{ kind: 'deadline', count: 1 }],
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : page([passage('b.go', 1, 1)]),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: [scope],
+    });
+    // The walk continues past the file the daemon could not finish, and the
+    // result still says that file was left behind.
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(success(result)).toMatchObject({
+      complete: false,
+      unfinishedFile: 'machine://devl/srv/app/a.go',
+    });
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    expect(asked).toHaveLength(2);
+    // The next response is asked after the daemon position of the first, so
+    // the skipped file is never opened twice in the call.
+    expect(asked[1]?.params).toMatchObject({ cursor: stoppedAt });
+    // The stop came before the call progressed, so the next request says so
+    // and the daemon names the file its own stop hides.
+    expect(boundsOf(asked[1]?.params)['progressed']).toBe(false);
+  });
+
+  it('ends the scope at a second skipped file and keeps the first', async () => {
+    const scope = 'machine://devl/srv/app/**';
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  unfinished: 'a.go',
+                  cursor: encodeGrepCursor({
+                    kind: 'position',
+                    scopeIndex: 0,
+                    rel: 'a.go',
+                    inputHash: daemonKey('**'),
+                  }),
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : searches === 2
+                ? page([], {
+                    complete: false,
+                    unfinished: 'b.go',
+                    cursor: encodeGrepCursor({
+                      kind: 'position',
+                      scopeIndex: 0,
+                      rel: 'b.go',
+                      inputHash: daemonKey('**'),
+                    }),
+                    consumed: { files: 1, entries: 1, bytes: 10 },
+                  })
+                : page([passage('c.go', 1, 1)]),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: [scope],
+    });
+    // The first file the call could not finish is the one it names, and the
+    // walk ends there: the next call opens the second file with a full budget
+    // instead of walking on with the first one lost.
+    expect(success(result)).toMatchObject({
+      complete: false,
+      unfinishedFile: 'machine://devl/srv/app/a.go',
+    });
+    expect(locatorsOf(result)).toEqual([]);
+    expect(cursorPayloadOf(result)).toMatchObject({ rel: 'a.go' });
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    expect(asked).toHaveLength(2);
+  });
+
+  it('keeps a passage that fits beside the skipped file line', async () => {
+    const skipped = SKIPPED_FILE;
+    const unfinishedLocator = `machine://devl/srv/app/${skipped}`;
+    const rel = 'b.go';
+    const locator = `machine://devl/srv/app/${rel}:1-1`;
+    // The page holds the passage the second page kept, the cursor line, the
+    // warnings line, and the skipped file's own line.
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+      grepWarningsUnits(new Map([['deadline', 1]])) -
+      grepUnfinishedUnits(unfinishedLocator) -
+      grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] });
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  unfinished: skipped,
+                  cursor: encodeGrepCursor({
+                    kind: 'position',
+                    scopeIndex: 0,
+                    rel: skipped,
+                    inputHash: daemonKey('**'),
+                  }),
+                  warnings: [{ kind: 'deadline', count: 1 }],
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : page([filledPassage(rel, locator, room)]),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    // The skipped file's line does not cost the page its passage.
+    expect(locatorsOf(result)).toEqual([locator]);
+    expect(success(result)['unfinishedFile']).toBe(unfinishedLocator);
+    expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+  });
+
+  it('drops a passage the skipped file line leaves no room for', async () => {
+    const skipped = SKIPPED_FILE;
+    const unfinishedLocator = `machine://devl/srv/app/${skipped}`;
+    const rel = 'b.go';
+    const locator = `machine://devl/srv/app/${rel}:1-1`;
+    // A page filled to the bound without the skipped file's line: keeping the
+    // passage as well would put the rendered result past 15,000 units.
+    const room =
+      15_000 -
+      pageFixedReserve() -
+      grepContinuationUnits({ scopeIndex: 0, rel, startLine: 1 }) -
+      grepWarningsUnits(new Map([['deadline', 1]])) -
+      grepPassageUnits(undefined, { locator, content: '1: ', matches: [1] });
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  unfinished: skipped,
+                  cursor: encodeGrepCursor({
+                    kind: 'position',
+                    scopeIndex: 0,
+                    rel: skipped,
+                    inputHash: daemonKey('**'),
+                  }),
+                  warnings: [{ kind: 'deadline', count: 1 }],
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : page([filledPassage(rel, locator, room)]),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    // The result stays inside its bound, so the passage waits for a read.
+    expect(locatorsOf(result)).toEqual([]);
+    expect(success(result)).toMatchObject({
+      complete: false,
+      unfinishedFile: unfinishedLocator,
+    });
+    expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
+  });
+
+  it('reserves the skipped file line in the next request page', async () => {
+    const skipped =
+      'a-really-long-file-name-that-keeps-the-unfinished-line-wide.log';
+    async function secondPageUnits(withSkip: boolean): Promise<number> {
+      let searches = 0;
+      const { peer, connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.grep') return undefined;
+          searches += 1;
+          return {
+            value:
+              searches === 1
+                ? page([], {
+                    complete: false,
+                    ...(withSkip && { unfinished: skipped }),
+                    cursor: 'daemon-next',
+                    warnings: [{ kind: 'deadline', count: 1 }],
+                    consumed: { files: 1, entries: 1, bytes: 10 },
+                  })
+                : page([passage('b.go', 1, 1)]),
+          };
+        },
+      });
+      await run(context(connector), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app/**'],
+      });
+      const asked = (await peer.session(0)).calls.filter(
+        (call) => call.method === 'fs.grep',
+      );
+      const second = asked[1];
+      if (second === undefined) throw new Error('the call asks two pages');
+      return Number(boundsOf(second.params)['pageUnits']);
+    }
+    const withSkip = await secondPageUnits(true);
+    const withoutSkip = await secondPageUnits(false);
+    // The next response leaves room for the line the result will carry, read
+    // off the model text itself: the line and the newline that joins it.
+    const warnings = [{ kind: 'deadline', count: 1 }];
+    const before = renderGrepText({ results: [], complete: false, warnings });
+    const after = renderGrepText({
+      results: [],
+      complete: false,
+      warnings,
+      unfinishedFile: `machine://devl/srv/app/${skipped}`,
+    });
+    expect(withoutSkip - withSkip).toBe(after.length - before.length);
+  });
+
+  it('resumes after a skipped file when a later page kept nothing', async () => {
+    const scope = 'machine://devl/srv/app/**';
+    const stoppedAt = encodeGrepCursor({
+      kind: 'position',
+      scopeIndex: 0,
+      rel: 'a.go',
+      inputHash: daemonKey('**'),
+    });
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  unfinished: 'a.go',
+                  cursor: stoppedAt,
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : page([]),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: [scope],
+    });
+    // The scope then ended with nothing kept, so the call resumes after the
+    // file it skipped, not at the scope's start.
+    expect(success(result)).toMatchObject({
+      complete: false,
+      unfinishedFile: 'machine://devl/srv/app/a.go',
+    });
+    expect(locatorsOf(result)).toEqual([]);
+    expect(cursorPayloadOf(result)).toEqual({
+      kind: 'position',
+      scopeIndex: 0,
+      rel: 'a.go',
+      inputHash: hashOfScopes([scope], ['devl']),
+    });
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    expect(asked).toHaveLength(2);
+  });
+
+  it('counts a directory a second daemon page repeated once', async () => {
+    let searches = 0;
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  cursor: 'daemon-next',
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                  ignored: { paths: ['node_modules'], atLeast: false },
+                })
+              : page([passage('a.ts', 1, 1)], {
+                  ignored: {
+                    paths: ['node_modules', 'dist'],
+                    atLeast: false,
+                  },
+                }),
+        };
+      },
+    });
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+    // The page asked again after a position below the excluded directory
+    // lists it again; the call names each directory once.
+    expect(ignoredOf(result)).toEqual({
+      count: 2,
+      locators: [
+        'machine://devl/srv/app/node_modules',
+        'machine://devl/srv/app/dist',
+      ],
+      atLeast: false,
+    });
+  });
+
+  it('carries what one Machine scope left to the next scope', async () => {
+    let searches = 0;
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+        if (searches === 1)
+          return {
+            value: page([], {
+              complete: false,
+              cursor: 'daemon-next',
+              consumed: { files: 1, entries: 1, bytes: 40 },
+            }),
+          };
+        if (searches === 2)
+          return {
+            value: page([], {
+              complete: false,
+              cursor: 'daemon-third',
+              consumed: { files: 0, entries: 0, bytes: 30 },
+            }),
+          };
+        return { value: page([]) };
+      },
+    });
+    await run(
+      context(connector, {
+        grepBounds: {
+          maxFilesExamined: null,
+          maxEntriesListed: null,
+          maxBytesRead: 100,
+          maxFileBytes: null,
+        },
+      }),
+      {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a/**', 'machine://devl/srv/b/**'],
+      },
+    );
+    const asked = (await peer.session(0)).calls.filter(
+      (call) => call.method === 'fs.grep',
+    );
+    // Two pages of the first scope spend 40 and 30 bytes, so the second scope
+    // is asked for what is left of the call's byte bound.
+    expect(asked.map((call) => boundsOf(call.params)['bytes'])).toEqual([
+      100, 60, 30, 30,
+    ]);
+    expect(asked[3]?.params).toMatchObject({ path: '/srv/b' });
   });
 });
 
