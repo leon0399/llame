@@ -38,7 +38,7 @@ import { modelMessageSchema, streamText, type ProviderMetadata } from 'ai';
 /** The later-turn projection of each settled tool part in `parts`. */
 const project = (parts: ReadonlyArray<MessagePart>) =>
   parts.flatMap((part, partIndex) => {
-    const stored = projectStoredToolPart(part, partIndex, `msg-1:${partIndex}`);
+    const stored = projectStoredToolPart(part, `msg-1:${partIndex}`);
     return stored === undefined ? [] : [stored];
   });
 
@@ -2637,6 +2637,95 @@ describe('buildContext', () => {
           }),
         ],
       });
+    });
+
+    it('replays a reasoning part with empty text, whose metadata is its only payload (D18)', () => {
+      const metadata = {
+        openai: {
+          itemId: 'rs-empty',
+          reasoningEncryptedContent: 'ENCRYPTED_EMPTY',
+        },
+      };
+      const messages = buildContext(
+        [
+          userMsg1,
+          msg({
+            role: 'assistant',
+            usage: { status: 'completed', modelId: 'sonnet' },
+            parts: [
+              { type: 'reasoning', text: '', providerMetadata: metadata },
+            ],
+          }),
+        ],
+        {
+          systemPrompt,
+          requestKind: 'continuation',
+          modelId: 'sonnet',
+        },
+      ).messages;
+
+      expect(messages[1]).toEqual({
+        role: 'assistant',
+        content: [{ type: 'reasoning', text: '', providerOptions: metadata }],
+      });
+    });
+
+    it('keeps a refused call’s SDK input on the same model and normalizes a non-object on a switch', () => {
+      /* eslint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- the refused input is whatever form the SDK sent; this test probes every JSON kind. */
+      const refusedPart = (input: unknown): MessagePart => ({
+        type: 'tool-no_such_tool',
+        toolCallId: 'call-refused',
+        state: 'output-error',
+        input,
+        errorText: 'The call to "no_such_tool" was refused.',
+        outcome: 'error',
+        sdkRefusal: {
+          errorText: 'Invalid input for tool no_such_tool',
+          input,
+        },
+      });
+      const refusedInput = (input: unknown, modelId: string): unknown => {
+        const withRefusal = buildContext(
+          [
+            userMsg1,
+            msg({
+              role: 'assistant',
+              usage: { status: 'completed', modelId: 'sonnet' },
+              parts: [refusedPart(input)],
+            }),
+          ],
+          { systemPrompt, requestKind: 'continuation', modelId },
+        ).messages;
+        const assistant = withRefusal.find(
+          (message) => message.role === 'assistant',
+        );
+        if (assistant === undefined || !Array.isArray(assistant.content)) {
+          throw new Error('Expected the refused call to replay');
+        }
+        const parts: ReadonlyArray<unknown> = assistant.content;
+        const call = parts.find(
+          (part) => isRecord(part) && part['type'] === 'tool-call',
+        );
+        return isRecord(call) ? call['input'] : undefined;
+      };
+
+      // Same model: the input form the SDK sent live.
+      expect(refusedInput(null, 'sonnet')).toBeNull();
+      expect(refusedInput(['raw'], 'sonnet')).toEqual(['raw']);
+      expect(refusedInput('raw', 'sonnet')).toBe('raw');
+      expect(refusedInput({ path: '/work/a.md' }, 'sonnet')).toEqual({
+        path: '/work/a.md',
+      });
+
+      // Another model cannot be handed a non-object tool input.
+      expect(refusedInput(null, 'glm-5')).toEqual({});
+      expect(refusedInput(['raw'], 'glm-5')).toEqual({});
+      expect(refusedInput('raw', 'glm-5')).toEqual({});
+      // A plain object is portable, so it stays byte-identical.
+      expect(refusedInput({ path: '/work/a.md' }, 'glm-5')).toEqual({
+        path: '/work/a.md',
+      });
+      /* eslint-enable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns */
     });
 
     it('keeps text and tool activity but drops both after a model switch', () => {

@@ -12,7 +12,7 @@ import { projectStoredToolPart } from '../chats/tool-observation-part';
 /** The later-turn projection of one assistant row's tool parts. */
 const project = (parts: ReadonlyArray<MessagePart>) =>
   parts.flatMap((part, partIndex) => {
-    const stored = projectStoredToolPart(part, partIndex, `msg-1:${partIndex}`);
+    const stored = projectStoredToolPart(part, `msg-1:${partIndex}`);
     return stored === undefined ? [] : [stored];
   });
 import {

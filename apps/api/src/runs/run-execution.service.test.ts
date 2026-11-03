@@ -5987,7 +5987,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         input: cancelInput,
         result: knownResult,
       }),
-      0,
       'msg-1',
     );
     expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
@@ -6352,7 +6351,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
     if (stored === undefined) throw new Error('MCP part was not persisted.');
 
-    const projection = projectStoredToolPart(stored, 0, 'msg-1');
+    const projection = projectStoredToolPart(stored, 'msg-1');
     // Replay rebuilds the same output the live definition sent, so a later
     // turn sends the same bytes.
     expect(projection?.pair.toolResultPart.toolName).toBe(toolDeclaration.id);
@@ -6421,7 +6420,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       throw new Error('Web search part was not persisted.');
     }
 
-    const projection = projectStoredToolPart(stored, 0, 'msg-1');
+    const projection = projectStoredToolPart(stored, 'msg-1');
     expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
   });
 

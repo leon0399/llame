@@ -11,18 +11,12 @@
  * back to "a run of consecutive tool parts is one step".
  *
  * The projection deliberately bypasses the later-turn replay of
- * `tool-observation-part.ts`: it applies no budget, so every kept result keeps
- * its stored model-facing output, and the results are rebuilt the way the live
- * loop built them. Only tool parts of the source Run's own model calls are
+ * `tool-observation-part.ts`: every kept result keeps its stored model-facing
+ * output, and the results are rebuilt the way the live loop built them. Only tool parts of the source Run's own model calls are
  * here — a cap marker and an unknown part contribute nothing.
  */
 
-import type {
-  AssistantContent,
-  ModelMessage,
-  ToolCallPart,
-  ToolResultPart,
-} from 'ai';
+import type { ModelMessage, ToolCallPart, ToolResultPart } from 'ai';
 
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
@@ -30,9 +24,11 @@ import { isContextItemPart, type ContextItemPart } from './context-item';
 import {
   isReasoningPart,
   isTextPart,
+  partStep,
   toPromptReasoningPart,
   type MessagePart,
   type PromptReasoningPart,
+  type ReplayedAssistantPart,
 } from './context-builder';
 import {
   isUnstoredMedia,
@@ -80,11 +76,6 @@ export type ContinueState = {
 };
 
 /** One kept step: its reasoning, its text, its calls, and the results after them. */
-type AssistantContentPart = Extract<
-  Extract<AssistantContent, ReadonlyArray<unknown>>[number],
-  { type: 'reasoning' | 'text' | 'tool-call' }
->;
-
 type KeptStep = {
   readonly reasoning: Array<PromptReasoningPart>;
   readonly text: Array<string>;
@@ -149,8 +140,8 @@ export function continueStepOffset(state: ContinueState | undefined): number {
   if (state === undefined) return 0;
   let offset = nextStep(state.stepNumbers.values());
   for (const part of state.parts) {
-    const step = isRecord(part) ? part['step'] : undefined;
-    if (isNumber(step)) offset = Math.max(offset, step + 1);
+    const step = partStep(part);
+    if (step !== undefined) offset = Math.max(offset, step + 1);
   }
   return offset;
 }
@@ -190,7 +181,7 @@ function toolResultFromRecord(value: unknown): ToolResult | undefined {
  * The output one kept call replays, built the way the live loop built it, from
  * the one rendering of the settled result: a text rendering sends its text and
  * its media reference; a JSON rendering sends its JSON value. No untrusted
- * framing, no budget — the model reads exactly what the source Run sent it.
+ * framing — the model reads exactly what the source Run sent it.
  *
  * A kept result that names media without a stored locator is a reference only
  * when its kept part keeps the retained bytes: a reply from before retention
@@ -220,11 +211,7 @@ function keptPair(
   results: ReadonlyMap<string, ToolResult>,
   retainedMedia: Map<string, RetainedMedia>,
 ): ProjectedToolObservationPair | undefined {
-  const stored = projectStoredToolPart(
-    part,
-    partIndex,
-    continuedMediaKey(partIndex),
-  );
+  const stored = projectStoredToolPart(part, continuedMediaKey(partIndex));
   if (stored === undefined) return undefined;
   if (stored.retained !== undefined) {
     retainedMedia.set(stored.retained.key, stored.retained.entry);
@@ -354,7 +341,7 @@ function groupSteps(
  * their stored positions as user-role text — the shape the live loop sent.
  */
 function stepMessages(step: KeptStep): Array<ModelMessage> {
-  const content: Array<AssistantContentPart> = [
+  const content: Array<ReplayedAssistantPart> = [
     ...step.reasoning,
     ...(step.text.length > 0
       ? [{ type: 'text' as const, text: step.text.join('\n') }]

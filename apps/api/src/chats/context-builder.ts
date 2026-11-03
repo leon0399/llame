@@ -325,8 +325,12 @@ type PromptTextPart = Extract<
   { type: 'text' }
 >;
 
-/** One assistant content part of a replayed step, in stored order. */
-type ReplayedAssistantPart =
+/**
+ * One assistant content part of a replayed step, in stored order. Shared with
+ * the Continue projection, whose kept steps are the same parts in the same
+ * shape.
+ */
+export type ReplayedAssistantPart =
   | PromptReasoningPart
   | PromptTextPart
   | ToolCallPart;
@@ -334,16 +338,11 @@ type ReplayedAssistantPart =
 /**
  * The model step a stored part records (design D5), or undefined for a part
  * stored before steps existed, whose step the consecutive rule recovers.
+ * Exported for the Continue projection's step offset.
  */
-function partStep(part: MessagePart): number | undefined {
+export function partStep(part: MessagePart): number | undefined {
   return isRecord(part) && isNumber(part['step']) ? part['step'] : undefined;
 }
-
-/** One model step being grouped from a stored reply's parts. */
-type ProjectedReply = {
-  readonly messages: Array<ModelMessage>;
-  readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
-};
 
 type OpenStep = {
   /** Its reasoning, text, and calls, in stored order. */
@@ -351,10 +350,6 @@ type OpenStep = {
   /** One result per call of `content`, in call order. */
   readonly results: Array<ToolResultPart>;
   readonly number: number | undefined;
-  /** How many calls the step made so far. */
-  calls: number;
-  /** Whether the last part appended was a call — the legacy step rule. */
-  lastWasTool: boolean;
 };
 
 /**
@@ -374,7 +369,9 @@ function startsNewStep(
   if (open.number !== undefined || partNumber !== undefined) {
     return partNumber !== open.number;
   }
-  return isTool ? open.calls > 0 && !open.lastWasTool : open.calls > 0;
+  const calls = open.results.length;
+  const lastWasTool = open.content.at(-1)?.type === 'tool-call';
+  return isTool ? calls > 0 && !lastWasTool : calls > 0;
 }
 
 /**
@@ -384,25 +381,27 @@ function startsNewStep(
  * in call order. A `data-context` part follows the tool message of the step
  * before it, which is where the live splice puts it.
  *
- * Nothing is cleared, dropped, or marked, and no size budget applies: the
- * stored row is the request's history. `privateParts` carries the model rule
+ * Nothing is cleared, dropped, or marked: the stored row is the request's
+ * history. `privateParts` carries the model rule
  * of `reasoning-output` (D7) — when it is false, a reasoning part is omitted
  * and every text and tool part keeps its text but loses its provider metadata.
  */
 class StoredReplyProjection {
   private readonly messages: Array<ModelMessage> = [];
-  private readonly retainedMedia = new Map<string, RetainedMedia>();
   private open: OpenStep | null = null;
 
-  constructor(private readonly privateParts: boolean) {}
+  constructor(
+    private readonly privateParts: boolean,
+    private readonly retainedMedia: Map<string, RetainedMedia>,
+  ) {}
 
-  /** The reply's messages, then the retained entries its markers name. */
-  project(parts: Array<MessagePart>, messageId: string): ProjectedReply {
+  /** The reply's messages, writing the retained entries its markers name. */
+  project(parts: Array<MessagePart>, messageId: string): Array<ModelMessage> {
     for (const [partIndex, part] of parts.entries()) {
       this.appendPart(part, partIndex, messageId);
     }
     this.closeStep();
-    return { messages: this.messages, retainedMedia: this.retainedMedia };
+    return this.messages;
   }
 
   private appendPart(
@@ -426,7 +425,6 @@ class StoredReplyProjection {
     }
     const observation = projectStoredToolPart(
       part,
-      partIndex,
       storedToolPartMediaKey(messageId, partIndex),
     );
     if (observation !== undefined) {
@@ -449,8 +447,13 @@ class StoredReplyProjection {
     });
   }
 
+  /**
+   * The SDK sends a reasoning part even when its text is empty: such a part
+   * exists because the provider withheld the text but delivered a signature,
+   * redacted data, or encrypted content (D18). Only the model rule gates it.
+   */
   private appendReasoning(part: ReasoningPart): void {
-    if (!this.privateParts || part.text.length === 0) return;
+    if (!this.privateParts) return;
     this.openStep(partStep(part), false).content.push(
       toPromptReasoningPart(part),
     );
@@ -463,8 +466,6 @@ class StoredReplyProjection {
     const step = this.openStep(stepNumber, true);
     step.content.push(this.callPart(observation));
     step.results.push(this.resultPart(observation));
-    step.calls += 1;
-    step.lastWasTool = true;
     const { retained } = observation;
     if (retained !== undefined) {
       this.retainedMedia.set(retained.key, retained.entry);
@@ -485,8 +486,6 @@ class StoredReplyProjection {
       content: [],
       results: [],
       number: stepNumber,
-      calls: 0,
-      lastWasTool: false,
     };
     this.open = created;
     return created;
@@ -504,9 +503,13 @@ class StoredReplyProjection {
 
   private callPart(observation: StoredToolObservation): ToolCallPart {
     const { pair } = observation;
+    const part =
+      pair.refused && !this.privateParts && !isRecord(pair.toolCallPart.input)
+        ? { ...pair.toolCallPart, input: {} }
+        : pair.toolCallPart;
     return this.privateParts && pair.providerMetadata !== undefined
-      ? { ...pair.toolCallPart, providerOptions: pair.providerMetadata }
-      : pair.toolCallPart;
+      ? { ...part, providerOptions: pair.providerMetadata }
+      : part;
   }
 
   /**
@@ -619,10 +622,7 @@ function appendAssistantMessage(
   const privateParts =
     options.requestKind === 'continuation' &&
     replaysPrivateParts(m.usage, options.modelId);
-  const projected = new StoredReplyProjection(privateParts).project(
-    m.parts,
-    m.id,
+  result.push(
+    ...new StoredReplyProjection(privateParts, retained).project(m.parts, m.id),
   );
-  result.push(...projected.messages);
-  mergeRetainedMedia(retained, projected.retainedMedia);
 }

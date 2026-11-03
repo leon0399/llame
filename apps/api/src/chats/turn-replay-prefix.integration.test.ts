@@ -5,9 +5,10 @@
  * The whole-step scripted model client drives the real AI SDK and the
  * production seams, so the recorded prompt of each provider request is the
  * exact request the production clients would send. Turn 1 holds reasoning and
- * text with provider metadata, a step of two parallel calls (a spilled read and
- * an image read), text after the calls, a sequential call in its own step, a
- * refused call, and a final text step. Turn 2 runs on the same model, on
+ * text with provider metadata, a step of two parallel calls (an oversized JSON
+ * result that spills, and an image read), text after the calls, a sequential
+ * call in its own step, a JSON tool (a timeline search with a multi-key input),
+ * a refused call, and a final text step. Turn 2 runs on the same model, on
  * another model, and after a failed reply.
  */
 
@@ -17,7 +18,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { LanguageModelV3Prompt } from '@ai-sdk/provider';
-import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 import { waitFor } from '../testing/support';
 import { MessagesRepository } from './chats-repository';
@@ -30,6 +35,11 @@ import {
   seedAndDispatchRun,
   type WorkerHarness,
 } from '../runs/worker-harness';
+import {
+  registerTestOnlyTool,
+  unregisterTestOnlyTool,
+} from '../tools/registry';
+import { type Tool } from '../tools/types';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -41,6 +51,8 @@ const TEXT_METADATA = { test: { itemId: 'text-step-0' } };
 const CALL_METADATA = { test: { itemId: 'call-draft' } };
 const IMAGE_CALL_METADATA = { test: { itemId: 'call-image' } };
 const SECOND_CALL_METADATA = { test: { itemId: 'call-notes' } };
+const SEARCH_CALL_METADATA = { test: { itemId: 'call-search' } };
+const SPILL_CALL_METADATA = { test: { itemId: 'call-spill' } };
 const REFUSED_CALL_METADATA = { test: { itemId: 'call-unknown' } };
 const FINAL_TEXT_METADATA = { test: { itemId: 'text-final' } };
 const FAILED_REASONING_METADATA = { test: { signature: 'reasoning-doomed' } };
@@ -48,13 +60,44 @@ const SECOND_REASONING_METADATA = { test: { signature: 'reasoning-step-1' } };
 const FAILED_TEXT_METADATA = { test: { itemId: 'text-doomed' } };
 const FINAL_TEXT = 'Turn one done.';
 
+/** The JSON tool's time bound: before the suite creates any chat. */
+const TIMELINE_AFTER = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+/** A test-only tool whose JSON success exceeds the shared tool-result cap. */
+const SPILL_TOOL_ID = 'replay_spill';
+
+/**
+ * The real `head` tools bound their own output at the same cap (`read` cuts at
+ * 16,000 units), so none of them can exercise the generic spill. This tool
+ * returns a plain JSON success over the cap: the cap stores it as an artifact,
+ * pins the locator on the result, and cuts the inline value with its notice.
+ */
+const spillTool: Tool = {
+  id: SPILL_TOOL_ID,
+  description: 'Returns a JSON payload larger than the tool-result cap.',
+  classification: 'read_only',
+  inputSchema: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
+  execute: () =>
+    Promise.resolve({ status: 'success', payload: 'x'.repeat(20_000) }),
+};
+
 /** 1×1 PNG, so the native read returns a real image result. */
 const PNG_1X1 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 type Prompt = LanguageModelV3Prompt;
 
-/** The turn-1 script: every stored shape the projection has to rebuild. */
+/**
+ * The turn-1 script: every stored shape the projection has to rebuild. The
+ * search call carries a multi-key input whose order the `json` column must
+ * keep (a `jsonb` column sorts it to `mode`, then `after`), and its result is
+ * a JSON output; the spill call has a result over the cap.
+ */
 function wholeTurn(draftPath: string, imagePath: string, notesPath: string) {
   return [
     [
@@ -102,6 +145,25 @@ function wholeTurn(draftPath: string, imagePath: string, notesPath: string) {
       },
     ],
     [
+      { type: 'text', id: 't2', text: 'Checking the timeline.' },
+      {
+        type: 'tool-call',
+        toolCallId: 'call-search',
+        toolName: 'search_conversations',
+        // Not sorted the way `jsonb` would store it: `after` then `mode`.
+        input: { after: TIMELINE_AFTER, mode: 'timeline' },
+        providerMetadata: SEARCH_CALL_METADATA,
+      },
+      {
+        type: 'tool-call',
+        toolCallId: 'call-spill',
+        toolName: SPILL_TOOL_ID,
+        input: {},
+        providerMetadata: SPILL_CALL_METADATA,
+      },
+      { type: 'text', id: 't3', text: 'Timeline checked.' },
+    ],
+    [
       {
         type: 'tool-call',
         toolCallId: 'call-unknown',
@@ -113,7 +175,7 @@ function wholeTurn(draftPath: string, imagePath: string, notesPath: string) {
     [
       {
         type: 'text',
-        id: 't2',
+        id: 't4',
         text: FINAL_TEXT,
         providerMetadata: FINAL_TEXT_METADATA,
       },
@@ -142,18 +204,13 @@ describeIfDb('turn replay prefix equality', () => {
     draftPath = join(directory, 'draft.md');
     imagePath = join(directory, 'shot.png');
     notesPath = join(directory, 'notes.txt');
-    // Over the 16,000-unit cap, so its result spills to an artifact.
-    await writeFile(
-      draftPath,
-      Array.from(
-        { length: 5000 },
-        (_, index) => `${index}: ${'x'.repeat(120)}`,
-      ).join('\n'),
-    );
-    await writeFile(imagePath, Buffer.from(PNG_1X1, 'base64'));
     await writeFile(notesPath, 'hello\n');
+    await writeFile(imagePath, Buffer.from(PNG_1X1, 'base64'));
+    // Registered before boot, so the harness snapshots it into the advertised
+    // tool set and its allow-all permission group.
+    registerTestOnlyTool(spillTool);
     harness = await bootWorkerHarness({
-      allowedTools: ['read'],
+      allowedTools: ['read', 'search_conversations', SPILL_TOOL_ID],
       nativeExecutorId: 'turn-replay-prefix',
     });
     userId = await createUser(harness.db, 'turn-replay-prefix');
@@ -162,6 +219,7 @@ describeIfDb('turn replay prefix equality', () => {
   afterAll(async () => {
     if (harness) await harness.close();
     await rm(directory, { recursive: true, force: true });
+    unregisterTestOnlyTool(SPILL_TOOL_ID);
   });
 
   const terminal = (runId: string) =>
@@ -184,12 +242,9 @@ describeIfDb('turn replay prefix equality', () => {
     chatId?: string;
     modelId: string;
     behavior: ScriptedBehavior;
-    input?: ReadonlyArray<'text' | 'image' | 'pdf'>;
   }): Promise<{ chatId: string; runId: string; status: string }> => {
     harness.models.register(input.modelId, input.behavior);
-    if (input.input !== undefined) {
-      harness.models.registerInput(input.modelId, input.input);
-    }
+    harness.models.registerInput(input.modelId, ['text', 'image']);
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId: input.modelId,
@@ -214,6 +269,59 @@ describeIfDb('turn replay prefix equality', () => {
       );
   };
 
+  /** The whole scripted turn 1, with its recorded prompts. */
+  const turnOne = async (modelId: string) => {
+    const start = harness.models.prompts.length;
+    const first = await runTurn({
+      modelId,
+      behavior: {
+        kind: 'step-script',
+        steps: wholeTurn(draftPath, imagePath, notesPath),
+      },
+    });
+    expect(first.status).toBe('completed');
+    const turnOnePrompts = promptsOf(start);
+    const turnOneLast = turnOnePrompts.at(-1);
+    if (turnOneLast === undefined)
+      throw new Error('Turn 1 made no provider request.');
+    return { chatId: first.chatId, start, turnOnePrompts, turnOneLast };
+  };
+
+  /** One tool-call part of `prompt`, by call id. */
+  const toolCallOf = (
+    prompt: Prompt,
+    toolCallId: string,
+  ): UnknownRecord | undefined => {
+    for (const message of prompt) {
+      if (message.role !== 'assistant') continue;
+      const call = message.content.find(
+        (part) =>
+          isRecord(part) &&
+          part['type'] === 'tool-call' &&
+          part['toolCallId'] === toolCallId,
+      );
+      if (isRecord(call)) return call;
+    }
+    return undefined;
+  };
+
+  /** One tool-result output of `prompt`, by call id. */
+  const toolOutputOf = (
+    prompt: Prompt,
+    toolCallId: string,
+  ): UnknownRecord | undefined => {
+    for (const message of prompt) {
+      if (message.role !== 'tool') continue;
+      const result = message.content.find(
+        (part) => isRecord(part) && part['toolCallId'] === toolCallId,
+      );
+      if (isRecord(result) && isRecord(result['output'])) {
+        return result['output'];
+      }
+    }
+    return undefined;
+  };
+
   /** A prompt with every reasoning part and every provider metadata removed. */
   const omitPrivateParts = (prompt: Prompt): Array<unknown> =>
     // SAFETY: a recorded prompt is a JSON-shaped array of provider messages;
@@ -234,25 +342,45 @@ describeIfDb('turn replay prefix equality', () => {
       };
     });
 
-  it('turn 1 stores the whole turn: steps, provider metadata, a spill, an image, and a refusal', async () => {
+  it('turn 2 on the same model starts with turn 1’s last request and its response', async () => {
     const modelId = `prefix-${randomUUID()}`;
-    const turn = await runTurn({
-      modelId,
-      behavior: {
-        kind: 'step-script',
-        steps: wholeTurn(draftPath, imagePath, notesPath),
-      },
-      input: ['text', 'image'],
-    });
+    const { chatId, start, turnOnePrompts, turnOneLast } =
+      await turnOne(modelId);
 
-    expect(turn.status).toBe('completed');
-    const parts = await assistantParts(turn.chatId);
-    const toolParts = parts.filter((part) => part['type'] === 'tool-read');
-    expect(toolParts.map((part) => part['step'])).toEqual([0, 0, 1]);
-    expect(parts.filter((part) => part['type'] === 'text')).toHaveLength(3);
+    // Turn 1's stored shape: steps, provider metadata, the spill artifact, the
+    // JSON result, the image, and the refusal.
+    const parts = await assistantParts(chatId);
+    const toolParts = parts.filter((part) =>
+      String(part['type']).startsWith('tool-'),
+    );
+    expect(toolParts.map((part) => part['step'])).toEqual([0, 0, 1, 2, 2, 3]);
+    expect(parts.filter((part) => part['type'] === 'text')).toHaveLength(5);
     expect(parts.filter((part) => part['type'] === 'reasoning')).toHaveLength(
       2,
     );
+
+    const searchPart = toolParts.find(
+      (part) => part['toolCallId'] === 'call-search',
+    );
+    expect(searchPart).toMatchObject({
+      state: 'output-available',
+      step: 2,
+      providerMetadata: SEARCH_CALL_METADATA,
+    });
+    // The member order a `json` column keeps and a `jsonb` column would sort.
+    const searchInput = searchPart?.['input'];
+    expect(isRecord(searchInput) ? Object.keys(searchInput) : []).toEqual([
+      'after',
+      'mode',
+    ]);
+    expect(toolOutputOf(turnOneLast, 'call-search')).toMatchObject({
+      type: 'json',
+      value: { status: 'success' },
+    });
+    const liveSearchInput = toolCallOf(turnOneLast, 'call-search')?.['input'];
+    expect(
+      isRecord(liveSearchInput) ? Object.keys(liveSearchInput) : [],
+    ).toEqual(['after', 'mode']);
 
     const imagePart = toolParts.find(
       (part) => part['toolCallId'] === 'call-image',
@@ -263,122 +391,112 @@ describeIfDb('turn replay prefix equality', () => {
     });
     expect(imagePart?.['retainedMedia']).toBeDefined();
 
+    // The oversized JSON result spilled: the part names exactly one artifact
+    // locator, and the cap notice names it (the notice repeats it as the
+    // continuation address, and no separate `Artifact:` line is added).
     const spilled = toolParts.find(
-      (part) => part['toolCallId'] === 'call-draft',
+      (part) => part['toolCallId'] === 'call-spill',
     );
-    const spilledText = JSON.stringify(spilled);
-    // The result is over the 16,000-unit cap, so the live loop capped it; an
-    // artifact locator, when the Run can read its artifacts, appears once.
-    expect(spilledText).toContain('truncated');
-    expect(spilledText.match(/artifact:\/\//gu)?.length ?? 0).toBeLessThan(2);
+    expect(spilled?.['state']).toBe('output-available');
+    const artifact = spilled?.['artifact'];
+    expect(artifact).toMatch(/^artifact:\/\/replay_spill-\d+$/u);
+    const spilledOutput = spilled?.['output'];
+    if (!isRecord(spilledOutput))
+      throw new Error('Expected the spilled result object');
+    expect(spilledOutput['artifact']).toBe(artifact);
+    const notice = spilledOutput['truncationNotice'];
+    expect(isString(notice)).toBe(true);
+    if (!isString(notice)) throw new Error('Expected a cap notice');
+    expect(notice).toContain(String(artifact));
+    expect(notice.match(/\[full result: /gu)).toHaveLength(1);
+    expect(JSON.stringify(spilled)).not.toContain('Artifact:');
 
     const refused = parts.find((part) => part['toolCallId'] === 'call-unknown');
     expect(refused).toMatchObject({
       type: 'tool-no_such_tool',
       state: 'output-error',
-      step: 2,
+      step: 3,
       providerMetadata: REFUSED_CALL_METADATA,
     });
     expect(refused?.['sdkRefusal']).toBeDefined();
-  });
 
-  it('turn 2 on the same model starts with turn 1’s last request and its response', async () => {
-    const modelId = `prefix-${randomUUID()}`;
-    const first = await runTurn({
-      modelId,
-      behavior: {
-        kind: 'step-script',
-        steps: wholeTurn(draftPath, imagePath, notesPath),
-      },
-      input: ['text', 'image'],
-    });
-    expect(first.status).toBe('completed');
-    const turnOnePrompts = promptsOf(0);
-    const turnOneLast = turnOnePrompts.at(-1);
-    if (turnOneLast === undefined)
-      throw new Error('Turn 1 made no provider request.');
-
+    // Turn 2 replays the same conversation on the same model.
     const second = await runTurn({
-      chatId: first.chatId,
+      chatId,
       modelId,
       behavior: turnTwo('Turn two done.'),
-      input: ['text', 'image'],
     });
     expect(second.status).toBe('completed');
-    const turnTwoPrompts = promptsOf(turnOnePrompts.length);
-    const turnTwoFirst = turnTwoPrompts[0];
+    const turnTwoFirst = promptsOf(start + turnOnePrompts.length)[0];
     if (turnTwoFirst === undefined)
       throw new Error('Turn 2 made no provider request.');
 
-    // The previous request, byte for byte.
-    expect(turnTwoFirst.slice(0, turnOneLast.length)).toEqual(turnOneLast);
+    // The previous request, byte for byte — member order included.
+    expect(JSON.stringify(turnTwoFirst.slice(0, turnOneLast.length))).toBe(
+      JSON.stringify(turnOneLast),
+    );
     // Then the response to that request: the final text step with the provider
     // metadata the live step sent, then turn 2's own user message.
     const tail = turnTwoFirst.slice(turnOneLast.length);
-    expect(tail[0]).toEqual({
-      role: 'assistant',
-      content: [
-        {
-          type: 'text',
-          text: FINAL_TEXT,
-          providerOptions: FINAL_TEXT_METADATA,
-        },
-      ],
-    });
+    expect(JSON.stringify(tail[0])).toBe(
+      JSON.stringify({
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: FINAL_TEXT,
+            providerOptions: FINAL_TEXT_METADATA,
+          },
+        ],
+      }),
+    );
     expect(tail[1]?.role).toBe('user');
   });
 
   it('a model switch keeps the previous request less the omitted parts', async () => {
     const firstModel = `prefix-a-${randomUUID()}`;
     const secondModel = `prefix-b-${randomUUID()}`;
-    const first = await runTurn({
-      modelId: firstModel,
-      behavior: {
-        kind: 'step-script',
-        steps: wholeTurn(draftPath, imagePath, notesPath),
-      },
-      input: ['text', 'image'],
-    });
-    expect(first.status).toBe('completed');
-    const turnOnePrompts = promptsOf(0);
-    const turnOneLast = turnOnePrompts.at(-1);
-    if (turnOneLast === undefined)
-      throw new Error('Turn 1 made no provider request.');
+    const { chatId, start, turnOnePrompts, turnOneLast } =
+      await turnOne(firstModel);
 
     const second = await runTurn({
-      chatId: first.chatId,
+      chatId,
       modelId: secondModel,
       behavior: turnTwo('Switched.'),
-      // The same media forms, so only the model rule differs.
-      input: ['text', 'image'],
     });
     expect(second.status).toBe('completed');
-    const turnTwoFirst = promptsOf(turnOnePrompts.length)[0];
+    const turnTwoFirst = promptsOf(start + turnOnePrompts.length)[0];
     if (turnTwoFirst === undefined)
       throw new Error('Turn 2 made no provider request.');
 
     // The top-level prompt is the one part a model switch replaces, so the
     // comparison starts after it (model-system-prompts).
     const expected = omitPrivateParts(turnOneLast);
-    expect(turnTwoFirst.slice(1, expected.length)).toEqual(expected.slice(1));
+    expect(JSON.stringify(turnTwoFirst.slice(1, expected.length))).toBe(
+      JSON.stringify(expected.slice(1)),
+    );
     const tail = turnTwoFirst.slice(expected.length);
-    expect(tail[0]).toEqual({
-      role: 'assistant',
-      content: [{ type: 'text', text: FINAL_TEXT }],
-    });
+    expect(JSON.stringify(tail[0])).toBe(
+      JSON.stringify({
+        role: 'assistant',
+        content: [{ type: 'text', text: FINAL_TEXT }],
+      }),
+    );
     expect(tail[1]?.role).toBe('user');
     const serialized = JSON.stringify(turnTwoFirst);
     expect(serialized).not.toContain('"reasoning"');
     expect(serialized).not.toContain('reasoning-step-0');
     expect(serialized).not.toContain('text-step-0');
     expect(serialized).not.toContain('"itemId"');
-    // The tool activity itself survives the switch.
+    // The tool activity itself survives the switch, JSON result included.
     expect(serialized).toContain('call-notes');
     expect(serialized).toContain('hello');
+    expect(serialized).toContain('"type":"json"');
   });
 
   it('a failed reply keeps the previous request less the omitted parts', async () => {
     const modelId = `prefix-fail-${randomUUID()}`;
+    const start = harness.models.prompts.length;
     const first = await runTurn({
       modelId,
       behavior: {
@@ -416,30 +534,67 @@ describeIfDb('turn replay prefix equality', () => {
           ],
         ],
       },
-      input: ['text', 'image'],
     });
     expect(first.status).toBe('failed');
-    const turnOnePrompts = promptsOf(0);
+    const turnOnePrompts = promptsOf(start);
     const turnOneLast = turnOnePrompts.at(-1);
     if (turnOneLast === undefined)
       throw new Error('Turn 1 made no provider request.');
 
     const parts = await assistantParts(first.chatId);
     expect(JSON.stringify(parts)).toContain('Thinking before the drop.');
+    // The failed reply stores the step-0 text and call with their step number,
+    // so replay must keep them in ONE assistant message (the split-step
+    // mutation is what this pins).
+    expect(
+      parts.find((part) => part['text'] === 'Reading notes.')?.['step'],
+    ).toBe(0);
+    expect(
+      parts.find((part) => part['toolCallId'] === 'call-notes')?.['step'],
+    ).toBe(0);
+    expect(turnOneLast.some((message) => message.role === 'tool')).toBe(true);
+    const grouped = turnOneLast.find(
+      (message) =>
+        message.role === 'assistant' &&
+        Array.isArray(message.content) &&
+        message.content.some(
+          (part) => isRecord(part) && part['text'] === 'Reading notes.',
+        ),
+    );
+    if (grouped === undefined || !Array.isArray(grouped.content))
+      throw new Error('Expected the step-0 assistant message');
+    expect(grouped.content).toEqual([
+      expect.objectContaining({
+        type: 'reasoning',
+        text: 'Plan the read.',
+        providerOptions: REASONING_METADATA,
+      }),
+      expect.objectContaining({
+        type: 'text',
+        text: 'Reading notes.',
+        providerOptions: FAILED_TEXT_METADATA,
+      }),
+      expect.objectContaining({
+        type: 'tool-call',
+        toolCallId: 'call-notes',
+        toolName: 'read',
+      }),
+    ]);
 
     const second = await runTurn({
       chatId: first.chatId,
       modelId,
       behavior: turnTwo('Recovered.'),
-      input: ['text', 'image'],
     });
     expect(second.status).toBe('completed');
-    const turnTwoFirst = promptsOf(turnOnePrompts.length)[0];
+    const turnTwoFirst = promptsOf(start + turnOnePrompts.length)[0];
     if (turnTwoFirst === undefined)
       throw new Error('Turn 2 made no provider request.');
 
     const expected = omitPrivateParts(turnOneLast);
-    expect(turnTwoFirst.slice(0, expected.length)).toEqual(expected);
+    expect(JSON.stringify(turnTwoFirst.slice(0, expected.length))).toBe(
+      JSON.stringify(expected),
+    );
     // The failed reply stored a reasoning part only, so it adds nothing.
     expect(turnTwoFirst.length).toBeGreaterThan(expected.length);
     expect(turnTwoFirst[expected.length]?.role).toBe('user');

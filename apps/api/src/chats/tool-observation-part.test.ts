@@ -32,7 +32,7 @@ function toolPart(overrides: UnknownRecord = {}): MessagePart {
 
 /** The one projected tool result pair for `part`. */
 function projectedPart(part: MessagePart): ProjectedToolObservationPair {
-  const projection = projectStoredToolPart(part, 0, 'msg-1:0');
+  const projection = projectStoredToolPart(part, 'msg-1:0');
   if (projection === undefined) throw new Error('Expected a tool projection');
   return projection.pair;
 }
@@ -602,7 +602,6 @@ describe('the live call provider metadata', () => {
   it('is carried on the pair for the model rule to replay', () => {
     const stored = projectStoredToolPart(
       toolPart({ providerMetadata: CALL_METADATA }),
-      0,
       'msg-1:0',
     );
 
@@ -616,12 +615,11 @@ describe('the live call provider metadata', () => {
 
   it('is undefined for a part that stores none or an unreadable value', () => {
     expect(
-      projectStoredToolPart(toolPart(), 0, 'msg-1:0')?.pair.providerMetadata,
+      projectStoredToolPart(toolPart(), 'msg-1:0')?.pair.providerMetadata,
     ).toBeUndefined();
     expect(
       projectStoredToolPart(
         toolPart({ providerMetadata: 'opaque-ish' }),
-        0,
         'msg-1:0',
       )?.pair.providerMetadata,
     ).toBeUndefined();

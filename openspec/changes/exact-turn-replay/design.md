@@ -131,7 +131,9 @@ unframed); keep the replay frame (the prefix breaks at the first tool result).
 
 The frame was the only untrusted label on replayed results. The live loop never
 had it, so the model already acts on unframed results in the turn that runs the
-tool. Neutralization of reserved delimiters stays on both paths.
+tool. Neutralization of reserved delimiters stays on both paths for every result
+llame renders; the AI SDK's refusal text is the one exception, carried
+un-neutralized by the live step and by its replay alike.
 
 ### D4: Rebuild from parts within one version
 
@@ -263,7 +265,16 @@ first request:
   cache; no new bound (D2).
 - [Replayed results lose the untrusted label] → The live loop never had it;
   neutralization stays. Prompt injection inside tool output is the same risk
-  live and on replay.
+  live and on replay. One result is not neutralized on either path: the AI
+  SDK's own refusal text, which replay must send unchanged (D3).
+- [A refused call with a non-portable tool name or id is still dropped on
+  replay] → Pre-existing and unchanged: the replayed call would be rejected by
+  the provider, so the guard stays and the prefix breaks at that part.
+  [#1568](https://github.com/leon0399/llame/issues/1568)
+- [Sentry's gen-AI instrumentation captures provider metadata from replayed
+  requests] → Pre-existing and enlarged now that later turns replay metadata
+  for a whole history. The operator doc names prompts as captured.
+  [#1567](https://github.com/leon0399/llame/issues/1567)
 - [A live step shape the projection does not rebuild, for example an in-Run
   item staged before the first tool result, or provider metadata on a part
   type not covered] → D14 fails on the first such difference; each case found

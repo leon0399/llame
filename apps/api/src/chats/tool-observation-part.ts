@@ -6,8 +6,8 @@
  * provider metadata of the live call, and the result is the one rendering that
  * `tool-result-rendering` makes — the live builder's output, or the SDK's own
  * error text for a call that the AI SDK refused before llame ran it (proposal
- * A8). Replay has no budget: it clears no payload and drops no pair, because a
- * checkpoint is the only boundary (`tool-replay` D2).
+ * A8). Replay clears no payload and drops no pair, because a checkpoint is the
+ * only boundary (`tool-replay` D2).
  */
 
 import type {
@@ -101,8 +101,6 @@ interface StoredToolPart {
 }
 
 export interface ProjectedToolObservationPair {
-  /** The stored part this pair replays, for the reply's step grouping. */
-  partIndex: number;
   toolCallPart: SdkToolCallPart;
   toolResultPart: SdkToolResultPart;
   /**
@@ -117,28 +115,6 @@ export interface ProjectedToolObservationPair {
    * metadata, because the result the SDK synthesized carried none.
    */
   refused: boolean;
-}
-
-interface ObservationPayload {
-  toolCallId: string;
-  toolName: string;
-  partIndex: number;
-  input: unknown;
-  /** The output the live loop sent for this call, rebuilt from the part. */
-  output: ToolResultOutput;
-  /**
-   * The image or PDF a `read` result names: its media id, or for an unstored
-   * file its submitted locator, dimensions or page count, and marker key. It
-   * replays only beside the retained payload, as a reference the step composer
-   * projects at request time (vision-media D6).
-   */
-  media: ToolMediaRef | undefined;
-  /** The entry `media` names, when the reference is retained. */
-  retained: { readonly key: string; readonly entry: RetainedMedia } | undefined;
-  /** The SDK's own account of a call it refused, when the part holds one. */
-  refusal: SdkRefusal | undefined;
-  /** The live call's opaque provider metadata, when the part holds one. */
-  providerMetadata: ProviderMetadata | undefined;
 }
 
 export function normalizeToolObservationOutcome(
@@ -289,40 +265,6 @@ function storedOutput(
   );
 }
 
-/** The SDK's `error-text` output for a call it refused (proposal A8). */
-function refusalOutput(refusal: SdkRefusal): ToolResultOutput {
-  return { type: 'error-text', value: refusal.errorText };
-}
-
-/**
- * One stored observation as the pair the live loop sent: the call with its
- * input (the SDK's own form for a refused call), and the result with the live
- * rendering, or the SDK's error text when the call was refused.
- */
-function makePair(
-  observation: ObservationPayload,
-): ProjectedToolObservationPair {
-  const { refusal } = observation;
-  return {
-    partIndex: observation.partIndex,
-    toolCallPart: {
-      type: 'tool-call',
-      toolCallId: observation.toolCallId,
-      toolName: observation.toolName,
-      input: refusal === undefined ? (observation.input ?? {}) : refusal.input,
-    },
-    toolResultPart: {
-      type: 'tool-result',
-      toolCallId: observation.toolCallId,
-      toolName: observation.toolName,
-      output:
-        refusal === undefined ? observation.output : refusalOutput(refusal),
-    },
-    providerMetadata: observation.providerMetadata,
-    refused: refusal !== undefined,
-  };
-}
-
 /**
  * The media reference a settled `read` part replays, with the entry it names.
  * A `media://` result names the store; any other image or PDF result names its
@@ -332,7 +274,7 @@ function makePair(
 function readObservationRef(
   part: StoredToolPart,
   mediaKey: string,
-): Pick<ObservationPayload, 'media' | 'retained'> {
+): Pick<StoredToolObservation, 'media' | 'retained'> {
   const named = mediaResultRef(part.output, submittedLocator(part.input));
   if (!isUnstoredMedia(named)) return { media: named, retained: undefined };
   const record = parseRetainedMedia(part.retainedMedia);
@@ -343,35 +285,6 @@ function readObservationRef(
         media: { ...named, key: mediaKey },
         retained: { key: mediaKey, entry },
       };
-}
-
-/** One stored tool part as the observation the projection works from. */
-function storedObservation(
-  part: MessagePart,
-  partIndex: number,
-  mediaKey: string,
-): ObservationPayload | undefined {
-  // eslint-disable-next-line anti-slop/no-known-value-widening -- stored parts are the open `MessagePart` union, so the guard must accept it whole and narrow it itself.
-  if (!isToolActivityPart(part)) return undefined;
-  const toolName = part.type.slice(TOOL_PART_PREFIX.length);
-  if (!isToolName(toolName)) return undefined;
-  const outcome = resolveOutcome(part);
-  const { media, retained } =
-    toolName === READ_TOOL_NAME && part.state === 'output-available'
-      ? readObservationRef(part, mediaKey)
-      : { media: undefined, retained: undefined };
-  return {
-    partIndex,
-    toolCallId: part.toolCallId,
-    toolName,
-
-    input: part.input,
-    output: storedOutput(part, toolName, outcome, media),
-    media,
-    retained,
-    refusal: storedRefusal(part.sdkRefusal),
-    providerMetadata: storedProviderMetadata(part.providerMetadata),
-  };
 }
 
 /** One stored tool part as its model-facing call and result pair. */
@@ -393,14 +306,39 @@ export interface StoredToolObservation {
  */
 export function projectStoredToolPart(
   part: MessagePart,
-  partIndex: number,
   mediaKey: string,
 ): StoredToolObservation | undefined {
-  const observation = storedObservation(part, partIndex, mediaKey);
-  if (observation === undefined) return undefined;
+  // eslint-disable-next-line anti-slop/no-known-value-widening -- stored parts are the open `MessagePart` union, so the guard must accept it whole and narrow it itself.
+  if (!isToolActivityPart(part)) return undefined;
+  const toolName = part.type.slice(TOOL_PART_PREFIX.length);
+  if (!isToolName(toolName)) return undefined;
+  const outcome = resolveOutcome(part);
+  const { media, retained } =
+    toolName === READ_TOOL_NAME && part.state === 'output-available'
+      ? readObservationRef(part, mediaKey)
+      : { media: undefined, retained: undefined };
+  const refusal = storedRefusal(part.sdkRefusal);
   return {
-    pair: makePair(observation),
-    media: observation.media,
-    retained: observation.retained,
+    pair: {
+      toolCallPart: {
+        type: 'tool-call',
+        toolCallId: part.toolCallId,
+        toolName,
+        input: refusal === undefined ? (part.input ?? {}) : refusal.input,
+      },
+      toolResultPart: {
+        type: 'tool-result',
+        toolCallId: part.toolCallId,
+        toolName,
+        output:
+          refusal === undefined
+            ? storedOutput(part, toolName, outcome, media)
+            : { type: 'error-text', value: refusal.errorText },
+      },
+      providerMetadata: storedProviderMetadata(part.providerMetadata),
+      refused: refusal !== undefined,
+    },
+    media,
+    retained,
   };
 }

@@ -368,7 +368,12 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           },
           { type: 'text', text: 'a3' },
         ],
-        usage: { costUsd: 0.5, model: 'gpt-x', runId: 'run-3' },
+        usage: {
+          status: 'completed',
+          modelId: 'test-model',
+          costUsd: 0.5,
+          runId: 'run-3',
+        },
         inReplyTo: q3.id,
       });
 

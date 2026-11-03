@@ -23,7 +23,7 @@ import { composeStepMessages } from '../models/step-composer';
 /** Every settled tool part of `parts`, projected in stored order. */
 const project = (parts: Array<MessagePart>): Array<StoredToolObservation> =>
   parts.flatMap((part, partIndex) => {
-    const stored = projectStoredToolPart(part, partIndex, `msg-1:${partIndex}`);
+    const stored = projectStoredToolPart(part, `msg-1:${partIndex}`);
     return stored === undefined ? [] : [stored];
   });
 
@@ -133,7 +133,6 @@ describe('projectStoredToolPart', () => {
       }),
     ]);
 
-    expect(stored?.pair.partIndex).toBe(1);
     expect(stored?.pair.toolCallPart).toMatchObject({
       type: 'tool-call',
       toolCallId: 'call-1',
@@ -371,9 +370,6 @@ describe('a stored result replays whole', () => {
     const stored = project(parts);
 
     expect(stored).toHaveLength(parts.length);
-    expect(stored.map(({ pair }) => pair.partIndex)).toEqual(
-      parts.map((_, index) => index),
-    );
     for (const { pair } of stored) {
       expect(toolOutputText(pair.toolResultPart.output)).toContain(
         'x'.repeat(9000),

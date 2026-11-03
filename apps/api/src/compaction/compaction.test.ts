@@ -594,6 +594,44 @@ describe('estimateContinuationTokens', () => {
     // … while the provider opaque metadata must not size it.
     expect(withMetadata).toBe(plain);
   });
+
+  it('does not count call metadata copied onto a replayed tool result', () => {
+    const question = msg('question');
+    const answer = msg('answer', 'assistant');
+    answer.usage = { status: 'completed', modelId: 'test-model' };
+    const estimateWith = (
+      providerMetadata?: Record<string, Record<string, string>>,
+    ): number =>
+      estimateContinuationTokens({
+        modelId: 'test-model',
+        rows: [
+          question,
+          {
+            ...answer,
+            parts: [
+              {
+                type: 'tool-search_conversations',
+                toolCallId: 'call-1',
+                state: 'output-available',
+                input: { query: 'q' },
+                output: { status: 'success', value: 'ok' },
+                outcome: 'success',
+                ...(providerMetadata !== undefined && { providerMetadata }),
+              },
+            ],
+          },
+        ],
+        railText: '',
+      });
+
+    // The live loop copies a call's metadata onto its result, so replay puts
+    // the same opaque blob on both parts; the estimator strips it from both.
+    expect(
+      estimateWith({
+        openai: { thoughtSignature: 'S'.repeat(40_000) },
+      }),
+    ).toBe(estimateWith());
+  });
 });
 
 describe('media sizing (vision-media D6, pdf-media D6)', () => {

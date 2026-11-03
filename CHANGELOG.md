@@ -29,9 +29,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   JSON output, and a native file, `bash`, `grep`, or `web_search` result replays
   as its text. The label, `Outcome:` line, and separate `Artifact:` line that
   only replay added are gone, and reserved delimiters are still neutralized
-  once on both paths. A spilled result names its artifact in its cap notice,
-  exactly as the live result did. The model-visible text of earlier turns
-  therefore changes once for existing Chats; no stored row or schema changes.
+  once on both paths, except the AI SDK's own refusal text, which the live step
+  and its replay both carry un-neutralized. A spilled result names its
+  artifact in its cap notice, exactly as the live result did. The model-visible
+  text of earlier turns therefore changes once for existing Chats; no stored
+  row or schema changes.
   In that revision the per-call and per-turn replay budget still applied, and a
   pair that it cleared carried only its outcome token; the replay entry above
   removes it. Refs

@@ -147,8 +147,14 @@ reasoning text elsewhere.
 
 #### Scenario: A resumed Run continues with its reasoning intact
 
-- **WHEN** a worker restarts between a tool call and its continuation, and the resumed Run rebuilds the request from persisted parts
-- **THEN** the continuation carries the earlier reasoning part with its metadata and its unchanged text
+- **WHEN** a worker restarts between a tool call and its continuation, and the owner continues the interrupted Run on its model
+- **THEN** the Continue request rebuilds from persisted parts and carries the earlier reasoning part with its metadata and its unchanged text
+
+#### Scenario: A later turn after an interrupted reply omits its reasoning
+
+- **WHEN** a worker restarts between a tool call and its continuation, the interrupted Run settles without completing, and the owner sends a new message
+- **THEN** the next request carries no reasoning part and no provider metadata of the interrupted reply
+- **AND** it carries that reply's text and tool activity
 
 #### Scenario: Provider metadata is never rendered or published
 

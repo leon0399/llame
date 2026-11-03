@@ -224,7 +224,10 @@ Deliberately unchanged, with the reading under which each holds:
   Responses invariant joins it. "exactly the options the client sent before
   this rule existed" refers to the precedence rule.
 - **`tool-result-rendering` "Tool result payloads are neutralized by the
-  reserved-name rule".** One neutralization on every path holds.
+  reserved-name rule".** One neutralization on every path holds for results
+  that llame renders. The AI SDK's own refusal text is the one result llame
+  never renders: the live step and its replay carry that text un-neutralized,
+  because replay must send what the live step sent.
 - **`media-attachments` epoch image window.** It depends on references and
   bounds, never on the replay budget.
 

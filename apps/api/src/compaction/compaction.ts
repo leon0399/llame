@@ -168,29 +168,49 @@ function estimateProjectionTokens(
     Math.ceil(
       JSON.stringify({
         system: projection.system,
-        messages: withoutProviderMetadata(messages),
+        messages: withoutPromptProviderOptions(messages),
         tools: projection.tools,
       }).length / 4,
     ) + mediaTokens
   );
 }
 
+/**
+ * One content part with its opaque provider metadata left undefined.
+ * `JSON.stringify` drops an `undefined` member, so the estimate measures
+ * exactly the serialization the request will have, and the part keeps its
+ * declared shape.
+ */
+function withoutPartProviderOptions<Part extends object>(part: Part): Part {
+  return 'providerOptions' in part
+    ? { ...part, providerOptions: undefined }
+    : part;
+}
+
 /** `messages` with every content part's opaque provider metadata removed. */
-function withoutProviderMetadata(
+function withoutPromptProviderOptions(
   messages: ReadonlyArray<ModelMessage>,
 ): ReadonlyArray<ModelMessage> {
   return messages.map((message) => {
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
-      return message;
+    switch (message.role) {
+      case 'system':
+        return message;
+      case 'user': {
+        const content = message.content;
+        if (!Array.isArray(content)) return message;
+        return { ...message, content: content.map(withoutPartProviderOptions) };
+      }
+      case 'assistant': {
+        const content = message.content;
+        if (!Array.isArray(content)) return message;
+        return { ...message, content: content.map(withoutPartProviderOptions) };
+      }
+      case 'tool':
+        return {
+          ...message,
+          content: message.content.map(withoutPartProviderOptions),
+        };
     }
-    return {
-      ...message,
-      content: message.content.map((part) => {
-        if (!('providerOptions' in part)) return part;
-        const { providerOptions: _opaque, ...rest } = part;
-        return rest;
-      }),
-    };
   });
 }
 
