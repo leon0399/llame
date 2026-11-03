@@ -9,7 +9,7 @@ one-based line range, and a bounded excerpt. `kb://`
 read, list, edit, and write results follow the result contract of the native file
 tools and carry the same Space identifier and display name. These fields describe
 what that live call observed. They MUST NOT claim that a path, a display name, an
-authorization binding, coordinates, or content stays the same. New results MUST
+authorization binding, coordinates, or content stays the same or replays forever. New results MUST
 expose no content hash, expected hash, revision, configured root, or resolved host
 path.
 

@@ -8,9 +8,9 @@ as opaque provider metadata on the same reasoning part. It MUST also persist the
 redacted payload of the block, where present. It uses the per-part
 provider-metadata channel that `reasoning-output` defines. Within a tool-use turn,
 the client MUST pass the blocks back. Across turns, it MUST pass back each block
-that the model rule of `reasoning-output` keeps in the request context. A prefix
-that a checkpoint absorbed is replaced by that checkpoint message under the
-context contract, so its blocks are not replayed. The reasoning-replay switch of
+that the model rule of `reasoning-output` keeps in the request context. The checkpoint
+message replaces the prefix that the checkpoint absorbed, under the context
+contract, so the blocks of that prefix do not replay. The reasoning-replay switch of
 the adapter MUST stay on as a client invariant, so the `providerOptions` of an
 operator cannot turn replay off.
 
@@ -25,8 +25,8 @@ empty text is the text that the provider produced, and its signature is what the
 replay needs.
 
 A replay MUST be safe when the prefix above it changes. A thinking block stays
-valid only while the earlier messages do not change. The top-level `system`
-prompt and the `tools` must also stay the same. llame rewrites that prefix on compaction and on
+valid only while the earlier messages, the top-level `system` prompt, and the
+`tools` do not change. llame rewrites that prefix on compaction and on
 prompt-receipt changes. Thus each request that carries adaptive thinking MUST
 tell the provider explicitly to drop the blocks whose bound prefix no longer
 matches. It MUST NOT depend on the default enforcement of the account. The
@@ -77,8 +77,10 @@ A response with no thinking output MUST stay a successful run.
 
 #### Scenario: A rewritten prefix drops stale blocks instead of failing
 
-- **WHEN** a request that carries adaptive thinking follows a compaction or a prompt-receipt change that rewrote the system prompt, the tools, or earlier messages above a replayed thinking block
-- **THEN** the request explicitly tells the provider to drop the blocks with a stale binding, and the run continues with no rejection
+- **WHEN** a compaction or a prompt-receipt change rewrote the system prompt, the tools, or earlier messages above a replayed thinking block
+- **AND** the next request carries adaptive thinking
+- **THEN** the request explicitly tells the provider to drop the blocks with a stale binding
+- **AND** the run continues with no rejection
 
 #### Scenario: A mid-run compaction does not fail the continuation
 
@@ -89,13 +91,15 @@ A response with no thinking output MUST stay a successful run.
 
 - **WHEN** the `providerOptions` of a model entry put any value at the thinking block binding (error, drop, or `null`), with or without a thinking type
 - **THEN** the client strips that value before composition
-- **AND** a request that carries adaptive thinking still carries the drop instruction of llame, and a request with no thinking configuration carries no thinking object that holds only the instruction
+- **AND** a request that carries adaptive thinking still carries the drop instruction of llame
+- **AND** a request with no thinking configuration carries no thinking object that holds only the instruction
 
 #### Scenario: A request without adaptive thinking carries no drop instruction
 
 - **WHEN** a model entry declares no `reasoning` and sets no thinking option, or its `providerOptions` set `thinking` to the manual-budget or the disabled shape
 - **THEN** the request carries no drop instruction and no thinking configuration that holds only the instruction
-- **AND** the operator documentation states that the default enforcement of the account can then reject a prefix rewrite, and that a `reasoning` declaration restores the instruction on models with adaptive thinking
+- **AND** the operator documentation states that the default enforcement of the account can then reject a prefix rewrite
+- **AND** it states that a `reasoning` declaration restores the instruction on models with adaptive thinking
 
 #### Scenario: A model switch replays blocks unchanged
 

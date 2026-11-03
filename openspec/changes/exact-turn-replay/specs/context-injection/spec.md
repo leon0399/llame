@@ -65,7 +65,7 @@ variant or original, the epoch image window, and the declared input of the reque
 Request assembly MUST map a `data-context` part on an assistant message to one user-role message
 with one text part that contains `data.text`. It MUST emit that message directly after the
 tool message of the step that holds the tool part before it in stored order. It MUST NOT merge the text into the
-assistant message's own content or into the tool-result message.
+assistant message's own content or into the tool message.
 
 Request assembly MUST map a `data-context` part on a `checkpoint` row to one user-role message with
 one text part that contains `data.text`. It MUST emit that message in place of the rows through the
@@ -117,8 +117,8 @@ MUST map to the unavailable placeholder that `media-attachments` defines, or to 
 placeholder for a PDF reference.
 
 Request assembly MUST build assistant and tool messages through the projection of `turn-replay`.
-Within one llame version, the messages that it gives to the AI SDK MUST follow the prefix rule of
-`turn-replay`. This is a rule on those messages. It is not a promise of byte identity on the provider
+The messages that it gives to the AI SDK MUST follow the prefix rule of `turn-replay`, where that
+rule applies. This is a rule on those messages. It is not a promise of byte identity on the provider
 wire, because SDK conversion, role grouping, and provider serialization can change.
 
 The current top-level system prompt is outside message history and can change. A checkpoint can
@@ -129,17 +129,13 @@ different stored form of superseded history.
 #### Scenario: A checkpoint row crosses the SDK boundary
 
 - **WHEN** a chat's effective history is replayed for one triggering user message
-- **THEN** the checkpoint supplied as one user-role message carrying its stored
-  text is the latest checkpoint whose absorbed-through sequence is below that user
-  message's sequence
-- **AND** no user or assistant row through that checkpoint's absorbed-through
-  sequence is supplied
+- **THEN** the checkpoint supplied as one user-role message carrying its stored text is the latest checkpoint whose absorbed-through sequence is below that user message's sequence
+- **AND** no user or assistant row through that checkpoint's absorbed-through sequence is supplied
 
 #### Scenario: Context data crosses the SDK boundary
 
 - **WHEN** a stored user message contains non-empty `data-context.data.text`
-- **THEN** the transition supplies one `{ type: "text", text: data.text }` part
-  in the same position
+- **THEN** the transition supplies one `{ type: "text", text: data.text }` part in the same position
 - **AND** no producer renderer, sanitizer, sorter, or manual join runs
 
 #### Scenario: An assistant-message context part crosses the SDK boundary
@@ -150,44 +146,35 @@ different stored form of superseded history.
 
 #### Scenario: SDK serialization changes
 
-- **WHEN** an SDK or provider release changes its wire representation while
-  accepting the same ordered UI parts
+- **WHEN** an SDK or provider release changes its wire representation while accepting the same ordered UI parts
 - **THEN** the application-level replay contract remains satisfied
 - **AND** the system does not claim provider-wire or cache-byte identity
 
 #### Scenario: Reasoning parts cross the boundary for their own Chat
 
-- **WHEN** request assembly builds a Run's request from stored parts that include
-  reasoning parts that the model rule of `reasoning-output` replays
-- **THEN** those parts are passed to the AI SDK in their stored positions with any
-  provider metadata they carry
+- **WHEN** request assembly builds a Run's request from stored parts that include reasoning parts that the model rule of `reasoning-output` replays
+- **THEN** those parts are passed to the AI SDK in their stored positions with any provider metadata they carry
 - **AND** every other declared display-only part is still omitted
 
 #### Scenario: Owner attachments are placed after context items and before text
 
-- **WHEN** a stored user message holds an activation item, its temporal row, one text part, and two
-  file parts stored after the text, the request model declares `image` input, and the epoch image
-  window attaches both references
-- **THEN** the request supplies, in order, the activation text, the temporal row text,
-  `Image 1 (media://<first id>):`, the first object's image part, `Image 2 (media://<second id>):`,
-  the second object's image part, and then the owner's text
-- **AND** each image part carries the referenced object's model variant, while the stored parts
-  still carry only their `media://` references
+- **WHEN** a stored user message holds an activation item, its temporal row, one text part, and two file parts stored after the text
+- **AND** the request model declares `image` input, and the epoch image window attaches both references
+- **THEN** the request supplies, in order, the activation text, the temporal row text, `Image 1 (media://<first id>):`, the first object's image part, `Image 2 (media://<second id>):`, the second object's image part, and then the owner's text
+- **AND** each image part carries the referenced object's model variant, while the stored parts still carry only their `media://` references
 
 #### Scenario: A text-only model receives labelled placeholders for attachments
 
-- **WHEN** a stored user message holds one text part and one file part and the request model's
-  `input` lacks `image`
-- **THEN** the file part maps to `Image 1 (media://<id>):` followed by the image placeholder text part
-  ahead of the owner's text
+- **WHEN** a stored user message holds one text part and one file part and the request model's `input` lacks `image`
+- **THEN** the file part maps to `Image 1 (media://<id>):` followed by the image placeholder text part ahead of the owner's text
 - **AND** no image part is supplied for that message
 
 #### Scenario: An image read result crosses as tool content
 
-- **WHEN** a later step of the Run that read an image replays that `read` tool part, the request
-  model declares `image` input, and the epoch image window attaches the reference
-- **THEN** the tool-result message carries an output of type `content` holding the result's text
-  followed by one image part built from the retained model variant in the stored tool part
+- **WHEN** a later step of the Run that read an image replays that `read` tool part on a model with `image` input
+- **AND** the epoch image window attaches the reference
+- **THEN** the tool message carries an output of type `content` with the text of the result
+- **AND** one image part built from the retained model variant in the stored tool part follows that text
 - **AND** the output carries no `thumbnail`
 
 #### Scenario: An image read result for a text-only model carries a placeholder
@@ -198,86 +185,70 @@ different stored form of superseded history.
 
 #### Scenario: An earlier turn's image read result carries the not-retained placeholder
 
-- **WHEN** a later turn on a model that declares `image` input replays a stored `read` tool part
-  whose result is an image result with no `media` field and no `retainedMedia`
+- **WHEN** a later turn on a model that declares `image` input replays a stored `read` image result
+- **AND** that result has no `media` field and no `retainedMedia`
 - **THEN** the tool output carries only the result's text
 - **AND** it carries no image part and no placeholder
 
 #### Scenario: An earlier turn's retained image read result crosses as tool content
 
-- **WHEN** a later turn on a model that declares `image` input replays a stored `read` tool part
-  that keeps retained bytes, and the epoch image window attaches the reference
-- **THEN** the tool output carries the result's text and then one image part built from the
-  retained model variant
+- **WHEN** a later turn on a model that declares `image` input replays a stored `read` tool part that keeps retained bytes
+- **AND** the epoch image window attaches the reference
+- **THEN** the tool output carries the result's text and then one image part built from the retained model variant
 - **AND** the output text carries no `thumbnail` and no retained bytes
 
 #### Scenario: A prompt-import image crosses as an image part or a placeholder
 
-- **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one
-  image entry, and the Run that imported it sends a request to a model declaring `image` input with
-  the reference attached by the epoch image window, and a later Run replays it to a model whose
-  `input` lacks `image`
-- **THEN** the first request supplies the item's text followed by one image part built from the
-  image's model variant
-- **AND** the second supplies the item's text followed by the image placeholder text part and no
-  image part for that entry
+- **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one image entry
+- **AND** the Run that imported it sent a request to a model with `image` input, and the epoch image window attached the reference
+- **AND** a later Run replays it to a model whose `input` lacks `image`
+- **THEN** the first request supplies the item's text followed by one image part built from the image's model variant
+- **AND** the second supplies the item's text followed by the image placeholder text part and no image part for that entry
 
 #### Scenario: Another owner's media never enters the request
 
-- **WHEN** a stored file part or `media://` image or PDF result in owner A's chat references a media
-  object owned by owner B
+- **WHEN** a stored file part or `media://` image or PDF result in owner A's chat references a media object owned by owner B
 - **THEN** no byte, dimension, page count, name, or media type of B's object appears in A's request
-- **AND** the reference maps to the unavailable placeholder, or to `[pdf media://<id> unavailable]`
-  for a PDF reference
+- **AND** the reference maps to the unavailable placeholder, or to `[pdf media://<id> unavailable]` for a PDF reference
 
 #### Scenario: Images and a PDF in one message are labelled by kind
 
-- **WHEN** a stored user message holds one text part and file parts for two images followed by one
-  PDF, the request model declares `image` and `pdf` input, and the epoch image window attaches all
-  three references
-- **THEN** the request supplies, ahead of the owner's text, `Image 1 (media://<first id>):`, the
-  first image part, `Image 2 (media://<second id>):`, the second image part,
-  `PDF 1 (media://<pdf id>):`, and one file part with `mediaType` `application/pdf` and the stored
-  name as `filename`, built from that object's original
+- **WHEN** a stored user message holds one text part and file parts for two images followed by one PDF
+- **AND** the request model declares `image` and `pdf` input, and the epoch image window attaches all three references
+- **THEN** the request supplies, ahead of the owner's text, `Image 1 (media://<first id>):`, the first image part, `Image 2 (media://<second id>):`, the second image part, `PDF 1 (media://<pdf id>):`, and one file part with `mediaType` `application/pdf` and the stored name as `filename`, built from that object's original
 - **AND** the stored parts still carry only their `media://` references
 
 #### Scenario: A model without PDF input receives a labelled PDF placeholder
 
-- **WHEN** a stored user message holds one text part and one file part referencing a stored 15-page
-  PDF named `paper.pdf`, and the request model's `input` lacks `pdf`
-- **THEN** the file part maps to `PDF 1 (media://<id>):` followed by
-  `[pdf media://<id> paper.pdf 15 pages, omitted: this model has no PDF input]` ahead of the owner's
-  text
+- **WHEN** a stored user message holds one text part and one file part that references a stored 15-page PDF named `paper.pdf`
+- **AND** the `input` of the request model lacks `pdf`
+- **THEN** the file part maps to `PDF 1 (media://<id>):` followed by `[pdf media://<id> paper.pdf 15 pages, omitted: this model has no PDF input]` ahead of the owner's text
 - **AND** no file part is supplied for that message
 
 #### Scenario: A PDF read result crosses as tool content
 
-- **WHEN** a later step of the Run that read a PDF replays that `read` tool part, the request model
-  declares `pdf` input, and the epoch image window attaches the reference
-- **THEN** the tool-result message carries an output of type `content` holding the result's text
-  followed by one file part built from the retained original in the stored tool part
+- **WHEN** a later step of the Run that read a PDF replays that `read` tool part on a model with `pdf` input
+- **AND** the epoch image window attaches the reference
+- **THEN** the tool message carries an output of type `content` with the text of the result
+- **AND** one file part built from the retained original in the stored tool part follows that text
 
 #### Scenario: An earlier turn's PDF read result carries the not-retained placeholder
 
-- **WHEN** a later turn on a model that declares `pdf` input replays a stored `read` tool part whose
-  result is a PDF result with no `media` field and no `retainedMedia`
+- **WHEN** a later turn on a model that declares `pdf` input replays a stored `read` PDF result
+- **AND** that result has no `media` field and no `retainedMedia`
 - **THEN** the tool output carries only the result's text
 - **AND** it carries no file part and no placeholder
 
 #### Scenario: An earlier turn's retained PDF read result crosses as tool content
 
-- **WHEN** a later turn on a model that declares `pdf` input replays a stored `read` tool part that
-  keeps retained bytes, and the epoch image window attaches the reference
-- **THEN** the tool output carries the result's text and then one file part built from the retained
-  original
+- **WHEN** a later turn on a model that declares `pdf` input replays a stored `read` tool part that keeps retained bytes
+- **AND** the epoch image window attaches the reference
+- **THEN** the tool output carries the result's text and then one file part built from the retained original
 
 #### Scenario: A prompt-import PDF crosses as a file part or a placeholder
 
-- **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one
-  PDF entry, and the Run that imported it sends a request to a model declaring `pdf` input with the
-  reference attached by the epoch image window, and a later Run replays it to a model whose `input`
-  lacks `pdf`
-- **THEN** the first request supplies the item's text followed by one file part built from the PDF's
-  original
-- **AND** the second supplies the item's text followed by the PDF omitted placeholder text part and
-  no file part for that entry
+- **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one PDF entry
+- **AND** the Run that imported it sent a request to a model with `pdf` input, and the epoch image window attached the reference
+- **AND** a later Run replays it to a model whose `input` lacks `pdf`
+- **THEN** the first request supplies the item's text followed by one file part built from the PDF's original
+- **AND** the second supplies the item's text followed by the PDF omitted placeholder text part and no file part for that entry

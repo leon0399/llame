@@ -6,8 +6,8 @@ A reasoning part of an earlier turn MUST replay only when two conditions are
 true. Its reply came from a Run with the llame model id of the request, and that
 Run completed. Otherwise the
 system MUST omit the part and its provider metadata. Within one turn, and in the
-kept parts of a Continue Run, a reasoning part replays when its Run used the model
-of the request. The system MUST NOT select reasoning parts by their content or
+kept parts of a Continue Run, a reasoning part MUST replay when its Run used the
+model of the request. The system MUST NOT select reasoning parts by their content or
 their age.
 
 #### Scenario: The same model keeps earlier reasoning
@@ -85,13 +85,13 @@ Chat. The privacy of the parts stays the same everywhere else.
 
 #### Scenario: Chat Completions replay carries earlier turns' reasoning
 
-- **WHEN** a later request of the same Chat goes to an `openai-completions` provider on the model of an earlier completed turn that persisted reasoning
+- **WHEN** an earlier completed turn persisted reasoning, and a later request goes to the same `openai-completions` model
 - **THEN** the reasoning text of that turn goes back as the `reasoning_content` of its assistant message
 - **AND** a backend that requires it with `tools` present (DeepSeek) accepts the request
 
 #### Scenario: Responses replay skips parts its wire cannot carry
 
-- **WHEN** a later request of the same Chat goes to an `openai-responses` provider, and a persisted reasoning part carries no encrypted content
+- **WHEN** a later request goes to an `openai-responses` provider, and a persisted reasoning part carries no encrypted content
 - **THEN** the request does not carry that part
 - **AND** the request succeeds, and the parts that carry them replay
 
@@ -99,7 +99,8 @@ Chat. The privacy of the parts stays the same everywhere else.
 
 - **WHEN** a Chat that copied the messages of another Chat continues on the model that produced them
 - **THEN** its own stored reasoning parts and their metadata replay, so its model-facing prefix matches the Chat that it copied
-- **AND** a provider that no longer accepts a copied item fails or ignores it under the existing failure contract, and llame does not rewrite or remove it
+- **AND** a provider that no longer accepts a copied item fails or ignores it under the failure contract
+- **AND** llame does not rewrite or remove the item
 
 ### Requirement: Reasoning parts carry durable provider metadata
 

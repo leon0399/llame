@@ -11,7 +11,7 @@ portable prior user and assistant history, and it MUST omit the prior top-level 
 MUST put a trusted model-switch reminder directly before the triggering user text. It MUST use the
 runtime tool declarations of the target attempt.
 
-Portable history MUST use the canonical replay projection. That projection holds visible user and
+Portable history MUST use the projection of `turn-replay`. That projection holds visible user and
 assistant text, owner `file` parts, and typed server-generated conversation checkpoints. It also
 holds the replayed tool observations that the `tool-calling` capability requires, image `read`
 results included. The system MUST project
@@ -26,7 +26,7 @@ a later vision model as an image part when the epoch image window of that reques
 The system MUST NOT make, change, or bind again the provider-native thinking, signature, or cache
 metadata of an origin model for the target model. Reasoning parts and their provider metadata
 replay under the `reasoning-output` capability. After a model switch, it omits the reasoning parts of
-the replies of other models. It gives each other part back unchanged. An unavailable target model MUST fail visibly, and the system MUST NOT run
+the replies of other models. It gives back unchanged each part that its model rule keeps. An unavailable target model MUST fail visibly, and the system MUST NOT run
 a different model as fallback.
 
 Tool observations are not display-only. The system replays them in the conventional tool-call and
@@ -49,9 +49,10 @@ NOT make, change, or bind again the provider metadata of an origin model for a d
 - **WHEN** an earlier assistant turn persisted reasoning, provider-native metadata, or settled tool activity/results alongside visible answer text
 - **AND** a later turn uses the same model or switches providers or models
 - **AND** the settled tool activity is above the active checkpoint's absorbed-through boundary, or no active checkpoint exists
-- **THEN** the later model receives the visible answer text through the canonical replay projection
+- **THEN** the later model receives the visible answer text through the projection of `turn-replay`
 - **AND** it receives the earlier tool observations in the target provider's expected representation, each call accompanied by its result
-- **AND** the persisted reasoning parts of that turn replay unchanged on the same model, and a switch omits them under `reasoning-output`, with no coercion or re-binding for the later model
+- **AND** the persisted reasoning parts that the model rule of `reasoning-output` keeps replay unchanged
+- **AND** a switch omits them, with no coercion or re-binding for the later model
 
 #### Scenario: Target context window cannot fit portable history
 
@@ -103,7 +104,7 @@ NOT make, change, or bind again the provider metadata of an origin model for a d
 
 The visible output and tool observations of a failed attempt MUST stay part of the committed
 record. They MUST take part in later model context and compaction as the output of a successful
-turn does, through the canonical replay projection. Their reasoning parts replay under
+turn does, through the projection of `turn-replay`. Their reasoning parts replay under
 `reasoning-output`. One difference applies: a failed, cancelled, or expired Run gives no measured
 context size, as the checkpoint contract below requires. Rail context that an attempt makes also
 persists in the transaction that dispatches the model request that carries it. It persists on the

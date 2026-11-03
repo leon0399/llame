@@ -3,11 +3,9 @@
 ### Requirement: Earlier tool activity takes part in later model context
 
 The tool activity of a committed turn MUST stay in later model context until a
-checkpoint absorbs it, through the projection of `turn-replay`. This includes a
-failed, cancelled, expired, or superseded attempt, as the user saw it, until a
-follow-up Run from `turn-actions` replaces the reply. A failed call MUST keep its
-outcome and MUST NOT disappear. The live tool loop MUST observe its own results
-in the Run that made them.
+checkpoint absorbs it, through the projection of `turn-replay`. A failed call
+MUST keep its outcome and MUST NOT disappear. The live tool loop MUST observe its
+own results in the Run that made them.
 
 #### Scenario: A later turn can use an earlier tool result
 
@@ -20,13 +18,6 @@ in the Run that made them.
 - **THEN** later replay carries a matched result that reports that outcome
 - **AND** the system does not omit the call because it failed
 
-#### Scenario: A cancelled call is projected as cancelled
-
-- **WHEN** an unsuccessful Run termination settled an earlier call
-- **THEN** operational and UI replay report its matched `cancelled` result
-- **AND** the persisted output of that failed attempt stays part of model history like any other committed turn
-- **AND** it stays different from an error that a tool produced
-
 #### Scenario: A model or provider switch keeps observations
 
 - **WHEN** a Chat with tool activity continues on another model or provider
@@ -37,6 +28,22 @@ in the Run that made them.
 
 - **WHEN** a tool executes during a Run
 - **THEN** its result stays available in the tool loop of that same Run
+
+### Requirement: A failed attempt stays in later context as the user saw it
+
+The prospective cutover boundary in `context-injection` MUST govern the retention
+of failed attempts. The system MUST NOT filter or rebuild the current
+conversation state retrospectively. A failed, cancelled, expired, or superseded
+attempt MUST stay in later context as the user saw it, until a follow-up Run from
+`turn-actions` replaces the reply. Its reasoning parts follow the model rule of
+`reasoning-output`.
+
+#### Scenario: A cancelled call is projected as cancelled
+
+- **WHEN** an unsuccessful Run termination settled an earlier call
+- **THEN** operational and UI replay report its matched `cancelled` result
+- **AND** the persisted output of that failed attempt stays part of model history
+- **AND** it stays different from an error that a tool produced
 
 #### Scenario: A follow-up Run replaces the record of a failed attempt
 
@@ -98,9 +105,9 @@ summary. Replay of the rows after a checkpoint MUST NOT read the checkpoint.
 ### Requirement: No tool observation is rebuilt from a checkpoint
 
 Checkpoint text MUST stay owner-scoped like the checkpoint row that carries it.
-The system MUST NOT rebuild a tool observation from summary prose, from the text
-of an older checkpoint, or from an inference about the contents of an absorbed
-turn.
+The system MUST NOT rebuild a tool observation from summary prose or from the text
+of an older checkpoint. It MUST NOT rebuild one from an inference about the
+contents of an absorbed turn.
 
 #### Scenario: A checkpoint without stored text cannot recover absorbed observations
 
@@ -111,14 +118,20 @@ turn.
 ### Requirement: A stored tool part records its step
 
 A stored tool part MUST record, as `step`, the number of the model step that
-called it. The number MUST be the step number of the `tool.requested` event of
-that call. A part stored before this change has no `step`, and the system MUST
-NOT add one to it.
+called it. The number MUST come from the `tool.requested` event of that call. In
+a Continue Run, the numbers MUST continue after the highest step of the kept
+parts. A part stored before this change has no `step`, and the system MUST NOT
+add one to it.
 
 #### Scenario: Two parallel calls record one step
 
 - **WHEN** one model response in step 2 calls `read("a.md")` and `read("b.md")`
 - **THEN** both stored tool parts record `step: 2`
+
+#### Scenario: A Continue Run numbers its steps after the kept steps
+
+- **WHEN** the kept parts of a Continue Run end with a call at `step: 1`, and the first step of the Continue Run calls `read("c.md")`
+- **THEN** the stored tool part of that call records `step: 2`
 
 #### Scenario: An old part keeps no step
 
@@ -127,8 +140,8 @@ NOT add one to it.
 
 ### Requirement: Tool results store images without image data
 
-A tool result with an image MUST be stored in its tool part as the native image
-result. The result MUST NOT carry a media descriptor, image bytes, or base64
+The system MUST store a tool result with an image in its tool part as the native
+image result. The result MUST NOT carry a media descriptor, image bytes, or base64
 content. Only a `media://` read names its image, by a `media://` locator in
 `media`. Each other image result has no `media` field, and the tool part keeps its
 retained bytes and display `thumbnail` as `media-attachments` defines.
@@ -162,7 +175,8 @@ A replayed image MUST become provider image content, built at request time, only
 when three conditions are true. The model declares `image` input, the model
 variant is available, and the epoch image window attaches the reference. A `media://` result takes its variant
 from the media store, and each other result from its retained bytes. This applies
-to each request that `turn-replay` builds.
+to a later step, a later turn, a Continue Run, an owner fork, a compaction
+request, and a reply rebuilt from the event log.
 
 #### Scenario: An attached image result replays as image content
 
@@ -192,7 +206,8 @@ These placeholders MUST NOT fail the request.
 
 #### Scenario: An earlier turn's image read replays as not retained
 
-- **WHEN** a later turn on a model that declares `image` input replays the stored image result of `read("/work/shot.png")` for a 1600×900 image, and that tool part has no `retainedMedia`
+- **WHEN** a later turn on a model with `image` input replays the stored result of `read("/work/shot.png")` for a 1600×900 image
+- **AND** that tool part has no `retainedMedia`
 - **THEN** the text of the replayed result carries the fields of the result and no placeholder
 - **AND** the request carries no image content for that result
 
@@ -318,8 +333,8 @@ inventory does not change tool availability. Thus
 `knowledge_space_not_configured` MUST appear only as a tool-call result, not as a
 runtime availability state. When the process has no Knowledge configuration, the
 system MUST use the safe `knowledge_space_unavailable` label. A recovery notice
-MUST name the restored tool and MUST NOT state a prior cause, because the
-previous committed record stores only the id and the state.
+MUST name the restored tool and MUST NOT state a prior cause. The previous
+committed record stores only the id and the state.
 
 #### Scenario: Knowledge tool is not allowlisted
 
@@ -420,8 +435,8 @@ placeholder.
 
 #### Scenario: An attached PDF result replays as file content
 
-- **WHEN** a later step of the Run that read `/work/paper.pdf`, on a model that declares `pdf` input,
-  replays its PDF result and the epoch image window attaches the reference
+- **WHEN** a later step of the Run that read `/work/paper.pdf` replays its PDF result, on a model with `pdf` input
+- **AND** the epoch image window attaches the reference
 - **THEN** the replayed result carries its text and the PDF as provider file content built from the
   retained original in its stored tool part
 - **AND** the call remains immediately paired with its result
@@ -435,9 +450,9 @@ placeholder.
 
 #### Scenario: An earlier turn's PDF read replays as not retained
 
-- **WHEN** a later turn, a Continue Run, a compaction request, or a fork on a model that declares
-  `pdf` input replays the stored PDF result of `read("/work/paper.pdf")` for a 15-page PDF, and
-  that tool part has no `retainedMedia`
+- **WHEN** a later turn, a Continue Run, a compaction request, or a fork replays the stored PDF result
+  of `read("/work/paper.pdf")` for a 15-page PDF, on a model with `pdf` input
+- **AND** that tool part has no `retainedMedia`
 - **THEN** the replayed result's text carries the fields of the result and no placeholder
 - **AND** the request carries no file content for that result and does not fail
 
@@ -458,9 +473,9 @@ placeholder.
 
 #### Scenario: A PDF result beyond the window replays as the limit placeholder
 
-- **WHEN** a request on a model that declares `pdf` input replays the PDF result of
-  `read("/work/paper.pdf")` for a 15-page PDF whose reference is beyond the epoch image window's
-  bounds
+- **WHEN** a request on a model with `pdf` input replays the PDF result of `read("/work/paper.pdf")`
+  for a 15-page PDF
+- **AND** its reference is beyond the bounds of the epoch image window
 - **THEN** the replayed result's text carries
   `[pdf "/work/paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`
 - **AND** the request carries no file content for that result

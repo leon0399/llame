@@ -14,26 +14,20 @@ MUST NOT keep a second builder for stored turns.
 
 #### Scenario: Continue and a later turn replay a reply the same way
 
-- **WHEN** a Continue Run keeps the parts of a stored reply, and a later turn replays the same parts
+- **WHEN** a Continue Run keeps the parts of a stored reply, and a later turn replays the same parts on the same model
 - **THEN** both requests carry the same messages for those parts
-
-#### Scenario: A new feature replays through the projection
-
-- **WHEN** a new feature sends the stored turns of a Chat to a model
-- **THEN** its request carries the messages that the projection builds for those turns
-- **AND** the feature adds no builder of its own
 
 ### Requirement: A later request starts with the previous request
 
-With one llame version, the first request of a turn MUST start with the messages
-of the last request of the previous turn. The messages of the response to that
-request MUST follow them. This covers the rows after the latest checkpoint. A new
-checkpoint, an edit, or a replaced reply changes the history, and the rule then
-applies to the new history.
+This rule applies when the previous reply completed on the model of the new turn,
+with one llame version. The first request of the turn MUST then start with the
+messages of the last request of the previous turn. The messages of the response
+to that request MUST follow them. A new checkpoint, an edit, or a replaced reply
+changes the history, and the rule then applies to the new history.
 
 #### Scenario: The next turn extends the previous request
 
-- **WHEN** turn 1 makes three model requests, and the owner then sends turn 2
+- **WHEN** turn 1 completes on `sonnet` after three model requests, and turn 2 runs on `sonnet`
 - **THEN** the first request of turn 2 starts with the messages of the third request of turn 1
 - **AND** the messages of the response to that request follow them
 
@@ -42,11 +36,11 @@ applies to the new history.
 - **WHEN** an earlier tool result holds an image that the epoch image window attaches
 - **THEN** a later request carries the same image content at the same position as the earlier request
 
-#### Scenario: An upgrade can change the prefix
+#### Scenario: A model switch changes only the omitted parts
 
-- **WHEN** llame is upgraded between two turns
-- **THEN** the system gives no prefix guarantee across the upgrade
-- **AND** the first turn after the upgrade starts the rule again
+- **WHEN** turn 1 completes on `sonnet`, and turn 2 runs on `glm-5`
+- **THEN** the first request of turn 2 starts with the messages of the last request of turn 1 and of its response
+- **AND** those messages do not have the reasoning parts and the provider metadata that the model rule of `reasoning-output` omits
 
 ### Requirement: Replay removes nothing that a checkpoint has not absorbed
 
@@ -57,7 +51,8 @@ of its model, the compaction rules of `model-system-prompts` apply.
 
 #### Scenario: A long tool turn replays whole
 
-- **WHEN** an earlier turn made 19 calls with 176,510 characters of tool parts, with a `read` result of 8,629 characters and an `edit` input of 22,240 characters
+- **WHEN** an earlier turn made 19 calls with 176,510 characters of tool parts
+- **AND** one `read` result has 8,629 characters, and one `edit` input has 22,240 characters
 - **THEN** the next request carries each of the 19 calls with its full input and its full result
 - **AND** the request carries no omission marker
 
@@ -67,13 +62,32 @@ of its model, the compaction rules of `model-system-prompts` apply.
 - **THEN** the system compacts the history or fails with `context_incompatible`, as `model-system-prompts` defines
 - **AND** the system does not clear or drop a part of a tool call
 
+### Requirement: A refused call replays as the live step sent it
+
+A call that the AI SDK refused before llame ran it MUST replay the error text that
+the SDK sent for it. Its input MUST replay as the live step sent it: an empty
+object when the stored input is not an object. The stored error text of a
+refused call MUST be the text that the SDK sent.
+
+#### Scenario: A call to an unknown tool replays the SDK error
+
+- **WHEN** the model called `fetch_page`, which no declaration names, and a later turn replays that call
+- **THEN** the replayed result is the error text that the SDK sent in the live step
+- **AND** the replayed result names the same available tools as the live step
+
+#### Scenario: Unparsable input replays as an empty object
+
+- **WHEN** the model called `read` with the input `not valid json{{{`, and a later turn replays that call
+- **THEN** the replayed call carries the input `{}`, as the live step did
+
 ### Requirement: Tool results replay in their live rendering
 
 A replayed tool result MUST carry the output that the live loop sent for that
 call: the same output type and the same text. The rendering of
 `tool-result-rendering` makes both. The system MUST NOT add a frame, an outcome
 line, an artifact line, or other text to a replayed result. A JSON result MUST
-replay as a JSON output.
+replay as a JSON output. A call with no live result MUST replay the failure
+rendering of its stored outcome.
 
 #### Scenario: A text result replays as it was sent
 
@@ -92,6 +106,11 @@ replay as a JSON output.
 - **THEN** the replayed text carries that cap notice as the live loop sent it
 - **AND** the result carries no separate `Artifact:` line
 
+#### Scenario: A call that ended with its Run replays its outcome
+
+- **WHEN** a Run was cancelled while a `read` call was open, and a later turn replays that call
+- **THEN** the replayed result is the failure rendering of `tool-result-rendering` for the outcome `cancelled`
+
 #### Scenario: A failure replays as it was sent
 
 - **WHEN** an earlier `read` call failed with `permission_denied` for a refused redirect hop
@@ -101,9 +120,10 @@ replay as a JSON output.
 
 The parts of one model step MUST replay as one assistant message, then one tool
 message with the results of its calls. The assistant message MUST hold the
-reasoning, the text, and the calls of that step in stored order. Tool parts with
-the same step number belong to one step. Consecutive tool parts with no step
-number form one step.
+reasoning, the text, and the calls of that step in stored order. A tool part
+starts a new step when its step number differs from that of the tool part before
+it. Reasoning and text belong to the step of the next tool part, or to the final
+step. Consecutive tool parts with no step number form one step.
 
 #### Scenario: Parallel calls replay as one step
 
@@ -120,6 +140,12 @@ number form one step.
 
 - **WHEN** a step wrote visible text and then called a tool
 - **THEN** one assistant message carries the text and then the call
+
+#### Scenario: Text between two parallel calls stays in their step
+
+- **WHEN** one model response wrote text, called `read("a.md")`, wrote more text, and called `read("b.md")`
+- **THEN** one assistant message carries the first text, the first call, the second text, and the second call
+- **AND** one tool message carries both results
 
 #### Scenario: Parts with no step number use the consecutive rule
 
@@ -152,7 +178,7 @@ request.
 
 #### Scenario: A compaction request extends the previous request
 
-- **WHEN** a compaction runs on the model of the previous turn, before the first step of a new turn
+- **WHEN** the previous turn completed on a model, and a compaction runs on that model before the first step of a new turn
 - **THEN** its request starts with the messages of the last request of the previous turn and of its response
 - **AND** the summarization instruction is the last message
 
@@ -163,16 +189,17 @@ request.
 
 ### Requirement: Stored parts keep the provider metadata of the live step
 
-A stored text part and a stored tool part MUST keep the provider metadata that
-the adapter attached to the live text, tool call, and tool result. A later request
-MUST send that metadata back unchanged when its reply passes the model rule of
-`reasoning-output`. Otherwise the request MUST carry the part without its provider
-metadata. The metadata MUST stay opaque, under the rule of `reasoning-output` for
-reasoning metadata.
+A stored text part MUST keep the provider metadata of the live text, and a stored
+tool part MUST keep that of the live call. A later request MUST send it back
+unchanged when its reply meets the model rule of
+`reasoning-output`. The result of a call that ran MUST carry the metadata of its call.
+Otherwise the part MUST replay with no provider metadata. The metadata MUST stay
+opaque, as `reasoning-output` requires.
 
 #### Scenario: The same model gets the metadata back
 
-- **WHEN** a completed reply on an `openai-responses` model stored a text part and a tool call with item ids, and the next turn runs on that model
+- **WHEN** a completed reply on an `openai-responses` model stored a text part and a tool call with item ids
+- **AND** the next turn runs on that model
 - **THEN** the request carries the text part and the tool call with the item ids that the live step sent
 
 #### Scenario: A model switch drops the metadata and keeps the parts

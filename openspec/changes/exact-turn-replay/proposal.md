@@ -36,8 +36,11 @@ open proposal [#1257](https://github.com/leon0399/llame/pull/1257) for
   a Continue Run, and a compaction request. Every future feature that sends
   stored turns to a model must use it too.
 - **A later request starts with what the previous request sent.** With one
-  llame version, the request of turn N+1 starts with the messages of the last
-  request of turn N, then the response to that request.
+  llame version, when turn N completed on the model of turn N+1, the request of
+  turn N+1 starts with the messages of the last request of turn N, then the
+  response to that request. After a model switch or a reply that did not
+  complete, the only difference is the reasoning and provider metadata that the
+  model rule omits.
 - **BREAKING: no replay budget.** Replay removes nothing that a checkpoint has
   not absorbed. The 8,000 and 32,000 limits are removed. So are payload
   clearing, the `input: {}` substitute, the omission marker, and the
@@ -48,9 +51,14 @@ open proposal [#1257](https://github.com/leon0399/llame/pull/1257) for
   untrusted-output frame is removed, and so is the replay-only
   `Artifact: <locator>` line. The cap notice already names the artifact.
 - **Steps replay as steps.** A stored tool part records the step that called
-  it. The calls of one step replay as one assistant message, then one tool
-  message. A part with no step number uses today's Continue rule: consecutive
-  tool parts are one step.
+  it, and a Continue Run numbers its steps after the kept ones. The calls of
+  one step replay as one assistant message, then one tool message. A part with
+  no step number uses today's Continue rule: consecutive tool parts are one
+  step.
+- **A refused call replays as the live step sent it.** For a call that the AI
+  SDK refused (an unknown tool or invalid input), the live step sends the SDK's
+  error text and an empty input when the input does not parse. The stored part
+  keeps that text, and replay sends it (A8).
 - **Stored parts keep their bytes.** `messages.parts` changes from `jsonb` to
   `json`, so object keys keep the order in which they were written. Text and
   tool parts also keep the provider metadata of the live step (A7).
@@ -64,13 +72,15 @@ open proposal [#1257](https://github.com/leon0399/llame/pull/1257) for
   never shares a cache prefix with the Run it summarizes.
 - **Continue uses the same projection.** The `steps` and `results` maps of the
   `run.continued` event are removed. Its kept `parts` stay.
-- **The `openai-responses` wire sends `store: false`** and asks for encrypted
-  reasoning content, as the Codex wire does. Today it replays reasoning as
-  `item_reference` ids. Those ids depend on server-side retention at OpenAI.
+- **The `openai-responses` wire sends `store: false`**, as the Codex wire does.
+  An entry that declares `reasoning` also asks for encrypted reasoning content.
+  Today the wire replays reasoning as `item_reference` ids, which depend on
+  server-side retention at OpenAI.
 - **Amendment to the in-flight `tool-result-artifacts` change.** Its unsynced
   ADDED requirement "A replayed pair keeps its artifact locator" is removed,
-  with its scenarios. Its proposal and design text that keeps the 8,000 and
-  32,000 budgets is changed to point here.
+  with its scenarios. Its `web-search` delta no longer says that the result
+  replays as untrusted tool output. Its proposal and design text that keeps the
+  8,000 and 32,000 budgets points here.
 
 ## Assumptions, confirmed with Leo
 
@@ -106,9 +116,9 @@ Assumptions that follow from these but were never asked:
   provider entry is part of that model entry, so "same provider entry and
   model id" means the same llame model id.
 - **A2.** A reply "did not fail" when its row records `usage.status`
-  `completed`. The reasoning parts of a `failed`, `cancelled`, or `expired`
-  reply do not replay on later turns. Their text and tool parts still replay,
-  as today.
+  `completed`. A reply with `error`, `aborted`, or no status (a row from before
+  usage existed) does not replay its reasoning or its provider metadata on later
+  turns. Its text and tool parts still replay, as today.
 - **A3.** A Continue Run continues the same turn, so its kept reasoning replays
   under the same-model rule even when the source Run failed. This keeps the
   `turn-actions` scenario that continues a `failed` Run with encrypted
@@ -122,12 +132,19 @@ Assumptions that follow from these but were never asked:
   Both are deterministic for the same input.
 - **A6.** The prompt-cache gain is a provider effect that this change does not
   measure. The test proves request-prefix equality, not cache hits.
-- **A7.** The live step sends provider metadata on text parts, tool calls, and
-  tool results (the item ids of the Responses wire, for example). llame stores
-  it only on reasoning parts today. To rebuild the live bytes from parts, text
-  and tool parts keep it too, and it replays under the same model rule as
-  reasoning, as OpenCode does. This was found after the grilling; please
-  confirm.
+- **A7.** The live step sends provider metadata on text parts and tool calls
+  (the item ids of the Responses wire, for example), and the SDK copies the
+  metadata of a call onto its result. llame stores it only on reasoning parts
+  today. To rebuild the live bytes from parts, text and tool parts keep it too,
+  and it replays under the same model rule as reasoning, as OpenCode does. This
+  needs a new text-part seam in each model client. It was found after the
+  grilling; please confirm.
+- **A8.** For a call that the AI SDK refused, the live step sends the SDK's
+  error text (for an unknown tool, it names the available tools) and `{}` for
+  input that does not parse. Today llame stores its own refusal message and the
+  raw input string. To replay what the live step sent, the stored error text of
+  such a call becomes the SDK's text. The owner sees that text too. Found in
+  review; please confirm.
 
 ## Capabilities
 
@@ -151,10 +168,14 @@ Assumptions that follow from these but were never asked:
       loses the cleared-payload `incomplete` outcome
     - "PDF tool observations are stored and replayed like image results", which
       loses the budget scenarios
-  - ADDED: earlier tool activity takes part in later context; every replayed
-    call has its result; a stored tool part records its step; tool results
-    store images without image data; replayed images attach under the epoch
-    window.
+  - ADDED: earlier tool activity takes part in later model context; a failed
+    attempt stays in later context as the user saw it; a stored failure replays
+    with its stored outcome; every replayed call has its result; absorbed tool
+    activity crosses a checkpoint only as summary text; no tool observation is
+    rebuilt from a checkpoint; a stored tool part records its step; tool
+    results store images without image data; no thumbnail or retained byte
+    reaches the model; a replayed image result attaches under the epoch image
+    window; a replayed image that cannot attach becomes a placeholder.
 - **`context-injection`.** MODIFIED: "Stored parts cross a minimal SDK
   conversion boundary" and "User-authored text is neutralized before
   persistence". Both lose the #599 exception, the budget, and the
@@ -180,17 +201,18 @@ Assumptions that follow from these but were never asked:
   budget", which drops the replay budgets.
 - **`provider-api-selection`.** ADDED: the Responses wire stores no response
   and carries encrypted reasoning.
+- **`durable-runs`.** MODIFIED: "Final assistant-message projection preserves
+  replay order". A failed attempt's reasoning follows the model rule.
+- **`subscription-access-openai-codex`.** MODIFIED: "Preserve llame execution
+  semantics". Text and tool metadata persist under `turn-replay`, and replay
+  follows the model rule.
 
 Deliberately unchanged, with the reading under which each holds:
 
-- **`durable-runs` "Final assistant-message projection preserves replay
-  order".** "That persisted record MUST become model history" holds per part
-  kind: `turn-replay` and `reasoning-output` decide which parts of a record a
-  later request carries. The rebuild still starts with the kept `parts` of
-  `run.continued`, which this change keeps.
-- **`subscription-access-openai-codex` "Preserve llame execution semantics".**
-  "replayed only to the provider on requests for the same Chat" is a necessary
-  condition. The model rule of `reasoning-output` adds a second one.
+- **`web-search` "Stored output is the normalized result only".** "replay into
+  later turns as untrusted tool output like any other tool result" holds as a
+  statement about the data, not about a label. The `tool-result-artifacts`
+  delta that rewrites this requirement drops the phrase.
 - **`owner-chat-forks`.** "SHALL NOT … re-budget inherited content" stays
   true, because nothing re-budgets content after this change. Prefix equality
   "under identical continuation inputs and runtime versions" matches D4.
@@ -227,8 +249,8 @@ Deliberately unchanged, with the reading under which each holds:
 - **Docs.** `SPEC.md` §28.2, `docs/product/reference/tools/model-output.md`,
   `docs/product/reference/continue-a-turn.md`, `tools/edit.md`, and
   `CHANGELOG.md`.
-- **Other changes.** `tool-result-artifacts` loses one ADDED requirement. PR
-  #1257 closes as superseded.
+- **Other changes.** `tool-result-artifacts` loses one ADDED requirement and
+  one phrase of its `web-search` delta. PR #1257 closes as superseded.
 
 ## Non-Goals
 
@@ -238,8 +260,10 @@ Deliberately unchanged, with the reading under which each holds:
 - A token estimate for reasoning that the provider ignores. That is the new
   issue from D8.
 - A new limit on history size. Compaction stays the only eviction boundary.
-- The stale ledger text in the in-flight `tool-search` delta. That change owns
-  it.
+- The in-flight `tool-search` delta. It MODIFIES the requirement that this
+  change REMOVES, and the framing requirement with the untrusted frame. Before
+  it syncs, it must rebase those two blocks onto `turn-replay` and the ADDED
+  `tool-calling` requirements.
 
 ## Acceptance
 
@@ -256,5 +280,6 @@ Deliberately unchanged, with the reading under which each holds:
   model switch or after a failed reply.
 - A compaction request carries the absorbed rows with their reasoning, then its
   instruction.
-- `openai-responses` requests carry `store: false` and encrypted reasoning, and
-  no `item_reference`.
+- `openai-responses` requests carry `store: false` and no `item_reference`. An
+  entry that declares `reasoning` replays its encrypted reasoning.
+- A refused call replays the SDK error text and input that its live step sent.
