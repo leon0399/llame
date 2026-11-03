@@ -1308,9 +1308,9 @@ redaction behavior for secret fields.
 
 ### Requirement: Operator configuration enables Run permission modes
 
-The configuration SHALL accept an optional `tools.permissionModes` array under the closed published schema. Its built-in default SHALL be `["default"]`. Each item SHALL be one of the known mode values `"default"` and `"bypass"`. A supplied array SHALL be non-empty, SHALL contain no duplicate, and SHALL contain `"default"`; an empty array, an unknown value, a non-string item, a duplicate, or an array without `"default"` SHALL fail startup naming `tools.permissionModes`, before the process serves requests or claims jobs. Item values are literal: interpolation tokens SHALL NOT be accepted in them. The array order SHALL be preserved as the order in which enabled modes are published.
+The configuration MUST accept an optional `tools.permissionModes` array under the closed published schema. Its built-in default MUST be `["default"]`. Each item MUST be one of the known mode values `"default"`, `"bypass"`, and `"read-only"`. A supplied array MUST be non-empty, MUST contain no duplicate, and MUST contain `"default"`. These cases MUST fail startup with a diagnostic that names `tools.permissionModes`. The cases are an empty array, an unknown value, a non-string item, a duplicate, and an array without `"default"`. The failure MUST occur before the process serves requests or claims jobs. Item values are literal, and the configuration MUST NOT accept interpolation tokens in them. The system MUST keep the array order as the publication order of the enabled modes.
 
-Enabling `"bypass"` SHALL let every authenticated user select it for their own Runs; the configuration SHALL provide no per-user restriction. `tools.permissionModes` SHALL NOT change `tools.allowed`, `tools.permissions`, or any other setting's meaning.
+When the operator enables a mode other than `"default"`, every authenticated user can select it for their own Runs. The configuration MUST NOT provide a per-user restriction. `tools.permissionModes` MUST NOT change the meaning of `tools.allowed`, `tools.permissions`, or any other setting.
 
 #### Scenario: Omitted modes enable only default
 
@@ -1325,17 +1325,22 @@ Enabling `"bypass"` SHALL let every authenticated user select it for their own R
 #### Scenario: A list without default fails startup
 
 - **WHEN** the configuration sets `tools.permissionModes` to `["bypass"]` or `[]`
-- **THEN** startup fails with a diagnostic naming `tools.permissionModes`
+- **THEN** startup fails with a diagnostic that names `tools.permissionModes`
 
 #### Scenario: Unknown or repeated modes fail startup
 
 - **WHEN** the configuration sets `tools.permissionModes` to `["default", "yolo"]` or `["default", "default"]`
-- **THEN** startup fails with a diagnostic naming `tools.permissionModes`
+- **THEN** startup fails with a diagnostic that names `tools.permissionModes`
 
 #### Scenario: Interpolated mode values are rejected
 
 - **WHEN** an item of `tools.permissionModes` is `{env:LLAME_MODE}`
-- **THEN** startup fails with a diagnostic naming `tools.permissionModes`
+- **THEN** startup fails with a diagnostic that names `tools.permissionModes`
+
+#### Scenario: Read-only is enabled explicitly
+
+- **WHEN** the configuration sets `tools.permissionModes` to `["default", "read-only", "bypass"]`
+- **THEN** startup succeeds and the three modes are enabled in that order
 
 ### Requirement: Operator configuration declares web search engines and a chain
 

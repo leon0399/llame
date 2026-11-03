@@ -1,5 +1,5 @@
 Track [#1548](https://github.com/leon0399/llame/issues/1548) and its PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking).
 Implementation waits for Leo's approval of the published proposal revision.
 Keep live status in the Project.
 
@@ -34,7 +34,7 @@ zero and is reported separately in each PR.
   - Evidence: local rounds 1 and 2 (spec-consistency and feasibility reviewers; fixes in dbabb02a and 98d697fd). design.md "Revision history" records each round.
 - [x] 1.3 Obtain Leo's approval of the published revision, including the D9 deviation in proposal.md.
   - Evidence: Leo, in chat on 2026-11-03: "Spec is approved. Implement it in layers." This approves the published revision 3b9cdb0f, including D9.
-- [x] 1.4 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) before ready; GR: run [Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring) to exit.
+- [x] 1.4 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../../REVIEW_GUIDE.md) before ready; GR: run [Ready-PR monitoring](../../../../CONTRIBUTING.md#ready-pr-monitoring) to exit.
   - Evidence: SR before ready on 7267dcf8; GR rounds 1 and 2 on #1549 (15 threads resolved, CI green on 3b9cdb0f, 0 unresolved threads).
 
 ## 2. api
@@ -77,9 +77,12 @@ zero and is reported separately in each PR.
 
 ## 4. finalize
 
-- [ ] 4.1 Enter `read-only-permission-mode/finalize` with `$gh-stack` before `$openspec-sync-specs` writes any canonical spec.
-- [ ] 4.2 Run `$openspec-sync-specs`; update the `permission-modes` Purpose to describe three modes, with the turn display limited to `bypass` (design D9) and every mode reported on the Run and its context receipt; check that each MODIFIED block keeps every canonical scenario and that the deliberately unchanged readings in proposal.md still hold against the synced text.
-- [ ] 4.3 Prove archive readiness: `openspec status --change read-only-permission-mode --json` reports every artifact done and every task above checked; `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
+- [x] 4.1 Enter `read-only-permission-mode/finalize` with `$gh-stack` before `$openspec-sync-specs` writes any canonical spec.
+  - Evidence: entered `read-only-permission-mode/finalize` with `gh stack add` before the sync wrote any canonical spec; the branch starts at `read-only-permission-mode/web` (a9e8b702).
+- [x] 4.2 Run `$openspec-sync-specs`; update the `permission-modes` Purpose to describe three modes, with the turn display limited to `bypass` (design D9) and every mode reported on the Run and its context receipt; check that each MODIFIED block keeps every canonical scenario and that the deliberately unchanged readings in proposal.md still hold against the synced text.
+  - Evidence: synced `permission-modes`, `tool-call-permissions`, `instance-config`, `mcp-tools`, `chat-creation`, `workspace-entry`, and `web-search` (9 MODIFIED and 6 ADDED requirements; no canonical scenario removed). The `permission-modes` Purpose now describes three modes, marks only a `bypass` turn in the turn display, and reports every mode on the Run and its context receipt. Each deliberately unchanged reading holds; no reading failed. `openspec validate read-only-permission-mode --strict` passes. `validate --specs --strict` and `validate --all --strict` fail the same capabilities as `master` under the installed CLI 1.16.0. The one strict warning this sync added, on the MODIFIED `The permission mode is not model-visible`, was removed in `2a1bf69`: that requirement's prose is 491 characters at HEAD, under the 500-character limit. `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass.
+- [x] 4.3 Prove archive readiness: `openspec status --change read-only-permission-mode --json` reports every artifact done and every task above checked; `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
+  - Evidence: `openspec status --change read-only-permission-mode --json` reported `proposal`, `specs`, `design`, and `tasks` all `done` with every task above checked, before the archive moved the change, and `openspec validate read-only-permission-mode --strict` passed then. After the archive and the rebase onto `master` at `6a7b3ad7`, `validate --specs --strict` reports 9 passed, 46 failed (55 items) and `validate --all --strict` 9 passed, 47 failed (56 items), the same totals as `master` at that commit. The `--specs` failures are the repo-wide `>500 characters` strict warning, which also fires on unchanged capabilities and on capabilities this change edits (`workspace-entry`, `permission-modes`, `tool-call-permissions`, `instance-config`); `--all` adds an error from a change already on `master`. This change adds no diagnostic.
 
 ## Workflow follow-up
 

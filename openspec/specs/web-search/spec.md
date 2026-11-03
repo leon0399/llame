@@ -382,7 +382,7 @@ An `aggregate` engine MUST NOT run a child when the query is over the query limi
 
 ### Requirement: The call removes the results that the read permission group rejects
 
-The effective permission mode is `default` here. The call MUST remove each result and citation whose URL a `read` reject clause matches, as `read` decides for that URL. A whole-tool `read` reject or an absent `read` allow MUST NOT remove an entry. The `bypass` mode MUST NOT remove entries. These clauses MUST NOT admit or refuse the call.
+This requirement applies when the effective permission mode is `default` or `read-only`. The call MUST remove each result and citation whose URL a `read` reject clause matches, as `read` decides for that URL. A whole-tool `read` reject or an absent `read` allow MUST NOT remove an entry. The `bypass` mode MUST NOT remove entries. These clauses MUST NOT admit or refuse the call.
 
 #### Scenario: The call removes a rejected host
 
@@ -404,6 +404,11 @@ The effective permission mode is `default` here. The call MUST remove each resul
 
 - **WHEN** the effective permission mode of the attempt is `bypass` and the `read` group rejects a result host
 - **THEN** the output keeps that result
+
+#### Scenario: Read-only removes a rejected host
+
+- **WHEN** the effective permission mode of the attempt is `read-only` and the `read` group rejects a result host
+- **THEN** the output does not contain that result
 
 ### Requirement: The call removes the results of excluded hosts
 

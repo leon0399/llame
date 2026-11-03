@@ -141,8 +141,9 @@ the fork's first-Run re-check.
 When it establishes the bound root, the request MUST use the same ordered path
 decisions as `enter_workspace`. It MUST require `enter_workspace` in
 `tools.allowed`. It MUST require a configured native executor equal to the
-resolved local executor id, or a configured Machine. It MUST use `default` or an
-enabled `bypass` permission mode.
+resolved local executor id, or a configured Machine. It MUST use a permission
+mode that the process enables. A `read-only` request MUST decide its paths as a
+`default` request does.
 
 The owner's Chat API MUST read the bound root and the owner's checkout list. The
 system MUST refuse any other principal a read or a change of it. The owner's
@@ -168,8 +169,7 @@ select an owner, a Chat, an executor, or a permission mode.
 #### Scenario: A chat-creation request establishes the first binding
 
 - **WHEN** the owner creates a chat with a resolved location, every availability
-  gate passes, and the request permission mode is `default` or an enabled
-  `bypass`
+  gate passes, and the process enables the request permission mode
 - **THEN** the chat starts bound to the canonical root and the resolved executor
 - **AND** the generation of the bound root increments by one, and a later Run
   re-checks that bound root before it uses it

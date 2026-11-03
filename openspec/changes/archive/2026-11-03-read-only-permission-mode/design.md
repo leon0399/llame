@@ -79,7 +79,7 @@ at `a969a445` (master after `tool-result-artifacts` spill).
 ## Prior art
 
 Sources: scout reports at the pinned revisions in
-[`docs/research/harnesses`](../../../docs/research/harnesses/index.md).
+[`docs/research/harnesses`](../../../../docs/research/harnesses/index.md).
 
 | Product     | Impact source                       | Read-only mode                           | Enforcement                                                           | Shell                                                   | MCP hints                       |
 | ----------- | ----------------------------------- | ---------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------- |
