@@ -146,7 +146,10 @@ export function PermissionModeSelector({
       <DropdownMenuContent
         side="top"
         align="start"
-        className="w-72"
+        // The descriptions are one line each (permission-modes spec) and
+        // `whitespace-nowrap`, so the menu sizes to its content instead of
+        // clipping them at a fixed width.
+        className="w-auto min-w-72"
         aria-label="Permission mode"
       >
         <DropdownMenuRadioGroup
