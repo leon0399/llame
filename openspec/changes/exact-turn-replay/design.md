@@ -275,6 +275,16 @@ first request:
   requests] → Pre-existing and enlarged now that later turns replay metadata
   for a whole history. The operator doc names prompts as captured.
   [#1567](https://github.com/leon0399/llame/issues/1567)
+- [A checkpoint's text can paraphrase the replayed reasoning it summarized,
+  including reasoning the provider withheld from display, and that text replays
+  to every later model whatever the model rule says] → The checkpoint row
+  itself carries no reasoning part and no provider metadata, so the rule still
+  decides what a later request replays; the summary is model prose, and its
+  text reaches later models and the owner's checkpoint summary by design.
+  Accepted for the cache-aligned prefix (D9); the summarization instruction
+  asks the model not to carry standing-context content restated in a reply or
+  its reasoning, nor to restate private reasoning beyond the visible answer.
+  Compliance is advisory, unlike the row-shape guarantee.
 - [A live step shape the projection does not rebuild, for example an in-Run
   item staged before the first tool result, or provider metadata on a part
   type not covered] → D14 fails on the first such difference; each case found

@@ -67,6 +67,10 @@ import {
   RunExecutionService,
   RunNotRunnableError,
 } from '../runs/run-execution.service';
+import {
+  ScriptedModelsService,
+  type ScriptedBehavior,
+} from '../runs/scripted-model-client';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { COMPACTION_INSTRUCTION } from './compaction';
@@ -86,6 +90,14 @@ const SOURCE_MODEL = 'source-model';
 const TARGET_MODEL = 'target-model';
 const SUMMARY =
   '## Objective\nPreserve continuity.\n\n## Current State\nReady.';
+/** The opaque reasoning and call metadata the first turn's scripted steps send. */
+const FIRST_REASONING_METADATA = {
+  test: { signature: 'reasoning-first-step' },
+};
+const SECOND_REASONING_METADATA = {
+  test: { signature: 'reasoning-second-step' },
+};
+const FIRST_CALL_METADATA = { test: { itemId: 'call-first-search' } };
 /** Sized so a request carrying the two seeded rows cannot fit, a checkpoint can. */
 const SMALL_WINDOW = 1000;
 const OLD_REQUEST = `OLD REQUEST ${'x'.repeat(1200)}`;
@@ -442,6 +454,29 @@ function attemptClient(input: {
         ? summaryClient.streamText(request)
         : answerClient.streamText(request);
     },
+  };
+}
+
+/**
+ * One whole-step scripted model client (design D14), serving every provider
+ * request of one Run. `createClient` restarts the script at step 0, so each
+ * Run registers its own behavior first; `models.prompts` records the provider
+ * prompt of each request in order.
+ */
+function scriptedClient(
+  models: ScriptedModelsService,
+  modelId: string,
+  behavior: ScriptedBehavior,
+  compactionThresholdTokens?: number,
+): ModelClient {
+  models.register(modelId, behavior);
+  const delegate = models.createClient(modelId);
+  return {
+    ...delegate,
+    ...(compactionThresholdTokens !== undefined && {
+      compactionThresholdTokens,
+    }),
+    streamText: (request: ModelStreamInput) => delegate.streamText(request),
   };
 }
 
@@ -1024,65 +1059,122 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
     it('extends the previous turn’s last request and its response, then the instruction', async () => {
       // A real first turn on the chat, run through the same service, so the
-      // prefix this pins is a request the live loop actually sent.
+      // prefix this pins is a request the live loop actually sent. It runs two
+      // whole scripted steps whose reasoning carries provider metadata, so a
+      // summary request that dropped either would not match it.
       const chat = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).create({ ownerUserId: userId }),
       );
       doomedChats.push(chat.id);
       const firstTurn = await addTurn(chat.id, 'FIRST REQUEST');
-      const firstCalls: Array<ModelStreamInput> = [];
+      const models = new ScriptedModelsService();
       const service = runService(createCompactionService(unexercisedModels));
       const first = await service.executeRun(
         requestFor(
           firstTurn,
-          attemptClient({ calls: firstCalls, answer: 'FIRST ANSWER' }),
+          scriptedClient(models, TARGET_MODEL, {
+            kind: 'step-script',
+            steps: [
+              [
+                {
+                  type: 'reasoning',
+                  id: 'first-plan',
+                  text: 'FIRST REASONING',
+                  providerMetadata: FIRST_REASONING_METADATA,
+                },
+                { type: 'text', id: 'first-lead', text: 'Searching first.' },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'first-search',
+                  toolName: 'search_conversations',
+                  input: { mode: 'content', query: 'FIRST REQUEST' },
+                  providerMetadata: FIRST_CALL_METADATA,
+                },
+              ],
+              [
+                {
+                  type: 'reasoning',
+                  id: 'first-answer',
+                  text: 'SECOND REASONING',
+                  providerMetadata: SECOND_REASONING_METADATA,
+                },
+                { type: 'text', id: 'first-answer-text', text: 'FIRST ANSWER' },
+              ],
+            ],
+          }),
         ),
       );
       await first.consumeStream?.();
-      const previousRequest = firstCalls.at(-1);
-      if (previousRequest === undefined) {
-        throw new Error('The first turn made no provider request.');
+      // Two provider requests: the step that called the tool, then the step its
+      // result produced. The last one already carries the first step's
+      // reasoning, its provider metadata, and the call's.
+      const turnOnePrompts = [...models.prompts];
+      const previousRequest = turnOnePrompts.at(-1);
+      if (turnOnePrompts.length !== 2 || previousRequest === undefined) {
+        throw new Error(
+          `The first turn made ${turnOnePrompts.length} provider requests, expected 2.`,
+        );
       }
+      const serializedPrevious = JSON.stringify(previousRequest);
+      expect(serializedPrevious).toContain('FIRST REASONING');
+      expect(serializedPrevious).toContain('reasoning-first-step');
+      expect(serializedPrevious).toContain('call-first-search');
 
       // The next turn crosses a one-token threshold, so compaction runs on the
-      // previous turn's model right before its first model step.
+      // previous turn's model right before its first model step. The scripted
+      // client answers the summary request and then the Run's own request.
       const secondTurn = await addTurn(chat.id, 'SECOND REQUEST');
-      const calls: Array<ModelStreamInput> = [];
       const second = await service.executeRun(
         requestFor(
           secondTurn,
-          attemptClient({
-            calls,
-            summary: { response: SUMMARY },
-            answer: 'SECOND ANSWER',
-            compactionThresholdTokens: 1,
-          }),
+          scriptedClient(
+            models,
+            TARGET_MODEL,
+            {
+              kind: 'step-script',
+              steps: [
+                [{ type: 'text', id: 'summary', text: SUMMARY }],
+                [{ type: 'text', id: 'second-answer', text: 'SECOND ANSWER' }],
+              ],
+            },
+            1,
+          ),
         ),
       );
       await second.consumeStream?.();
 
-      const summaryRequest = sole(calls.filter(isSummaryRequest));
-      const response = {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'FIRST ANSWER' }],
-      };
-      // The previous request really carried the first turn, and the summary
-      // request adds exactly that response and the instruction.
-      expect(JSON.stringify(previousRequest.messages)).toContain(
-        'FIRST REQUEST',
+      const secondPrompts = models.prompts.slice(turnOnePrompts.length);
+      const summaryRequest = secondPrompts[0];
+      if (secondPrompts.length !== 2 || summaryRequest === undefined) {
+        throw new Error(
+          `The second turn made ${secondPrompts.length} provider requests, expected a summary request and its own.`,
+        );
+      }
+      // The projection replays the previous request byte for byte, member
+      // order included, then the response to it, then the summarization
+      // instruction.
+      expect(
+        JSON.stringify(summaryRequest.slice(0, previousRequest.length)),
+      ).toBe(serializedPrevious);
+      expect(JSON.stringify(summaryRequest.slice(previousRequest.length))).toBe(
+        JSON.stringify([
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'reasoning',
+                text: 'SECOND REASONING',
+                providerOptions: SECOND_REASONING_METADATA,
+              },
+              { type: 'text', text: 'FIRST ANSWER' },
+            ],
+          },
+          {
+            role: 'user',
+            content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
+          },
+        ]),
       );
-      expect(summaryRequest.messages).toHaveLength(
-        previousRequest.messages.length + 2,
-      );
-      // The projection replays the previous request byte for byte, then the
-      // response to it, and the summarization instruction is the last message.
-      expect(JSON.stringify(summaryRequest.messages.slice(0, -1))).toBe(
-        JSON.stringify([...previousRequest.messages, response]),
-      );
-      expect(summaryRequest.messages.at(-1)).toEqual({
-        role: 'user',
-        content: COMPACTION_INSTRUCTION,
-      });
 
       // The checkpoint row is the summary and nothing else: no reasoning part
       // and no provider metadata (reasoning-output).
@@ -1090,7 +1182,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(checkpoint.parts).toEqual([
         createCompactionCheckpointPart(SUMMARY),
       ]);
-      expect(checkpointSummary(checkpoint)).toBe(SUMMARY);
     });
 
     it('keeps the checkpoint, its re-baked epoch, and the dispatched items once when the attempt dies, and the next attempt reuses them', async () => {

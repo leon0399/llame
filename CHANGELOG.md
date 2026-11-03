@@ -8,9 +8,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `reasoning-output`, in their stored positions, and the request on the same
   model starts with the previous turn's last request and that request's
   response; the summarization instruction remains the last message. A reply of
-  another model, or of an unfinished one, still carries no reasoning. The
+  other model, or of an unfinished one, still carries no reasoning. The
   checkpoint row written afterwards stays summary text only: no reasoning part
-  and no provider metadata enters it. No schema or stored-row change. Refs
+  and no provider metadata enters it. The summarization instruction now also
+  forbids carrying personalization, chat-history, or recency-digest content that
+  an earlier reply or its reasoning restates, and asks the summarizer not to
+  restate private reasoning beyond what the visible answer states. No schema or
+  stored-row change. Refs
   [#1539](https://github.com/leon0399/llame/issues/1539).
 
 - **BREAKING: a later turn replays the whole stored turn, so a long older Chat

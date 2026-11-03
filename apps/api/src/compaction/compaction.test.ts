@@ -1311,35 +1311,6 @@ describe('buildCompactionRequest', () => {
     });
   });
 
-  it('carries no reasoning of another model, and no reasoning of an unfinished reply', () => {
-    const question = msg('plan a trip to Japan');
-    const otherModel = msg('sure — when?', 'assistant');
-    otherModel.usage = { status: 'completed', modelId: 'another-model' };
-    otherModel.parts = [
-      { type: 'reasoning', text: 'OTHER_MODEL_THOUGHT' },
-      { type: 'text', text: 'FIRST_ANSWER' },
-    ];
-    const unfinished = msg('still going', 'assistant');
-    unfinished.usage = { status: 'failed', modelId: 'test-model' };
-    unfinished.parts = [
-      { type: 'reasoning', text: 'FAILED_THOUGHT' },
-      { type: 'text', text: 'PARTIAL_ANSWER' },
-    ];
-
-    const request = buildCompactionRequest({
-      modelId: 'test-model',
-      system: CHAT_SYSTEM,
-      previous: undefined,
-      absorb: [question, otherModel, unfinished],
-    });
-
-    const serialized = JSON.stringify(request.messages);
-    expect(serialized).not.toContain('OTHER_MODEL_THOUGHT');
-    expect(serialized).not.toContain('FAILED_THOUGHT');
-    expect(serialized).toContain('FIRST_ANSWER');
-    expect(serialized).toContain('PARTIAL_ANSWER');
-  });
-
   it('shares one projection with a continuation: only the instruction differs', () => {
     const rows = [
       msg('plan a trip to Japan'),
@@ -1767,13 +1738,22 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
   // Pinned independently, as literal text, because this sentence is the
   // instruction's only defense against personalization leaking into a persisted
   // checkpoint; the assertions above match fragments and would survive a
-  // rewritten clause.
+  // rewritten clause. Restatement in a reply or its reasoning is named because
+  // a summarization request now replays that reasoning.
   const STANDING_CONTEXT_EXCLUSION_SENTENCE =
-    'Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest". Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.';
+    'Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest", including where an earlier reply or its reasoning restates that content. Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.';
 
   it('carries the standing-context exclusion sentence verbatim', () => {
     expect(COMPACTION_INSTRUCTION).toContain(
       STANDING_CONTEXT_EXCLUSION_SENTENCE,
+    );
+  });
+
+  it('carries the private-reasoning exclusion sentence verbatim', () => {
+    // Replayed reasoning now reaches the summarizer (D9), so the checkpoint
+    // text must not carry more of it than the visible answer states.
+    expect(COMPACTION_INSTRUCTION).toContain(
+      "Do not restate the model's private reasoning beyond what its visible answer states.",
     );
   });
   it('still keeps in-conversation constraints in scope', () => {

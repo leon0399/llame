@@ -13,8 +13,7 @@
  *   checkpoint is the only boundary.
  * - Persisted reasoning and provider metadata follow the model rule of
  *   `reasoning-output` (D7): they replay for the reply's own model after a
- *   completed reply, in every request that model makes (D9 makes a
- *   summarization request an ordinary one).
+ *   completed reply.
  * - Deterministic: identical inputs → identical output
  * - No message-count cap: context size is governed in TOKENS by the compaction
  *   threshold (#57). A count cap would silently drop old turns without any
@@ -84,15 +83,14 @@ export interface TextPart {
 
 /**
  * A reasoning ("thinking") part. PERSISTED for display (survives reload) and
- * replayed to the provider in its stored position on the requests that the
- * model rule of `reasoning-output` allows: a request that continues the Chat,
- * for a reply that completed on the request's own model (D7). `buildContext`
- * re-emits it as a reasoning content part where it occurred, with the text
- * byte-identical to the stored part (never trimmed, repaired, re-ordered, or
- * neutralized) — DeepSeek's `tools` rule makes that replay mandatory on the
- * completions wire. Elsewhere the exclusion stands: `partsToText` still strips
- * reasoning, so compaction input, chat search, and public shares never carry
- * it.
+ * replayed to the provider in its stored position on every request of the
+ * reply's own model after that reply completed (D7); a summarization request
+ * is one of those requests (D9). `buildContext` re-emits it as a reasoning
+ * content part where it occurred, with the text byte-identical to the stored
+ * part (never trimmed, repaired, re-ordered, or neutralized) — DeepSeek's
+ * `tools` rule makes that replay mandatory on the completions wire. Elsewhere
+ * the exclusion stands: `partsToText` still strips reasoning, so chat search
+ * and public shares never carry it.
  */
 export interface ReasoningPart {
   type: 'reasoning';
@@ -184,10 +182,7 @@ export interface BuildContextOptions {
    * Required, with no default: the llame model id this request runs on. The
    * model rule of `reasoning-output` (D7) replays a reply's reasoning and its
    * provider metadata only when the reply's `usage.modelId` is this value, so
-   * a caller must state the model it builds for. A summarization request is
-   * not a separate projection: it states the model it runs on like any other
-   * request, and the projection it shares with a later turn decides what that
-   * model may see (design D9).
+   * a caller must state the model it builds for.
    */
   modelId: string;
   /** The active checkpoint for this request, if any. */
@@ -573,7 +568,7 @@ export function buildContext(
     if (m.role === 'user') {
       appendUserMessage(result, m, retained);
     } else {
-      appendAssistantMessage(result, m, options, retained);
+      appendAssistantMessage(result, m, options.modelId, retained);
     }
   }
 
@@ -600,14 +595,11 @@ function appendUserMessage(
 function appendAssistantMessage(
   result: Array<ModelMessage>,
   m: StoredMessage,
-  options: BuildContextOptions,
+  modelId: string,
   retained: Map<string, RetainedMedia>,
 ): void {
-  // The model rule decides what a request on `options.modelId` may see of a
-  // stored reply: reasoning and provider metadata replay for a completed reply
-  // of that same model, in every request, a summarization request included
-  // (D7, D9).
-  const privateParts = replaysPrivateParts(m.usage, options.modelId);
+  // Model rule of `reasoning-output` (D7): same model, completed reply.
+  const privateParts = replaysPrivateParts(m.usage, modelId);
   result.push(
     ...new StoredReplyProjection(privateParts, retained).project(m.parts, m.id),
   );
