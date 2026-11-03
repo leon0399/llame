@@ -15,7 +15,7 @@ import { afterEach, expect, it } from "vitest";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-import { ModelOutputStreamdown } from "./model-output-streamdown.js";
+import { ModelOutputStreamdown } from "@workspace/ui/components/custom/model-output-streamdown";
 
 const markdown = (origin: string) =>
   `[Home](${origin}/settings) and [Docs](https://example.com/docs)`;
