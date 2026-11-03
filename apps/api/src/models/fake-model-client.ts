@@ -12,6 +12,7 @@ import {
   type ModelStreamInput,
 } from './model-client';
 import { applyRequestUsageCallback } from './request-usage';
+import { forwardChunk } from './stream-parts';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 import { applyToolCallingOptions } from './openai-model-client';
 import { createToolCallGate } from './tool-call-gate';
@@ -67,26 +68,6 @@ interface FakeStreamOutcome {
   >;
   /** Resolves once `input.onError`/`input.onFinish` has settled. */
   completion: Promise<void>;
-}
-
-/** One `onChunk` chunk of the SDK's stream. */
-type StreamChunk = Parameters<
-  NonNullable<Parameters<typeof streamText>[0]['onChunk']>
->[0]['chunk'];
-
-/** Forwards a chunk's text, reasoning, or call metadata to the seams (A7). */
-function forwardChunk(chunk: StreamChunk, input: ModelStreamInput): void {
-  if (chunk.type === 'text-delta') {
-    input.onTextDelta?.(chunk.text, chunk.id);
-    return;
-  }
-  if (chunk.type === 'reasoning-delta') {
-    input.onReasoningDelta?.(chunk.text, chunk.id, chunk.providerMetadata);
-    return;
-  }
-  if (chunk.type === 'tool-call' && chunk.providerMetadata !== undefined) {
-    input.onToolCallMetadata?.(chunk.toolCallId, chunk.providerMetadata);
-  }
 }
 
 /** Wires `input`'s callbacks and a completion signal settled once they run. */

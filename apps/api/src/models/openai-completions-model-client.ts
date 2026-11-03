@@ -50,6 +50,7 @@ import {
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
+import { forwardChunk } from './stream-parts';
 import { createToolCallGate, type ToolCallGate } from './tool-call-gate';
 
 /**
@@ -358,18 +359,12 @@ function applyChunkDelivery(
 ): void {
   if (!hasStreamChannel(input)) return;
   streamOptions.onChunk = ({ chunk }) => {
-    if (chunk.type === 'text-delta') {
-      input.onTextDelta?.(chunk.text, chunk.id);
-    } else if (chunk.type === 'reasoning-delta') {
-      input.onReasoningDelta?.(chunk.text, chunk.id, chunk.providerMetadata);
-    } else if (chunk.type === 'tool-call') {
-      if (chunk.providerMetadata !== undefined) {
-        input.onToolCallMetadata?.(chunk.toolCallId, chunk.providerMetadata);
-      }
-      gate.reach(chunk.toolCallId);
-    }
+    forwardChunk(chunk, input);
+    if (chunk.type === 'tool-call') gate.reach(chunk.toolCallId);
   };
-  if (!input.onReasoningDelta) return;
+  // The gate reports refusals synchronously when it is reached, so it must be
+  // attached whenever `onChunk` is the channel that reports a call.
+  if (!input.onReasoningDelta && !input.onToolCallMetadata) return;
   gate.attach();
   const { onFinish, onError, onAbort } = streamOptions;
   streamOptions.onFinish = (event) => {

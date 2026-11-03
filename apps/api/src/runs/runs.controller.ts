@@ -359,7 +359,8 @@ function formatSseEvent(event: RunEvent): string {
 /**
  * The owner's view of a stored event: no resolved host cwd, no retained read
  * bytes (retain-read-media D4), and no text-part or tool-call provider
- * metadata (design A7) — those stay on the server too.
+ * metadata or `model.delta` part id (design A7) — the adapter's ids and
+ * metadata stay on the server.
  */
 function ownerEventForSse(event: RunEvent): RunEvent {
   if (!isRecord(event.payload)) {

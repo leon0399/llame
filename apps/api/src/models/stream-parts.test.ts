@@ -21,7 +21,6 @@ type Forwards = {
 /** Runs the forwarder and records every delivery it makes, in order. */
 async function forward(
   chunks: Array<TextStreamPart<ToolSet>>,
-  gate = createToolCallGate(),
 ): Promise<Forwards> {
   const forwards: Forwards = { texts: [], reasoning: [], tools: [] };
   await consumeStreamParts(
@@ -34,7 +33,7 @@ async function forward(
       onToolCallMetadata: (toolCallId, providerMetadata) =>
         forwards.tools.push([toolCallId, providerMetadata]),
     },
-    gate,
+    createToolCallGate(),
   );
   return forwards;
 }
@@ -93,7 +92,7 @@ describe('consumeStreamParts', () => {
     ]);
   });
 
-  it('forwards text and reasoning metadata in stream order, scoping raw ids per provider step', async () => {
+  it('forwards a reasoning part’s id and metadata in stream order, scoping raw ids per provider step', async () => {
     const signature = { anthropic: { signature: 'SIG_A' } };
     const { reasoning } = await forward([
       // Step 0: a redacted block (its metadata rides the start, and it has no
@@ -130,52 +129,71 @@ describe('consumeStreamParts', () => {
     ]);
   });
 
-  it('forwards nothing on a channel the stream never writes', async () => {
-    // A reasoning-only stream still writes no text part, and the reverse.
-    const { texts, reasoning } = await forward([
-      { type: 'reasoning-delta', id: '0', text: 'think' },
-      { type: 'reasoning-start', id: '1' },
-      { type: 'reasoning-end', id: '1' },
-    ]);
+  it('keeps text and reasoning deliveries in one stream order', async () => {
+    // One consumer for both channels is what preserves their relative order
+    // (design D18); the log below records nothing else.
+    const log: Array<string> = [];
+    const metadata = { openai: { itemId: 'msg_1' } };
+    await consumeStreamParts(
+      simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          { type: 'reasoning-delta', id: '0', text: 'think' },
+          { type: 'text-start', id: 'msg_1', providerMetadata: metadata },
+          { type: 'text-delta', id: 'msg_1', text: 'answer' },
+          { type: 'text-end', id: 'msg_1' },
+          { type: 'reasoning-delta', id: '0', text: 'more' },
+        ],
+      }),
+      {
+        onTextDelta: (text, partId) =>
+          log.push(`text ${partId}:${text.length}`),
+        onReasoningDelta: (text) => log.push(`reasoning ${text}`),
+      },
+      createToolCallGate(),
+    );
 
-    expect(texts).toEqual([]);
-    expect(reasoning).toEqual([['think', '0:0', undefined]]);
+    expect(log).toEqual([
+      'reasoning think',
+      'text 0:msg_1:0',
+      'text 0:msg_1:6',
+      'reasoning more',
+    ]);
   });
 
   it('forwards a call’s metadata before the gate reaches the call', async () => {
     const order: Array<string> = [];
     const gate = createToolCallGate();
     gate.attach();
-    const held = gate.reached('call-1').then(() => order.push('call'));
+    // The refusal path reports through the synchronous `whenReached`, so a
+    // report that ran after `gate.reach` would land here second.
+    gate.whenReached('call-1', () => order.push('call'));
     const metadata = { openai: { itemId: 'fc_1' } };
-    // The stream stays open until the call is released, so a delivery after
-    // the release would be too late to be durable before execution.
-    async function* stream(): AsyncIterable<TextStreamPart<ToolSet>> {
-      yield { type: 'reasoning-delta', id: '0', text: 'think' };
-      yield {
-        type: 'tool-call',
-        toolCallId: 'call-1',
-        toolName: 'echo',
-        input: {},
-        providerMetadata: metadata,
-      };
-      await held;
-    }
 
-    const forwards: Forwards = { texts: [], reasoning: [], tools: [] };
+    const reported: Array<[string, unknown]> = [];
     await consumeStreamParts(
-      stream(),
+      simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          { type: 'reasoning-delta', id: '0', text: 'think' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'echo',
+            input: {},
+            providerMetadata: metadata,
+          },
+        ],
+      }),
       {
         onToolCallMetadata: (toolCallId, providerMetadata) => {
           order.push('metadata');
-          forwards.tools.push([toolCallId, providerMetadata]);
+          reported.push([toolCallId, providerMetadata]);
         },
       },
       gate,
     );
 
     expect(order).toEqual(['metadata', 'call']);
-    expect(forwards.tools).toEqual([['call-1', metadata]]);
+    expect(reported).toEqual([['call-1', metadata]]);
   });
 
   it('ends quietly when the stream fails, leaving the error to the caller’s own consumption', async () => {

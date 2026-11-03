@@ -1047,18 +1047,6 @@ describe('buildContext', () => {
       expect(partsToText(assistant.parts)).toBe('Visible answer');
     });
 
-    it('projects a text part’s text only, whatever provider metadata it carries', () => {
-      const parts = [
-        {
-          type: 'text',
-          text: 'Visible answer',
-          providerMetadata: { openai: { itemId: 'msg_1' } },
-        },
-      ];
-
-      expect(partsToText(parts)).toBe('Visible answer');
-    });
-
     const displayOnlyParts: Array<[string, MessagePart]> = [
       [
         'URL source',

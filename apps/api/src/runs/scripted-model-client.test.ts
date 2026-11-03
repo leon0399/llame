@@ -838,43 +838,4 @@ describe('ScriptedModelsService streamText options', () => {
       undefined,
     );
   });
-
-  it('forwards the text part id through the scripted stream handler', () => {
-    const onTextDelta = vi.fn();
-    const handlers = scriptedStreamHandlers(
-      { chat, messages, onTextDelta },
-      { onAbort: vi.fn(), wait: () => Promise.resolve() },
-    );
-
-    handlers.onChunk?.({
-      chunk: { type: 'text-delta', id: 'text-part', text: 'answer' },
-    });
-
-    // The adapter id decides persisted part boundaries (design A7).
-    expect(onTextDelta).toHaveBeenCalledExactlyOnceWith('answer', 'text-part');
-  });
-
-  it('forwards a call’s provider metadata through the scripted stream handler', () => {
-    const onToolCallMetadata = vi.fn();
-    const handlers = scriptedStreamHandlers(
-      { chat, messages, onToolCallMetadata },
-      { onAbort: vi.fn(), wait: () => Promise.resolve() },
-    );
-    const providerMetadata = { scripted: { itemId: 'call-part' } };
-
-    handlers.onChunk?.({
-      chunk: {
-        type: 'tool-call',
-        toolCallId: 'call-1',
-        toolName: 'echo',
-        input: {},
-        providerMetadata,
-      },
-    });
-
-    expect(onToolCallMetadata).toHaveBeenCalledExactlyOnceWith(
-      'call-1',
-      providerMetadata,
-    );
-  });
 });

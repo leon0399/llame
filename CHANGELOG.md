@@ -6,10 +6,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   their stream carried, so a later turn can send it back unchanged. On the
   Responses wire two `message` items stay two stored text parts, each with its
   item id; a tool call keeps its own item id, and a Chat Completions call keeps
-  its `thoughtSignature`. The metadata is server-side plumbing only: the chat
-  history response, the owner event stream, the UI chunk stream, exports,
-  public shares, search, logs, and telemetry carry none of it, exactly as for
-  reasoning metadata today. Nothing replays it yet.
+  its `thoughtSignature`. The metadata is server-side plumbing only: the owner
+  chat history response and run event stream strip it, and exports, public
+  shares, search, logs, and telemetry never carry it. Reasoning metadata keeps
+  its current exposure. Nothing replays it yet.
 
 - A third Run permission mode, `read-only`, caps the operator policy for one
   send. `tools.permissionModes` accepts `"read-only"` (the default stays

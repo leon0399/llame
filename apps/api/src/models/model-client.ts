@@ -169,11 +169,9 @@ export interface ModelStreamInput {
    * scoped on `onChunk`; that is harmless, because a step that only wrote
    * text ends the tool loop, so the collector's merge can never cross one.
    *
-   * Deliberate asymmetry with reasoning: an empty delivery carrying metadata
-   * does NOT start a part. It binds to the part its id already names, or waits
-   * for that id to produce text. An empty text part would add separators to
-   * `partsToText` and nothing the model can use — unlike a withheld reasoning
-   * block, whose signature must replay.
+   * An empty delivery carrying metadata binds to the part its id names, or
+   * waits for that id to produce text; see `TextPartTrack` for the boundary and
+   * binding rules (A7).
    */
   onTextDelta?: (
     text: string,

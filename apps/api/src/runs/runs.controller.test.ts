@@ -494,7 +494,7 @@ describe('RunsController context receipt', () => {
       `id: 7\ndata: ${JSON.stringify({
         sequence: 7,
         eventType: 'model.delta',
-        payload: { text: 'answer', partId: '0:msg_1' },
+        payload: { text: 'answer' },
         createdAt: events[0].createdAt,
       })}\n\n`,
       `id: 8\ndata: ${JSON.stringify({
@@ -541,6 +541,9 @@ describe('RunsController context receipt', () => {
     // The stored events keep their metadata: the next attempt replays them.
     expect(events[0].payload).toHaveProperty('providerMetadata');
     expect(events[1].payload).toHaveProperty('providerMetadata');
+    // The adapter item id is server-side plumbing too: on the Responses wire
+    // it is the metadata's own `itemId`, and the owner stream names no part.
+    expect(sse.writes.join('')).not.toContain('msg_1');
   });
 
   it('strips retained read bytes from the tool.completed and run.continued frames without changing stored events', async () => {

@@ -23,6 +23,57 @@ const PROMPT_IMPORTS_PRODUCER = 'prompt-imports';
 const RUN_CONTINUED_EVENT = 'run.continued';
 
 /**
+ * The stored parts with `stripPart` applied to every entry, copied only when
+ * an entry changes, so an untouched array comes back by identity.
+ */
+export function mapStoredParts(
+  parts: Array<unknown>,
+  stripPart: (part: UnknownRecord) => UnknownRecord,
+): Array<unknown> {
+  let stripped: Array<unknown> | undefined;
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    const next = isRecord(part) ? stripPart(part) : part;
+    if (next === part) {
+      continue;
+    }
+    stripped ??= parts.slice();
+    stripped[index] = next;
+  }
+
+  return stripped ?? parts;
+}
+
+/**
+ * A stored run event's payload after `stripPayload` removes what belongs to
+ * the server and `stripPart` removes it from the kept parts a `run.continued`
+ * payload holds verbatim. Each returns its argument by identity when it
+ * changes nothing, and so does this function.
+ */
+export function withoutPayloadParts(
+  eventType: string,
+  payload: UnknownRecord,
+  stripPayload: (payload: UnknownRecord) => UnknownRecord,
+  stripPart: (part: UnknownRecord) => UnknownRecord,
+): UnknownRecord {
+  const keptParts =
+    eventType === RUN_CONTINUED_EVENT ? payload['parts'] : undefined;
+  const strippedParts = Array.isArray(keptParts)
+    ? mapStoredParts(keptParts, stripPart)
+    : undefined;
+  let stripped = stripPayload(payload);
+  if (strippedParts === undefined || strippedParts === keptParts) {
+    return stripped;
+  }
+  if (stripped === payload) {
+    stripped = { ...payload };
+  }
+  stripped['parts'] = strippedParts;
+
+  return stripped;
+}
+
+/**
  * The stored parts without their retained bytes: the top-level
  * `retainedMedia` of every part, and the `retainedMedia` of each entry in a
  * `prompt-imports` `data-context` part's `data.payload.imports`. Everything
@@ -32,18 +83,7 @@ const RUN_CONTINUED_EVENT = 'run.continued';
  * @returns The same array when no part carries retained bytes
  */
 export function withoutRetainedMedia(parts: Array<unknown>): Array<unknown> {
-  let stripped: Array<unknown> | undefined;
-  for (let index = 0; index < parts.length; index += 1) {
-    const part = parts[index];
-    const next = stripRetainedMedia(part);
-    if (next === part) {
-      continue;
-    }
-    stripped ??= parts.slice();
-    stripped[index] = next;
-  }
-
-  return stripped ?? parts;
+  return mapStoredParts(parts, stripRetainedMedia);
 }
 
 /**
@@ -59,27 +99,17 @@ export function withoutRetainedMediaPayload(
   eventType: string,
   payload: UnknownRecord,
 ): UnknownRecord {
-  const keptParts =
-    eventType === RUN_CONTINUED_EVENT ? payload['parts'] : undefined;
-  const strippedParts = Array.isArray(keptParts)
-    ? withoutRetainedMedia(keptParts)
-    : undefined;
-  const partsChanged =
-    strippedParts !== undefined && strippedParts !== keptParts;
-  if (!partsChanged && !Object.hasOwn(payload, RETAINED_MEDIA_KEY)) {
-    return payload;
-  }
-
-  const stripped = omitRetained(payload);
-  if (partsChanged) {
-    stripped['parts'] = strippedParts;
-  }
-
-  return stripped;
+  return withoutPayloadParts(
+    eventType,
+    payload,
+    withoutRetainedField,
+    stripRetainedMedia,
+  );
 }
 
-/** `record` without its retained field. */
-function omitRetained(record: UnknownRecord): UnknownRecord {
+/** `record` without its retained field, or itself when it has none. */
+function withoutRetainedField(record: UnknownRecord): UnknownRecord {
+  if (!Object.hasOwn(record, RETAINED_MEDIA_KEY)) return record;
   const rest = { ...record };
   delete rest[RETAINED_MEDIA_KEY];
   return rest;
@@ -90,11 +120,7 @@ function omitRetained(record: UnknownRecord): UnknownRecord {
  * each prompt-import entry inside it. Returns the part itself when it carries
  * neither.
  */
-function stripRetainedMedia(part: unknown) {
-  if (!isRecord(part)) {
-    return part;
-  }
-
+function stripRetainedMedia(part: UnknownRecord): UnknownRecord {
   const data =
     part['type'] === DATA_CONTEXT_PART
       ? stripPromptImportData(part['data'])
@@ -103,7 +129,8 @@ function stripRetainedMedia(part: unknown) {
     return part;
   }
 
-  const stripped = omitRetained(part);
+  const stripped = { ...part };
+  delete stripped[RETAINED_MEDIA_KEY];
   if (data !== undefined) {
     stripped['data'] = data;
   }
@@ -142,7 +169,7 @@ function stripPromptImportData(data: unknown): UnknownRecord | undefined {
       continue;
     }
     stripped ??= imports.slice();
-    stripped[index] = omitRetained(entry);
+    stripped[index] = withoutRetainedField(entry);
   }
 
   return stripped === undefined

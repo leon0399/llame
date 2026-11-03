@@ -134,8 +134,9 @@ describe('AssistantPartCollector', () => {
     ]);
 
     // The end repeats the item id with its full metadata and binds to the
-    // same part.
+    // same part; an empty delivery with no metadata adds nothing.
     collector.text('', '0:msg_1', end);
+    collector.text('', '0:msg_2');
     expect(collector.parts()).toStrictEqual([
       { type: 'text', text: 'hello', providerMetadata: end },
     ]);
@@ -146,6 +147,7 @@ describe('AssistantPartCollector', () => {
     const metadata = { openai: { itemId: 'msg_2' } };
 
     collector.text('the answer', '0:msg_1');
+    collector.text('');
     collector.text('', '0:msg_2', metadata);
 
     // The second item produced no visible text, so it has nothing to replay
@@ -164,36 +166,6 @@ describe('AssistantPartCollector', () => {
 
     expect(collector.parts()).toStrictEqual([
       { type: 'text', text: 'plain answer', providerMetadata: metadata },
-    ]);
-  });
-
-  it('starts no text part for an empty delivery that carries no provider metadata', () => {
-    const collector = createAssistantPartCollector();
-
-    collector.text('', '0:msg_1');
-    collector.text('');
-
-    expect(collector.parts()).toStrictEqual([]);
-  });
-
-  it('stores the call’s provider metadata once on its tool part', () => {
-    const collector = createAssistantPartCollector();
-    const part = toolActivityPart({
-      toolCallId: 'call-1',
-      toolName: 'search',
-      input: { query: 'q' },
-      providerMetadata: { openai: { itemId: 'fc_1' } },
-      result: { status: 'success', value: 'found' },
-    });
-
-    collector.toolRequested('call-1');
-    collector.tool(part);
-
-    expect(collector.parts()).toStrictEqual([
-      expect.objectContaining({
-        toolCallId: 'call-1',
-        providerMetadata: { openai: { itemId: 'fc_1' } },
-      }),
     ]);
   });
 

@@ -102,34 +102,51 @@ function forwardDelivery(
   step: number,
   input: StreamInput,
 ): void {
-  if (
-    part.type !== 'text-start' &&
-    part.type !== 'text-delta' &&
-    part.type !== 'text-end' &&
-    part.type !== 'reasoning-start' &&
-    part.type !== 'reasoning-delta' &&
-    part.type !== 'reasoning-end'
-  ) {
-    return;
-  }
   // `fullStream` names a delta's text `text` (the provider layer's own part
   // spells a reasoning delta's `delta`); start and end parts carry none. A
   // start or end part with no metadata says nothing the deliveries that carry
   // the part's text or metadata do not say.
-  const text =
-    part.type === 'text-delta' || part.type === 'reasoning-delta'
-      ? part.text
-      : '';
-  const providerMetadata = part.providerMetadata;
-  if (text.length === 0 && providerMetadata === undefined) return;
-  const partId = `${step}:${part.id}`;
-  if (
-    part.type === 'text-start' ||
-    part.type === 'text-delta' ||
-    part.type === 'text-end'
-  ) {
-    input.onTextDelta?.(text, partId, providerMetadata);
+  switch (part.type) {
+    case 'text-start':
+    case 'text-delta':
+    case 'text-end': {
+      const text = part.type === 'text-delta' ? part.text : '';
+      if (text.length === 0 && part.providerMetadata === undefined) return;
+      input.onTextDelta?.(text, `${step}:${part.id}`, part.providerMetadata);
+      return;
+    }
+    case 'reasoning-start':
+    case 'reasoning-delta':
+    case 'reasoning-end': {
+      const text = part.type === 'reasoning-delta' ? part.text : '';
+      if (text.length === 0 && part.providerMetadata === undefined) return;
+      input.onReasoningDelta?.(
+        text,
+        `${step}:${part.id}`,
+        part.providerMetadata,
+      );
+      return;
+    }
+  }
+}
+
+/**
+ * Forwards one `onChunk` delivery to the same seams the `fullStream` consumer
+ * drives, for a wire whose adapter puts text starts, ends, and their metadata
+ * out of `onChunk`'s reach. A text delta's own metadata is dropped: only the
+ * `fullStream` consumer sees a part's start and end, so a delta-level value
+ * could bind to a part the other deliveries do not name.
+ */
+export function forwardChunk(chunk: ForwardedPart, input: StreamInput): void {
+  if (chunk.type === 'text-delta') {
+    input.onTextDelta?.(chunk.text, chunk.id);
     return;
   }
-  input.onReasoningDelta?.(text, partId, providerMetadata);
+  if (chunk.type === 'reasoning-delta') {
+    input.onReasoningDelta?.(chunk.text, chunk.id, chunk.providerMetadata);
+    return;
+  }
+  if (chunk.type === 'tool-call' && chunk.providerMetadata !== undefined) {
+    input.onToolCallMetadata?.(chunk.toolCallId, chunk.providerMetadata);
+  }
 }

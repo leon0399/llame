@@ -2204,13 +2204,24 @@ export class RunExecutionService {
             if (providerMetadata === undefined) return;
             persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
-            persistTextMetadata(partId, providerMetadata);
-            assistantPartCollector.text('', partId, providerMetadata);
+            // Only a delivery that binds to a stored part is durable: an id
+            // that has produced no text yet holds its metadata in the
+            // collector, and a part that never produces text keeps none (A7).
+            const bound = assistantPartCollector.text(
+              '',
+              partId,
+              providerMetadata,
+            );
+            if (bound !== undefined) persistTextMetadata(partId, bound);
             return;
           }
           noteOutputDelta(text);
           streamedText += text;
-          assistantPartCollector.text(text, partId);
+          const bound = assistantPartCollector.text(
+            text,
+            partId,
+            providerMetadata,
+          );
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
           // Cross-flush on a modality switch: reasoning and text stream one at
@@ -2230,6 +2241,12 @@ export class RunExecutionService {
             textPartId = partId;
           }
           persistDelta(deltas.push(text, Date.now()));
+          // A start's held metadata binds with this text, and its part must
+          // be durable first.
+          if (bound !== undefined) {
+            persistDelta(deltas.flush());
+            persistTextMetadata(partId, bound);
+          }
         },
         onReasoningDelta: (text, partId, providerMetadata) => {
           // Reasoning text is streamed output too: it stamps the first delta and

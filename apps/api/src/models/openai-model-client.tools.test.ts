@@ -825,67 +825,6 @@ describe('createOpenAIModelClient — reasoning provider metadata', () => {
   });
 });
 
-describe('createOpenAIModelClient — provider metadata on text and tool parts (A7)', () => {
-  it('stores two message items as two text parts, each with its item id', async () => {
-    // The Responses adapter puts an item's id on its start and end parts and
-    // nothing on its deltas, so only the shared consumer's id can decide that
-    // this one reply is two stored parts (task 2.1).
-    const model = scriptedModel([
-      providerResponse(
-        [
-          {
-            type: 'text-start',
-            id: 'msg_1',
-            providerMetadata: { openai: { itemId: 'msg_1' } },
-          },
-          { type: 'text-delta', id: 'msg_1', delta: 'first ' },
-          {
-            type: 'text-end',
-            id: 'msg_1',
-            providerMetadata: { openai: { itemId: 'msg_1' } },
-          },
-          {
-            type: 'text-start',
-            id: 'msg_2',
-            providerMetadata: { openai: { itemId: 'msg_2' } },
-          },
-          { type: 'text-delta', id: 'msg_2', delta: 'second' },
-          {
-            type: 'text-end',
-            id: 'msg_2',
-            providerMetadata: { openai: { itemId: 'msg_2' } },
-          },
-        ],
-        'stop',
-      ),
-    ]);
-    const client = buildClient(model);
-    const collector = createAssistantPartCollector();
-
-    await expect(
-      client.streamText({
-        chat: CHAT,
-        messages,
-        onTextDelta: (text, partId, providerMetadata) =>
-          collector.text(text, partId, providerMetadata),
-      }).text,
-    ).resolves.toBe('first second');
-
-    expect(collector.parts()).toEqual([
-      {
-        type: 'text',
-        text: 'first ',
-        providerMetadata: { openai: { itemId: 'msg_1' } },
-      },
-      {
-        type: 'text',
-        text: 'second',
-        providerMetadata: { openai: { itemId: 'msg_2' } },
-      },
-    ]);
-  });
-});
-
 describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal', () => {
   it.each([
     {

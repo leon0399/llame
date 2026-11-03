@@ -98,8 +98,9 @@ export type ToolActivityPart = {
    * A7): the Responses item's `itemId`, or a Chat Completions
    * `thoughtSignature`. Stored once, on the call, and replayed unchanged on a
    * later request for the same Chat; llame never reads inside it. Absent when
-   * the wire supplied none, and excluded from the history response, exports,
-   * public shares, search, and telemetry exactly as for reasoning metadata.
+   * the wire supplied none. The owner history response and owner event stream
+   * strip it, and exports, public shares, search, logs, and telemetry never
+   * carry it.
    */
   providerMetadata?: ProviderMetadata;
   /**
@@ -166,9 +167,7 @@ class AssistantPartCollectorImpl {
   // last), so the metadata is routed to the part its id names rather than to
   // whatever part is open (design D15).
   private readonly reasoningPartIndexes = new Map<string, number>();
-  // Text part boundaries and metadata binding live in their own class so this
-  // file stays within its size limit; the rules are the reasoning part's, with
-  // the asymmetry design A7 records.
+  // Text part boundaries and metadata binding (design A7).
   private readonly textParts = new TextPartTrack();
 
   /**
@@ -192,24 +191,20 @@ class AssistantPartCollectorImpl {
   }
 
   /**
-   * A text delivery: delta `text` (possibly empty — a part's start/end carries
-   * none) with the adapter's part id and, when the wire supplied one, the
-   * opaque provider metadata bound to that part (design A7).
-   *
-   * A delivery with text starts or extends a part, and a new part starts on
-   * two defined ids that differ — so two Responses `message` items stay two
-   * stored parts, each with its own item id, and a wire without ids keeps one
-   * merged part. Deliberate asymmetry with `reasoning`: an empty delivery
-   * carrying metadata starts nothing. It binds to the part its id already
-   * names, or waits until that id produces text; an empty text part would add
-   * separators to `partsToText` and nothing the model can use.
+   * A text delivery; boundaries and metadata binding: see `TextPartTrack`
+   * (design A7). Reports the metadata this delivery stored on a part, if any.
    */
   text(
     text: string,
     partId?: string,
     providerMetadata?: ProviderMetadata,
-  ): void {
-    this.textParts.record(this.collected, text, partId, providerMetadata);
+  ): ProviderMetadata | undefined {
+    return this.textParts.record(
+      this.collected,
+      text,
+      partId,
+      providerMetadata,
+    );
   }
 
   /**
