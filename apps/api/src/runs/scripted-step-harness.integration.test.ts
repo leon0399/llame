@@ -333,6 +333,12 @@ describeIfDb('whole-step scripted model client', () => {
     expect(toolResults.map((part) => part.toolCallId)).toEqual(
       expect.arrayContaining(['call-read', 'call-unknown']),
     );
+    // The forwarded result is the read the tool ran, not only its id.
+    expect(
+      JSON.stringify(
+        toolResults.find((part) => part.toolCallId === 'call-read')?.output,
+      ),
+    ).toContain('hello');
   });
 
   it('fails the Run on a stream error after a reasoning part and keeps that part', async () => {
@@ -370,14 +376,16 @@ describeIfDb('whole-step scripted model client', () => {
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
-    expect(reconstructDurableAssistant(events).collector.parts()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'reasoning',
-          text: 'Thinking before the drop.',
-          providerMetadata: FAILED_REASONING_METADATA,
-        }),
-      ]),
-    );
+    expect(
+      reconstructDurableAssistant(events)
+        .collector.parts()
+        .filter((part) => part.type === 'reasoning'),
+    ).toEqual([
+      expect.objectContaining({
+        type: 'reasoning',
+        text: 'Thinking before the drop.',
+        providerMetadata: FAILED_REASONING_METADATA,
+      }),
+    ]);
   });
 });
