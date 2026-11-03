@@ -32,8 +32,10 @@ zero and is reported separately in each PR.
   - Evidence: all five pass on 4695a150.
 - [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately.
   - Evidence: local rounds 1 and 2 (spec-consistency and feasibility reviewers; fixes in dbabb02a and 98d697fd). design.md "Revision history" records each round.
-- [ ] 1.3 Obtain Leo's approval of the published revision, including the D9 deviation in proposal.md.
-- [ ] 1.4 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) before ready; GR: run [Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring) to exit.
+- [x] 1.3 Obtain Leo's approval of the published revision, including the D9 deviation in proposal.md.
+  - Evidence: Leo, in chat on 2026-11-03: "Spec is approved. Implement it in layers." This approves the published revision 3b9cdb0f, including D9.
+- [x] 1.4 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) before ready; GR: run [Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring) to exit.
+  - Evidence: SR before ready on 7267dcf8; GR rounds 1 and 2 on #1549 (15 threads resolved, CI green on 3b9cdb0f, 0 unresolved threads).
 
 ## 2. api
 
