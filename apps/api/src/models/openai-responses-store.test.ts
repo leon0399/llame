@@ -140,7 +140,7 @@ describe('the Responses wire stores no response (design D12)', () => {
     expect(JSON.stringify(body['input'])).not.toContain('item_reference');
   });
 
-  it('omits a part that carries only an item id and succeeds', async () => {
+  it('omits a part that carries an item id and no encrypted content, and succeeds', async () => {
     const body = await sentBody({}, [
       USER_MESSAGE,
       replayedReasoning({ openai: { itemId: 'rs_old' } }),

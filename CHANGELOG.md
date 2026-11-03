@@ -12,8 +12,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   recognize still asks for `reasoning.encrypted_content` (and sends the system
   prompt with the `developer` role, as the adapter does for its own reasoning
   models), and a replayed reasoning part carries that encrypted content instead
-  of a reference to a stored item; a stored part with only an item id is
-  omitted. Refs [#1539](https://github.com/leon0399/llame/issues/1539).
+  of a reference to a stored item; a stored part that carries an item id and
+  no encrypted content is omitted. Refs [#1539](https://github.com/leon0399/llame/issues/1539).
 
 - A stored text, reasoning, or tool part now records the model step that
   produced it, so a later turn can group a step's calls and its text exactly as
