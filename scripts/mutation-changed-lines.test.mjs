@@ -13,6 +13,7 @@ import test from "node:test";
 
 import {
   changedLineRanges,
+  instrumentedNoMutant,
   mergeMutationReports,
   mutateRanges,
   mutationArguments,
@@ -224,7 +225,7 @@ test("the scope travels in a config file, so no argv element can reach E2BIG", (
   assert.ok(ranges.join(",").length > 131072);
   assert.deepEqual(written.mutate, ranges);
   // The workspace's own settings survive, so the generated run differs from an
-  // ordinary one only in scope and reporters.
+  // ordinary one only in scope, reporters, and the log it reads back.
   assert.equal(written.testRunner, "vitest");
   assert.deepEqual(written.reporters, [
     "clear-text",
@@ -232,6 +233,25 @@ test("the scope travels in a config file, so no argv element can reach E2BIG", (
     "json",
     "progress-append-only",
   ]);
+  assert.equal(written.fileLogLevel, "info");
+});
+
+test("only a run that instrumented no mutant passes on Stryker's empty-run abort", () => {
+  // The log of a shard whose changed lines were an import and a bare call.
+  const empty = [
+    "02:17:17 (2930) INFO Instrumenter Instrumented 1 source file(s) with 0 mutant(s)",
+    "02:18:08 (2930) ERROR Stryker No tests were executed. Stryker will exit prematurely.",
+  ].join("\n");
+  assert.equal(instrumentedNoMutant(empty), true);
+  // Mutants with no related test must still fail: nothing would kill them.
+  assert.equal(
+    instrumentedNoMutant(
+      empty.replace("with 0 mutant(s)", "with 10 mutant(s)"),
+    ),
+    false,
+  );
+  // A log cut before instrumentation proves nothing.
+  assert.equal(instrumentedNoMutant(""), false);
 });
 
 test("canonical Stryker exclusions apply to the changed-lines scope", () => {
