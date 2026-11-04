@@ -22,6 +22,9 @@ independently reproduced performance.
   bulk-reading helpers.
 - [parsec](./parsec.md) — Proxy/plugin gates and cache-aware history reduction
   around existing coding harnesses.
+- [Cheap Agent](./cheap-agent.md) — MIT MCP plugin for Claude Code and Codex:
+  a pinned OpenCode worker edits a git worktree, and the host lands the
+  patch only after its own checks.
 
 ## Search and knowledge tools
 
