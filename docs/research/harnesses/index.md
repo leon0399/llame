@@ -213,6 +213,7 @@ assessment.
 88. [Rerun](./rerun.md) — AGPL TypeScript coworker host: an AI SDK tool loop, an in-process SSE buffer, workspace RLS on the product database, and a local libSQL engine store
 89. [Hyra 2.0](./hyra.md) — Tencent Hunyuan research post that describes an Overall, Mission, and Worker harness; the public repository ships result artifacts, and the orchestrator source is absent
 90. [DS Bot](./ds-bot.md) — Apache-2.0 DeepSeek Harness plugin whose Bots are root Sessions, whose desktop feed is a change hint, and whose Docker image grants full access inside one container
+91. [Command Code](./command-code.md) — Closed terminal coding agent whose public GitHub tree is a mods registry; the docs describe an append-only JSONL session, a host-drawn TUI, a permission ladder, and ripgrep code search.
 
 ## Multi-machine and container placement
 
