@@ -1,7 +1,8 @@
 import { NoSuchToolError, type streamText, type ToolSet } from 'ai';
+import { getErrorMessage, secureJsonParse } from '@ai-sdk/provider-utils';
 import { isString } from '@workspace/runtime-safety';
 
-import type { ModelStreamInput } from './model-client';
+import type { ModelStreamInput, SdkRefusal } from './model-client';
 
 /**
  * Orders a step's tool work behind the reasoning the provider streamed before
@@ -110,6 +111,29 @@ function parseToolCallInput(raw: string) {
 }
 
 /**
+ * What the SDK itself records for a call it refused (design D3, proposal A8):
+ * the error text it renders and its form of the input. The input is parsed
+ * with the SDK's own `secureJsonParse` (`ai` uses it through `safeParseJSON`),
+ * so a `__proto__` or `constructor.prototype` key makes the parse fail exactly
+ * as it does there; the SDK then keeps the raw string, which its model-message
+ * conversion turns into `{}` (`ai` `dist/index.js:4357-4358`). A replayed call
+ * therefore sends what the live step did.
+ */
+function sdkRefusal(error: unknown, rawInput: string): SdkRefusal {
+  let input: unknown;
+  try {
+    input = secureJsonParse(rawInput);
+  } catch {
+    return { errorText: getErrorMessage(error), input: {} };
+  }
+  return {
+    errorText: getErrorMessage(error),
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- the model's JSON has no domain type before this rule; `typeof` is the SDK's own test, and keeping it exact (`null` included) is what makes replay equal the live step.
+    input: typeof input === 'object' ? input : {},
+  };
+}
+
+/**
  * The SDK's repair hook, recording a tool call the model requested but that
  * never passed the gate: an undeclared/hallucinated name, or arguments the
  * tool's own schema rejects. Returning `null` lets the SDK synthesize the
@@ -124,6 +148,10 @@ export function refuseUnavailableToolCalls(
   Parameters<typeof streamText>[0]['experimental_repairToolCall']
 > {
   return ({ toolCall, error }) => {
+    // The SDK calls this after `doParseToolCall` threw and before its own
+    // invalid-call fallback runs, so `error` is the object the SDK reports and
+    // the raw input is the string it parsed.
+    const refused = sdkRefusal(error, toolCall.input);
     gate.whenReached(toolCall.toolCallId, () =>
       report?.({
         toolCallId: toolCall.toolCallId,
@@ -132,6 +160,7 @@ export function refuseUnavailableToolCalls(
         reason: NoSuchToolError.isInstance(error)
           ? 'not_available'
           : 'invalid_input',
+        sdkRefusal: refused,
       }),
     );
     return Promise.resolve(null);

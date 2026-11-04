@@ -118,6 +118,45 @@ describe('AssistantPartCollector', () => {
     ]);
   });
 
+  it('starts a new text part when the step changes under one adapter id', () => {
+    const collector = createAssistantPartCollector();
+
+    // Chat Completions sends `txt-0` on every step, so the id alone cannot
+    // delimit a part: each step's text stays in its own part (design D5).
+    collector.text('step one', 'txt-0', undefined, 0);
+    collector.text('step two', 'txt-0', undefined, 1);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'text', text: 'step one', step: 0 },
+      { type: 'text', text: 'step two', step: 1 },
+    ]);
+  });
+
+  it('starts a new reasoning part when the step changes under one adapter id', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('step one', 'reasoning-0', undefined, 0);
+    collector.reasoning('step two', 'reasoning-0', undefined, 1);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'step one', step: 0 },
+      { type: 'reasoning', text: 'step two', step: 1 },
+    ]);
+  });
+
+  it('stamps a metadata-only reasoning start with the step it arrived in', () => {
+    const collector = createAssistantPartCollector();
+    const metadata = { openai: { itemId: 'rs_1' } };
+
+    collector.reasoning('step one', 'rs-0', undefined, 0);
+    collector.reasoning('', 'rs-1', metadata, 1);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'step one', step: 0 },
+      { type: 'reasoning', text: '', providerMetadata: metadata, step: 1 },
+    ]);
+  });
+
   it('holds a text part’s start metadata until its id produces text', () => {
     const collector = createAssistantPartCollector();
     const start = { openai: { itemId: 'msg_1' } };
@@ -442,6 +481,34 @@ describe('toolActivityPart', () => {
         }),
       ),
     ).not.toContain('permission');
+  });
+
+  it('stores a refused call’s step and the SDK’s own form of it', () => {
+    const sdkErrorText =
+      'Invalid input for tool read: Type validation failed. Received: {"path":3}';
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'read',
+      input: { path: 3 },
+      result: {
+        status: 'error',
+        type: 'invalid_input',
+        message: 'Invalid input for the read tool.',
+      },
+      step: 1,
+      sdkRefusal: { errorText: sdkErrorText, input: { path: 3 } },
+    });
+
+    expect(part).toMatchObject({
+      toolCallId: 'call-1',
+      state: 'output-error',
+      // The owner-facing error stays llame's own message; the SDK's text lives
+      // beside it for the model only (design D3, proposal A8).
+      errorText: 'Invalid input for the read tool.',
+      outcome: 'invalid_input',
+      step: 1,
+      sdkRefusal: { errorText: sdkErrorText, input: { path: 3 } },
+    });
   });
 
   it('copies a well-formed artifact locator beside the result', () => {
@@ -1711,6 +1778,178 @@ describe('reconstructDurableAssistant', () => {
       },
       { type: 'data-cap-notice', data: { stepsUsed: 4, maxSteps: 4 } },
     ]);
+  });
+
+  it('records one step on the text and the two parallel calls it made', () => {
+    const result = reconstructDurableAssistant([
+      event('model.delta', { text: 'reading both', stepNumber: 2 }),
+      event('tool.requested', {
+        toolCallId: 'call-a',
+        toolName: 'read',
+        input: { path: '/work/a.md' },
+        stepNumber: 2,
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-a',
+        output: { status: 'success', text: 'a' },
+      }),
+      event('tool.requested', {
+        toolCallId: 'call-b',
+        toolName: 'read',
+        input: { path: '/work/b.md' },
+        stepNumber: 2,
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-b',
+        output: { status: 'success', text: 'b' },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toStrictEqual([
+      { type: 'text', text: 'reading both', step: 2 },
+      expect.objectContaining({ toolCallId: 'call-a', step: 2 }),
+      expect.objectContaining({ toolCallId: 'call-b', step: 2 }),
+    ]);
+  });
+
+  it('numbers a Continue Run’s steps after the kept steps', () => {
+    // The kept parts end with a call at step 1, so the Continue Run's own
+    // first step (the SDK's step 0 in its fresh request) stores as step 2
+    // (design D5).
+    const result = reconstructDurableAssistant(
+      [
+        event('model.delta', { text: 'continuing', stepNumber: 0 }),
+        event('tool.requested', {
+          toolCallId: 'call-c',
+          toolName: 'read',
+          input: { path: '/work/c.md' },
+          stepNumber: 0,
+        }),
+        event('tool.completed', {
+          toolCallId: 'call-c',
+          output: { status: 'success', text: 'c' },
+        }),
+        event('model.delta', { text: 'done', stepNumber: 1 }),
+      ],
+      2,
+    );
+
+    expect(result.collector.parts()).toStrictEqual([
+      { type: 'text', text: 'continuing', step: 2 },
+      expect.objectContaining({ toolCallId: 'call-c', step: 2 }),
+      { type: 'text', text: 'done', step: 3 },
+    ]);
+  });
+
+  it('writes no step onto a log that records none', () => {
+    const result = reconstructDurableAssistant([
+      event('model.delta', { text: 'old answer' }),
+      event('reasoning.delta', { text: 'old thinking' }),
+      event('tool.requested', {
+        toolCallId: 'call-old',
+        toolName: 'read',
+        input: { path: '/work/old.md' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-old',
+        output: { status: 'success', text: 'old' },
+      }),
+    ]);
+
+    const parts = result.collector.parts();
+    // An unnumbered step stays unnumbered: the projection's consecutive-call
+    // rule reads it, and nothing here invents a step for it (design D5).
+    for (const part of parts) expect(part).not.toHaveProperty('step');
+  });
+
+  it('splits a part when the log repeats one adapter id across steps', () => {
+    // Chat Completions reuses `txt-0` and `reasoning-0` on every step; the
+    // rebuilt parts keep each step's text apart, exactly as the live
+    // collector did (design D5).
+    const result = reconstructDurableAssistant([
+      event('reasoning.delta', {
+        text: 'think one',
+        partId: 'rs-0',
+        stepNumber: 0,
+      }),
+      event('model.delta', { text: 'one', partId: 'txt-0', stepNumber: 0 }),
+      event('reasoning.delta', {
+        text: 'think two',
+        partId: 'rs-0',
+        stepNumber: 1,
+      }),
+      event('model.delta', { text: 'two', partId: 'txt-0', stepNumber: 1 }),
+    ]);
+
+    expect(result.collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'think one', step: 0 },
+      { type: 'text', text: 'one', step: 0 },
+      { type: 'reasoning', text: 'think two', step: 1 },
+      { type: 'text', text: 'two', step: 1 },
+    ]);
+  });
+
+  it('rebuilds a refused call’s SDK text and input beside llame’s error', () => {
+    const sdkErrorText =
+      "Model tried to call unavailable tool 'fetch_page'. Available tools: read.";
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'fetch_page',
+        input: { url: 'https://example.test/' },
+        stepNumber: 1,
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: {
+          status: 'error',
+          type: 'not_available',
+          message: 'Tool "fetch_page" is not available.',
+        },
+        sdkRefusal: {
+          errorText: sdkErrorText,
+          input: { url: 'https://example.test/' },
+        },
+      }),
+    ]);
+
+    const [part] = result.collector.parts();
+    expect(part).toStrictEqual(
+      expect.objectContaining({
+        toolCallId: 'call-1',
+        step: 1,
+        // The owner-facing error stays llame's own message; the SDK's text and
+        // input live beside it for the model only (design D3, proposal A8).
+        errorText: 'Tool "fetch_page" is not available.',
+        outcome: 'not_available',
+        sdkRefusal: {
+          errorText: sdkErrorText,
+          input: { url: 'https://example.test/' },
+        },
+      }),
+    );
+  });
+
+  it('drops a refused-call record without a usable error text or input', () => {
+    for (const sdkRefusal of [
+      { errorText: 7, input: {} },
+      { errorText: 'bad input' },
+    ]) {
+      const [part] = reconstructDurableAssistant([
+        event('tool.requested', {
+          toolCallId: 'call-1',
+          toolName: 'read',
+          input: { path: '/work/a.md' },
+        }),
+        event('tool.completed', {
+          toolCallId: 'call-1',
+          output: { status: 'error', type: 'invalid_input', message: 'bad' },
+          sdkRefusal,
+        }),
+      ]).collector.parts();
+
+      expect(part).not.toHaveProperty('sdkRefusal');
+    }
   });
 });
 

@@ -546,6 +546,69 @@ describe('RunsController context receipt', () => {
     expect(sse.writes.join('')).not.toContain('msg_1');
   });
 
+  it('strips a refused call’s SDK-only fields from the tool.completed frame', async () => {
+    const payload = {
+      toolCallId: 'call-9',
+      toolName: 'ghost_tool',
+      status: 'error',
+      output: {
+        status: 'error',
+        type: 'not_available',
+        message: 'Tool "ghost_tool" is not available.',
+      },
+      sdkRefusal: {
+        errorText:
+          "Model tried to call unavailable tool 'ghost_tool'. No tools are available.",
+        input: { q: 'x' },
+      },
+    };
+    const events: Array<RunEvent> = [
+      {
+        runId: run.id,
+        sequence: 7,
+        eventType: 'tool.completed',
+        payload,
+        createdAt: new Date('2026-07-18T10:00:01.000Z'),
+      },
+    ];
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValueOnce(events)
+      .mockResolvedValueOnce([]);
+    const sse = response();
+
+    await controller().streamRunEvents(
+      'owner',
+      run.id,
+      {},
+      request(),
+      sse.value,
+    );
+
+    expect(sse.writes).toEqual([
+      `id: 7\ndata: ${JSON.stringify({
+        sequence: 7,
+        eventType: 'tool.completed',
+        // The owner sees llame's refusal only, never the SDK's raw text or
+        // input form (design D3, proposal A8).
+        payload: {
+          toolCallId: 'call-9',
+          toolName: 'ghost_tool',
+          status: 'error',
+          output: {
+            status: 'error',
+            type: 'not_available',
+            message: 'Tool "ghost_tool" is not available.',
+          },
+        },
+        createdAt: events[0].createdAt,
+      })}\n\n`,
+      'data: [DONE]\n\n',
+    ]);
+    // The stored event keeps what the next attempt replays.
+    expect(events[0].payload).toHaveProperty('sdkRefusal');
+  });
+
   it('strips retained read bytes from the tool.completed and run.continued frames without changing stored events', async () => {
     const retainedMedia = {
       mediaType: 'image/png',

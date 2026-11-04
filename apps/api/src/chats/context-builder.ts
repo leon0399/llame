@@ -51,6 +51,13 @@ export interface TextPart {
   type: 'text';
   text: string;
   /**
+   * The model step that produced this part (design D5): numbered from 0 in a
+   * Run, and continuing after the kept steps in a Continue Run. Absent on a
+   * legacy part that never recorded one, where replay falls back to the
+   * consecutive rule. It never changes the part's text or order.
+   */
+  step?: number;
+  /**
    * Opaque provider metadata the adapter attached to this text part (design
    * A7), stored verbatim beside the text: on the Responses wire the item's
    * `itemId`. Same contract as `ReasoningPart`'s field — llame never reads a
@@ -78,6 +85,11 @@ export interface TextPart {
 export interface ReasoningPart {
   type: 'reasoning';
   text: string;
+  /**
+   * The model step that produced this part (design D5), on the same rules as
+   * `TextPart`'s.
+   */
+  step?: number;
   /**
    * Opaque provider metadata the adapter attached to this part (D15), stored
    * verbatim beside the text. llame never reads a key inside it: the

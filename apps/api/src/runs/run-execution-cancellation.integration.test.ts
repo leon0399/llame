@@ -208,7 +208,7 @@ describeIfDb('post-claim cancellation settlement', () => {
     const assistants = await assistantMessages(seed.chatId);
     expect(assistants).toHaveLength(1);
     expect(assistants[0].parts).toEqual([
-      { type: 'text', text: 'answered before the stop' },
+      { type: 'text', text: 'answered before the stop', step: 0 },
     ]);
   });
 });

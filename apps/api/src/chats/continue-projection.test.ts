@@ -18,8 +18,10 @@ import type { MessagePart } from './context-builder';
 import {
   continueStateFromEvents,
   continuedRecords,
+  continueStepOffset,
   ownSnapshotParts,
   projectContinueParts,
+  withKeptSteps,
   type ContinueState,
 } from './continue-projection';
 
@@ -1068,5 +1070,55 @@ describe('the snapshot parts a Continue rebuild owns', () => {
         ownRunId,
       ),
     ).toEqual([toolPart(CALL_ID, 'done'), ownItem]);
+  });
+});
+
+describe('the step numbers a Continue Run adds (design D5)', () => {
+  it('starts one step after the highest kept step', () => {
+    // The kept reply ends with a call at step 1; its chain's own recorded map
+    // names an earlier call at step 0.
+    expect(
+      continueStepOffset({
+        parts: [
+          { type: 'text', text: 'kept answer', step: 1 },
+          { ...toolPart(CALL_ID, 'first'), step: 1 },
+        ],
+        stepNumbers: new Map([[CALL_ID_2, 0]]),
+        results: new Map(),
+      }),
+    ).toBe(2);
+  });
+
+  it('starts at zero for a Run that keeps no numbered part', () => {
+    expect(continueStepOffset(undefined)).toBe(0);
+    expect(continueStepOffset(state([toolPart(CALL_ID, 'first')]))).toBe(0);
+  });
+
+  it('copies a kept call’s step from the source Run’s recorded event only when it has none', () => {
+    const original = [
+      reasoning('kept thinking'),
+      toolPart(CALL_ID, 'first'),
+      { ...toolPart(CALL_ID_2, 'second'), step: 3 },
+      { type: 'text', text: 'kept answer' },
+    ];
+
+    const stepped = withKeptSteps(original, { [CALL_ID]: 1 });
+
+    expect(stepped).toEqual([
+      original[0],
+      { ...toolPart(CALL_ID, 'first'), step: 1 },
+      // A part that already records a step keeps it: the map cannot rename the
+      // step a live Run wrote.
+      { ...toolPart(CALL_ID_2, 'second'), step: 3 },
+      original[3],
+    ]);
+    // The stored source reply is never rewritten; admission copies.
+    expect(original[1]).not.toHaveProperty('step');
+  });
+
+  it('keeps no step for a call that no event numbered', () => {
+    expect(
+      withKeptSteps([toolPart('unrecorded', 'first')], { [CALL_ID]: 1 }),
+    ).toEqual([toolPart('unrecorded', 'first')]);
   });
 });

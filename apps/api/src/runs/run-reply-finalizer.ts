@@ -23,6 +23,7 @@ import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { reconstructDurableAssistant } from './assistant-transcript';
 import {
   continueStateFromEvents,
+  continueStepOffset,
   ownSnapshotParts,
   type ContinueState,
 } from '../chats/continue-projection';
@@ -303,38 +304,23 @@ function replyParts(
 }
 
 /**
- * The reply write for a settler without the attempt's collector. `settled`
- * completes calls the log left open; a window ignores those it never opened.
+ * The reply write for a Run dispatched before the reply layer existed: it has
+ * output to keep, or it gets no reply and no usage.
  */
-function rebuiltReplyWrite(
+function dispatchedReplyWrite(
   input: RunReplyFinalization,
-  reply: Message | undefined,
   log: Array<RunEvent>,
   settled: Array<RunEvent>,
+  stepOffset: number,
 ): ReplyWrite | undefined {
-  const continued = continueStateFromEvents(log);
-  if (reply !== undefined) {
-    const running = reply.usage;
-    if (!isRunningUsage(running)) return undefined;
-    const rebuilt = reconstructDurableAssistant([
-      ...attemptWindow(log, running.attemptId),
-      ...settled,
-    ]).collector.parts();
-    return {
-      parts: replyParts(input.run, rebuilt, reply.parts, continued),
-      usage:
-        input.telemetry !== undefined && input.attemptId === running.attemptId
-          ? input.telemetry
-          : tokenlessUsage(running, input.status, input.models),
-    };
-  }
-  // No reply row: only a Run dispatched before the reply layer has output to
-  // keep; one that never dispatched gets no reply and no usage.
   if (!log.some((event) => event.eventType === 'model.requested')) {
     return undefined;
   }
   return {
-    parts: reconstructDurableAssistant([...log, ...settled]).collector.parts(),
+    parts: reconstructDurableAssistant(
+      [...log, ...settled],
+      stepOffset,
+    ).collector.parts(),
     usage:
       input.telemetry ??
       tokenlessUsage(
@@ -346,6 +332,40 @@ function rebuiltReplyWrite(
         input.status,
         input.models,
       ),
+  };
+}
+
+/**
+ * The reply write for a settler without the attempt's collector. `settled`
+ * completes calls the log left open; a window ignores those it never opened.
+ */
+function rebuiltReplyWrite(
+  input: RunReplyFinalization,
+  reply: Message | undefined,
+  log: Array<RunEvent>,
+  settled: Array<RunEvent>,
+): ReplyWrite | undefined {
+  const continued = continueStateFromEvents(log);
+  const stepOffset = continueStepOffset(continued);
+  if (reply === undefined) {
+    return dispatchedReplyWrite(input, log, settled, stepOffset);
+  }
+  const running = reply.usage;
+  if (!isRunningUsage(running)) return undefined;
+  return {
+    parts: replyParts(
+      input.run,
+      reconstructDurableAssistant(
+        [...attemptWindow(log, running.attemptId), ...settled],
+        stepOffset,
+      ).collector.parts(),
+      reply.parts,
+      continued,
+    ),
+    usage:
+      input.telemetry !== undefined && input.attemptId === running.attemptId
+        ? input.telemetry
+        : tokenlessUsage(running, input.status, input.models),
   };
 }
 

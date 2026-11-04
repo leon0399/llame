@@ -44,6 +44,7 @@ import type { RetainedMedia } from '../media/attempt-media';
 import { continuedMediaKey } from '../media/retained-media';
 import {
   projectStoredToolPart,
+  TOOL_PART_PREFIX,
   type ProjectedToolObservationPair,
 } from './tool-observation-part';
 import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
@@ -135,6 +136,30 @@ export function continueStateFromEvents(
     stepNumbers,
     results,
   };
+}
+
+/**
+ * The first step number a Continue Run's own parts use: one after the highest
+ * kept step (design D5), so the steps of the continued reply stay separate and
+ * in order. A Run that continues nothing, or keeps no step, starts at 0. A kept
+ * part carries the step it was stored with; the kept step map (keyed by tool
+ * call) covers the calls of a source Run stored before parts recorded one.
+ */
+export function continueStepOffset(state: ContinueState | undefined): number {
+  if (state === undefined) return 0;
+  let offset = nextStep(state.stepNumbers.values());
+  for (const part of state.parts) {
+    const step = isRecord(part) ? part['step'] : undefined;
+    if (isNumber(step)) offset = Math.max(offset, step + 1);
+  }
+  return offset;
+}
+
+/** One after the highest number in `steps`, or 0 when there is none. */
+function nextStep(steps: Iterable<number>): number {
+  let highest = -1;
+  for (const step of steps) highest = Math.max(highest, step);
+  return highest + 1;
 }
 
 /**
@@ -384,15 +409,40 @@ export type ContinuedRecords = {
   readonly results: Record<string, ToolResult>;
 };
 
+/** The `toolCallId` a stored part carries, when it is a tool part. */
+function storedToolCallId(part: unknown): string | undefined {
+  if (!isRecord(part)) return undefined;
+  const type = part['type'];
+  const toolCallId = part['toolCallId'];
+  return isString(type) &&
+    type.startsWith(TOOL_PART_PREFIX) &&
+    isString(toolCallId)
+    ? toolCallId
+    : undefined;
+}
+
 /** The `toolCallId` of each kept settled tool part, in stored order. */
 function keptToolCallIds(parts: ReadonlyArray<MessagePart>): Array<string> {
-  return parts.flatMap((part) => {
-    if (!isRecord(part)) return [];
-    const type = part['type'];
-    const toolCallId = part['toolCallId'];
-    return isString(type) && type.startsWith('tool-') && isString(toolCallId)
-      ? [toolCallId]
-      : [];
+  return parts.flatMap((part) => storedToolCallId(part) ?? []);
+}
+
+/**
+ * The kept parts with the step number of each call the source Run's events
+ * recorded, for a kept tool part that stores none (design D5). Admission calls
+ * this, so a source Run written before step numbers keeps its step boundaries
+ * in the Continue request. A part that already records a step keeps it, a call
+ * no event numbers keeps none, and the stored source is never mutated.
+ */
+export function withKeptSteps(
+  parts: ReadonlyArray<unknown>,
+  steps: KeptStepNumbers,
+): Array<unknown> {
+  return parts.map((part) => {
+    const toolCallId = storedToolCallId(part);
+    if (toolCallId === undefined || !isRecord(part)) return part;
+    const step = steps[toolCallId];
+    if (Object.hasOwn(part, 'step') || !isNumber(step)) return part;
+    return { ...part, step };
   });
 }
 
@@ -442,7 +492,7 @@ function ownSteps(
   kept: ReadonlySet<string>,
   chained: ReadonlyMap<string, number>,
 ): KeptStepNumbers {
-  const offset = chained.size === 0 ? 0 : Math.max(...chained.values()) + 1;
+  const offset = nextStep(chained.values());
   const steps: KeptStepNumbers = Object.fromEntries(chained);
   for (const event of events) {
     if (event.eventType !== 'tool.requested' || !isRecord(event.payload)) {

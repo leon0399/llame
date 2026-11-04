@@ -648,6 +648,50 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
     expect(parts[1]).toHaveProperty('providerMetadata');
   });
 
+  it('omits a refused call’s SDK-only fields, keeping llame’s error', () => {
+    const refused = {
+      type: 'tool-ghost_tool',
+      toolCallId: 'call-9',
+      state: 'output-error',
+      input: { q: 'x' },
+      errorText: 'Tool "ghost_tool" is not available.',
+      outcome: 'not_available',
+      sdkRefusal: {
+        errorText:
+          "Model tried to call unavailable tool 'ghost_tool'. No tools are available.",
+        input: { q: 'x' },
+      },
+    };
+    const message: Message = {
+      id: 'm-refused',
+      chatId: 'chat-owner',
+      seq: 9,
+      absorbedThroughSeq: null,
+      role: 'assistant',
+      senderUserId: null,
+      parts: [refused],
+      attachments: [],
+      usage: { modelId: 'm' },
+      inReplyTo: null,
+      createdAt: new Date('2026-08-25T00:00:00.000Z'),
+      revisedAt: null,
+    };
+
+    expect(toChatMessageResponse(message).parts).toEqual([
+      {
+        type: 'tool-ghost_tool',
+        toolCallId: 'call-9',
+        state: 'output-error',
+        input: { q: 'x' },
+        // The owner still sees llame's refusal, never the SDK's raw text.
+        errorText: 'Tool "ghost_tool" is not available.',
+        outcome: 'not_available',
+      },
+    ]);
+    // The stored row keeps the SDK fields a later request replays.
+    expect(refused).toHaveProperty('sdkRefusal');
+  });
+
   it('omits retained read bytes from a tool part and a prompt-import entry, changing nothing else', () => {
     const retainedMedia = {
       mediaType: 'image/png',

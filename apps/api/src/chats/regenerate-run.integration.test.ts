@@ -387,7 +387,9 @@ describeIfDb('a Regenerate Run', () => {
     expect(JSON.stringify(sent)).not.toContain(OLD_TEXT);
 
     const reply = await replyOf(turn);
-    expect(reply?.parts).toEqual([{ type: 'text', text: 'the new answer' }]);
+    expect(reply?.parts).toEqual([
+      { type: 'text', text: 'the new answer', step: 0 },
+    ]);
     expect(reply?.usage).toMatchObject({
       status: 'completed',
       runId: turn.runId,
@@ -437,7 +439,9 @@ describeIfDb('a Regenerate Run', () => {
     );
 
     const reply = await replyOf(turn);
-    expect(reply?.parts).toEqual([{ type: 'text', text: 'the new answer' }]);
+    expect(reply?.parts).toEqual([
+      { type: 'text', text: 'the new answer', step: 0 },
+    ]);
     expect(reply?.revisedAt).toBeNull();
     // Search and reads still address it: a revised mark would hide it.
     await expect(

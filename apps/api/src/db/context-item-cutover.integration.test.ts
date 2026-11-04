@@ -27,7 +27,11 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 // its client type is erased and carries no runtime cost.
 type SqlClient = Sql;
 
-/** The migration's UPDATE, read from the file rather than restated here. */
+/**
+ * The migration's UPDATE, read from the file rather than restated here. The
+ * column is `json` since design D13, so the replay casts it back to `jsonb`:
+ * the historical statement targeted the type the column had when it ran.
+ */
 function cutoverUpdate(): string {
   const file = fs.readFileSync(
     path.resolve(
@@ -41,7 +45,12 @@ function cutoverUpdate(): string {
     .map((statement) => statement.trim())
     .find((statement) => statement.startsWith('UPDATE'));
   if (!update) throw new Error('cutover migration has no UPDATE statement');
-  return update.replace(/;$/, '');
+  return update
+    .replaceAll(
+      'jsonb_array_elements("parts")',
+      'jsonb_array_elements("parts"::jsonb)',
+    )
+    .replace(/;$/, '');
 }
 
 describeIfDb('context-item cutover migration', () => {

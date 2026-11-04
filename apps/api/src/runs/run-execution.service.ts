@@ -61,7 +61,7 @@ import {
   type PromptUserInput,
   type SystemModelCatalogEntry,
 } from '../models/model-catalog';
-import { type ModelClient } from '../models/model-client';
+import { type ModelClient, type SdkRefusal } from '../models/model-client';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import {
   ChatsRepository,
@@ -152,16 +152,19 @@ import { createRegenerateNoticeItem } from '../chats/regenerate-notice';
 import { isModelSwitchItem } from '../chats/accepted-turn-parts.repository';
 import {
   continueStateFromEvents,
+  continueStepOffset,
   projectContinueParts,
   type ContinueState,
 } from '../chats/continue-projection';
 import { createDeltaBuffer } from './delta-buffer';
 import {
-  MAX_ADDRESS_DECISIONS,
-  MAX_DERIVED_DECISIONS,
   createAssistantPartCollector,
   toolActivityPart,
 } from './assistant-transcript';
+import {
+  MAX_ADDRESS_DECISIONS,
+  MAX_DERIVED_DECISIONS,
+} from './run-event-payload';
 import {
   finalizeRunReply,
   isRunningUsage,
@@ -791,6 +794,12 @@ type ToolCompletedEventPayload = {
    * event-log rebuild copies it into the reply's tool part.
    */
   retainedMedia?: RetainedMediaJson;
+  /**
+   * What the AI SDK put in the live step for a call its repair hook refused
+   * (design D3, proposal A8). The event-log rebuild copies it onto the reply's
+   * tool part, and every owner-facing sink strips it.
+   */
+  sdkRefusal?: SdkRefusal;
 };
 
 function appendDerivedDecision(
@@ -1378,6 +1387,10 @@ export class RunExecutionService {
     // boundary ends on a settled tool part or an in-Run item, which is why no
     // live delta can merge into a kept part.
     if (continued !== undefined) assistantPartCollector.seed(continued.parts);
+    // The step numbers this Run's own parts use. A Continue Run's parts
+    // continue after the steps it kept (design D5), so the kept steps and the
+    // new ones stay separate in the reply it stores.
+    const stepOffset = continueStepOffset(continued);
     // The retained base64 this reply's message already holds: the kept parts
     // of a Continue Run, which the settled reads below add to. A read past the
     // rest of the bound keeps no bytes and records that instead (D5).
@@ -1416,6 +1429,7 @@ export class RunExecutionService {
         enqueueEvent('model.delta', {
           text,
           ...(textPartId !== undefined && { partId: textPartId }),
+          stepNumber: currentStepNumber,
         });
       }
     };
@@ -1430,6 +1444,7 @@ export class RunExecutionService {
       enqueueEvent('model.delta', {
         ...(partId !== undefined && { partId }),
         providerMetadata,
+        stepNumber: currentStepNumber,
       });
     };
 
@@ -1465,6 +1480,7 @@ export class RunExecutionService {
         enqueueEvent('reasoning.delta', {
           text,
           ...(reasoningPartId !== undefined && { partId: reasoningPartId }),
+          stepNumber: currentStepNumber,
         });
       }
     };
@@ -1475,6 +1491,7 @@ export class RunExecutionService {
       enqueueEvent('reasoning.delta', {
         ...(partId !== undefined && { partId }),
         providerMetadata,
+        stepNumber: currentStepNumber,
       });
     };
 
@@ -1550,13 +1567,24 @@ export class RunExecutionService {
     // the durable event and the persisted part can never disagree.
     // The step the live stream is in, for `tool.requested`'s step number
     // (turn-actions D6). `onStepStart` stamps it before each step's request, so
-    // every call a step makes carries that step.
+    // every call a step makes carries that step. A stored part carries the
+    // reply-wide number instead: `stepOffset + currentStepNumber`, so a
+    // Continue Run's own parts continue after the steps it kept (design D5)
+    // and a run with no tool step at all still numbers its parts from the
+    // offset.
     let currentStepNumber = 0;
     const openToolCalls = new Map<
       string,
       {
         toolName: string;
         toolInput: unknown;
+        /** The step of the reply that requested the call (design D5). */
+        step: number;
+        /**
+         * The SDK's own error text and input for a call its repair hook
+         * refused, on the path that never ran the tool (design D3, A8).
+         */
+        sdkRefusal?: SdkRefusal;
         permission?: PermissionDecision;
         /** Derived-locator decisions, collected while the executor runs. */
         derivedDecisions?: Array<DerivedDecisionRecord>;
@@ -1589,9 +1617,18 @@ export class RunExecutionService {
       toolName: string,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK's own inputSchema validation (`toFlexibleSchema`, wired into `tool({...})` below) already ran before this callback fires; `toolInput` here is that already-admitted, per-tool-schema-shaped value forwarded for durable recording.
       toolInput: unknown,
-      origin?: ToolActivityOrigin,
+      {
+        origin,
+        sdkRefusal,
+      }: { origin?: ToolActivityOrigin; sdkRefusal?: SdkRefusal } = {},
     ) => {
-      openToolCalls.set(toolCallId, { toolName, toolInput, origin });
+      openToolCalls.set(toolCallId, {
+        toolName,
+        toolInput,
+        step: stepOffset + currentStepNumber,
+        ...(origin !== undefined && { origin }),
+        ...(sdkRefusal !== undefined && { sdkRefusal }),
+      });
       if (origin === undefined)
         assistantPartCollector.toolRequested(toolCallId);
     };
@@ -1610,8 +1647,10 @@ export class RunExecutionService {
         toolCallId,
         toolName,
         input: toolInput,
-        // The step the call was requested in, stamped by `onStepStart`. A call
+        // The step the call was requested in, stamped by `onStepStart` in the
+        // SDK's own numbering (it restarts at 0 in every request). A call
         // outside any step (the step cap's forced answer) keeps the last one.
+        // The stored part carries the reply-wide number instead (design D5).
         stepNumber: currentStepNumber,
       };
       if (permission !== undefined) payload.permission = permission;
@@ -1687,6 +1726,10 @@ export class RunExecutionService {
         ...(retained.record !== undefined && {
           retainedMedia: retained.record,
         }),
+        // Model-only, so a reply rebuilt from the log carries it too (D3/A8).
+        ...(open?.sdkRefusal !== undefined && {
+          sdkRefusal: open.sdkRefusal,
+        }),
       };
       if (permission !== undefined) payload.permission = permission;
       if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
@@ -1702,6 +1745,8 @@ export class RunExecutionService {
           toolName,
           input: toolInput,
           result,
+          step: open?.step ?? stepOffset + currentStepNumber,
+          sdkRefusal: open?.sdkRefusal,
           providerMetadata,
           permission,
           derivedDecisions,
@@ -1806,7 +1851,9 @@ export class RunExecutionService {
     ): Promise<ToolResult> => {
       const toolCallId = turnInstructions.nextToolCallId();
       const toolInput = { path: selectorPath };
-      reserveToolRequest(toolCallId, 'read', toolInput, ORIGIN_INSTRUCTIONS);
+      reserveToolRequest(toolCallId, 'read', toolInput, {
+        origin: ORIGIN_INSTRUCTIONS,
+      });
       const result = await runTool(
         nativeReadTool,
         toolInput,
@@ -2120,6 +2167,11 @@ export class RunExecutionService {
           onToolSet: (record) => toolAdditions.bindToolRecord(record),
           maxSteps: maxStepsPerRun,
           onStepStart: async ({ messages, stepNumber }) => {
+            // Each buffered event carries the step its characters arrived in,
+            // so drain what the previous step still held BEFORE the number
+            // moves: text after a step's calls stays in that step (design D5).
+            persistReasoning(reasoningDeltas.flush());
+            persistDelta(deltas.flush());
             currentStepNumber = stepNumber;
             workspaceRoot.beginStep();
             inRunItems.beginStep(messages);
@@ -2171,6 +2223,7 @@ export class RunExecutionService {
             toolName,
             input: callInput,
             reason,
+            sdkRefusal,
           }) => {
             persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
@@ -2182,7 +2235,7 @@ export class RunExecutionService {
             // is distinguished downstream by requested+completed with no
             // started in between). No permission decision: an unavailable or
             // invalid call is not a permission rejection.
-            reserveToolRequest(toolCallId, toolName, callInput);
+            reserveToolRequest(toolCallId, toolName, callInput, { sdkRefusal });
             emitToolRequested(toolCallId, toolName, callInput, undefined);
             recordToolCompleted(toolCallId, toolName, callInput, result);
           },
@@ -2211,6 +2264,7 @@ export class RunExecutionService {
               '',
               partId,
               providerMetadata,
+              stepOffset + currentStepNumber,
             );
             if (bound !== undefined) persistTextMetadata(partId, bound);
             return;
@@ -2221,6 +2275,7 @@ export class RunExecutionService {
             text,
             partId,
             providerMetadata,
+            stepOffset + currentStepNumber,
           );
           // Time-injected push: age-based flushes (#50 live-channel
           // granularity) stay pure inside the buffer.
@@ -2275,7 +2330,12 @@ export class RunExecutionService {
             }
             persistReasoning(reasoningDeltas.flush());
             persistReasoningMetadata(partId, providerMetadata);
-            assistantPartCollector.reasoning('', partId, providerMetadata);
+            assistantPartCollector.reasoning(
+              '',
+              partId,
+              providerMetadata,
+              stepOffset + currentStepNumber,
+            );
             return;
           }
           // Drain before adopting a new id so a buffered event never spans
@@ -2293,7 +2353,12 @@ export class RunExecutionService {
           // block's empty signature delta or redacted start — so binding it
           // here would only duplicate plumbing, and buffering stays coalesced
           // exactly as the live collector's part does.
-          assistantPartCollector.reasoning(text, partId);
+          assistantPartCollector.reasoning(
+            text,
+            partId,
+            undefined,
+            stepOffset + currentStepNumber,
+          );
           persistDelta(deltas.flush());
           // Reasoning intervened: the next text delta opens a new part, so
           // the id it carries is not the one the drained buffer belonged to.
@@ -2413,7 +2478,12 @@ export class RunExecutionService {
           // (every string starts with the empty string), so that case is
           // already covered by this branch — there is no second case to guard.
           if (text.startsWith(streamedText)) {
-            assistantPartCollector.text(text.slice(streamedText.length));
+            assistantPartCollector.text(
+              text.slice(streamedText.length),
+              undefined,
+              undefined,
+              stepOffset + currentStepNumber,
+            );
           }
           const status = input.abortSignal?.aborted
             ? classifyAbortedRun(input.abortSignal)

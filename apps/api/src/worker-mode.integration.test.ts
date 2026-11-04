@@ -560,6 +560,8 @@ d('queue-executed runs behind the stream bridge', () => {
     );
     const assistant = messages.find((m) => m.role === 'assistant');
     expect(assistant).toBeDefined();
-    expect(assistant?.parts).toEqual([{ type: 'text', text: 'worker answer' }]);
+    expect(assistant?.parts).toEqual([
+      { type: 'text', text: 'worker answer', step: 0 },
+    ]);
   });
 });

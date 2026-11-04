@@ -54,8 +54,12 @@ function isCheckpointMessage(row: Message): row is CheckpointMessage {
  */
 const notRunningReply = sql`(${messages.usage} ->> 'status') is distinct from 'running'`;
 
-/** At least one text part with a non-whitespace character. */
-const hasVisibleText = sql`exists (select 1 from jsonb_array_elements(${messages.parts}) as part where part ->> 'type' = 'text' and part ->> 'text' ~ '\\S')`;
+/**
+ * At least one text part with a non-whitespace character. Parts are `json`
+ * since design D13, and `json_array_elements` is the set-returning function
+ * that type admits.
+ */
+const hasVisibleText = sql`exists (select 1 from json_array_elements(${messages.parts}) as part where part ->> 'type' = 'text' and part ->> 'text' ~ '\\S')`;
 
 /**
  * An assistant reply a writer may still replace. Atomic guard against a retry

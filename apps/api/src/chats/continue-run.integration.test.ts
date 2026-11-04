@@ -74,6 +74,21 @@ const keptParts: Array<MessagePart> = [
   },
 ];
 
+/** The same kept parts, with their call numbered step 1 (design D5). */
+const keptPartsAtStepOne: Array<MessagePart> = [
+  { type: 'reasoning', text: 'I should read the file first' },
+  { type: 'text', text: KEPT_TEXT },
+  {
+    type: 'tool-read',
+    toolCallId: CALL_ID,
+    state: 'output-available',
+    input: { path: '/tmp/file.txt' },
+    output: { status: 'success', path: '/tmp/file.txt', text: KEPT_RESULT },
+    outcome: 'success',
+    step: 1,
+  },
+];
+
 function failureChunks(afterText: string): Array<LanguageModelV3StreamPart> {
   return [
     { type: 'stream-start', warnings: [] },
@@ -509,7 +524,7 @@ describeIfDb('a Continue Run', () => {
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
       ...keptParts,
-      { type: 'text', text: 'done' },
+      { type: 'text', text: 'done', step: 0 },
     ]);
     expect(reply?.usage).toMatchObject({
       status: 'completed',
@@ -518,6 +533,23 @@ describeIfDb('a Continue Run', () => {
       complete: false,
     });
     expect((await runOf(turn.runId))?.status).toBe('completed');
+  });
+
+  it('numbers its own parts after a kept step', async () => {
+    const turn = await seedContinuedTurn({ replyParts: keptPartsAtStepOne });
+
+    await execute(
+      turn,
+      scriptedClient(scriptedModel(answerChunks('done')), MODEL_ID),
+    );
+
+    // The kept call ended at step 1, so the answer is step 2 even though this
+    // request makes no tool step to stamp one (design D5).
+    const reply = await replyOf(turn);
+    expect(reply?.parts).toEqual([
+      ...keptPartsAtStepOne,
+      { type: 'text', text: 'done', step: 2 },
+    ]);
   });
 
   it('keeps the kept parts when it fails after a new part', async () => {
@@ -531,7 +563,7 @@ describeIfDb('a Continue Run', () => {
     const reply = await replyOf(turn);
     expect(reply?.parts).toEqual([
       ...keptParts,
-      { type: 'text', text: 'partial' },
+      { type: 'text', text: 'partial', step: 0 },
     ]);
     expect(reply?.usage).toMatchObject({ status: 'error', runId: turn.runId });
     expect((await runOf(turn.runId))?.status).toBe('failed');
@@ -836,6 +868,58 @@ describeIfDb('a Continue Run', () => {
       keptItem,
       ownItem,
       { type: 'text', text: 'half' },
+    ]);
+  });
+
+  it('numbers a rebuilt part after the kept steps when the worker dies', async () => {
+    const turn = await seedContinuedTurn({ replyParts: keptPartsAtStepOne });
+    // Attempt A dispatched, streamed one part, and died without a collector to
+    // settle it: the settler rebuilds the reply from the Run's own events.
+    await tenantDb.runAs(userId, async (tx) => {
+      const started = await new RunsRepository(tx).markStarted(
+        turn.runId,
+        userId,
+      );
+      const attemptId = started?.activeAttemptId;
+      if (!attemptId) throw new Error('Attempt A did not claim the Run.');
+      const events = new RunEventsRepository(tx);
+      await events.append(turn.runId, 'run.started');
+      await events.append(turn.runId, 'model.requested', {
+        modelId: MODEL_ID,
+        attemptId,
+      });
+      await events.append(turn.runId, 'model.delta', {
+        text: 'half',
+        stepNumber: 0,
+      });
+      await new RunningReplyRepository(tx).upsertRunningReply({
+        chatId: turn.chatId,
+        inReplyTo: turn.messageId,
+        usage: {
+          status: 'running',
+          complete: false,
+          runId: turn.runId,
+          attemptId,
+          modelId: MODEL_ID,
+        },
+        followUpAction: 'continue',
+      });
+    });
+
+    await runExecution.settleTerminalRun({
+      userId,
+      runId: turn.runId,
+      status: 'failed',
+      runPayload: { status: 'failed' },
+      error: { message: 'the worker died' },
+    });
+
+    // The rebuild shifts the SDK's step 0 by the kept steps, exactly as the
+    // live collector would have (design D5).
+    const reply = await replyOf(turn);
+    expect(reply?.parts).toEqual([
+      ...keptPartsAtStepOne,
+      { type: 'text', text: 'half', step: 2 },
     ]);
   });
 });

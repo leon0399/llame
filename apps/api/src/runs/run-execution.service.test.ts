@@ -4011,8 +4011,14 @@ describe('RunExecutionService executeRun — stream completion', () => {
       'model.completed',
       'run.completed',
     ]);
-    expect(appended[2]?.payload).toStrictEqual({ text: 'thinking' });
-    expect(appended[3]?.payload).toStrictEqual({ text: 'part' });
+    expect(appended[2]?.payload).toStrictEqual({
+      text: 'thinking',
+      stepNumber: 0,
+    });
+    expect(appended[3]?.payload).toStrictEqual({
+      text: 'part',
+      stepNumber: 0,
+    });
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -4022,8 +4028,8 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
-          { type: 'reasoning', text: 'thinking' },
-          { type: 'text', text: 'part done' },
+          { type: 'reasoning', text: 'thinking', step: 0 },
+          { type: 'text', text: 'part done', step: 0 },
         ],
       }),
     );
@@ -4403,14 +4409,18 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(appended[2]?.payload).toStrictEqual({
       text: 'thinking',
       partId: 'rs_1:0',
+      stepNumber: 0,
     });
     expect(appended[3]?.payload).toStrictEqual({
       partId: 'rs_1:0',
       providerMetadata,
+      stepNumber: 0,
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
-        parts: [{ type: 'reasoning', text: 'thinking', providerMetadata }],
+        parts: [
+          { type: 'reasoning', text: 'thinking', providerMetadata, step: 0 },
+        ],
       }),
     );
   });
@@ -4447,16 +4457,20 @@ describe('RunExecutionService executeRun — stream completion', () => {
       'model.completed',
       'run.completed',
     ]);
-    expect(appended[2]?.payload).toStrictEqual({ text: 'the answer so far' });
+    expect(appended[2]?.payload).toStrictEqual({
+      text: 'the answer so far',
+      stepNumber: 0,
+    });
     expect(appended[3]?.payload).toStrictEqual({
       partId: '0:0',
       providerMetadata: signature,
+      stepNumber: 0,
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
-          { type: 'text', text: 'the answer so far' },
-          { type: 'reasoning', text: '', providerMetadata: signature },
+          { type: 'text', text: 'the answer so far', step: 0 },
+          { type: 'reasoning', text: '', providerMetadata: signature, step: 0 },
         ],
       }),
     );
@@ -4497,19 +4511,29 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(appended[2]?.payload).toStrictEqual({
       text: 'thinking',
       partId: '0:0',
+      stepNumber: 0,
     });
     expect(appended[3]?.payload).toStrictEqual({
       partId: '0:0',
       providerMetadata: signature,
+      stepNumber: 0,
     });
     // One coalesced delta for the whole answer, not one per side of the
     // metadata delivery.
-    expect(appended[4]?.payload).toStrictEqual({ text: 'the answer' });
+    expect(appended[4]?.payload).toStrictEqual({
+      text: 'the answer',
+      stepNumber: 0,
+    });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
-          { type: 'reasoning', text: 'thinking', providerMetadata: signature },
-          { type: 'text', text: 'the answer' },
+          {
+            type: 'reasoning',
+            text: 'thinking',
+            providerMetadata: signature,
+            step: 0,
+          },
+          { type: 'text', text: 'the answer', step: 0 },
         ],
       }),
     );
@@ -4553,14 +4577,24 @@ describe('RunExecutionService executeRun — stream completion', () => {
     // One event per part: the buffer drains before the id switches, and each
     // part's metadata follows its text.
     expect(appended.slice(2, 6).map((entry) => entry.payload)).toStrictEqual([
-      { text: 'first ', partId: '0:msg_1' },
-      { partId: '0:msg_1', providerMetadata: firstMetadata },
-      { text: 'second', partId: '0:msg_2' },
-      { partId: '0:msg_2', providerMetadata: secondMetadata },
+      { text: 'first ', partId: '0:msg_1', stepNumber: 0 },
+      { partId: '0:msg_1', providerMetadata: firstMetadata, stepNumber: 0 },
+      { text: 'second', partId: '0:msg_2', stepNumber: 0 },
+      { partId: '0:msg_2', providerMetadata: secondMetadata, stepNumber: 0 },
     ]);
     const parts = [
-      { type: 'text', text: 'first ', providerMetadata: firstMetadata },
-      { type: 'text', text: 'second', providerMetadata: secondMetadata },
+      {
+        type: 'text',
+        text: 'first ',
+        providerMetadata: firstMetadata,
+        step: 0,
+      },
+      {
+        type: 'text',
+        text: 'second',
+        providerMetadata: secondMetadata,
+        step: 0,
+      },
     ];
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({ parts }),
@@ -4594,10 +4628,15 @@ describe('RunExecutionService executeRun — stream completion', () => {
     // The second item produced no visible text, so its metadata binds to no
     // stored part and stays transient: no durable event carries it.
     expect(appended.filter((entry) => entry.type === 'model.delta')).toEqual([
-      { type: 'model.delta', payload: { text: 'answer', partId: '0:msg_1' } },
+      {
+        type: 'model.delta',
+        payload: { text: 'answer', partId: '0:msg_1', stepNumber: 0 },
+      },
     ]);
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
-      expect.objectContaining({ parts: [{ type: 'text', text: 'answer' }] }),
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'answer', step: 0 }],
+      }),
     );
   });
 
@@ -4618,7 +4657,9 @@ describe('RunExecutionService executeRun — stream completion', () => {
     });
 
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
-      expect.objectContaining({ parts: [{ type: 'text', text: 'streamed' }] }),
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'streamed', step: 0 }],
+      }),
     );
   });
 
@@ -4939,7 +4980,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
-        parts: [{ type: 'text', text: 'partial' }],
+        parts: [{ type: 'text', text: 'partial', step: 0 }],
         usage,
       }),
     );
@@ -5421,6 +5462,10 @@ describe('RunExecutionService executeRun — stream failure', () => {
     });
   });
 });
+
+/** The SDK's error text for a call to a tool the request did not declare. */
+const UNAVAILABLE_TOOL_TEXT =
+  "Model tried to call unavailable tool 'ghost_tool'. No tools are available.";
 
 const toolDeclaration: ModelToolDeclaration = {
   id: 'mcp__demo__lookup',
@@ -6315,8 +6360,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
             outcome: 'success',
             classification: 'read_only',
             permission: allowDecision('read'),
+            step: 0,
           },
-          { type: 'text', text: 'answer' },
+          { type: 'text', text: 'answer', step: 0 },
         ],
       }),
     );
@@ -6399,7 +6445,11 @@ describe('RunExecutionService executeRun — tool loop', () => {
       },
       outcome: 'success',
     });
-    expect(assistantTurn.parts[1]).toEqual({ type: 'text', text: 'answer' });
+    expect(assistantTurn.parts[1]).toEqual({
+      type: 'text',
+      text: 'answer',
+      step: 0,
+    });
   });
 
   it('emits requested/started/completed around a tool call and persists its settled part', async () => {
@@ -6480,7 +6530,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
-          { type: 'text', text: 'before ' },
+          { type: 'text', text: 'before ', step: 0 },
           {
             type: `tool-${toolDeclaration.id}`,
             toolCallId: 'call-1',
@@ -6490,11 +6540,67 @@ describe('RunExecutionService executeRun — tool loop', () => {
             outcome: 'success',
             classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
+            step: 0,
           },
-          { type: 'text', text: 'answer' },
+          { type: 'text', text: 'answer', step: 0 },
         ],
       }),
     );
+  });
+
+  it('keeps text that follows a step’s call in that step', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const }),
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('before ');
+    await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    // A step can write text after its calls: it stays in the step that
+    // streamed it, even though the next step's deliveries are what drain it.
+    options.onTextDelta?.('after ');
+    await options.onStepStart?.({ messages: [], stepNumber: 1 });
+    options.onTextDelta?.('next');
+    await options.onFinish?.({
+      text: 'before after next',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 2,
+    });
+
+    expect(appended.filter((entry) => entry.type === 'model.delta')).toEqual([
+      { type: 'model.delta', payload: { text: 'before ', stepNumber: 0 } },
+      { type: 'model.delta', payload: { text: 'after ', stepNumber: 0 } },
+      { type: 'model.delta', payload: { text: 'next', stepNumber: 1 } },
+    ]);
+    const parts = [
+      { type: 'text', text: 'before ', step: 0 },
+      expect.objectContaining({ toolCallId: 'call-1', step: 0 }),
+      { type: 'text', text: 'after ', step: 0 },
+      { type: 'text', text: 'next', step: 1 },
+    ];
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({ parts }),
+    );
+    // The log alone rebuilds the live collector's parts, step for step.
+    expect(
+      reconstructDurableAssistant(
+        durableEventsFrom(appended),
+      ).collector.parts(),
+    ).toStrictEqual(parts);
   });
 
   it('stores a call’s stream metadata on its request and its settled part', async () => {
@@ -6541,8 +6647,12 @@ describe('RunExecutionService executeRun — tool loop', () => {
       providerMetadata,
     });
     const parts = [
-      expect.objectContaining({ toolCallId: 'call-1', providerMetadata }),
-      { type: 'text', text: 'answer' },
+      expect.objectContaining({
+        toolCallId: 'call-1',
+        providerMetadata,
+        step: 0,
+      }),
+      { type: 'text', text: 'answer', step: 0 },
     ];
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({ parts }),
@@ -6582,6 +6692,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolName: 'ghost_tool',
       input: { q: 'x' },
       reason: 'not_available',
+      sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
     });
     await options.onFinish?.({
       text: 'sorry',
@@ -6596,8 +6707,13 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
-          expect.objectContaining({ toolCallId: 'call-9', providerMetadata }),
-          { type: 'text', text: 'sorry' },
+          expect.objectContaining({
+            toolCallId: 'call-9',
+            providerMetadata,
+            step: 0,
+            sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
+          }),
+          { type: 'text', text: 'sorry', step: 0 },
         ],
       }),
     );
@@ -6691,7 +6807,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
-          { type: 'text', text: 'before ' },
+          { type: 'text', text: 'before ', step: 0 },
           {
             type: `tool-${toolDeclaration.id}`,
             toolCallId: 'call-1',
@@ -6702,8 +6818,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
             classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
             derivedDecisions: expected,
+            step: 0,
           },
-          { type: 'text', text: 'answer' },
+          { type: 'text', text: 'answer', step: 0 },
         ],
       }),
     );
@@ -6878,8 +6995,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
           expect.objectContaining({
             toolCallId: 'call-1',
             derivedDecisions: expected,
+            step: 0,
           }),
-          { type: 'text', text: 'answer' },
+          { type: 'text', text: 'answer', step: 0 },
         ],
       }),
     );
@@ -6962,8 +7080,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
             toolCallId: 'call-1',
             state: 'output-error',
             classification: null,
+            step: 0,
           }),
-          { type: 'text', text: 'continued' },
+          { type: 'text', text: 'continued', step: 0 },
         ],
       }),
     );
@@ -7010,7 +7129,88 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
-          { type: 'text', text: 'capped answer' },
+          { type: 'text', text: 'capped answer', step: 0 },
+          {
+            type: 'data-cap-notice',
+            data: {
+              stepsUsed: configuredMaxSteps,
+              maxSteps: configuredMaxSteps,
+            },
+          },
+        ],
+      }),
+    );
+  });
+
+  it('keeps the step of the step-cap forced answer when the cap refuses a call', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const toolOptions = {
+      ...withDeclaredTool(),
+      maxStepsPerRun: configuredMaxSteps,
+    };
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => ({ status: 'success' as const }),
+      }),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    await options.onStepStart?.({ messages: [], stepNumber: 1 });
+    options.onCapReached?.();
+    // The capped step declares no tools, so a call the model still makes is
+    // refused by the SDK: it is part of that step, not of a later one.
+    options.onUnavailableToolCall?.({
+      toolCallId: 'call-capped',
+      toolName: 'ghost_tool',
+      input: { q: 'x' },
+      reason: 'not_available',
+      sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
+    });
+    await options.onFinish?.({
+      text: 'capped answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 2,
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'tool.completed')?.payload,
+    ).toStrictEqual({
+      toolCallId: 'call-capped',
+      toolName: 'ghost_tool',
+      status: 'error',
+      output: {
+        status: 'error',
+        type: 'not_available',
+        message: 'Tool "ghost_tool" is not available.',
+      },
+      sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
+    });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          {
+            type: 'tool-ghost_tool',
+            toolCallId: 'call-capped',
+            state: 'output-error',
+            input: { q: 'x' },
+            errorText: 'Tool "ghost_tool" is not available.',
+            outcome: 'not_available',
+            classification: null,
+            step: 1,
+            sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
+          },
+          { type: 'text', text: 'capped answer', step: 1 },
           {
             type: 'data-cap-notice',
             data: {
@@ -7048,6 +7248,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolName: 'ghost_tool',
       input: { q: 'x' },
       reason: 'not_available',
+      sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
     });
     await options.onFinish?.({
       text: 'sorry',
@@ -7073,6 +7274,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         type: 'not_available',
         message: 'Tool "ghost_tool" is not available.',
       },
+      sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -7085,8 +7287,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
             errorText: 'Tool "ghost_tool" is not available.',
             outcome: 'not_available',
             classification: null,
+            step: 0,
+            sdkRefusal: { errorText: UNAVAILABLE_TOOL_TEXT, input: { q: 'x' } },
           },
-          { type: 'text', text: 'sorry' },
+          { type: 'text', text: 'sorry', step: 0 },
         ],
       }),
     );
@@ -7117,6 +7321,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolName: toolDeclaration.id,
       input: { wrong: true },
       reason: 'invalid_input',
+      sdkRefusal: {
+        errorText: `Invalid input for tool ${toolDeclaration.id}`,
+        input: { wrong: true },
+      },
     });
     await options.onFinish?.({
       text: 'sorry',
@@ -7209,6 +7417,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             resultProviderMetadata: { llame: { cancelled: true } },
             classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
+            step: 0,
           },
         ],
       }),
@@ -7556,8 +7765,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
             resultProviderMetadata: { llame: { cancelled: true } },
             classification: 'unverified',
             permission: allowDecision(toolDeclaration.id),
+            step: 0,
           },
-          { type: 'text', text: 'gave up' },
+          { type: 'text', text: 'gave up', step: 0 },
         ],
       }),
     );
@@ -10431,7 +10641,7 @@ describe('RunExecutionService settleTerminalRun', () => {
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
-        parts: [{ type: 'text', text: 'salvaged answer' }],
+        parts: [{ type: 'text', text: 'salvaged answer', step: 0 }],
         usage,
       }),
     );
@@ -10511,7 +10721,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     });
     expect(createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
-        parts: [{ type: 'text', text: 'salvage me' }],
+        parts: [{ type: 'text', text: 'salvage me', step: 0 }],
         usage,
       }),
     );
@@ -10590,7 +10800,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
         id: assistantMessage.id,
         chatId,
         inReplyTo: messageId,
-        parts: [{ type: 'text', text: 'answer' }],
+        parts: [{ type: 'text', text: 'answer', step: 0 }],
         usage: ownCompletedUsage,
       }),
     );
@@ -10726,7 +10936,7 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     });
     expect(updateAssistantReply).toHaveBeenCalledWith(
       expect.objectContaining({
-        parts: [{ type: 'text', text: 'partial' }],
+        parts: [{ type: 'text', text: 'partial', step: 0 }],
         usage: incompleteAttemptUsage,
       }),
     );

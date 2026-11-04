@@ -56,6 +56,7 @@ import { discardsNonReadOnlyCall } from './regenerate-notice';
 import {
   continuedRecords,
   continueStateFromEvents,
+  withKeptSteps,
   type ContinuedRecords,
 } from './continue-projection';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
@@ -468,7 +469,10 @@ export class FollowUpAdmissionService {
     return {
       action: 'continue',
       sourceRunId,
-      keptParts,
+      // A kept tool part stored before step numbers gets its step from the
+      // source Run's own `tool.requested` event, so the continued reply keeps
+      // its step boundaries (design D5).
+      keptParts: withKeptSteps(keptParts, records.steps),
       keptStepNumbers: records.steps,
       keptResults: records.results,
       replacesUsage: source.usage !== null,
