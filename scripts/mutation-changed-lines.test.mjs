@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -224,7 +226,7 @@ test("the scope travels in a config file, so no argv element can reach E2BIG", (
   assert.ok(ranges.join(",").length > 131072);
   assert.deepEqual(written.mutate, ranges);
   // The workspace's own settings survive, so the generated run differs from an
-  // ordinary one only in scope and reporters.
+  // ordinary one only in scope, reporters, and the log it reads back.
   assert.equal(written.testRunner, "vitest");
   assert.deepEqual(written.reporters, [
     "clear-text",
@@ -232,6 +234,87 @@ test("the scope travels in a config file, so no argv element can reach E2BIG", (
     "json",
     "progress-append-only",
   ]);
+  assert.equal(written.fileLogLevel, "info");
+});
+
+// The log of a shard whose changed lines were an import and a bare call.
+const emptyRunLog = [
+  "02:17:17 (2930) INFO Instrumenter Instrumented 1 source file(s) with 0 mutant(s)",
+  "02:18:08 (2930) ERROR Stryker No tests were executed. Stryker will exit prematurely.",
+].join("\n");
+
+/**
+ * Runs `run` on a one-line source change with a `pnpm` that writes `log` as
+ * Stryker's log and exits 1, after seeding `staleLog` from an earlier run.
+ */
+function runWithStrykerLog(log, staleLog) {
+  const directory = repository({
+    [`${workspace}/src/a.ts`]: lines(5),
+    [`${workspace}/package.json`]: JSON.stringify({ name: "runtime-safety" }),
+  });
+  const edited = lines(5).split("\n");
+  edited[2] = "const x = 2;";
+  commit(directory, { [`${workspace}/src/a.ts`]: edited.join("\n") });
+  const strykerLog = path.join(directory, workspace, "stryker.log");
+  if (staleLog !== undefined) writeFileSync(strykerLog, staleLog);
+  const bin = mkdtempSync(path.join(tmpdir(), "fake-pnpm-"));
+  const pnpm = path.join(bin, "pnpm");
+  writeFileSync(
+    pnpm,
+    `#!/bin/sh\nprintf '%s' "$FAKE_STRYKER_LOG" >> ${JSON.stringify(strykerLog)}\nexit 1\n`,
+  );
+  chmodSync(pnpm, 0o755);
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(import.meta.dirname, "mutation-changed-lines.mjs"),
+      "run",
+      "--workspace",
+      workspace,
+      "--base",
+      "HEAD~1",
+    ],
+    {
+      cwd: directory,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        FAKE_STRYKER_LOG: log,
+      },
+    },
+  );
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    leftovers: ["stryker.log", "stryker.changed-lines.json"].filter((file) =>
+      existsSync(path.join(directory, workspace, file)),
+    ),
+  };
+}
+
+test("a run whose changed lines carry no mutant passes Stryker's empty-run abort", () => {
+  const passed = runWithStrykerLog(emptyRunLog);
+
+  assert.equal(passed.status, 0);
+  assert.match(passed.stdout, /the changed lines carry no mutant/u);
+  assert.deepEqual(passed.leftovers, []);
+});
+
+test("a failed run with mutants, another failure, or only a stale log still fails", () => {
+  // Mutants with no related test: nothing would kill them.
+  const withMutants = emptyRunLog.replace(
+    "with 0 mutant(s)",
+    "with 3 mutant(s)",
+  );
+  assert.notEqual(runWithStrykerLog(withMutants).status, 0);
+  // A zero count followed by another failure, such as a failing baseline test.
+  const otherFailure = emptyRunLog.split("\n")[0] ?? "";
+  assert.notEqual(runWithStrykerLog(otherFailure).status, 0);
+  // A zero-mutant log left by an interrupted earlier run does not count.
+  const stale = runWithStrykerLog(withMutants, emptyRunLog);
+  assert.notEqual(stale.status, 0);
+  assert.deepEqual(stale.leftovers, []);
 });
 
 test("canonical Stryker exclusions apply to the changed-lines scope", () => {

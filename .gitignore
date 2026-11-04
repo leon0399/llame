@@ -55,3 +55,4 @@ coverage/
 .stryker-tmp/
 **/reports/mutation/
 stryker.changed-lines.json
+stryker.log

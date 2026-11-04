@@ -15,7 +15,13 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { globSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  globSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -319,6 +325,26 @@ const reportFile = "reports/mutation/mutation.json";
 /** Where the generated scope is written; gitignored, removed after the run. */
 const scopeConfigFile = "stryker.changed-lines.json";
 
+/** The log Stryker writes beside the scope; removed after the run. */
+const strykerLogFile = "stryker.log";
+
+/**
+ * Whether a Stryker log shows that the scope held no mutant at all.
+ *
+ * Changed lines can carry no mutant (an import, a bare call). Stryker then
+ * asks the runner for the tests related to the mutated files, finds none, and
+ * aborts with "No tests were executed", which is a failure even though there
+ * was nothing a test could detect. Only that abort after a zero instrumenter
+ * count passes: a run that instrumented any mutant, or one that failed for
+ * another reason (a failing baseline test, a timeout), still fails.
+ */
+export function instrumentedNoMutant(log) {
+  return (
+    /Instrumented \d+ source file\(s\) with 0 mutant\(s\)/.test(log) &&
+    /No tests were executed/.test(log)
+  );
+}
+
 /**
  * The generated Stryker configuration carrying this run's scope.
  *
@@ -345,6 +371,8 @@ export function writeScopeConfig(workspace, ranges, root = process.cwd()) {
         ...base,
         mutate: ranges,
         reporters: ["clear-text", "html", "json", "progress-append-only"],
+        // The log is read back to tell a scope without a mutant apart.
+        fileLogLevel: "info",
       },
       undefined,
       2,
@@ -407,16 +435,29 @@ function main(arguments_) {
     // The path is known before the write, so a write that truncates and then
     // fails still leaves nothing behind.
     const config = path.resolve(workspace, scopeConfigFile);
+    const log = path.resolve(workspace, strykerLogFile);
+    // Stryker appends to its log, and an interrupted run skips the cleanup
+    // below, so only this run's lines may decide the result.
+    rmSync(log, { force: true });
     try {
       writeScopeConfig(workspace, ranges);
       const result = spawnSync("pnpm", mutationArguments(workspace), {
         cwd: path.resolve("."),
         stdio: "inherit",
       });
-      if (result.status !== 0)
+      if (result.status !== 0) {
+        if (
+          existsSync(log) &&
+          instrumentedNoMutant(readFileSync(log, "utf8"))
+        ) {
+          console.log(`${scope}: the changed lines carry no mutant.`);
+          return;
+        }
         throw new Error(`${workspace}: Stryker exited with ${result.status}`);
+      }
     } finally {
       rmSync(config, { force: true });
+      rmSync(log, { force: true });
     }
     // A shard prints its own score but never fails on it: the threshold
     // applies to the gate over every shard's report.
