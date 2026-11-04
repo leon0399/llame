@@ -12,7 +12,6 @@ import { type Db } from '../db/tenant-db.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
-import type { ToolResult } from '../tools/types';
 
 /** What every follow-up Run records about the Run it acts on. */
 type FollowUpRunIdentity = {
@@ -30,12 +29,11 @@ type FollowUpRunIdentity = {
 export type FollowUpRunInput =
   | (FollowUpRunIdentity & {
       action: 'continue';
-      /** The reply's parts through its last settled tool part. */
+      /**
+       * The reply's parts through its last settled tool part, each kept call
+       * carrying the step it belongs to (turn-actions D6, D11).
+       */
       keptParts: Array<unknown>;
-      /** The source Run's `toolCallId -> stepNumber` map for those kept calls. */
-      keptStepNumbers: Record<string, number>;
-      /** The model-facing result the source Run sent the model for each kept call. */
-      keptResults: Record<string, ToolResult>;
     })
   | (FollowUpRunIdentity & { action: 'regenerate'; notice: boolean });
 
@@ -94,12 +92,11 @@ export async function createRunForMessage(
   if (followUp?.action === 'continue') {
     await eventsRepo.append(run.id, 'run.continued', {
       sourceRunId: followUp.sourceRunId,
+      // The kept parts carry both the step each call belongs to and the
+      // result the live loop sent, so the event stores one source (D11). A
+      // source Run recorded before step numbers existed has its kept parts
+      // numbered by admission.
       parts: followUp.keptParts,
-      // Two sequential steps with no text between them stay two steps in the
-      // Continue projection (turn-actions D6); a source Run recorded before
-      // step numbers existed stores an empty map.
-      steps: followUp.keptStepNumbers,
-      results: followUp.keptResults,
     });
   }
 

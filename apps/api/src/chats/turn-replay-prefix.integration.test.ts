@@ -26,12 +26,17 @@ import {
 
 import { waitFor } from '../testing/support';
 import { MessagesRepository } from './chats-repository';
-import { RunsRepository } from '../runs/runs-repository';
+import { type MessagePart } from './context-builder';
+import { continueKeptParts } from './continue-kept-parts';
+import { continuedCallSteps, withKeptSteps } from './continue-projection';
+import { createRunForMessage } from './run-creation';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type ScriptedBehavior } from '../runs/scripted-model-client';
 import { type ScriptedStep } from '../runs/scripted-model-step';
 import {
   bootWorkerHarness,
   createUser,
+  dispatchRun,
   seedAndDispatchRun,
   type WorkerHarness,
 } from '../runs/worker-harness';
@@ -603,5 +608,122 @@ describeIfDb('turn replay prefix equality', () => {
     expect(serialized).not.toContain('Thinking before the drop.');
     expect(serialized).not.toContain('reasoning-step-0');
     expect(serialized).toContain('hello');
+  });
+
+  it('a Continue request sends the kept steps the source Run’s live step sent', async () => {
+    const modelId = `prefix-continue-${randomUUID()}`;
+    const start = harness.models.prompts.length;
+    harness.models.register(modelId, {
+      kind: 'step-script',
+      steps: [
+        [
+          {
+            type: 'reasoning',
+            id: 'r0',
+            text: 'Plan the read.',
+            providerMetadata: REASONING_METADATA,
+          },
+          {
+            type: 'text',
+            id: 't0',
+            text: 'Reading notes.',
+            providerMetadata: FAILED_TEXT_METADATA,
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-notes',
+            toolName: 'read',
+            input: { path: notesPath },
+            providerMetadata: SECOND_CALL_METADATA,
+          },
+        ],
+        [
+          {
+            type: 'reasoning',
+            id: 'doomed',
+            text: 'Thinking before the drop.',
+            providerMetadata: FAILED_REASONING_METADATA,
+          },
+          { type: 'error', message: 'scripted provider failure' },
+        ],
+      ],
+    });
+    harness.models.registerInput(modelId, ['text', 'image']);
+    const seeded = await seedAndDispatchRun(harness, { userId, modelId });
+    const source = await terminal(seeded.runId);
+    expect(source.status).toBe('failed');
+    const sourcePrompts = promptsOf(start);
+    const sourceLast = sourcePrompts.at(-1);
+    if (sourceLast === undefined)
+      throw new Error('The source Run made no provider request.');
+    // The failed step's request carried the kept step: one assistant message
+    // with its reasoning, text, and call, then the result.
+    expect(sourceLast.some((message) => message.role === 'tool')).toBe(true);
+    expect(sourceLast.at(-1)?.role).toBe('tool');
+
+    // Admit the Continue Run the way the API does: the reply through its last
+    // settled tool part, numbered by admission, then the `run.continued`
+    // event.
+    const runId = await harness.tenantDb.runAs(userId, async (tx) => {
+      const turn = await new MessagesRepository(tx).findTurnState(
+        seeded.chatId,
+        userId,
+        seeded.userMessage.id,
+      );
+      if (turn.userMessage === undefined || turn.assistantMessage === undefined)
+        throw new Error('The failed turn left no reply to continue.');
+      // SAFETY: the reply's parts are stored UI parts, and admission
+      // re-validates every part it reads.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      const kept = continueKeptParts(
+        turn.assistantMessage.parts,
+      ) as ReadonlyArray<MessagePart>;
+      const sourceEvents = await new RunEventsRepository(tx).listByRunId(
+        seeded.runId,
+        userId,
+        { eventTypes: ['tool.requested'] },
+      );
+      const { run } = await createRunForMessage(
+        tx,
+        {
+          userId,
+          chatId: seeded.chatId,
+          modelId,
+          effort: undefined,
+          permissionMode: 'default',
+          targetRunId: randomUUID(),
+          followUp: {
+            action: 'continue',
+            sourceRunId: seeded.runId,
+            keptParts: withKeptSteps(
+              kept,
+              continuedCallSteps({ keptParts: kept, sourceEvents }),
+            ),
+            replacesUsage: true,
+          },
+        },
+        turn.userMessage,
+      );
+      return run.id;
+    });
+    harness.models.register(modelId, turnTwo('Continued.'));
+    await dispatchRun({
+      queue: harness.queue,
+      chatId: seeded.chatId,
+      runId,
+      userId,
+      modelId,
+      userMessage: seeded.userMessage,
+    });
+    const continued = await terminal(runId);
+    expect(continued.status).toBe('completed');
+
+    const continueFirst = promptsOf(start + sourcePrompts.length)[0];
+    if (continueFirst === undefined)
+      throw new Error('The Continue Run made no provider request.');
+    // The Continue Run sends the kept step exactly as the source Run's live
+    // step sent it — HAPPY path for turn-replay's Continue scenario, and the
+    // reasoning of the failed Run, metadata included (reasoning-output D7).
+    expect(JSON.stringify(continueFirst)).toBe(JSON.stringify(sourceLast));
   });
 });

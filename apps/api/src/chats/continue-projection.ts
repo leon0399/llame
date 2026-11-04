@@ -1,89 +1,48 @@
 /**
- * The Continue projection (turn-actions D5/D6): the kept parts of a source
- * reply, grouped by the model response that produced them, as the messages a
- * Continue Run's first request carries after the history through its trigger.
+ * The Continue Run's kept-part records (turn-actions D5/D11): which parts of
+ * the source reply a Continue Run starts from, the model step each kept part
+ * belongs to, and the step offset of the Run's own parts.
  *
- * A kept step is the set of tool calls one model response made, with the
- * reasoning and text parts that preceded them. Each `tool.requested` event
- * carries the AI SDK `stepNumber` and `run.continued` carries the resulting
- * `toolCallId -> stepNumber` map, so two sequential steps with no text between
- * them stay two steps. A Run from before step numbers carries none and falls
- * back to "a run of consecutive tool parts is one step".
+ * The request itself is `projectStoredReplyParts` of `context-builder.ts`: a
+ * Continue Run sends the same parts through the same projection a later turn
+ * and a compaction request use (design D11). This module therefore selects and
+ * numbers the kept parts only; it renders no message.
  *
- * The projection deliberately bypasses the later-turn replay of
- * `tool-observation-part.ts`: every kept result keeps its stored model-facing
- * output, and the results are rebuilt the way the live loop built them. Only tool parts of the source Run's own model calls are
- * here — a cap marker and an unknown part contribute nothing.
+ * A kept part carries the `step` it recorded. A reply stored before parts
+ * recorded one keeps its numbers in the `steps` map of its own `run.continued`
+ * event, which admission wrote on both sides of this change: continuing such a
+ * reply reads that map, and admission numbers the source Run's own calls, after
+ * the numbers it inherited, from its `tool.requested` events. Either way the
+ * text and reasoning of a step follow its calls, so a continued reply groups
+ * the way the source Run's live step sent it.
  */
-
-import type { ModelMessage, ToolCallPart, ToolResultPart } from 'ai';
 
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
-import { isContextItemPart, type ContextItemPart } from './context-item';
+import { isContextItemPart } from './context-item';
 import {
   isReasoningPart,
   isTextPart,
   partStep,
-  toPromptReasoningPart,
   type MessagePart,
-  type PromptReasoningPart,
-  type ReplayedAssistantPart,
 } from './context-builder';
-import {
-  isUnstoredMedia,
-  mediaResultRef,
-  submittedLocator,
-  type ToolMediaRef,
-} from '../media/epoch-admission';
-import type { RetainedMedia } from '../media/attempt-media';
-import { continuedMediaKey } from '../media/retained-media';
-import {
-  projectStoredToolPart,
-  TOOL_PART_PREFIX,
-  type ProjectedToolObservationPair,
-} from './tool-observation-part';
-import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
-import { type ToolResult } from '../tools/types';
-import { isArtifactLocator } from '../tools/artifacts/locator';
+import { TOOL_PART_PREFIX } from './tool-observation-part';
 
 /**
- * The `toolCallId -> stepNumber` map `run.continued` stores: a wire shape
- * written into JSONB by admission, not a lookup table. A source Run from before
- * step numbers stores an empty one.
+ * The `toolCallId -> stepNumber` map of the kept calls that need a number
+ * derived for them: a lookup table, handed from admission to `withKeptSteps`,
+ * not a stored wire shape. A call whose part already records its step is not
+ * in it.
  */
 export type KeptStepNumbers = Record<string, number>;
 
 /**
  * The kept parts of a Continue Run, as its `run.continued` event stores them,
- * with the step each kept call belongs to.
+ * each kept call and the text and reasoning of its step numbered. A stored
+ * event whose parts predate `step` keeps its numbers in the event's own `steps`
+ * map, which `continueStateFromEvents` stamps onto them.
  */
-export type ContinueState = {
-  readonly parts: ReadonlyArray<MessagePart>;
-  /**
-   * `toolCallId -> stepNumber` of the source Run's `tool.requested` events.
-   * Empty for a source Run recorded before step numbers existed, which the
-   * projection reads as "a run of consecutive tool parts is one step".
-   */
-  readonly stepNumbers: ReadonlyMap<string, number>;
-  /**
-   * The model-facing outcome each kept call recorded in the source Run's
-   * `tool.completed` events, which is what the live loop sent. Absent for a
-   * call whose source Run recorded none, which then rebuilds from its stored
-   * part the way a later turn does.
-   */
-  readonly results: ReadonlyMap<string, ToolResult>;
-};
-
-/** One kept step: its reasoning, its text, its calls, and the results after them. */
-type KeptStep = {
-  readonly reasoning: Array<PromptReasoningPart>;
-  readonly text: Array<string>;
-  readonly calls: Array<ToolCallPart>;
-  readonly results: Array<ToolResultPart>;
-  /** The kept in-Run items stored after this step's tool parts, in order. */
-  readonly items: Array<string>;
-};
+export type ContinueState = { readonly parts: ReadonlyArray<MessagePart> };
 
 /** One model event of the Run a `run.continued` payload names. */
 export type ContinuedEvent = {
@@ -104,296 +63,43 @@ export function continueStateFromEvents(
   );
   const payload = event?.payload;
   if (!isRecord(payload) || !Array.isArray(payload['parts'])) return undefined;
-  const steps = payload['steps'];
-  const stepNumbers = new Map<string, number>();
-  if (isRecord(steps)) {
-    for (const [toolCallId, stepNumber] of Object.entries(steps)) {
-      if (isNumber(stepNumber)) stepNumbers.set(toolCallId, stepNumber);
-    }
-  }
-  const recorded = payload['results'];
-  const results = new Map<string, ToolResult>();
-  if (isRecord(recorded)) {
-    for (const [toolCallId, result] of Object.entries(recorded)) {
-      const parsed = toolResultFromRecord(result);
-      if (parsed !== undefined) results.set(toolCallId, parsed);
-    }
-  }
   // SAFETY: `run.continued` stores the reply's own JSONB parts array, written by
   // `createRunForMessage` from `continueKeptParts`; nothing here narrows them,
   // because the projection re-validates every part it reads.
+  const parts = payload['parts'] as ReadonlyArray<MessagePart>;
+  // An event written before the parts carried their own step records the
+  // numbers in its `steps` map — already offset by the chain it inherited — so
+  // a Run admitted then keeps its boundaries and its offset after the deploy.
+  const numbers = storedStepNumbers(payload['steps']);
   return {
-    parts: payload['parts'] as ReadonlyArray<MessagePart>,
-    stepNumbers,
-    results,
+    parts: numbers === undefined ? parts : withKeptSteps(parts, numbers),
   };
+}
+
+/** The numbers a stored `steps` map records, or undefined when it has none. */
+function storedStepNumbers(value: unknown): KeptStepNumbers | undefined {
+  if (!isRecord(value)) return undefined;
+  const recorded = Object.entries(value).filter(
+    (entry): entry is [string, number] => isNumber(entry[1]),
+  );
+  return recorded.length === 0 ? undefined : Object.fromEntries(recorded);
 }
 
 /**
  * The first step number a Continue Run's own parts use: one after the highest
  * kept step (design D5), so the steps of the continued reply stay separate and
- * in order. A Run that continues nothing, or keeps no step, starts at 0. A kept
- * part carries the step it was stored with; the kept step map (keyed by tool
- * call) covers the calls of a source Run stored before parts recorded one.
+ * in order. A Run that continues nothing, or keeps no numbered part, starts at
+ * 0. A kept part carries the step it was stored or stamped with.
  */
 export function continueStepOffset(state: ContinueState | undefined): number {
   if (state === undefined) return 0;
-  let offset = nextStep(state.stepNumbers.values());
+  let offset = 0;
   for (const part of state.parts) {
     const step = partStep(part);
     if (step !== undefined) offset = Math.max(offset, step + 1);
   }
   return offset;
 }
-
-/** One after the highest number in `steps`, or 0 when there is none. */
-function nextStep(steps: Iterable<number>): number {
-  let highest = -1;
-  for (const step of steps) highest = Math.max(highest, step);
-  return highest + 1;
-}
-
-/**
- * A stored `ToolResult`, re-read from the untrusted `run.continued` payload: a
- * success record as stored, or the exact error shape the live loop sent.
- */
-function toolResultFromRecord(value: unknown): ToolResult | undefined {
-  if (!isRecord(value)) return undefined;
-  const status = value['status'];
-  if (status === 'success') return { ...value, status };
-  const type = value['type'];
-  const message = value['message'];
-  if (status !== 'error' || !isString(type) || !isString(message)) {
-    return undefined;
-  }
-  const rejectedUrl = value['rejectedUrl'];
-  const artifact = value['artifact'];
-  return {
-    status,
-    type,
-    message,
-    ...(isString(rejectedUrl) && { rejectedUrl }),
-    ...(isArtifactLocator(artifact) && { artifact }),
-  };
-}
-
-/**
- * The output one kept call replays, built the way the live loop built it, from
- * the one rendering of the settled result: a text rendering sends its text and
- * its media reference; a JSON rendering sends its JSON value. No untrusted
- * framing — the model reads exactly what the source Run sent it.
- *
- * A kept result that names media without a stored locator is a reference only
- * when its kept part keeps the retained bytes: a reply from before retention
- * replays as its result text, exactly as a later turn replays it.
- */
-function keptToolOutput(
-  toolName: string,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the call's stored input, which the media locator reader parses before use.
-  input: unknown,
-  result: ToolResult,
-  retainedRef: ToolMediaRef | undefined,
-): ToolResultPart['output'] {
-  const named = mediaResultRef(result, submittedLocator(input));
-  return modelToolOutput(
-    renderToolResultForModel(toolName, result),
-    isUnstoredMedia(named) ? retainedRef : named,
-  );
-}
-
-/**
- * One kept call's pair: its call as stored, its result as the live loop sent
- * it, and its retained entry when the kept part keeps bytes.
- */
-function keptPair(
-  part: MessagePart,
-  partIndex: number,
-  results: ReadonlyMap<string, ToolResult>,
-  retainedMedia: Map<string, RetainedMedia>,
-): ProjectedToolObservationPair | undefined {
-  const stored = projectStoredToolPart(part, continuedMediaKey(partIndex));
-  if (stored === undefined) return undefined;
-  if (stored.retained !== undefined) {
-    retainedMedia.set(stored.retained.key, stored.retained.entry);
-  }
-  const { toolCallPart } = stored.pair;
-  const result = results.get(toolCallPart.toolCallId);
-  if (result === undefined) return stored.pair;
-  return {
-    ...stored.pair,
-    toolResultPart: {
-      type: 'tool-result',
-      toolCallId: toolCallPart.toolCallId,
-      toolName: toolCallPart.toolName,
-      output: keptToolOutput(
-        toolCallPart.toolName,
-        toolCallPart.input,
-        result,
-        stored.media,
-      ),
-    },
-  };
-}
-
-function newStep(): KeptStep {
-  return { reasoning: [], text: [], calls: [], results: [], items: [] };
-}
-
-function stepHasContent(step: KeptStep): boolean {
-  return (
-    step.reasoning.length > 0 ||
-    step.text.length > 0 ||
-    step.calls.length > 0 ||
-    step.items.length > 0
-  );
-}
-
-/** Appends a text, reasoning, or item part to `step`, or reports none. */
-function appendContent(part: MessagePart, step: KeptStep): boolean {
-  if (isReasoningPart(part)) {
-    step.reasoning.push(toPromptReasoningPart(part));
-    return true;
-  }
-  if (isTextPart(part)) {
-    step.text.push(part.text);
-    return true;
-  }
-  if (!isContextItemPart(part)) return false;
-  const text: ContextItemPart['data']['text'] = part.data.text;
-  if (text !== undefined && text.length > 0) step.items.push(text);
-  return true;
-}
-
-/**
- * Whether this call starts a new step. An unnumbered call never does, so a
- * legacy run of consecutive calls stays one step; an item closes its step, and
- * a numbered call starts one when the open step holds calls of another response
- * (or of an unnumbered one).
- */
-function startsNewStep(
-  step: {
-    readonly openStepNumber: number | undefined;
-    readonly openCallCount: number;
-    readonly openItemCount: number;
-  },
-  callStepNumber: number | undefined,
-): boolean {
-  if (step.openItemCount > 0) return true;
-  return (
-    step.openCallCount > 0 &&
-    callStepNumber !== undefined &&
-    callStepNumber !== step.openStepNumber
-  );
-}
-
-/**
- * Groups the kept parts into steps. A text or reasoning part after the open
- * step's calls begins the next response, and so does a call whose recorded step
- * differs from the open one — or one that follows an item, whichever Run
- * recorded it.
- */
-function groupSteps(
-  state: ContinueState,
-  retainedMedia: Map<string, RetainedMedia>,
-): Array<KeptStep> {
-  const steps: Array<KeptStep> = [];
-  let current = newStep();
-  let currentStepNumber: number | undefined;
-
-  const flush = (): void => {
-    if (stepHasContent(current)) steps.push(current);
-    current = newStep();
-    currentStepNumber = undefined;
-  };
-  const openStep = () => ({
-    openStepNumber: currentStepNumber,
-    openCallCount: current.calls.length,
-    openItemCount: current.items.length,
-  });
-
-  for (const [index, part] of state.parts.entries()) {
-    const pair = keptPair(part, index, state.results, retainedMedia);
-    if (pair === undefined) {
-      // A text or reasoning part after the open step's calls begins the next
-      // response, whatever step number the source Run recorded.
-      if (
-        (isTextPart(part) || isReasoningPart(part)) &&
-        current.calls.length > 0
-      ) {
-        flush();
-      }
-      appendContent(part, current);
-      continue;
-    }
-    const stepNumber = state.stepNumbers.get(pair.toolCallPart.toolCallId);
-    if (startsNewStep(openStep(), stepNumber)) flush();
-    if (stepNumber !== undefined) currentStepNumber = stepNumber;
-    current.calls.push(pair.toolCallPart);
-    current.results.push(pair.toolResultPart);
-  }
-  flush();
-  return steps;
-}
-
-/**
- * One assistant message with the step's reasoning, its text, and all its
- * calls, then one message with their results, then the kept in-Run items in
- * their stored positions as user-role text — the shape the live loop sent.
- */
-function stepMessages(step: KeptStep): Array<ModelMessage> {
-  const content: Array<ReplayedAssistantPart> = [
-    ...step.reasoning,
-    ...(step.text.length > 0
-      ? [{ type: 'text' as const, text: step.text.join('\n') }]
-      : []),
-    ...step.calls,
-  ];
-  const messages: Array<ModelMessage> = [
-    // A step whose only content is an item carries no assistant turn.
-    ...(content.length > 0 ? [{ role: 'assistant' as const, content }] : []),
-    ...(step.results.length > 0
-      ? [{ role: 'tool' as const, content: step.results }]
-      : []),
-    ...step.items.map((text): ModelMessage => ({
-      role: 'user',
-      content: [{ type: 'text', text }],
-    })),
-  ];
-  return messages;
-}
-
-/** The kept parts as messages, with the retained entry behind each marker. */
-type ContinueProjection = {
-  /** Empty when nothing was kept. */
-  readonly messages: Array<ModelMessage>;
-  readonly retainedMedia: ReadonlyMap<string, RetainedMedia>;
-};
-
-/**
- * The kept parts as the messages a Continue Run sends after the history
- * through its trigger, with the retained entry each of their media markers
- * names.
- */
-export function projectContinueParts(state: ContinueState): ContinueProjection {
-  const retainedMedia = new Map<string, RetainedMedia>();
-  const messages = groupSteps(state, retainedMedia).flatMap(stepMessages);
-  return { messages, retainedMedia };
-}
-
-/**
- * What a Continue Run records about the kept calls of one source reply: the
- * step each call belongs to and the model-facing result the source Run
- * recorded for it.
- *
- * A chained Continue renumbers: the steps its source Run itself continued keep
- * their numbering, and the steps that Run made follow them, so two calls from
- * different Runs never share a step. A source Run from before step numbers
- * recorded none, and the projection takes its consecutive-call fallback.
- */
-export type ContinuedRecords = {
-  readonly steps: KeptStepNumbers;
-  readonly results: Record<string, ToolResult>;
-};
 
 /** The `toolCallId` a stored part carries, when it is a tool part. */
 function storedToolCallId(part: unknown): string | undefined {
@@ -413,74 +119,124 @@ function keptToolCallIds(parts: ReadonlyArray<MessagePart>): Array<string> {
 }
 
 /**
- * The kept parts with the step number of each call the source Run's events
- * recorded, for a kept tool part that stores none (design D5). Admission calls
- * this, so a source Run written before step numbers keeps its step boundaries
- * in the Continue request. A part that already records a step keeps it, a call
- * no event numbers keeps none, and the stored source is never mutated.
+ * The step of one kept call: the number its part records, or the number the
+ * derived record holds for it. Undefined for a call no record numbers.
+ */
+function callStep(
+  part: MessagePart,
+  toolCallId: string | undefined,
+  numbers: KeptStepNumbers,
+): number | undefined {
+  if (toolCallId === undefined) return undefined;
+  const recorded = partStep(part);
+  if (recorded !== undefined) return recorded;
+  if (!Object.hasOwn(numbers, toolCallId)) return undefined;
+  const derived = numbers[toolCallId];
+  return isNumber(derived) ? derived : undefined;
+}
+
+/**
+ * The step of the call on each side of each stored index: the nearest call
+ * before and after it, with no number reaching across a call no record numbers,
+ * so an unnumbered call keeps its parts in the consecutive rule.
+ */
+function adjacentCallSteps(
+  steps: ReadonlyArray<number | undefined>,
+  callIds: ReadonlyArray<string | undefined>,
+) {
+  const before: Array<number | undefined> = [];
+  let previous: number | undefined;
+  for (const [index, step] of steps.entries()) {
+    before.push(previous);
+    if (callIds[index] !== undefined) previous = step;
+  }
+  const after: Array<number | undefined> = steps.map(() => undefined);
+  let next: number | undefined;
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    after[index] = next;
+    if (callIds[index] !== undefined) next = steps[index];
+  }
+  return { before, after };
+}
+
+/**
+ * The kept parts with the step number of each part a source reply stored
+ * without one (design D5): its calls from the numbers admission derived, and
+ * its text and reasoning from the call they lead into or follow, so a continued
+ * reply groups the way the source Run's live step sent it. A call directly
+ * after a call joins its step, because one response sent them together. A part
+ * that already records a step keeps it, a part no record numbers keeps none,
+ * and the stored source is never mutated.
  */
 export function withKeptSteps(
-  parts: ReadonlyArray<unknown>,
-  steps: KeptStepNumbers,
-): Array<unknown> {
-  return parts.map((part) => {
-    const toolCallId = storedToolCallId(part);
-    if (toolCallId === undefined || !isRecord(part)) return part;
-    const step = steps[toolCallId];
-    if (Object.hasOwn(part, 'step') || !isNumber(step)) return part;
-    return { ...part, step };
+  parts: ReadonlyArray<MessagePart>,
+  numbers: KeptStepNumbers,
+): Array<MessagePart> {
+  const callIds = parts.map((part) => storedToolCallId(part));
+  const calls = parts.map((part, index) =>
+    callStep(part, callIds[index], numbers),
+  );
+  const { before, after } = adjacentCallSteps(calls, callIds);
+  return parts.map((part, index) => {
+    if (partStep(part) !== undefined) return part;
+    const own = calls[index];
+    if (own !== undefined) return { ...part, step: own };
+    if (!isTextPart(part) && !isReasoningPart(part)) return part;
+    const step = after[index] ?? before[index];
+    return step === undefined ? part : { ...part, step };
   });
 }
 
-/** The steps a source reply already numbered, keyed by tool call. */
-function chainedSteps(
-  sourceContinued: ContinueState | undefined,
+/** The kept calls among `parts` whose stored part records a step. */
+function recordedCallSteps(
+  parts: ReadonlyArray<MessagePart>,
   kept: ReadonlySet<string>,
 ): Map<string, number> {
   const steps = new Map<string, number>();
-  for (const [toolCallId, stepNumber] of sourceContinued?.stepNumbers ?? []) {
-    if (kept.has(toolCallId)) steps.set(toolCallId, stepNumber);
+  for (const part of parts) {
+    const toolCallId = storedToolCallId(part);
+    const step = partStep(part);
+    if (
+      toolCallId !== undefined &&
+      step !== undefined &&
+      kept.has(toolCallId)
+    ) {
+      steps.set(toolCallId, step);
+    }
   }
   return steps;
 }
 
 /**
- * The model-facing result of each kept call: the ones the source Run's own
- * completions recorded, over the ones it inherited from the Run it continued.
- * A chained Continue inherits calls whose results only that earlier record
- * holds, and without them the projection would fall back to the later-turn
- * renderer for a result the live loop never sent that way.
+ * The step number admission derives for each kept call of the source reply:
+ * the numbers the source Run inherited from the Run it continued, which only
+ * its own `run.continued` event holds, and the numbers its `tool.requested`
+ * events recorded for the calls it made itself, after those. A call whose
+ * stored part already records a step is not returned, because the part is its
+ * number.
  */
-function recordedResults(
-  events: ReadonlyArray<ContinuedEvent>,
-  kept: ReadonlySet<string>,
-  inherited: ReadonlyMap<string, ToolResult> | undefined,
-): ContinuedRecords['results'] {
-  const results: ContinuedRecords['results'] = {};
-  for (const [toolCallId, result] of inherited ?? []) {
-    if (kept.has(toolCallId)) results[toolCallId] = result;
+export function continuedCallSteps(input: {
+  keptParts: ReadonlyArray<MessagePart>;
+  /** The source Run's own `run.continued` state, when it continued a Run. */
+  sourceContinued?: ContinueState;
+  /** The source Run's `tool.requested` events. */
+  sourceEvents: ReadonlyArray<ContinuedEvent>;
+}): KeptStepNumbers {
+  const kept = new Set(keptToolCallIds(input.keptParts));
+  const onParts = recordedCallSteps(input.keptParts, kept);
+  const inherited = recordedCallSteps(input.sourceContinued?.parts ?? [], kept);
+  const steps = new Map<string, number>();
+  for (const [toolCallId, step] of inherited) {
+    if (!onParts.has(toolCallId)) steps.set(toolCallId, step);
   }
-  for (const event of events) {
-    if (event.eventType !== 'tool.completed' || !isRecord(event.payload)) {
-      continue;
-    }
-    const toolCallId = event.payload['toolCallId'];
-    if (!isString(toolCallId) || !kept.has(toolCallId)) continue;
-    const result = toolResultFromRecord(event.payload['output']);
-    if (result !== undefined) results[toolCallId] = result;
-  }
-  return results;
-}
-
-/** The step map of the kept calls the source Run itself made, after its chain. */
-function ownSteps(
-  events: ReadonlyArray<ContinuedEvent>,
-  kept: ReadonlySet<string>,
-  chained: ReadonlyMap<string, number>,
-): KeptStepNumbers {
-  const offset = nextStep(chained.values());
-  const steps: KeptStepNumbers = Object.fromEntries(chained);
-  for (const event of events) {
+  // A chained Continue renumbers: the steps its source Run itself continued
+  // keep their numbering, and the steps that Run made follow them, so two
+  // calls from different Runs never share a step.
+  const offset = Math.max(
+    continueStepOffset({ parts: input.keptParts }),
+    continueStepOffset(input.sourceContinued),
+  );
+  for (const event of input.sourceEvents) {
     if (event.eventType !== 'tool.requested' || !isRecord(event.payload)) {
       continue;
     }
@@ -490,36 +246,14 @@ function ownSteps(
       !isString(toolCallId) ||
       !isNumber(stepNumber) ||
       !kept.has(toolCallId) ||
-      chained.has(toolCallId)
+      onParts.has(toolCallId) ||
+      inherited.has(toolCallId)
     ) {
       continue;
     }
-    steps[toolCallId] = offset + stepNumber;
+    steps.set(toolCallId, offset + stepNumber);
   }
-  return steps;
-}
-
-/**
- * The records a Continue Run stores for the kept parts of `input.keptParts`,
- * from the source Run's own events and the records its own admission wrote.
- */
-export function continuedRecords(input: {
-  keptParts: ReadonlyArray<MessagePart>;
-  /** The source Run's `run.continued` state, when it continued a Run itself. */
-  sourceContinued?: ContinueState;
-  /** The source Run's `tool.requested` and `tool.completed` events. */
-  sourceEvents: ReadonlyArray<ContinuedEvent>;
-}): ContinuedRecords {
-  const kept = new Set(keptToolCallIds(input.keptParts));
-  const chained = chainedSteps(input.sourceContinued, kept);
-  return {
-    steps: ownSteps(input.sourceEvents, kept, chained),
-    results: recordedResults(
-      input.sourceEvents,
-      kept,
-      input.sourceContinued?.results,
-    ),
-  };
+  return Object.fromEntries(steps);
 }
 
 /**

@@ -17,8 +17,8 @@ import type { ModelClient } from '../models/model-client';
 import { createOpenAICodexModelClient } from '../models/openai-codex-model-client';
 import { createOpenAIModelClient } from '../models/openai-model-client';
 import type { ProviderMetadata } from 'ai';
-import type { MessagePart } from './context-builder';
-import { projectContinueParts } from './continue-projection';
+import { projectStoredReplyParts, type MessagePart } from './context-builder';
+import { continuedMediaKey } from '../media/retained-media';
 
 const CHAT = { id: 'chat-test', lane: 'main' } as const;
 const USER_AGENT = 'llame/0.0.0-test';
@@ -76,20 +76,23 @@ function readPart(toolCallId: string, text: string): MessagePart {
  * metadata, text, both parallel calls, and both results.
  */
 function continueRequest(metadata: ProviderMetadata): Array<ModelMessage> {
+  const parts: Array<MessagePart> = [
+    {
+      type: 'reasoning',
+      text: KEPT_REASONING,
+      providerMetadata: metadata,
+      step: 0,
+    },
+    { type: 'text', text: 'Reading both files.', step: 0 },
+    { ...readPart('call-1', FIRST_TEXT), step: 0 },
+    { ...readPart('call-2', SECOND_TEXT), step: 0 },
+  ];
   return [
     { role: 'user', content: 'Compare both files.' },
-    ...projectContinueParts({
-      parts: [
-        { type: 'reasoning', text: KEPT_REASONING, providerMetadata: metadata },
-        { type: 'text', text: 'Reading both files.' },
-        readPart('call-1', FIRST_TEXT),
-        readPart('call-2', SECOND_TEXT),
-      ],
-      stepNumbers: new Map([
-        ['call-1', 0],
-        ['call-2', 0],
-      ]),
-      results: new Map(),
+    ...projectStoredReplyParts(parts, {
+      // The kept parts are the same turn: only the model check applies.
+      privateParts: true,
+      mediaKey: continuedMediaKey,
     }).messages,
   ];
 }

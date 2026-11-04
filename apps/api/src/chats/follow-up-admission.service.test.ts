@@ -33,7 +33,6 @@ import {
   FollowUpAdmissionService,
   type FollowUpRequestInput,
 } from './follow-up-admission.service';
-import { type RunEvent } from '../db/schema';
 
 type Savepoint = {
   transaction: <T>(callback: (inner: Db) => Promise<T>) => Promise<T>;
@@ -240,11 +239,9 @@ function makeService() {
   const listByRunId = vi
     .spyOn(RunEventsRepository.prototype, 'listByRunId')
     .mockResolvedValue([]);
-  // No source Run in these cases continued one itself, so the chained step
-  // lookup answers nothing.
-  vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
-    undefined,
-  );
+  const findFirstByType = vi
+    .spyOn(RunEventsRepository.prototype, 'findFirstByType')
+    .mockResolvedValue(undefined);
   const cancelActiveRunsForMessage = vi
     .spyOn(RunsRepository.prototype, 'cancelActiveRunsForMessage')
     .mockResolvedValue([]);
@@ -292,6 +289,7 @@ function makeService() {
     findActiveByChatId,
     markFinished,
     listByRunId,
+    findFirstByType,
     cancelActiveRunsForMessage,
     createRun,
     append,
@@ -353,54 +351,76 @@ describe('FollowUpAdmissionService', () => {
     expect(append).toHaveBeenNthCalledWith(2, admitted.runId, 'run.continued', {
       sourceRunId: sourceRun.id,
       parts: continueKeptParts(replyParts),
-      // The source Run recorded no step number and no model-facing result, so
-      // the projection takes its consecutive-call fallback.
-      steps: {},
-      results: {},
     });
   });
 
-  it('reads only the tool events of the source Run, and its own chain', async () => {
-    const { service, listByRunId, append } = makeService();
-    const continued: RunEvent = {
-      sequence: 7,
-      runId: sourceRun.id,
-      eventType: 'run.continued',
-      payload: {
-        sourceRunId: 'run-earlier',
-        parts: [],
-        steps: { 'call-1': 1 },
-        results: {},
-      },
-      createdAt: now,
-    };
-    vi.spyOn(
-      RunEventsRepository.prototype,
-      'findFirstByType',
-    ).mockResolvedValue(continued);
+  it("reads the steps the kept parts record, the source Run's chain, and its requests", async () => {
+    const { service, listByRunId, findFirstByType, append } = makeService();
     listByRunId.mockResolvedValue([
       {
         sequence: 8,
         runId: sourceRun.id,
         eventType: 'tool.requested',
-        payload: { toolCallId: 'call-1', stepNumber: 0 },
+        payload: { toolCallId: 'call-1', stepNumber: 2 },
         createdAt: now,
       },
     ]);
 
     const admitted = await admit(service);
 
+    // The step records come from the parts, the source Run's own continued
+    // state, and its own requests.
     expect(listByRunId).toHaveBeenCalledWith(sourceRun.id, chat.ownerUserId, {
-      eventTypes: ['tool.requested', 'tool.completed'],
+      eventTypes: ['tool.requested'],
     });
-    // The call keeps the step its chain recorded, not the step the source Run
-    // numbered it with when it made it.
+    expect(findFirstByType).toHaveBeenCalledWith(
+      sourceRun.id,
+      chat.ownerUserId,
+      'run.continued',
+    );
     expect(append).toHaveBeenNthCalledWith(
       2,
       admitted.runId,
       'run.continued',
-      expect.objectContaining({ steps: { 'call-1': 1 } }),
+      expect.objectContaining({
+        parts: [
+          expect.objectContaining({ type: 'reasoning', step: 2 }),
+          expect.objectContaining({ toolCallId: 'call-1', step: 2 }),
+        ],
+      }),
     );
+  });
+
+  it('keeps the numbers a chained Continue inherited in its own event', async () => {
+    // The source Run continued an earlier one, so its own `run.continued`
+    // event holds the numbers of the calls it inherited; its stored parts
+    // carry none. Continuing it keeps those numbers, offset for its own steps.
+    const { service, listByRunId, findFirstByType, append } = makeService();
+    findFirstByType.mockResolvedValue({
+      sequence: 3,
+      runId: sourceRun.id,
+      eventType: 'run.continued',
+      payload: { parts: replyParts, steps: { 'call-1': 1 } },
+      createdAt: now,
+    });
+    listByRunId.mockResolvedValue([]);
+
+    const admitted = await admit(service);
+
+    expect(append).toHaveBeenNthCalledWith(2, admitted.runId, 'run.continued', {
+      sourceRunId: sourceRun.id,
+      parts: [
+        { type: 'reasoning', text: 'think', step: 1 },
+        {
+          type: 'tool-read',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: { path: '/tmp/file.txt' },
+          output: { content: 'body' },
+          step: 1,
+        },
+      ],
+    });
   });
 
   it('copies a kept call’s step from its source event when the reply stores none', async () => {
@@ -419,11 +439,12 @@ describe('FollowUpAdmissionService', () => {
 
     // The source reply's parts were stored before step numbers (design D5):
     // admission copies each kept call's step from the event that requested it,
-    // so the continued reply keeps the source Run's step boundary.
+    // and numbers the reasoning that led into the call with it, so the
+    // continued reply keeps the source Run's step boundary.
     expect(append).toHaveBeenNthCalledWith(2, admitted.runId, 'run.continued', {
       sourceRunId: sourceRun.id,
       parts: [
-        replyParts[0],
+        { type: 'reasoning', text: 'think', step: 1 },
         {
           type: 'tool-read',
           toolCallId: 'call-1',
@@ -433,9 +454,8 @@ describe('FollowUpAdmissionService', () => {
           step: 1,
         },
       ],
-      steps: { 'call-1': 1 },
-      results: {},
     });
+    expect(replyParts[0]).not.toHaveProperty('step');
     expect(replyParts[1]).not.toHaveProperty('step');
   });
 

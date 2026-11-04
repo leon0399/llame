@@ -68,16 +68,32 @@ Regenerate stays available.
 ## What the model receives
 
 The first request carries the history through the triggering user message, then
-the kept steps. A kept step is the set of calls one model response made, with the
+the kept steps. It builds them through the same projection a later turn and a
+compaction request use, so a kept reply reaches the model as it would on any
+later turn. A kept step is the set of calls one model response made, with the
 reasoning and text that preceded them. Each step becomes one assistant message —
 its reasoning with the provider metadata that authorizes it, its text, and all
 its calls — followed by one message with their results. A kept in-Run item stays
 in its own user-role message after its step's results, where the earlier Run put
 it.
 
-No replay budget applies: each kept result is sent as the earlier Run sent it.
-The projection adds no user text of its own, so the request ends with the kept
-results.
+The kept parts are the same turn as the new Run, so only the model check applies
+to their reasoning and provider metadata: a kept step of a failed Run still
+reaches that Run's model with its reasoning intact. Each kept result is sent as
+the earlier Run sent it, in full. The projection adds no user text of its own:
+the request ends with the last kept part, which is a kept result, or a kept
+in-Run context item in its own user message when one follows the last result.
+A kept tool input is sent in the key order of the Run event log, which stores
+it as `jsonb`; the Continue Run's own reply then stores that order.
+
+A source Run recorded before stored parts carried a step number keeps its step
+boundaries anyway. A kept call inherited from an earlier Run takes the number
+the source Run's own `run.continued` event holds for it; a call the source Run
+made itself takes the number its `tool.requested` event recorded, after those.
+Admission numbers the text and reasoning of each step with its calls, so two
+back-to-back steps stay two assistant messages. A reply that stores no step at
+all falls back to the consecutive rule, where each run of consecutive calls is
+one step.
 
 A kept result's media follows the same rules as a live step: a stored
 `media://` reference replays from the media store, and an image or PDF the
@@ -87,11 +103,11 @@ replays as its result text only.
 
 ## Persistence
 
-Admission records the kept parts and the step of each kept call in the new Run's
-event log, right after its creation, so every attempt of the new Run starts from
-the same place. The reply keeps the earlier Run's parts until the new Run
-dispatches; a Continue that fails before its first request therefore changes
-nothing.
+Admission records the kept parts in the new Run's event log, right after its
+creation, with the step each kept call belongs to, so every attempt of the new
+Run starts from the same place. The reply keeps the earlier Run's parts until
+the new Run dispatches; a Continue that fails before its first request therefore
+changes nothing.
 
 A stream replay shows the kept text, reasoning, and tool parts, then the new
 parts. The final reply holds each kept part once, then the new parts in stored
