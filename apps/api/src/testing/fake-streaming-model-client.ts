@@ -23,6 +23,7 @@ import { applyRequestUsageCallback } from '../models/request-usage';
 import { forwardChunk } from '../models/stream-parts';
 import { installStepPreparation } from '../models/step-composer';
 import { TITLE_SYSTEM_PROMPT } from '../titles/title';
+import { PROVIDER_ZERO_USAGE } from '../runs/scripted-model-step';
 import {
   MissingModelCredentialError,
   type ChatIdentity,
@@ -62,11 +63,6 @@ function toProviderUsage(usage: LanguageModelUsage): LanguageModelV3Usage {
     },
   };
 }
-
-const PROVIDER_ZERO_USAGE: LanguageModelV3Usage = {
-  inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
-  outputTokens: { total: 0, text: 0, reasoning: 0 },
-};
 
 /** The canned event sequence for a completed title-generation turn. */
 function titleResponseChunks(title: string): Array<LanguageModelV3StreamPart> {

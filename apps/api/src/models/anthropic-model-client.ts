@@ -28,12 +28,9 @@ import {
 } from './request-headers';
 import {
   applyToolCallingOptions,
-  awaitSettlementAfter,
-  bindStreamChannel,
-  deferTerminalCallbacks,
   KEYLESS_PLACEHOLDER_API_KEY,
   productUserAgentHeaders,
-  trackAbortSettlement,
+  runStreamChannel,
 } from './openai-model-client';
 import { createToolCallGate } from './tool-call-gate';
 import { applyRequestUsageCallback } from './request-usage';
@@ -420,21 +417,13 @@ function runAnthropicStream(
           onError({ error: sanitizeAnthropicError(error) }),
   );
   streamOptions.onFinish = createModelStreamFinishCallback(input.onFinish);
-  // SDK callbacks return immediately so the `fullStream` stream branch can
-  // close; the run's callbacks and abort persistence then execute in order
-  // behind that branch (D15/D18).
-  const terminals = deferTerminalCallbacks(streamOptions, input);
-  const settlement = trackAbortSettlement(input, terminals);
-  streamOptions.onAbort = settlement.onAbort;
-  const result = dependencies.streamText(streamOptions);
-  bindStreamChannel(terminals, result, input, gate);
-
-  return awaitSettlementAfter(
-    result,
-    settlement,
-    sanitizeAnthropicError,
-    terminals,
-  );
+  return runStreamChannel({
+    streamOptions,
+    input,
+    gate,
+    runStreamText: dependencies.streamText,
+    sanitizeError: sanitizeAnthropicError,
+  });
 }
 
 /**

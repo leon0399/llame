@@ -4,13 +4,15 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
  * The scripted model client backing `worker-harness.ts`: a `ModelClient`
  * double whose behavior is chosen per run (immediate completion, a delay, a
  * provider error, an infra throw, an indefinite hang that only reacts to
- * abort, or a conversation-recall tool-call script), plus the
- * `ModelSelectionValidator` double (`ScriptedModelsService`) that resolves it
- * by modelId. Split out of `worker-harness.ts` (which imports these names) so
- * each file stays under the size trip-wire on its own.
+ * abort, a conversation-recall tool-call script, or a whole provider step with
+ * reasoning, text, parallel calls, metadata, refusals, and a stream error),
+ * plus the `ModelSelectionValidator` double (`ScriptedModelsService`) that
+ * resolves it by modelId. Split out of `worker-harness.ts` (which imports these
+ * names) so each file stays under the size trip-wire on its own.
  */
 
 import type {
+  LanguageModelV3,
   LanguageModelV3CallOptions,
   LanguageModelV3StreamPart,
 } from '@ai-sdk/provider';
@@ -28,20 +30,25 @@ import {
   awaitSettlementAfter,
   trackAbortSettlement,
 } from '../testing/fake-streaming-model-client';
+import {
+  applyToolCallingOptions,
+  runStreamChannel,
+} from '../models/openai-model-client';
 import type { ModelClient, ModelStreamInput } from '../models/model-client';
+import { createToolCallGate } from '../models/tool-call-gate';
 import { scriptedStreamHandlers } from './scripted-model-stream-options';
 import { conversationRecallParts } from './scripted-model-recall';
+import {
+  PROVIDER_ZERO_USAGE,
+  scriptedStepParts,
+  type ScriptedStep,
+} from './scripted-model-step';
 import {
   providerDeclarations,
   type ScriptedModelRecords,
   type StreamCallRecord,
   type ToolDeclarationRecord,
 } from './scripted-model-records';
-
-const PROVIDER_ZERO_USAGE = {
-  inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
-  outputTokens: { total: 0, text: 0, reasoning: 0 },
-};
 
 /** Default for the scripted stream's `unblock` before a pending promise replaces it. */
 function noop(): void {}
@@ -81,6 +88,20 @@ export type ScriptedBehavior = {
       query: string;
       continueRead?: boolean;
       finalText?: string;
+    }
+  | {
+      /**
+       * One entry per provider request, in the order the SDK makes them: the
+       * real `streamText` builds the next step's messages itself, so a step
+       * sees exactly the tool results the previous one produced.
+       *
+       * The script restarts at step 0 for every Run: `createClient` runs on
+       * each job pickup, so a test scripting a second turn on the same model
+       * must `register()` that script again before dispatching it. A Run that
+       * exhausts its script answers with empty text.
+       */
+      kind: 'step-script';
+      steps: ReadonlyArray<ScriptedStep>;
     }
 );
 
@@ -185,20 +206,34 @@ function createHangOrDelayGate(
   return undefined;
 }
 
-/** Enqueues the scripted turn's completion — recall script or plain text — and closes the stream. */
+/**
+ * Enqueues the scripted turn's delivery — a whole provider step, a tool call,
+ * the recall script's next part, or plain text — and closes the stream.
+ */
 function enqueueScriptedCompletion(
   controller: ReadableStreamDefaultController<LanguageModelV3StreamPart>,
   prompt: LanguageModelV3CallOptions['prompt'],
   behavior: HarnessBehavior,
-  text: string,
+  scriptedStep: ScriptedStep | undefined,
 ): void {
   controller.enqueue({ type: 'stream-start', warnings: [] });
-  if (behavior.kind === 'tool-script') {
+  if (behavior.kind === 'step-script') {
+    if (scriptedStep === undefined) {
+      enqueueAnswerParts(controller, '');
+    } else {
+      for (const part of scriptedStepParts(scriptedStep)) {
+        controller.enqueue(part);
+      }
+    }
+  } else if (behavior.kind === 'tool-script') {
     enqueueToolScript(controller, prompt, behavior);
   } else if (behavior.kind === 'conversation-recall') {
     enqueueRecallParts(controller, prompt, behavior);
   } else {
-    enqueueAnswerParts(controller, text);
+    enqueueAnswerParts(
+      controller,
+      behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '',
+    );
   }
   controller.close();
 }
@@ -236,17 +271,18 @@ function enqueueToolScript(
 /**
  * The abort- and delay/hang-aware stream backing a scripted turn: waits out a
  * `hang` indefinitely or a `complete` behavior's `delayMs` (if any), then
- * enqueues either the conversation-recall script's next part or the plain
- * completion text — unless `abortSignal` fires first.
+ * enqueues the behavior's scripted delivery (a whole provider step, a tool
+ * call, the recall script's next part, or the plain completion text) — unless
+ * `abortSignal` fires first.
  */
 function createScriptedStream(options: {
   abortSignal: AbortSignal | undefined;
   prompt: LanguageModelV3CallOptions['prompt'];
   behavior: HarnessBehavior;
-  text: string;
   delayMs: number | undefined;
+  scriptedStep: ScriptedStep | undefined;
 }): ReadableStream<LanguageModelV3StreamPart> {
-  const { abortSignal, prompt, behavior, text, delayMs } = options;
+  const { abortSignal, prompt, behavior, delayMs, scriptedStep } = options;
   return new ReadableStream<LanguageModelV3StreamPart>({
     async start(controller) {
       const gate = createHangOrDelayGate(behavior, delayMs);
@@ -267,7 +303,7 @@ function createScriptedStream(options: {
         if (behavior.kind === 'hang' || abortSignal?.aborted) {
           return;
         }
-        enqueueScriptedCompletion(controller, prompt, behavior, text);
+        enqueueScriptedCompletion(controller, prompt, behavior, scriptedStep);
       } catch (error) {
         controller.error(error);
       } finally {
@@ -280,6 +316,8 @@ function createScriptedStream(options: {
 class HarnessModelClient implements ModelClient {
   readonly provider = 'fake';
   readonly contextWindowTokens = 128_000;
+  /** The provider request the next `doStream` serves, for a step script. */
+  private scriptedStepIndex = 0;
 
   constructor(
     readonly model: string,
@@ -299,9 +337,12 @@ class HarnessModelClient implements ModelClient {
       chat: input.chat,
     });
     const behavior = this.behavior;
-    const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
     const delayMs = behavior.kind === 'complete' ? behavior.delayMs : undefined;
     const settlement = trackAbortSettlement(input);
+    // A whole-step script is the one behavior that exercises the production
+    // stream channel: `onChunk` cannot see a part's start or end, so its text
+    // metadata and ordering would never reach the run.
+    const wholeStep = behavior.kind === 'step-script';
 
     const model = new MockLanguageModelV3({
       provider: 'fake',
@@ -320,35 +361,45 @@ class HarnessModelClient implements ModelClient {
             new Error(behavior.message ?? 'simulated provider failure'),
           );
         }
+        const scriptedStep =
+          behavior.kind === 'step-script'
+            ? behavior.steps[this.scriptedStepIndex++]
+            : undefined;
         return Promise.resolve({
           stream: createScriptedStream({
             abortSignal,
             prompt,
             behavior,
-            text,
             delayMs,
+            scriptedStep,
           }),
         });
       },
     });
 
-    const streamOptions = {
+    const streamOptions: Parameters<typeof sdkStreamText>[0] & {
+      model: LanguageModelV3;
+    } = {
       model,
       messages: input.messages,
       system: input.system,
       abortSignal: input.abortSignal,
-      ...(input.tools && {
-        tools: input.tools,
-        ...(input.toolChoice !== undefined && { toolChoice: input.toolChoice }),
-        ...((behavior.kind === 'conversation-recall' ||
-          behavior.kind === 'tool-script') && {
-          stopWhen:
-            input.maxSteps == null
-              ? () => false
-              : stepCountIs(input.maxSteps + 1),
+      ...(input.tools !== undefined &&
+        !wholeStep && {
+          tools: input.tools,
+          ...(input.toolChoice !== undefined && {
+            toolChoice: input.toolChoice,
+          }),
+          ...((behavior.kind === 'conversation-recall' ||
+            behavior.kind === 'tool-script') && {
+            stopWhen:
+              input.maxSteps == null
+                ? () => false
+                : stepCountIs(input.maxSteps + 1),
+          }),
         }),
-      }),
       ...scriptedStreamHandlers(input, settlement),
+      ...(wholeStep && { onChunk: undefined }),
     };
     applyRequestUsageCallback(streamOptions, input);
     // The exact record the request streams with is the one the executor's
@@ -356,13 +407,28 @@ class HarnessModelClient implements ModelClient {
     // is what every production client binds through
     // `applyToolCallingOptions`: without it, a tool a Workspace MCP server
     // adopts after the entry step is never declared on the next step.
-    if (input.tools !== undefined) {
+    if (!wholeStep && input.tools !== undefined) {
       input.onToolSet?.(input.tools);
+    }
+    const gate = createToolCallGate();
+    if (wholeStep) {
+      // The production tool loop for a whole-step script: execution and
+      // refusal report behind the reasoning consumer, schema validation, and
+      // the SDK's own error object stored per refused call (design D3/A8).
+      applyToolCallingOptions(streamOptions, input, gate);
     }
     // The same step preparation every production client installs: the
     // composer on every step, `onStepStart` and the cap only with tools.
     installStepPreparation(streamOptions, input, this);
-    return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
+    if (!wholeStep) {
+      return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
+    }
+    return runStreamChannel({
+      streamOptions,
+      input,
+      gate,
+      runStreamText: sdkStreamText,
+    });
   }
 }
 
