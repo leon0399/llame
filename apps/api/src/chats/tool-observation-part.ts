@@ -14,14 +14,13 @@ import type {
 } from 'ai';
 
 import { isRejectedHopUrl } from '../tools/permissions/messages';
-import { renderToolResultText } from '../tools/model-text';
+import { modelToolOutput, renderToolResultForModel } from '../tools/model-text';
 import { type ToolResult } from '../tools/types';
 import {
   isRecord,
   isString,
   neutralizeReservedDelimiters,
 } from '@workspace/runtime-safety';
-import { loadPackagedTemplate } from '../prompts/template-engine';
 import type { MessagePart } from './context-builder';
 import {
   isUnstoredMedia,
@@ -29,13 +28,13 @@ import {
   submittedLocator,
   toolResultOutput,
   type ToolMediaRef,
+  type ToolResultOutput,
 } from '../media/epoch-admission';
 import {
   parseRetainedMedia,
   storedToolPartMediaKey,
 } from '../media/retained-media';
 import { retainedEntry, type RetainedMedia } from '../media/attempt-media';
-import { isArtifactLocator } from '../tools/artifacts/locator';
 
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8000;
@@ -44,24 +43,6 @@ export const TOOL_OUTCOME_MAX_LENGTH = 128;
 export function renderToolObservationOmission(count: number): string {
   return `[${count} earlier tool observations omitted to fit replay budget.]`;
 }
-
-/**
- * The untrusted-output framing rendered around every tool result, packaged as
- * `prompts/tool-output-untrusted.md` and loaded once at module initialization.
- * The whole composition — label, `Outcome:` line, the optional `Artifact:`
- * line, and the optional `Payload:` block — is template text, so no
- * llame-authored label stays behind as concatenation. The payload block is
- * gated on `hasPayload`, derived from `body !== null` by the producer, because
- * an empty-string body still renders a `Payload:` line while a null body omits
- * it entirely; the artifact line is gated on the part naming one, and it
- * survives payload clearing (D8).
- */
-const renderToolOutputUntrusted = loadPackagedTemplate<{
-  outcome: string;
-  artifact: string | null;
-  payload: string | null;
-  hasPayload: boolean;
-}>(__dirname, 'tool-output-untrusted');
 
 const TOOL_CALL_ID_MAX_LENGTH = 1024;
 const TOOL_NAME_MAX_LENGTH = 64;
@@ -114,13 +95,6 @@ interface StoredToolPart {
   outcome?: unknown;
   resultProviderMetadata?: unknown;
   /**
-   * The artifact locator the call's result names, copied onto the part when it
-   * settled (tool-result-artifacts D6). It survives payload clearing, so the
-   * replayed pair keeps its `Artifact:` line (D8). A part with no valid
-   * locator replays as its result text alone.
-   */
-  artifact?: unknown;
-  /**
    * The retained bytes of an unstored `read`, stored beside the result and
    * never in model text (`media-attachments`). A part with no valid record is
    * not a media reference, so it replays as its result text.
@@ -152,19 +126,19 @@ export interface ToolObservationProjection {
 interface ObservationPayload {
   toolCallId: string;
   toolName: string;
-  outcome: string;
   partIndex: number;
   input: unknown;
-  resultBody: string | null;
-  /** The artifact locator the part names; it survives payload clearing. */
-  artifact: string | undefined;
+  /** The output the live loop sent for this call, rebuilt from the part. */
+  output: ToolResultOutput;
+  /** The outcome a cleared pair keeps; it is the whole of its text. */
   clearedOutcome: string;
   /**
    * The image or PDF a `read` result names: its media id, or for an unstored
-   * file its submitted locator, dimensions or page count, and marker key. It
-   * replays only beside the retained payload, as a reference the step composer
-   * projects, so the budgets measure the text without the `thumbnail` and never
-   * the bytes (vision-media D6).
+   * file its submitted locator, dimensions or page count, and marker key. The
+   * Continue projection reuses it as the `retainedRef` when it rebuilds a
+   * recorded result; `output` already carries the reference itself, so the
+   * budgets measure the text without the `thumbnail` and never the bytes
+   * (vision-media D6).
    */
   media: ToolMediaRef | undefined;
   /** The entry `media` names, when the reference is retained. */
@@ -260,47 +234,46 @@ function failureResult(
   };
 }
 
-function resolveResultBody(
+/**
+ * The output a stored part rebuilds for the live builder: the result its
+ * executor settled with, or the failure object that `tool-result-rendering`
+ * rebuilds from the stored outcome, error text, and rejected locator. A part
+ * that stored no output is a failure too, because no live success existed. A
+ * legacy part stored a bare payload instead of a result object; it replays as
+ * that text, through the same neutralizer every rendering uses.
+ */
+function storedOutput(
   part: StoredToolPart,
   toolName: string,
   outcome: string,
-): string | null {
+  media: ToolMediaRef | undefined,
+): ToolResultOutput {
   if (part.state === 'output-available' && part.output !== undefined) {
-    // A legacy part stored a bare payload instead of a result object; it
-    // replays as that text, through the same neutralizer every rendering uses.
-    if (!isRecord(part.output)) {
-      return neutralizeReservedDelimiters(
+    if (isRecord(part.output)) {
+      return modelToolOutput(
+        renderToolResultForModel(toolName, {
+          ...part.output,
+          status: 'success',
+        }),
+        media,
+      );
+    }
+    return toolResultOutput(
+      neutralizeReservedDelimiters(
         isString(part.output)
           ? part.output
           : (JSON.stringify(part.output) ?? 'null'),
-      );
-    }
-    // A stored success is the result object its executor settled with, as
-    // untyped jsonb; the record guard restores the one success shape.
-    const result: ToolResult = { ...part.output, status: 'success' };
-    return renderToolResultText(toolName, result);
+      ),
+      media,
+    );
   }
-  if (!isString(part.errorText) || part.errorText.length === 0) return null;
-  return renderToolResultText(
-    toolName,
-    failureResult(part, outcome, isHopRejection(toolName, outcome)),
+  return modelToolOutput(
+    renderToolResultForModel(
+      toolName,
+      failureResult(part, outcome, isHopRejection(toolName, outcome)),
+    ),
+    media,
   );
-}
-
-function resultText(
-  outcome: string,
-  body: string | null,
-  artifact: string | undefined,
-): string {
-  // The payload arrives already neutralized by the one rendering, and every
-  // line this template adds is static or a validated locator, so nothing here
-  // needs escaping.
-  return renderToolOutputUntrusted({
-    outcome,
-    artifact: artifact ?? null,
-    payload: body,
-    hasPayload: body !== null,
-  });
 }
 
 function pairEnvelope(pair: ProjectedToolObservationPair): Array<ModelMessage> {
@@ -332,14 +305,10 @@ function makePair(
       type: 'tool-result',
       toolCallId: observation.toolCallId,
       toolName: observation.toolName,
-      output: toolResultOutput(
-        resultText(
-          cleared ? observation.clearedOutcome : observation.outcome,
-          cleared ? null : observation.resultBody,
-          observation.artifact,
-        ),
-        cleared ? undefined : observation.media,
-      ),
+      // A cleared pair keeps its outcome token alone.
+      output: cleared
+        ? toolResultOutput(observation.clearedOutcome, undefined)
+        : observation.output,
     },
   };
 }
@@ -552,11 +521,14 @@ function storedObservation(
   const toolName = part.type.slice(TOOL_PART_PREFIX.length);
   if (!isToolName(toolName)) return undefined;
   const outcome = resolveOutcome(part);
+  const { media, retained } =
+    toolName === READ_TOOL_NAME && part.state === 'output-available'
+      ? readObservationRef(part, mediaKey)
+      : { media: undefined, retained: undefined };
   return {
     partIndex,
     toolCallId: part.toolCallId,
     toolName,
-    outcome,
     clearedOutcome:
       Object.hasOwn(PARTIAL_RESULT_TOOL_PARTS, part.type) &&
       part.state === 'output-available' &&
@@ -567,11 +539,9 @@ function storedObservation(
         ? 'incomplete'
         : outcome,
     input: part.input,
-    resultBody: resolveResultBody(part, toolName, outcome),
-    artifact: isArtifactLocator(part.artifact) ? part.artifact : undefined,
-    ...(toolName === READ_TOOL_NAME && part.state === 'output-available'
-      ? readObservationRef(part, mediaKey)
-      : { media: undefined, retained: undefined }),
+    output: storedOutput(part, toolName, outcome, media),
+    media,
+    retained,
   };
 }
 

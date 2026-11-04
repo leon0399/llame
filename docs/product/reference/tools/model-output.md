@@ -24,7 +24,9 @@ tool result no longer escapes every `<` and `>`.
 
 The rendering is the same for a live result, a result replayed on a later turn,
 and a result kept by a Continue Run, so a model reads one shape of a call
-whatever turn it sees the call in.
+whatever turn it sees the call in. No label, outcome line, or artifact line is
+added around a replayed result: a spilled result's cap notice is the only place
+its artifact locator appears.
 
 A `display` key on a result is stored with the tool part for the chat UI and is
 never rendered to a model. An image read's inline thumbnail lives at

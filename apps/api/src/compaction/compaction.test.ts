@@ -1227,7 +1227,7 @@ describe('buildCompactionRequest', () => {
     expect(serialized).toContain('VISIBLE_ANSWER');
   });
 
-  it('replays an absorbed turn’s artifact locator, not its stored lines', () => {
+  it('replays an absorbed turn’s result as its live rendering, with no artifact line', () => {
     const question = msg('what did the search find?');
     const answer = msg('', 'assistant');
     answer.parts = [
@@ -1236,7 +1236,17 @@ describe('buildCompactionRequest', () => {
         toolCallId: 'call-1',
         state: 'output-available',
         input: { pattern: 'needle' },
-        output: { status: 'success', content: '1: needle' },
+        output: {
+          status: 'success',
+          results: [
+            {
+              locator: 'src/app.ts:1-1',
+              content: '1: needle',
+              matches: [1],
+            },
+          ],
+          complete: true,
+        },
         outcome: 'success',
         artifact: 'artifact://grep-1',
       },
@@ -1249,10 +1259,11 @@ describe('buildCompactionRequest', () => {
     });
     const serialized = JSON.stringify(request.messages);
 
-    // The locator is part of the pair's outcome; the artifact's own lines live
-    // in the store, and the checkpoint request carries no artifact field or
-    // content of its own.
-    expect(serialized).toContain('Artifact: artifact://grep-1');
+    // The result replays as the live loop sent it; the separate artifact line
+    // that only replay added is gone, and the part's locator stays on the
+    // stored part for fork copy.
+    expect(serialized).toContain('*1: needle');
+    expect(serialized).not.toContain('Artifact:');
     expect(serialized).not.toContain('"artifact"');
   });
 
