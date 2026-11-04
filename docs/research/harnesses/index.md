@@ -212,6 +212,7 @@ assessment.
 87. [ECC](./ecc.md) — MIT skill and hook catalog for peer coding CLIs, plus an alpha Rust control plane that tails SQLite session output by row id
 88. [Rerun](./rerun.md) — AGPL TypeScript coworker host: an AI SDK tool loop, an in-process SSE buffer, workspace RLS on the product database, and a local libSQL engine store
 89. [Hyra 2.0](./hyra.md) — Tencent Hunyuan research post that describes an Overall, Mission, and Worker harness; the public repository ships result artifacts, and the orchestrator source is absent
+90. [DS Bot](./ds-bot.md) — Apache-2.0 DeepSeek Harness plugin whose Bots are root Sessions, whose desktop feed is a change hint, and whose Docker image grants full access inside one container
 
 ## Multi-machine and container placement
 
@@ -258,6 +259,7 @@ even with a single laptop UI):
 - [OpenGrokBot](./opengrokbot.md) — Docker container per teammate, with shell on. A local computer leaves shell off until the operator enables it, and that switch refuses unless Seatbelt or bubblewrap passes a self-check
 - [Touri](./touri.md) — optional bot machines: Apple container on macOS, rootless Podman or Docker on Linux (README; the container lifecycle was not re-read)
 - [OpenTeam](./openteam.md) — one shared Linux computer container for every bot's screen; passwordless sudo; not a VM boundary
+- [DS Bot](./ds-bot.md) — one container for the whole team; the image's only preset is `danger-full-access` with approval `never`, and the entrypoint treats the container publish rule as the network boundary
 
 **Single remote only** (optional one SSH/daemon host, not a multi-box registry):
 [super.engineering](./super-engineering.md) (experimental SSH), [Waku](./waku.md),
