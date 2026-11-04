@@ -164,8 +164,11 @@
       // syntax in any string value at any depth before resolving anything.
       // Not a credential channel — contents are never redacted, so never put
       // a secret in it.
-      // Precedence, highest first: client invariants (Codex always sends
-      // store:false and reasoningSummary:auto; the Messages client always
+      // Precedence, highest first: client invariants (every Responses
+      // request, openai-responses and Codex alike, sends store:false; an
+      // openai-responses entry that declares `reasoning` also sends
+      // forceReasoning:true, so it asks for encrypted reasoning; Codex
+      // always sends reasoningSummary:auto; the Messages client always
       // sends sendReasoning:true and, on adaptive thinking, the
       // drop-on-prefix-mismatch instruction), the run's resolved effort
       // when this model declares `reasoning`, this object, then per-request

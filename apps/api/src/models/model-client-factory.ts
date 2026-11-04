@@ -98,6 +98,7 @@ function createResponsesClient(
     contextWindowTokens: model.contextWindowTokens,
     userAgent,
     requestHeaders: provider.headers,
+    reasoningDeclared: model.reasoning !== undefined,
   };
   assignModelMetadata(config, model);
   return dependencies.createOpenAIModelClient(config);

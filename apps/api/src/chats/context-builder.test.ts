@@ -2598,8 +2598,9 @@ describe('reasoning replay at the Responses SDK boundary (3.3)', () => {
   it('at the API default store setting the item id becomes an item_reference', async () => {
     const body = await postBuiltContext(buildReplayContext());
 
-    // No `store` is set for a Responses provider unless its transport asks for
-    // one, so the API default applies.
+    // This test drives the SDK directly without provider options, so the
+    // adapter's default applies. llame's own Responses client always sends
+    // `store: false` (exact-turn-replay D12); this pins the raw SDK boundary.
     expect(body['store']).toBeUndefined();
     expect(body['include']).toBeUndefined();
     expect(body['input']).toContainEqual({

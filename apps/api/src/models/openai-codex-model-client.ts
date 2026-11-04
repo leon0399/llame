@@ -110,12 +110,11 @@ export function createOpenAICodexModelClient(
         Originator: 'llame',
       },
       fetch: rejectRedirects(globalThis.fetch),
-      // Client invariants (design D5): the subscription transport never
-      // stores a response server-side, and the displayable reasoning summary
-      // stays pinned because subscription-access-openai-codex mandates
-      // persisting that text. No operator value — `null` included — can
-      // remove or replace either.
-      providerOptionInvariants: { store: false, reasoningSummary: 'auto' },
+      // Client invariant (design D5): the displayable reasoning summary stays
+      // pinned because subscription-access-openai-codex mandates persisting
+      // that text. No operator value — `null` included — can remove or
+      // replace it. The Responses wire adds `store: false` itself (D12).
+      providerOptionInvariants: { reasoningSummary: 'auto' },
       ...(config.providerOptions !== undefined && {
         providerOptions: config.providerOptions,
       }),

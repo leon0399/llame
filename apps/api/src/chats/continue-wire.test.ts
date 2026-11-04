@@ -170,7 +170,7 @@ describe('a Continue request on the Messages wire', () => {
 });
 
 describe('a Continue request on the Responses wire', () => {
-  it('carries the kept reasoning as a stored item reference whose step is in progress', async () => {
+  it('sends store:false and the kept encrypted reasoning with both results', async () => {
     const body = await sentBody(
       (input) => createOpenAIModelClient({ ...base, input }),
       RESPONSES_STREAM,
@@ -179,10 +179,21 @@ describe('a Continue request on the Responses wire', () => {
       }),
     );
 
-    expect(body['store']).not.toBe(false);
+    // llame keeps nothing on the provider's side (exact-turn-replay D12), so
+    // the kept reasoning travels as its own encrypted item — exactly what the
+    // request asks for here — and never as a reference to a stored one.
+    expect(body['store']).toBe(false);
     const items = sentItems(body);
     expect(items).toContainEqual(
-      expect.objectContaining({ type: 'item_reference', id: 'rs_kept' }),
+      expect.objectContaining({
+        type: 'reasoning',
+        id: 'rs_kept',
+        encrypted_content: 'enc-kept',
+        summary: [expect.objectContaining({ text: KEPT_REASONING })],
+      }),
+    );
+    expect(items).not.toContainEqual(
+      expect.objectContaining({ type: 'item_reference' }),
     );
     // Both calls of the kept step, then both results, and nothing after them.
     const tail = items.slice(-4).map((item) => ({
