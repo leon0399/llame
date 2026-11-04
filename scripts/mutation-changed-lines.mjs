@@ -334,11 +334,15 @@ const strykerLogFile = "stryker.log";
  * Changed lines can carry no mutant (an import, a bare call). Stryker then
  * asks the runner for the tests related to the mutated files, finds none, and
  * aborts with "No tests were executed", which is a failure even though there
- * was nothing a test could detect. The instrumenter's own count tells the two
- * apart; a run that instrumented any mutant still fails on that abort.
+ * was nothing a test could detect. Only that abort after a zero instrumenter
+ * count passes: a run that instrumented any mutant, or one that failed for
+ * another reason (a failing baseline test, a timeout), still fails.
  */
 export function instrumentedNoMutant(log) {
-  return /Instrumented \d+ source file\(s\) with 0 mutant\(s\)/.test(log);
+  return (
+    /Instrumented \d+ source file\(s\) with 0 mutant\(s\)/.test(log) &&
+    /No tests were executed/.test(log)
+  );
 }
 
 /**
@@ -432,6 +436,9 @@ function main(arguments_) {
     // fails still leaves nothing behind.
     const config = path.resolve(workspace, scopeConfigFile);
     const log = path.resolve(workspace, strykerLogFile);
+    // Stryker appends to its log, and an interrupted run skips the cleanup
+    // below, so only this run's lines may decide the result.
+    rmSync(log, { force: true });
     try {
       writeScopeConfig(workspace, ranges);
       const result = spawnSync("pnpm", mutationArguments(workspace), {
