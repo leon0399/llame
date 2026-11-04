@@ -48,6 +48,10 @@ because a projection that two code paths disagree on cannot ship. Re-measure it
 at its boundary, and request a named exception before publication if it goes
 over. Every other layer stays inside about 2,000 lines.
 
+Measured at publication, three implementation layers took named exceptions
+recorded in their PR bodies: `seams` (#1560) at 2,474 authored lines, `replay`
+(#1569) at about 3,836, and `continue` (#1572) at 3,159.
+
 ## 1. proposal
 
 - [x] 1.1 Validate the change: `pnpm exec openspec validate exact-turn-replay --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/exact-turn-replay/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
@@ -178,7 +182,7 @@ over. Every other layer stays inside about 2,000 lines.
 - [x] 10.1 Enter `exact-turn-replay/finalize` with `$gh-stack` before any canonical spec write. Then run `$openspec-sync-specs`. Verify the ADDED requirements appear word for word, each MODIFIED requirement matches its delta with every canonical scenario kept, and both REMOVED `tool-calling` requirements are gone.
   - Evidence: `exact-turn-replay/finalize` was entered with `gh stack add` before the sync commit. Every ADDED block of the 14 deltas equals its canonical block byte for byte (the new `turn-replay` capability and the `tool-calling`, `provider-api-selection`, and `reasoning-output` additions), every MODIFIED block equals its delta with every pre-sync canonical scenario kept in order, and both REMOVED `tool-calling` requirements are gone; `openspec validate --specs` reports 56 passed, 0 failed.
 - [x] 10.2 Confirm archive readiness: `openspec status --change exact-turn-replay --json` reports every artifact done and every task above is checked. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
-  - Evidence: `openspec status --change exact-turn-replay --json` reports proposal, specs, design, and tasks done, and every task above is checked. `openspec validate --specs --strict` reports 10 passed, 46 failed and `--all --strict` 11 passed, 47 failed; `master` reports the same 46 and 47 failures (the CLI's long-requirement warning on existing specs, and the open `tool-search` change), the new `turn-replay` spec passes strict, and `openspec validate --specs` reports 0 failures. `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` are clean.
+  - Evidence: `openspec status --change exact-turn-replay --json` reports proposal, specs, design, and tasks done, and every task above is checked. Before the archive move, `openspec validate --specs --strict` reports 10 passed, 46 failed and `--all --strict` 11 passed, 47 failed; `master` reports the same 46 and 47 failures (the CLI's long-requirement warning on existing specs, and the open `tool-search` change), the new `turn-replay` spec passes strict, and `openspec validate --specs` reports 0 failures. `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` are clean.
 
 ## Workflow follow-up
 
