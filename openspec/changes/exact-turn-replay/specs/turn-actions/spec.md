@@ -3,10 +3,10 @@
 ### Requirement: Continue requests the next step of the same turn
 
 The first model request of a Continue Run MUST carry the history through the triggering user
-message, then the kept parts. It MUST build them through the projection of `turn-replay`. A kept step is the set of tool calls that one model response made.
-Each kept step MUST be one assistant message with its reasoning, its text, and its tool calls, then
-one message with their results. `turn-replay` defines this form. Kept results MUST be complete. The request MUST NOT add a
-user-role message, except a kept context item. The Run MUST NOT execute a kept call again.
+message, then the kept parts. It MUST build them through the projection of `turn-replay`. Each kept
+step MUST be one assistant message with its reasoning, its text, and its tool calls, then one
+message with their results. Kept results MUST be complete. The request MUST NOT add a user-role
+message, except a kept context item. The Run MUST NOT execute a kept call again.
 
 #### Scenario: Continue sends the kept steps with their reasoning
 
