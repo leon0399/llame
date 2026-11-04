@@ -237,7 +237,6 @@ export function estimateContinuationTokens(input: {
 }): number {
   const { messages } = buildContext(input.rows, {
     systemPrompt: '',
-    requestKind: 'continuation',
     modelId: input.modelId,
   });
   return (
@@ -401,9 +400,10 @@ export function planCompactionCheckpoint(input: {
  * - `system` is the prompt of the run whose prefix this request reproduces
  *   (passed by the caller), NOT a dedicated summarizer prompt;
  * - the previous checkpoint's stored text and the absorbed turns are replayed
- *   through the SAME buildContext path the live turn used, so the request
+ *   through the SAME buildContext path a later turn uses, so the request
  *   preserves the byte-identical stored prefix that populated the provider's
- *   prompt cache;
+ *   prompt cache, reasoning and provider metadata included for the request's
+ *   own model (design D9);
  * - the summarize instruction rides as the final user message. Both trigger
  *   paths use the same instruction; the variant only selects the model inputs
  *   assembled by CompactionService.
@@ -421,9 +421,6 @@ export function buildCompactionRequest(input: {
 }): ModelRequestContext {
   const context = buildContext(input.absorb, {
     systemPrompt: input.system,
-    // Summarization input, not a continuation: reasoning the absorbed turns
-    // persisted must not be folded into the checkpoint (D16).
-    requestKind: 'compaction',
     modelId: input.modelId,
     ...(input.previous !== undefined && { checkpoint: input.previous }),
   });

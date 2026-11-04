@@ -1274,12 +1274,17 @@ describe('buildCompactionRequest', () => {
     expect(COMPACTION_WINDOW_RATIO).toBe(0.8);
   });
 
-  it('summarizes a history that stores reasoning without replaying it', () => {
+  it('carries the reasoning parts of its own model, in their stored positions', () => {
     const question = msg('plan a trip to Japan');
     const answer = msg('sure — when?', 'assistant');
+    answer.usage = { status: 'completed', modelId: 'test-model' };
+    const providerMetadata = {
+      openai: { reasoningEncryptedContent: 'ENCRYPTED_REASONING' },
+    };
     answer.parts = [
-      { type: 'reasoning', text: 'SECRET_REASONING' },
+      { type: 'reasoning', text: 'SECRET_REASONING', providerMetadata },
       { type: 'text', text: 'VISIBLE_ANSWER' },
+      { type: 'reasoning', text: 'SECOND_THOUGHT' },
     ];
 
     const request = buildCompactionRequest({
@@ -1289,11 +1294,61 @@ describe('buildCompactionRequest', () => {
       absorb: [question, answer],
     });
 
-    const serialized = JSON.stringify(request.messages);
-    // Reasoning is excluded from what the summarizer reads …
-    expect(serialized).not.toContain('SECRET_REASONING');
-    // … while the visible turn still reaches it.
-    expect(serialized).toContain('VISIBLE_ANSWER');
+    // The summarization request is an ordinary request of its model: the
+    // projection offers each reasoning part the model rule keeps, exactly as a
+    // later turn would (D9).
+    expect(request.messages[1]).toEqual({
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'SECRET_REASONING',
+          providerOptions: providerMetadata,
+        },
+        { type: 'text', text: 'VISIBLE_ANSWER' },
+        { type: 'reasoning', text: 'SECOND_THOUGHT' },
+      ],
+    });
+  });
+
+  it('shares one projection with a continuation: only the instruction differs', () => {
+    const rows = [
+      msg('plan a trip to Japan'),
+      msg('sure — when?', 'assistant'),
+      msg('in spring', 'user'),
+      msg('noted', 'assistant'),
+    ];
+    rows[1].usage = { status: 'completed', modelId: 'test-model' };
+    rows[1].parts = [
+      { type: 'reasoning', text: 'FIRST_THOUGHT' },
+      { type: 'text', text: 'Sure — when?' },
+    ];
+    rows[3].usage = { status: 'completed', modelId: 'test-model' };
+    rows[3].parts = [
+      { type: 'reasoning', text: 'SECOND_THOUGHT' },
+      { type: 'text', text: 'Noted.' },
+    ];
+
+    const continuation = buildContext(rows, {
+      systemPrompt: CHAT_SYSTEM,
+      modelId: 'test-model',
+    });
+    const compaction = buildCompactionRequest({
+      modelId: 'test-model',
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: rows,
+    });
+
+    // Same stored messages, same model, same projection — byte for byte. The
+    // summarization instruction is the only difference (D9).
+    expect(JSON.stringify(compaction.messages.slice(0, -1))).toBe(
+      JSON.stringify(continuation.messages),
+    );
+    expect(compaction.messages.at(-1)).toEqual({
+      role: 'user',
+      content: COMPACTION_INSTRUCTION,
+    });
   });
 
   it('replays an absorbed turn’s result as its live rendering, with no artifact line', () => {
@@ -1578,7 +1633,6 @@ describe('a stored retained read across the builds of one attempt', () => {
     // The main build emits the marker and returns the entry it names.
     const main = buildContext(rows, {
       systemPrompt: '',
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
     expect([...main.retainedMedia.keys()]).toEqual([
@@ -1604,7 +1658,6 @@ describe('a stored retained read across the builds of one attempt', () => {
     const { resolver: limitedResolver } = fakeResolver([]);
     const limited = buildContext(limitedRows, {
       systemPrompt: '',
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
     mergeRetainedMedia(limitedResolver.retainedMedia, limited.retainedMedia);
@@ -1685,13 +1738,22 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
   // Pinned independently, as literal text, because this sentence is the
   // instruction's only defense against personalization leaking into a persisted
   // checkpoint; the assertions above match fragments and would survive a
-  // rewritten clause.
+  // rewritten clause. Restatement in a reply or its reasoning is named because
+  // a summarization request now replays that reasoning.
   const STANDING_CONTEXT_EXCLUSION_SENTENCE =
-    'Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest". Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.';
+    'Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest", including where an earlier reply or its reasoning restates that content. Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.';
 
   it('carries the standing-context exclusion sentence verbatim', () => {
     expect(COMPACTION_INSTRUCTION).toContain(
       STANDING_CONTEXT_EXCLUSION_SENTENCE,
+    );
+  });
+
+  it('carries the private-reasoning exclusion sentence verbatim', () => {
+    // Replayed reasoning now reaches the summarizer (D9), so the checkpoint
+    // text must not carry more of it than the visible answer states.
+    expect(COMPACTION_INSTRUCTION).toContain(
+      "Do not restate the model's private reasoning beyond what its visible answer states.",
     );
   });
   it('still keeps in-conversation constraints in scope', () => {

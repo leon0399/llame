@@ -1452,8 +1452,9 @@ export class RunExecutionService {
     // through the SAME chain as model.delta so reasoning and text land in
     // stream order (reasoning precedes text). The full reasoning text is ALSO
     // collected (assistantPartCollector) and persisted as `reasoning` parts in
-    // occurrence order, so thinking survives a reload — but `partsToText`
-    // strips reasoning, so it is still NEVER re-fed to the model.
+    // occurrence order, so thinking survives a reload and replays to the
+    // reply's own model under the model rule (D7); `partsToText` strips it, so
+    // text-only surfaces never carry it.
     //
     // Accumulated from EACH onReasoningDelta chunk (not the SDK's
     // onFinish.reasoningText, which is only the FINAL step's reasoning and would
@@ -2514,8 +2515,9 @@ export class RunExecutionService {
             return;
           }
           // Persist the collected thinking as reasoning parts in occurrence
-          // order (display only — partsToText strips it, so it is never
-          // re-fed to the model and never enters a compaction summary).
+          // order: displayed on reload, and replayed to the reply's own model
+          // under the model rule (D7) — a summarization request included
+          // (D9) — while `partsToText` keeps it out of text-only surfaces.
           // Only turns reaching onFinish (normal completion + the narrow
           // finish-races-abort case) get this; the common event-driven abort
           // goes through onError → the streamedText-only parts above (reasoning
@@ -2659,9 +2661,8 @@ export class RunExecutionService {
     return {
       context: buildContext(toStoredMessages(history), {
         systemPrompt,
-        // A Run's own request continues this Chat, and its model decides
-        // which earlier reasoning and provider metadata replay (D7, D16).
-        requestKind: 'continuation',
+        // The model this Run executes on decides which earlier reasoning and
+        // provider metadata replay (D7).
         modelId: input.client.model,
         ...(checkpoint !== undefined && {
           checkpoint: toContextCheckpoint(checkpoint),

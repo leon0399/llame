@@ -2,6 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
+- A compaction request now replays the rows it absorbs through the same
+  projection a later turn uses. Its reasoning parts and their provider metadata
+  therefore reach the summarizer when they meet the model rule of
+  `reasoning-output`, in their stored positions, and the request on the same
+  model starts with the previous turn's last request and that request's
+  response; the summarization instruction remains the last message. A reply of
+  other model, or of an unfinished one, still carries no reasoning. The
+  checkpoint row written afterwards stays summary text only: no reasoning part
+  and no provider metadata enters it. The summarization instruction now also
+  forbids carrying personalization, chat-history, or recency-digest content that
+  an earlier reply or its reasoning restates, and asks the summarizer not to
+  restate private reasoning beyond what the visible answer states. No schema or
+  stored-row change. Refs
+  [#1539](https://github.com/leon0399/llame/issues/1539).
+
 - **BREAKING: a later turn replays the whole stored turn, so a long older Chat
   can fail with `context_incompatible`.** One projection now turns stored rows
   into the model messages the live loop sent: one assistant message per model

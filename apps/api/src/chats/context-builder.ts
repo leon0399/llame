@@ -12,8 +12,8 @@
  *   results of its calls. It clears nothing and drops no tool pair — a
  *   checkpoint is the only boundary.
  * - Persisted reasoning and provider metadata follow the model rule of
- *   `reasoning-output` (D7): they replay only into a request that continues the
- *   Chat and only for the reply's own model after a completed reply.
+ *   `reasoning-output` (D7): they replay for the reply's own model after a
+ *   completed reply.
  * - Deterministic: identical inputs → identical output
  * - No message-count cap: context size is governed in TOKENS by the compaction
  *   threshold (#57). A count cap would silently drop old turns without any
@@ -83,15 +83,14 @@ export interface TextPart {
 
 /**
  * A reasoning ("thinking") part. PERSISTED for display (survives reload) and
- * replayed to the provider in its stored position on the requests that the
- * model rule of `reasoning-output` allows: a request that continues the Chat,
- * for a reply that completed on the request's own model (D7). `buildContext`
- * re-emits it as a reasoning content part where it occurred, with the text
- * byte-identical to the stored part (never trimmed, repaired, re-ordered, or
- * neutralized) — DeepSeek's `tools` rule makes that replay mandatory on the
- * completions wire. Elsewhere the exclusion stands: `partsToText` still strips
- * reasoning, so compaction input, chat search, and public shares never carry
- * it.
+ * replayed to the provider in its stored position on every request of the
+ * reply's own model after that reply completed (D7); a summarization request
+ * is one of those requests (D9). `buildContext` re-emits it as a reasoning
+ * content part where it occurred, with the text byte-identical to the stored
+ * part (never trimmed, repaired, re-ordered, or neutralized) — DeepSeek's
+ * `tools` rule makes that replay mandatory on the completions wire. Elsewhere
+ * the exclusion stands: `partsToText` still strips reasoning, so chat search
+ * and public shares never carry it.
  */
 export interface ReasoningPart {
   type: 'reasoning';
@@ -177,24 +176,8 @@ export interface ContextCheckpoint {
   absorbedThroughSeq: number;
 }
 
-/**
- * What the built request is for (D16). Replaying a Chat's persisted reasoning
- * is a property of the request kind, not of the projection: a request that
- * continues the Chat carries its stored reasoning parts, while a request that
- * asks a model to summarize that history into a compaction carries none —
- * reasoning must not be folded into summary text that is no longer
- * provider-authorized.
- */
-export type ContextRequestKind = 'continuation' | 'compaction';
-
 export interface BuildContextOptions {
   systemPrompt: string;
-  /**
-   * Required, with no default: every caller states whether this request
-   * continues the Chat or summarizes it (D16), so a new caller cannot inherit
-   * a silent choice.
-   */
-  requestKind: ContextRequestKind;
   /**
    * Required, with no default: the llame model id this request runs on. The
    * model rule of `reasoning-output` (D7) replays a reply's reasoning and its
@@ -585,7 +568,7 @@ export function buildContext(
     if (m.role === 'user') {
       appendUserMessage(result, m, retained);
     } else {
-      appendAssistantMessage(result, m, options, retained);
+      appendAssistantMessage(result, m, options.modelId, retained);
     }
   }
 
@@ -612,16 +595,11 @@ function appendUserMessage(
 function appendAssistantMessage(
   result: Array<ModelMessage>,
   m: StoredMessage,
-  options: BuildContextOptions,
+  modelId: string,
   retained: Map<string, RetainedMedia>,
 ): void {
-  // A continuation of this Chat is the only request kind that may reuse the
-  // reply's private continuation state, and only for the reply's own model
-  // after a completed reply (D7). A compaction request summarizes the same
-  // rows without it (D9 owns folding compaction into the same projection).
-  const privateParts =
-    options.requestKind === 'continuation' &&
-    replaysPrivateParts(m.usage, options.modelId);
+  // Model rule of `reasoning-output` (D7): same model, completed reply.
+  const privateParts = replaysPrivateParts(m.usage, modelId);
   result.push(
     ...new StoredReplyProjection(privateParts, retained).project(m.parts, m.id),
   );

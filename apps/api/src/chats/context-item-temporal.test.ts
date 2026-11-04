@@ -194,7 +194,6 @@ describe('temporal rows in assembled context', () => {
   it('dates every user turn and no assistant turn', () => {
     const result = buildContext(conversation, {
       systemPrompt,
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
 
@@ -210,7 +209,6 @@ describe('temporal rows in assembled context', () => {
   it('renders the row ahead of the user text, in its own block', () => {
     const [first] = buildContext(conversation, {
       systemPrompt,
-      requestKind: 'continuation',
       modelId: 'test-model',
     }).messages;
     const blocks = contentBlockTexts(first.content);
@@ -222,12 +220,10 @@ describe('temporal rows in assembled context', () => {
   it('replays byte-identically however much later it is read', () => {
     const first = buildContext(conversation, {
       systemPrompt,
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
     const second = buildContext(conversation, {
       systemPrompt,
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
     // The property the whole design rests on: no message's serialized form
@@ -246,7 +242,6 @@ describe('temporal rows in assembled context', () => {
 
     const result = buildContext([legacy], {
       systemPrompt,
-      requestKind: 'continuation',
       modelId: 'test-model',
     });
 
@@ -271,7 +266,6 @@ describe('temporal rows in assembled context', () => {
   it('drops rows superseded by a compaction along with their turns', () => {
     const { messages } = buildContext(conversation, {
       systemPrompt,
-      requestKind: 'continuation',
       modelId: 'test-model',
       checkpoint: {
         text: 'earlier history',

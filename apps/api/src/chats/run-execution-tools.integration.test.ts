@@ -3362,7 +3362,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       };
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge replay test',
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       // The replayed read is the text rendering: the header names the shown
@@ -3401,7 +3400,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ],
         {
           systemPrompt: 'Knowledge replay test',
-          requestKind: 'continuation',
           modelId: 'test-model',
         },
       );
@@ -3432,7 +3430,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ],
         {
           systemPrompt: 'Knowledge replay test',
-          requestKind: 'continuation',
           modelId: 'test-model',
         },
       );
@@ -3585,7 +3582,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ],
         {
           systemPrompt: 'Conversation replay test',
-          requestKind: 'continuation',
           modelId: 'test-model',
         },
       );
@@ -4006,7 +4002,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       };
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge search replay test',
-        requestKind: 'continuation',
         modelId: 'test-model',
       });
       const replayed = JSON.stringify(replay.messages);
@@ -5851,7 +5846,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ],
             {
               systemPrompt: 'system',
-              requestKind: 'continuation',
               modelId: 'test-model',
             },
           );
