@@ -6,10 +6,11 @@
  * provider metadata bound to it — durably in the run's event log. Settling that
  * run reconstructs the assistant message from those events, and the NEXT Run for
  * the chat (a fresh service instance stands in for the restarted worker)
- * rebuilds its request from the persisted parts. That first request must carry
- * the earlier reasoning parts with their metadata and unmodified text, ahead of
- * the content the same turn produced — including a block whose text the provider
- * withheld, which exists as a part only because its metadata arrived (D18).
+ * rebuilds its request from the persisted parts. The reply never completed, so
+ * the model rule of `reasoning-output` omits its reasoning and provider metadata
+ * from that later turn's first request; the tool activity it produced still
+ * replays. The stored transcript keeps the empty-text block whose signature the
+ * provider withheld, which D18 makes durable.
  *
  * The second consequence of the same rule: provider metadata is only ever
  * durable BOUND to a persisted reasoning part. Nothing else in the chat
@@ -329,7 +330,7 @@ describeWithDatabase(
       return { chatId, userMessage, interrupted };
     }
 
-    it('a resumed Run replays the earlier reasoning parts with their metadata on its first request', async () => {
+    it('a later turn after an expired reply omits its reasoning and metadata', async () => {
       const { chatId, interrupted } = await seedInterruptedTurn();
 
       // The restarted worker settles the stranded run; the turn's parts become
@@ -405,65 +406,46 @@ describeWithDatabase(
 
       expect(calls).toHaveLength(1);
       const first = calls[0];
-      // The rebuilt request's assistant turn carries both reasoning parts with
-      // their metadata (opaque, unreshaped) ahead of the tool call they
-      // preceded — the withheld item first, in its stored order.
-      expect(first.messages).toContainEqual({
-        role: 'assistant',
-        content: [
-          {
-            type: 'reasoning',
-            text: '',
-            providerOptions: EMPTY_SUMMARY_PROVIDER_METADATA,
-          },
-          {
-            type: 'reasoning',
-            text: REASONING_TEXT,
-            providerOptions: PROVIDER_METADATA,
-          },
-          expect.objectContaining({
-            type: 'tool-call',
-            toolCallId: 'call-resumed-1',
-          }),
-        ],
-      });
+      // The reply never completed (the worker restart settled it as expired),
+      // so the model rule omits its reasoning and provider metadata. The call
+      // it made, and that call's result, still replay.
       const assistantParts: Array<unknown> = first.messages.flatMap(
         (message) =>
           message.role === 'assistant' && Array.isArray(message.content)
             ? message.content
             : [],
       );
-      // Both reasoning parts, with their unmodified text (empty for the item
-      // the provider withheld) and the metadata the provider produced …
       expect(
         assistantParts.filter(
           (part) => isRecord(part) && part.type === 'reasoning',
         ),
-      ).toEqual([
-        {
-          type: 'reasoning',
-          text: '',
-          providerOptions: EMPTY_SUMMARY_PROVIDER_METADATA,
-        },
-        {
-          type: 'reasoning',
-          text: REASONING_TEXT,
-          providerOptions: PROVIDER_METADATA,
-        },
-      ]);
-      // … and they are the only parts that carry metadata at all. The tool
-      // result stays a tool message: metadata reaches the provider on a
-      // reasoning part.
+      ).toEqual([]);
       expect(
         assistantParts.filter(
           (part) => isRecord(part) && part.providerOptions !== undefined,
         ),
-      ).toHaveLength(2);
-      expect(
-        JSON.stringify(
-          first.messages.filter((message) => message.role !== 'assistant'),
-        ),
-      ).not.toContain('ENCRYPTED_RESUMED');
+      ).toEqual([]);
+      expect(assistantParts).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-call',
+          toolCallId: 'call-resumed-1',
+          toolName: 'search_conversations',
+        }),
+      );
+      expect(first.messages).toContainEqual({
+        role: 'tool',
+        content: [
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'call-resumed-1',
+          }),
+        ],
+      });
+      // Nothing opaque survives into the request on any role.
+      expect(JSON.stringify(first.messages)).not.toContain('ENCRYPTED_RESUMED');
+      expect(JSON.stringify(first.messages)).not.toContain(
+        'ENCRYPTED_EMPTY_SUMMARY',
+      );
 
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     });

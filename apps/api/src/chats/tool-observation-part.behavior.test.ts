@@ -3,11 +3,9 @@ import type { ModelMessage, ToolResultPart as SdkToolResultPart } from 'ai';
 
 import {
   normalizeToolObservationOutcome,
-  projectToolObservations,
-  renderToolObservationOmission,
+  projectStoredToolPart,
   TOOL_OUTCOME_MAX_LENGTH,
-  TOOL_REPLAY_CALL_LIMIT,
-  TOOL_REPLAY_TURN_LIMIT,
+  type StoredToolObservation,
 } from './tool-observation-part';
 import type { MessagePart } from './context-builder';
 import {
@@ -22,9 +20,19 @@ import {
 import { fakeResolver } from '../media/media-fixtures';
 import { composeStepMessages } from '../models/step-composer';
 
-/** The later-turn projection of one assistant row's parts. */
-const project = (parts: Array<MessagePart>) =>
-  projectToolObservations(parts, 'msg-1');
+/** Every settled tool part of `parts`, projected in stored order. */
+const project = (parts: Array<MessagePart>): Array<StoredToolObservation> =>
+  parts.flatMap((part, partIndex) => {
+    const stored = projectStoredToolPart(part, `msg-1:${partIndex}`);
+    return stored === undefined ? [] : [stored];
+  });
+
+/** The one pair `parts` projects, for a single-part fixture. */
+const projectOne = (part: MessagePart): StoredToolObservation => {
+  const [stored] = project([part]);
+  if (stored === undefined) throw new Error('Expected a tool projection');
+  return stored;
+};
 
 const toolPart = (overrides: UnknownRecord = {}): MessagePart => ({
   type: 'tool-search_conversations',
@@ -52,6 +60,13 @@ const renderedOutput = (output: SdkToolResultPart['output'] | undefined) =>
     ? output.value
     : JSON.stringify(output);
 
+/** The messages a reply's projected parts replay as, one pair per part. */
+const pairMessages = (parts: Array<MessagePart>): Array<ModelMessage> =>
+  project(parts).flatMap(({ pair }): Array<ModelMessage> => [
+    { role: 'assistant', content: [pair.toolCallPart] },
+    { role: 'tool', content: [pair.toolResultPart] },
+  ]);
+
 describe('normalizeToolObservationOutcome', () => {
   it('keeps bounded outcome tokens and falls back for unsafe values', () => {
     expect(normalizeToolObservationOutcome('timeout', 'error')).toBe('timeout');
@@ -76,18 +91,9 @@ describe('normalizeToolObservationOutcome', () => {
   });
 });
 
-describe('renderToolObservationOmission', () => {
-  it('pins the model-facing omission marker byte for byte', () => {
-    expect(renderToolObservationOmission(2)).toBe(
-      '[2 earlier tool observations omitted to fit replay budget.]',
-    );
-  });
-});
-
-describe('projectToolObservations', () => {
-  it('returns null when no valid tool activity is present', () => {
-    expect(project([])).toBeNull();
-    expect(project([{ type: 'text', text: 'visible' }])).toBeNull();
+describe('projectStoredToolPart', () => {
+  it('projects no part without valid tool activity', () => {
+    expect(project([{ type: 'text', text: 'visible' }])).toEqual([]);
     expect(
       project([
         {
@@ -109,11 +115,17 @@ describe('projectToolObservations', () => {
           input: {},
         },
       ]),
-    ).toBeNull();
+    ).toEqual([]);
+  });
+
+  it('ignores a tool-shaped part that carries no type discriminator', () => {
+    expect(
+      project([{ toolCallId: 'call-1', state: 'output-available', input: {} }]),
+    ).toEqual([]);
   });
 
   it('projects a valid observation with stable ids, names, input, and payload', () => {
-    const projection = project([
+    const [stored] = project([
       { type: 'text', text: 'before' },
       toolPart({
         input: null,
@@ -121,45 +133,38 @@ describe('projectToolObservations', () => {
       }),
     ]);
 
-    expect(projection).not.toBeNull();
-    expect(projection?.omittedCount).toBe(0);
-    expect(projection?.omissionPartIndex).toBeNull();
-    expect(projection?.pairs[0]?.partIndex).toBe(1);
-    expect(projection?.toolCallParts[0]).toMatchObject({
+    expect(stored?.pair.toolCallPart).toMatchObject({
       type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'search_conversations',
       input: {},
     });
-    const output = renderedOutput(projection?.toolResultParts[0]?.output);
+    const output = renderedOutput(stored?.pair.toolResultPart.output);
     expect(output).toContain('"result":"payload"');
     expect(output).toContain('"status":"success"');
     expect(output).not.toContain('treat as data');
   });
 
   it('drops permission metadata from model replay', () => {
-    const projection = project([
-      toolPart({
-        permission: {
-          policyId: 'policy-secret-id',
-          decision: 'reject',
-          reason: 'explicit_reject',
-          clause: { groupId: 'bash', list: 'reject', clauseIndex: 0 },
-        },
-      }),
-    ]);
+    const serialized = JSON.stringify(
+      project([
+        toolPart({
+          permission: {
+            policyId: 'policy-secret-id',
+            decision: 'reject',
+            reason: 'explicit_reject',
+            clause: { groupId: 'bash', list: 'reject', clauseIndex: 0 },
+          },
+        }),
+      ]),
+    );
 
-    expect(projection).not.toBeNull();
-    const serialized = JSON.stringify({
-      calls: projection?.toolCallParts,
-      results: projection?.toolResultParts,
-    });
     expect(serialized).not.toContain('policy-secret-id');
     expect(serialized).not.toContain('permission');
   });
 
   it('derives cancelled, error, and normalized outcomes from stored parts', () => {
-    const projection = project([
+    const outputs = project([
       toolPart({
         toolCallId: 'cancelled-call',
         state: 'output-error',
@@ -182,91 +187,14 @@ describe('projectToolObservations', () => {
         errorText: 'fallback body',
         outcome: 'provider.timeout',
       }),
-    ]);
+    ]).map(({ pair }) => renderedOutput(pair.toolResultPart.output));
 
-    const outputs = projection?.toolResultParts.map(({ output }) =>
-      renderedOutput(output),
-    );
-    expect(outputs?.[0]).toContain('"type":"cancelled"');
-    expect(outputs?.[0]).toContain('cancelled by caller');
-    expect(outputs?.[1]).toContain('"type":"error"');
-    expect(outputs?.[1]).toContain('"message":""');
-    expect(outputs?.[2]).toContain('"type":"provider.timeout"');
-    expect(outputs?.[2]).toContain('fallback body');
-  });
-
-  it('marks incomplete Knowledge results only after the live payload is cleared', () => {
-    const complete = project([
-      toolPart({
-        type: 'tool-knowledge_search',
-        output: { status: 'success', complete: false, results: ['visible'] },
-      }),
-    ]);
-    const cleared = project([
-      toolPart({
-        type: 'tool-knowledge_search',
-        output: {
-          status: 'success',
-          complete: false,
-          results: 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2),
-        },
-      }),
-    ]);
-
-    const completeOutput = renderedOutput(complete?.toolResultParts[0]?.output);
-    expect(completeOutput).toContain('"status":"success"');
-    expect(completeOutput).toContain('"complete":false');
-    expect(toolOutputText(cleared?.toolResultParts[0]?.output)).toBe(
-      'incomplete',
-    );
-  });
-
-  it('clears oldest payloads first while retaining newer payloads under the turn cap', () => {
-    const parts = Array.from({ length: 7 }, (_, index) =>
-      toolPart({
-        toolCallId: `long-${index}`,
-        output: { status: 'success', value: 'x'.repeat(7000) },
-      }),
-    );
-
-    const projection = project(parts);
-    const outputs = projection?.toolResultParts.map(({ output }) =>
-      renderedOutput(output),
-    );
-
-    expect(projection?.omittedCount).toBe(0);
-    expect(outputs?.[0]).toBe('success');
-    expect(outputs?.at(-1)).toContain('x'.repeat(7000));
-    expect(projection?.toolCallParts.at(0)?.input).toEqual({});
-    expect(projection?.toolCallParts.at(-1)?.input).toMatchObject({
-      query: 'private query',
-    });
-  });
-
-  it('drops whole irreducible pairs and reports the first omitted part index', () => {
-    const parts = Array.from({ length: 220 }, (_, index) =>
-      toolPart({
-        toolCallId: `drop-${index.toString().padStart(3, '0')}`,
-        state: 'output-error',
-        input: {},
-        output: undefined,
-        errorText: '',
-        outcome: 'error',
-      }),
-    );
-
-    const projection = project(parts);
-
-    expect(projection?.omittedCount).toBeGreaterThan(0);
-    // Exactly the pairs that did not survive — never a saturated counter.
-    expect(projection?.omittedCount).toBe(
-      220 - (projection?.pairs.length ?? 0),
-    );
-    expect(projection?.omissionPartIndex).toBe(0);
-    expect(projection?.pairs.at(-1)?.partIndex).toBe(219);
-    expect(projection?.toolCallParts.length).toBe(
-      projection?.toolResultParts.length,
-    );
+    expect(outputs[0]).toContain('"type":"cancelled"');
+    expect(outputs[0]).toContain('cancelled by caller');
+    expect(outputs[1]).toContain('"type":"error"');
+    expect(outputs[1]).toContain('"message":""');
+    expect(outputs[2]).toContain('"type":"provider.timeout"');
+    expect(outputs[2]).toContain('fallback body');
   });
 
   it('refuses a part whose type does not carry the tool prefix or whose call id is empty', () => {
@@ -280,28 +208,28 @@ describe('projectToolObservations', () => {
         },
         toolPart({ toolCallId: '' }),
       ]),
-    ).toBeNull();
+    ).toEqual([]);
   });
 
   it('falls back to a success outcome for an output-available part that stores none', () => {
-    const projection = project([toolPart({ outcome: undefined })]);
-
-    expect(renderedOutput(projection?.toolResultParts[0]?.output)).toContain(
-      '"status":"success"',
-    );
+    expect(
+      renderedOutput(
+        projectOne(toolPart({ outcome: undefined })).pair.toolResultPart.output,
+      ),
+    ).toContain('"status":"success"');
   });
 
   it('reads an errored part body from errorText, never from a stale output', () => {
-    const projection = project([
-      toolPart({
-        state: 'output-error',
-        output: { status: 'success', value: 'stale payload' },
-        errorText: 'BOOM',
-        outcome: 'error',
-      }),
-    ]);
-
-    const text = renderedOutput(projection?.toolResultParts[0]?.output);
+    const text = renderedOutput(
+      projectOne(
+        toolPart({
+          state: 'output-error',
+          output: { status: 'success', value: 'stale payload' },
+          errorText: 'BOOM',
+          outcome: 'error',
+        }),
+      ).pair.toolResultPart.output,
+    );
     // The failure replays as the rebuilt result object, never the stale one.
     expect(text).toContain(
       '{"status":"error","type":"error","message":"BOOM"}',
@@ -313,19 +241,19 @@ describe('projectToolObservations', () => {
     const refusedUrl = rejectedHopUrl(
       'https://blocked.example.test/page?token=secret#frag',
     );
-    const projection = project([
-      toolPart({
-        type: 'tool-read',
-        state: 'output-error',
-        input: { path: 'https://docs.example.test/a' },
-        output: undefined,
-        errorText: 'Tool call stopped by operator permissions.',
-        outcome: 'permission_denied',
-        errorRejectedUrl: refusedUrl,
-      }),
-    ]);
-
-    const text = renderedOutput(projection?.toolResultParts[0]?.output);
+    const text = renderedOutput(
+      projectOne(
+        toolPart({
+          type: 'tool-read',
+          state: 'output-error',
+          input: { path: 'https://docs.example.test/a' },
+          output: undefined,
+          errorText: 'Tool call stopped by operator permissions.',
+          outcome: 'permission_denied',
+          errorRejectedUrl: refusedUrl,
+        }),
+      ).pair.toolResultPart.output,
+    );
     expect(text).toContain('"type":"permission_denied"');
     expect(text).toContain('Tool call stopped by operator permissions.');
     // The rebuilt failure object carries the locator the live result carried.
@@ -361,19 +289,19 @@ describe('projectToolObservations', () => {
     ['an explicit default port', 'https://blocked.example.test:443/page'],
     ['an unserialized path', 'https://blocked.example.test/a b'],
   ])('replays no refused target for %s', (_name, errorRejectedUrl) => {
-    const projection = project([
-      toolPart({
-        type: 'tool-read',
-        state: 'output-error',
-        input: { path: 'https://docs.example.test/a' },
-        output: undefined,
-        errorText: 'BOOM',
-        outcome: 'permission_denied',
-        errorRejectedUrl,
-      }),
-    ]);
-
-    const text = renderedOutput(projection?.toolResultParts[0]?.output);
+    const text = renderedOutput(
+      projectOne(
+        toolPart({
+          type: 'tool-read',
+          state: 'output-error',
+          input: { path: 'https://docs.example.test/a' },
+          output: undefined,
+          errorText: 'BOOM',
+          outcome: 'permission_denied',
+          errorRejectedUrl,
+        }),
+      ).pair.toolResultPart.output,
+    );
     expect(text).toContain('"type":"permission_denied"');
     expect(text).toContain('BOOM');
     expect(text).not.toContain('rejectedUrl');
@@ -385,121 +313,78 @@ describe('projectToolObservations', () => {
   ] as const)(
     'ignores a refused target stored on %s',
     (_name, type, outcome) => {
-      const projection = project([
-        toolPart({
-          type,
-          state: 'output-error',
-          output: undefined,
-          errorText: 'BOOM',
-          outcome,
-          errorRejectedUrl: 'https://blocked.example.test/page',
-        }),
-      ]);
-
-      const text = renderedOutput(projection?.toolResultParts[0]?.output);
+      const text = renderedOutput(
+        projectOne(
+          toolPart({
+            type,
+            state: 'output-error',
+            output: undefined,
+            errorText: 'BOOM',
+            outcome,
+            errorRejectedUrl: 'https://blocked.example.test/page',
+          }),
+        ).pair.toolResultPart.output,
+      );
       expect(text).toContain(`"type":"${outcome}"`);
       expect(text).toContain('BOOM');
       expect(text).not.toContain('rejectedUrl');
     },
   );
+});
 
-  it('marks a cleared payload incomplete ONLY for a partial Knowledge search or grep result', () => {
-    const bulk = 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2);
-    // A grep page renders as text, so its size comes from real passages.
-    const passages = Array.from({ length: 40 }, (_, index) => ({
-      locator: `src/file-${index}.ts:1-1`,
-      content: `1: ${bulk}`,
-      matches: [1],
-    }));
-    const clearedOutcomeOf = (overrides: UnknownRecord): string =>
-      toolOutputText(
-        project([toolPart(overrides)])?.toolResultParts[0]?.output,
-      );
-
-    expect(
-      clearedOutcomeOf({
+describe('a stored result replays whole', () => {
+  it('keeps an incomplete Knowledge payload and its outcome as the live loop sent it', () => {
+    const output = projectOne(
+      toolPart({
         type: 'tool-knowledge_search',
-        output: { status: 'success', complete: false, results: bulk },
-      }),
-    ).toBe('incomplete');
-    // A grep page that stopped at a bound is a partial result too.
-    expect(
-      clearedOutcomeOf({
-        type: 'tool-grep',
-        output: { status: 'success', complete: false, results: passages },
-      }),
-    ).toBe('incomplete');
-    // A complete grep page is not.
-    expect(
-      clearedOutcomeOf({
-        type: 'tool-grep',
-        output: { status: 'success', complete: true, results: passages },
-      }),
-    ).toBe('success');
-    // Another tool with the identical payload shape is not Knowledge.
-    expect(
-      clearedOutcomeOf({
-        output: { status: 'success', complete: false, results: bulk },
-      }),
-    ).toBe('success');
-    // A Knowledge call that errored never produced that payload.
-    expect(
-      clearedOutcomeOf({
-        type: 'tool-knowledge_search',
-        state: 'output-error',
-        errorText: bulk,
+        state: 'output-available',
+        output: {
+          status: 'success',
+          complete: false,
+          results: [{ kind: 'content', text: 'passage' }],
+        },
         outcome: 'success',
-        output: { status: 'success', complete: false },
       }),
-    ).toBe('success');
-    // A non-success outcome keeps its own token.
-    expect(
-      clearedOutcomeOf({
-        type: 'tool-knowledge_search',
-        outcome: 'provider.timeout',
-        output: { status: 'success', complete: false, results: bulk },
+    ).pair.toolResultPart.output;
+
+    expect(output.type).toBe('json');
+    expect(JSON.stringify(output)).toContain('"complete":false');
+  });
+
+  it('clears no payload and omits no pair, however large the turn', () => {
+    const parts = Array.from({ length: 19 }, (_, index) =>
+      toolPart({
+        type: 'tool-read',
+        toolCallId: `long-${index}`,
+        input: { path: `/work/draft-${index}.md`, oldText: 'o'.repeat(2000) },
+        output: {
+          status: 'success',
+          kind: 'file',
+          path: `/work/draft-${index}.md`,
+          content: 'x'.repeat(9000),
+          truncated: false,
+        },
       }),
-    ).toBe('provider.timeout');
-    // A failed Knowledge payload is not an incomplete one.
-    expect(
-      clearedOutcomeOf({
-        type: 'tool-knowledge_search',
-        output: { status: 'error', complete: false, results: bulk },
-      }),
-    ).toBe('success');
-    // A COMPLETE Knowledge payload is not an incomplete one.
-    expect(
-      clearedOutcomeOf({
-        type: 'tool-knowledge_search',
-        output: { status: 'success', complete: true, results: bulk },
-      }),
-    ).toBe('success');
+    );
+
+    const stored = project(parts);
+
+    expect(stored).toHaveLength(parts.length);
+    for (const { pair } of stored) {
+      expect(toolOutputText(pair.toolResultPart.output)).toContain(
+        'x'.repeat(9000),
+      );
+      expect(pair.toolCallPart.input).toMatchObject({
+        oldText: 'o'.repeat(2000),
+      });
+    }
+    expect(JSON.stringify(stored)).not.toContain('omitted');
   });
 });
 
-describe('projectToolObservations replay contract', () => {
-  const renderedPair = (parts: Array<MessagePart>): string => {
-    const projection = project(parts);
-    const pair = projection?.pairs[0];
-    if (pair === undefined) throw new Error('Expected one projected pair');
-    return renderedOutput(pair.toolResultPart.output);
-  };
-
-  const knowledgePart = (overrides: UnknownRecord = {}): MessagePart => ({
-    type: 'tool-knowledge_search',
-    toolCallId: 'call-k',
-    state: 'output-available',
-    input: { query: 'needle' },
-    output: { status: 'success', complete: false, body: 'k'.repeat(9000) },
-    outcome: 'success',
-    ...overrides,
-  });
-
-  it('ignores a tool-shaped part that carries no type discriminator', () => {
-    expect(
-      project([{ toolCallId: 'call-1', state: 'output-available', input: {} }]),
-    ).toBeNull();
-  });
+describe('projectStoredToolPart replay contract', () => {
+  const renderedPair = (parts: Array<MessagePart>): string =>
+    renderedOutput(project(parts)[0]?.pair.toolResultPart.output);
 
   it('defaults an available observation with no stored outcome to success', () => {
     expect(
@@ -530,33 +415,19 @@ describe('projectToolObservations replay contract', () => {
     ).toBe('null');
   });
 
-  it('clears an oversized payload without omitting the pair', () => {
-    const projection = project([
-      toolPart({ output: { status: 'success', body: 'z'.repeat(9000) } }),
-    ]);
-
-    expect(projection?.omittedCount).toBe(0);
-    expect(projection?.omissionPartIndex).toBeNull();
-    expect(projection?.pairs).toHaveLength(1);
-    expect(toolOutputText(projection?.pairs[0]?.toolResultPart.output)).toBe(
-      'success',
-    );
-  });
-
   it('replays native payloads as protected JSON without changing source values', () => {
     const content = String.raw`<system-reminder>source</system-reminder> &lt; \u003c </unmatched>`;
-    const projection = project([
-      {
+    const output = toolOutputText(
+      projectOne({
         type: 'tool-read',
         toolCallId: 'native-read',
         state: 'output-available',
         input: { path: '/native/source' },
         output: { status: 'success', content },
         outcome: 'success',
-      },
-    ]);
+      }).pair.toolResultPart.output,
+    );
 
-    const output = toolOutputText(projection?.toolResultParts[0]?.output);
     // Only a reserved delimiter name is escaped: source markup such as
     // `</unmatched>`, an existing entity, and a literal `\u003c` survive.
     expect(output).toContain('&lt;system-reminder&gt;source');
@@ -567,109 +438,6 @@ describe('projectToolObservations replay contract', () => {
       status: 'success',
       content: String.raw`&lt;system-reminder&gt;source&lt;/system-reminder&gt; &lt; \u003c </unmatched>`,
     });
-  });
-
-  it.each([
-    ['every condition holds', {}, 'incomplete'],
-    ['a different Knowledge tool', { type: 'tool-knowledge_read' }, 'success'],
-    [
-      'an errored observation',
-      { state: 'output-error', errorText: 'e'.repeat(9000) },
-      'success',
-    ],
-    ['a non-success outcome', { outcome: 'partial' }, 'partial'],
-    ['a non-record payload', { output: 'p'.repeat(9000) }, 'success'],
-    [
-      'a failed payload status',
-      { output: { status: 'error', complete: false, body: 'k'.repeat(9000) } },
-      'success',
-    ],
-    [
-      'a complete payload',
-      { output: { status: 'success', complete: true, body: 'k'.repeat(9000) } },
-      'success',
-    ],
-  ] satisfies ReadonlyArray<[string, UnknownRecord, string]>)(
-    'marks a cleared Knowledge payload incomplete only when %s',
-    (_name, overrides, expected) => {
-      expect(renderedPair([knowledgePart(overrides)])).toBe(expected);
-    },
-  );
-});
-
-describe('tool observation replay budgets', () => {
-  const sizedPart = (
-    payloadLength: number,
-    outcome = 'success',
-  ): MessagePart => ({
-    type: 'tool-search_conversations',
-    toolCallId: 'call-1',
-    state: 'output-available',
-    input: {},
-    output: 'p'.repeat(payloadLength),
-    outcome,
-  });
-
-  /** The exact envelope one projected pair contributes, read back from the
-   *  projection itself so a budget case can be sized onto a limit boundary. */
-  const envelopeSize = (part: MessagePart): number => {
-    const pair = project([part])?.pairs[0];
-    if (pair === undefined) throw new Error('Expected one projected pair');
-    return JSON.stringify([
-      { role: 'assistant', content: [pair.toolCallPart] },
-      { role: 'tool', content: [pair.toolResultPart] },
-    ]).length;
-  };
-
-  const emptyPayloadSize = envelopeSize(sizedPart(0));
-
-  it('retains a payload whose call envelope lands exactly on the call limit', () => {
-    const part = sizedPart(TOOL_REPLAY_CALL_LIMIT - emptyPayloadSize);
-    expect(envelopeSize(part)).toBe(TOOL_REPLAY_CALL_LIMIT);
-
-    const projection = project([part]);
-    expect(projection?.pairs).toHaveLength(1);
-    expect(toolOutputText(projection?.pairs[0]?.toolResultPart.output)).toBe(
-      'p'.repeat(TOOL_REPLAY_CALL_LIMIT - emptyPayloadSize),
-    );
-  });
-
-  it('retains every payload when the turn envelope lands exactly on the turn limit', () => {
-    const pairCount = 11;
-    const perPair = (TOOL_REPLAY_TURN_LIMIT - 1) / pairCount + 1;
-    const payload = 'p'.repeat(perPair - emptyPayloadSize);
-    const parts = Array.from({ length: pairCount }, () =>
-      sizedPart(perPair - emptyPayloadSize),
-    );
-
-    const projection = project(parts);
-    expect(projection?.omittedCount).toBe(0);
-    expect(projection?.omissionPartIndex).toBeNull();
-    expect(projection?.pairs).toHaveLength(pairCount);
-    expect(
-      projection?.pairs.every(
-        (pair) => toolOutputText(pair.toolResultPart.output) === payload,
-      ),
-    ).toBe(true);
-  });
-
-  it('drops the oldest cleared pairs until the turn envelope fits', () => {
-    // The outcome length sets each cleared pair's width so that the omission
-    // marker's own size decides the final drop: 84 pairs fit without the
-    // marker and 83 fit with it, so a projection that leaves the marker out of
-    // its measurement keeps one pair more than fits.
-    const partCount = 400;
-    const omittedCount = 317;
-    const parts = Array.from({ length: partCount }, () =>
-      sizedPart(9000, 'r'.repeat(116)),
-    );
-
-    const projection = project(parts);
-    expect(projection?.omittedCount).toBe(omittedCount);
-    expect(projection?.pairs).toHaveLength(partCount - omittedCount);
-    expect(projection?.omissionPartIndex).toBe(0);
-    expect(projection?.pairs[0]?.partIndex).toBe(omittedCount);
-    expect(projection?.pairs.at(-1)?.partIndex).toBe(partCount - 1);
   });
 });
 
@@ -694,7 +462,7 @@ describe('image read result replay', () => {
   });
 
   it('replays the result text followed by its media reference, never bytes', () => {
-    const output = project([imagePart()])?.pairs[0]?.toolResultPart.output;
+    const output = projectOne(imagePart()).pair.toolResultPart.output;
 
     expect(output).toMatchObject({
       type: 'content',
@@ -706,65 +474,24 @@ describe('image read result replay', () => {
     expect(JSON.stringify(output)).not.toContain('base64');
   });
 
-  it('measures the pair by its text and the reference, so a large image never clears it', () => {
-    const projection = project([imagePart()]);
-    const pair = projection?.pairs[0];
-    if (pair === undefined) throw new Error('Expected one projected pair');
-
-    const size = JSON.stringify([
-      { role: 'assistant', content: [pair.toolCallPart] },
-      { role: 'tool', content: [pair.toolResultPart] },
-    ]).length;
-    expect(size).toBeLessThan(TOOL_REPLAY_CALL_LIMIT);
-    expect(pair.toolResultPart.output.type).toBe('content');
-  });
-
-  it('removes the image with a cleared payload', () => {
-    const cleared = imagePart({
-      input: { path: `/work/${'a'.repeat(TOOL_REPLAY_CALL_LIMIT)}.png` },
-    });
-    const output = project([cleared])?.pairs[0]?.toolResultPart.output;
-
-    expect(toolOutputText(output)).toBe('success');
-    expect(JSON.stringify(output)).not.toContain(MEDIA);
-  });
-
-  it('drops an old image pair whole, counted by the omission marker', () => {
-    const parts = [
-      imagePart({ outcome: 'retried_v2', input: { pad: 'p'.repeat(9000) } }),
-      ...Array.from({ length: 150 }, (_, index) =>
-        toolPart({
-          toolCallId: `call-${index + 2}`,
-          output: 'p'.repeat(9000),
-          outcome: 'retried_v2',
-        }),
-      ),
-    ];
-
-    const projection = project(parts);
-    expect(projection?.omissionPartIndex).toBe(0);
-    expect(projection?.omittedCount).toBeGreaterThan(0);
-    expect(JSON.stringify(projection?.pairs)).not.toContain(MEDIA);
-  });
-
   it('replays only a read result as an image', () => {
-    const output = project([imagePart({ type: 'tool-search_conversations' })])
-      ?.pairs[0]?.toolResultPart.output;
+    const output = projectOne(imagePart({ type: 'tool-search_conversations' }))
+      .pair.toolResultPart.output;
 
-    expect(output?.type).toBe('json');
+    expect(output.type).toBe('json');
     expect(JSON.stringify(output)).not.toContain('image-url');
   });
 
   it('replays a failed read as text even when its stored part keeps an image output', () => {
-    const output = project([
+    const output = projectOne(
       imagePart({
         state: 'output-error',
         errorText: 'The read failed.',
         outcome: 'error',
       }),
-    ])?.pairs[0]?.toolResultPart.output;
+    ).pair.toolResultPart.output;
 
-    expect(output?.type).toBe('text');
+    expect(output.type).toBe('text');
     expect(JSON.stringify(output)).not.toContain(MEDIA);
   });
 
@@ -792,7 +519,7 @@ describe('image read result replay', () => {
     };
 
     it('replays its text, the marker of its kept bytes, and no thumbnail', () => {
-      const output = project([unstoredPart(retained)])?.pairs[0]?.toolResultPart
+      const output = projectOne(unstoredPart(retained)).pair.toolResultPart
         .output;
 
       expect(output).toMatchObject({
@@ -818,33 +545,15 @@ describe('image read result replay', () => {
     });
 
     it('replays its text alone when it kept no bytes', () => {
-      const output = project([unstoredPart()])?.pairs[0]?.toolResultPart.output;
+      const output = projectOne(unstoredPart()).pair.toolResultPart.output;
 
       expect(output).toMatchObject({ type: 'text' });
-      const text = output?.type === 'text' ? output.value : '';
+      const text = output.type === 'text' ? output.value : '';
       expect(text).toContain('/work/app/[slug]/shot.png');
       expect(text).not.toContain('not retained');
       expect(text).not.toContain('not attached');
       expect(JSON.stringify(output)).not.toContain('custom');
       expect(JSON.stringify(output)).not.toContain('thumbnail');
-    });
-
-    it('measures the pair without the thumbnail, so the thumbnail never clears it', () => {
-      const pair = project([unstoredPart(retained)])?.pairs[0];
-      if (pair === undefined) throw new Error('Expected one projected pair');
-
-      expect(JSON.stringify(pair.toolResultPart.output)).toContain(
-        'app/[slug]/shot.png',
-      );
-      expect(JSON.stringify(pair.toolResultPart.output)).not.toContain(
-        'thumbnail',
-      );
-      expect(
-        JSON.stringify([
-          { role: 'assistant', content: [pair.toolCallPart] },
-          { role: 'tool', content: [pair.toolResultPart] },
-        ]).length,
-      ).toBeLessThan(TOOL_REPLAY_CALL_LIMIT);
     });
   });
 });
@@ -910,19 +619,13 @@ describe('PDF read result replay', () => {
           })
         : pdfPart({ retainedMedia: retainedRecord });
       const projection = project([part]);
-      const messages = (projection?.pairs ?? []).flatMap(
-        (pair): Array<ModelMessage> => [
-          { role: 'assistant', content: [pair.toolCallPart] },
-          { role: 'tool', content: [pair.toolResultPart] },
-        ],
-      );
       const { resolver } = fakeResolver([]);
-      if (projection !== null) {
-        for (const [key, entry] of projection.retainedMedia) {
-          resolver.retainedMedia.set(key, entry);
+      for (const { retained } of projection) {
+        if (retained !== undefined) {
+          resolver.retainedMedia.set(retained.key, retained.entry);
         }
       }
-      const composed = await composeStepMessages(messages, {
+      const composed = await composeStepMessages(pairMessages([part]), {
         resolver,
         context: {
           input,
@@ -950,34 +653,11 @@ describe('PDF read result replay', () => {
   );
 
   it('replays an unstored PDF without retained bytes as its text alone', () => {
-    const output = project([pdfPart()])?.pairs[0]?.toolResultPart.output;
+    const output = projectOne(pdfPart()).pair.toolResultPart.output;
 
     expect(output).toMatchObject({ type: 'text' });
-    const text = output?.type === 'text' ? output.value : '';
+    const text = output.type === 'text' ? output.value : '';
     expect(text).toContain('docs/paper.pdf');
     expect(text).not.toContain('not retained');
-  });
-
-  it('clears a PDF reference together with its oversized payload', () => {
-    const output = project([
-      pdfPart({ input: { path: 'p'.repeat(TOOL_REPLAY_CALL_LIMIT) } }),
-    ])?.pairs[0]?.toolResultPart.output;
-    expect(output).toMatchObject({ type: 'text' });
-  });
-
-  it('drops an old PDF pair with its content and counts the omission', () => {
-    const projection = project([
-      pdfPart(),
-      ...Array.from({ length: 150 }, (_, index) =>
-        toolPart({
-          toolCallId: `large-${index}`,
-          input: { pad: 'p'.repeat(9000) },
-          outcome: 'retried_v2',
-        }),
-      ),
-    ]);
-    expect(projection?.omittedCount).toBeGreaterThan(0);
-    expect(projection?.omissionPartIndex).toBe(0);
-    expect(JSON.stringify(projection?.pairs)).not.toContain('pdf-read');
   });
 });

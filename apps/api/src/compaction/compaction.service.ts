@@ -199,6 +199,7 @@ export class CompactionService {
   ): Promise<CompactionSummary | null> {
     const request = buildCompactionRequest({
       system: input.system,
+      modelId: input.client.model,
       previous,
       absorb: input.plan.absorb,
     });
@@ -299,6 +300,7 @@ export class CompactionService {
 
     const request = buildCompactionRequest({
       system: source.receipt.systemPrompt,
+      modelId: source.run.modelId,
       previous,
       absorb: input.plan.absorb,
     });

@@ -6,7 +6,7 @@
  * them in a top-level `retainedMedia` field, and so does a model-origin
  * `tool.completed` payload and each unstored prompt-import entry. A request
  * names the bytes by a byte-free marker and loads them from this map, so no
- * estimator, replay budget, or provider adapter ever sees them.
+ * estimator or provider adapter ever sees them.
  */
 import { isRecord } from '@workspace/runtime-safety';
 import { z } from 'zod';

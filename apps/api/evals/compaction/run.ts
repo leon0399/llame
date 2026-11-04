@@ -403,6 +403,7 @@ async function streamFixtureSummary(
 }> {
   const request = buildCompactionRequest({
     system: fixture.system,
+    modelId: client.model,
     previous: undefined,
     absorb: synthesizeMessages(fixture),
   });

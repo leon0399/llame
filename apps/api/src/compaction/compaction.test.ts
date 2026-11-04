@@ -500,10 +500,12 @@ describe('countedContextTokens', () => {
 describe('estimateContinuationTokens', () => {
   it('grows with the rows a prepared request adds after the counted reply', () => {
     const one = estimateContinuationTokens({
+      modelId: 'test-model',
       rows: [msg('a question')],
       railText: '',
     });
     const three = estimateContinuationTokens({
+      modelId: 'test-model',
       rows: [
         msg('a question'),
         msg('an answer', 'assistant'),
@@ -517,14 +519,29 @@ describe('estimateContinuationTokens', () => {
 
   it('grows with the staged rail text the stored rows do not carry', () => {
     expect(
-      estimateContinuationTokens({ rows: [], railText: 'R'.repeat(400) }),
-    ).toBeGreaterThan(estimateContinuationTokens({ rows: [], railText: '' }));
+      estimateContinuationTokens({
+        modelId: 'test-model',
+        rows: [],
+        railText: 'R'.repeat(400),
+      }),
+    ).toBeGreaterThan(
+      estimateContinuationTokens({
+        modelId: 'test-model',
+        rows: [],
+        railText: '',
+      }),
+    );
   });
   it('adds exactly one token for each four staged rail characters', () => {
-    const base = estimateContinuationTokens({ rows: [], railText: '' });
+    const base = estimateContinuationTokens({
+      modelId: 'test-model',
+      rows: [],
+      railText: '',
+    });
 
     expect(
       estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [],
         railText: 'R'.repeat(400),
       }) - base,
@@ -533,14 +550,22 @@ describe('estimateContinuationTokens', () => {
 
   it('does not add a system prompt to a continuation estimate', () => {
     // An empty projection serializes to 38 chars, so ceil(38 / 4) is 10.
-    expect(estimateContinuationTokens({ rows: [], railText: '' })).toBe(10);
+    expect(
+      estimateContinuationTokens({
+        modelId: 'test-model',
+        rows: [],
+        railText: '',
+      }),
+    ).toBe(10);
   });
 
   it('counts replayed reasoning text but not the provider own metadata blob (D15/D16)', () => {
     const question = msg('question');
     const answer = msg('answer', 'assistant');
+    answer.usage = { status: 'completed', modelId: 'test-model' };
     const estimateWith = (parts: StoredMessage['parts']): number =>
       estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [question, { ...answer, parts }],
         railText: '',
       });
@@ -568,6 +593,44 @@ describe('estimateContinuationTokens', () => {
     expect(withMoreReasoning).toBeGreaterThan(plain);
     // … while the provider opaque metadata must not size it.
     expect(withMetadata).toBe(plain);
+  });
+
+  it('does not count call metadata copied onto a replayed tool result', () => {
+    const question = msg('question');
+    const answer = msg('answer', 'assistant');
+    answer.usage = { status: 'completed', modelId: 'test-model' };
+    const estimateWith = (
+      providerMetadata?: Record<string, Record<string, string>>,
+    ): number =>
+      estimateContinuationTokens({
+        modelId: 'test-model',
+        rows: [
+          question,
+          {
+            ...answer,
+            parts: [
+              {
+                type: 'tool-search_conversations',
+                toolCallId: 'call-1',
+                state: 'output-available',
+                input: { query: 'q' },
+                output: { status: 'success', value: 'ok' },
+                outcome: 'success',
+                ...(providerMetadata !== undefined && { providerMetadata }),
+              },
+            ],
+          },
+        ],
+        railText: '',
+      });
+
+    // The live loop copies a call's metadata onto its result, so replay puts
+    // the same opaque blob on both parts; the estimator strips it from both.
+    expect(
+      estimateWith({
+        openai: { thoughtSignature: 'S'.repeat(40_000) },
+      }),
+    ).toBe(estimateWith());
   });
 });
 
@@ -699,6 +762,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
     // The earlier reference (outside these rows) was attached; this one is not.
     expect(
       estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [stored],
         railText: '',
         media: {
@@ -710,6 +774,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       }),
     ).toBe(
       estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [
           {
             ...stored,
@@ -756,6 +821,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       modelByteSize: number;
     }) =>
       estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [msg('look'), readRow()],
         railText: '',
         media: {
@@ -825,6 +891,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
     }) => {
       const row = readRow();
       return estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [msg('look'), row],
         railText: '',
         media: {
@@ -1185,6 +1252,7 @@ describe('buildCompactionRequest', () => {
     ];
 
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: undefined,
       absorb,
@@ -1215,6 +1283,7 @@ describe('buildCompactionRequest', () => {
     ];
 
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: undefined,
       absorb: [question, answer],
@@ -1253,6 +1322,7 @@ describe('buildCompactionRequest', () => {
     ];
 
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: undefined,
       absorb: [question, answer],
@@ -1344,6 +1414,7 @@ describe('buildCompactionRequest', () => {
     ];
 
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: undefined,
       absorb: [affectedTurn],
@@ -1372,6 +1443,7 @@ describe('buildCompactionRequest', () => {
     const persistedCheckpoint =
       '<system-reminder producer="compaction" form="checkpoint">stored checkpoint</system-reminder>';
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: {
         text: persistedCheckpoint,
@@ -1396,6 +1468,7 @@ describe('buildCompactionRequest', () => {
     const absorb = Array.from({ length: 150 }, (_, i) => msg(`turn ${i}`));
 
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: undefined,
       absorb,
@@ -1408,6 +1481,7 @@ describe('buildCompactionRequest', () => {
 
   it('skips persisted system and tool rows like portable live replay does', () => {
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: undefined,
       absorb: [
@@ -1418,7 +1492,10 @@ describe('buildCompactionRequest', () => {
     });
 
     expect(request.messages).toEqual([
-      { role: 'assistant', content: 'assistant answer' },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'assistant answer' }],
+      },
       { role: 'user', content: COMPACTION_INSTRUCTION },
     ]);
   });
@@ -1502,6 +1579,7 @@ describe('a stored retained read across the builds of one attempt', () => {
     const main = buildContext(rows, {
       systemPrompt: '',
       requestKind: 'continuation',
+      modelId: 'test-model',
     });
     expect([...main.retainedMedia.keys()]).toEqual([
       storedToolPartMediaKey(row.id, 0),
@@ -1527,6 +1605,7 @@ describe('a stored retained read across the builds of one attempt', () => {
     const limited = buildContext(limitedRows, {
       systemPrompt: '',
       requestKind: 'continuation',
+      modelId: 'test-model',
     });
     mergeRetainedMedia(limitedResolver.retainedMedia, limited.retainedMedia);
     const limitedSizing = await loadMediaSizing(
@@ -1536,9 +1615,15 @@ describe('a stored retained read across the builds of one attempt', () => {
     );
     expect(limitedSizing.statuses).toEqual(['limit']);
     expect(
-      estimateContinuationTokens({ rows, railText: '', media: mainSizing }),
+      estimateContinuationTokens({
+        modelId: 'test-model',
+        rows,
+        railText: '',
+        media: mainSizing,
+      }),
     ).toBeGreaterThan(
       estimateContinuationTokens({
+        modelId: 'test-model',
         rows: limitedRows,
         railText: '',
         media: limitedSizing,
@@ -1547,6 +1632,7 @@ describe('a stored retained read across the builds of one attempt', () => {
 
     // The compaction request resolves the same row's entry and attaches it.
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system: 'system',
       previous: undefined,
       absorb: rows,
@@ -1621,6 +1707,7 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
     const system =
       'SYSTEM PROMPT <user_personalization>Leo</user_personalization>';
     const request = buildCompactionRequest({
+      modelId: 'test-model',
       system,
       previous: undefined,
       absorb: [msg('hello'), msg('hi', 'assistant')],

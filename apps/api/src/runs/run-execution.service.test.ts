@@ -113,7 +113,7 @@ import {
   type MessagePart,
   type StoredMessage,
 } from '../chats/context-builder';
-import { projectToolObservations } from '../chats/tool-observation-part';
+import { projectStoredToolPart } from '../chats/tool-observation-part';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import {
@@ -5980,18 +5980,16 @@ describe('RunExecutionService executeRun — tool loop', () => {
       input: cancelInput,
       output: knownResult,
     });
-    const projection = projectToolObservations(
-      [
-        toolActivityPart({
-          toolCallId: 'bash-cancelled',
-          toolName: 'bash',
-          input: cancelInput,
-          result: knownResult,
-        }),
-      ],
+    const projection = projectStoredToolPart(
+      toolActivityPart({
+        toolCallId: 'bash-cancelled',
+        toolName: 'bash',
+        input: cancelInput,
+        result: knownResult,
+      }),
       'msg-1',
     );
-    expect(projection?.pairs[0]?.toolResultPart.output).toEqual(liveOutput);
+    expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
   });
 
   it('bounds a stuck bash call and settles it as outcome_unknown', async () => {
@@ -6353,14 +6351,11 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
     if (stored === undefined) throw new Error('MCP part was not persisted.');
 
-    const projection = projectToolObservations([stored], 'msg-1');
-    expect(projection?.pairs).toHaveLength(1);
+    const projection = projectStoredToolPart(stored, 'msg-1');
     // Replay rebuilds the same output the live definition sent, so a later
     // turn sends the same bytes.
-    expect(projection?.pairs[0]?.toolResultPart.toolName).toBe(
-      toolDeclaration.id,
-    );
-    expect(projection?.pairs[0]?.toolResultPart.output).toEqual(liveOutput);
+    expect(projection?.pair.toolResultPart.toolName).toBe(toolDeclaration.id);
+    expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
   });
 
   it('replays a persisted web_search result exactly as the live definition sent it', async () => {
@@ -6425,9 +6420,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       throw new Error('Web search part was not persisted.');
     }
 
-    const projection = projectToolObservations([stored], 'msg-1');
-    expect(projection?.pairs).toHaveLength(1);
-    expect(projection?.pairs[0]?.toolResultPart.output).toEqual(liveOutput);
+    const projection = projectStoredToolPart(stored, 'msg-1');
+    expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
   });
 
   it('protects native model output while retaining the exact direct and stored result', async () => {
@@ -9647,6 +9641,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         timeZone: resolveInstanceTimezone(),
       });
       const continuation = estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [],
         railText: temporal.data.text,
       });
@@ -9776,6 +9771,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         timeZone: resolveInstanceTimezone(),
       });
       const continuation = estimateContinuationTokens({
+        modelId: 'test-model',
         rows: [],
         railText: modelChange.data.text + temporal.data.text,
       });
@@ -16729,7 +16725,11 @@ describe('RunExecutionService retained read media', () => {
             createdAt: now,
           },
         ] satisfies Array<StoredMessage>,
-        { systemPrompt: '', requestKind: 'continuation' },
+        {
+          systemPrompt: '',
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        },
       );
       const { resolver } = fakeResolver([]);
       mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);

@@ -138,8 +138,8 @@ describe('createInRunContextItems', () => {
     items.beginStep(toolStep());
     items.stage(contextItem('project rule'));
 
-    // A later step whose live messages no longer carry that tool result (e.g.
-    // omitted by the replay budget) has nowhere to anchor.
+    // A later step whose live messages no longer carry that tool result has
+    // nowhere to anchor.
     const laterMessages: Array<ModelMessage> = [HISTORY];
     const applied = items.applyToStep(laterMessages);
 

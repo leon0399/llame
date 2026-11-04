@@ -1,13 +1,19 @@
 /**
  * ContextBuilder — turns a chat's stored messages into the model input ({ system, messages }).
  *
- * Design contract (#53 context assembly; #57 lineage-based compaction):
+ * Design contract (#53 context assembly; #57 lineage-based compaction; D14
+ * of exact-turn-replay):
  * - Cache-aware: `system` is the stable prefix, delivered via the model's native system
  *   channel — not a `role: 'system'` entry in `messages`; `messages` is history oldest→newest
  * - `system` contains NO timestamps, ids, or per-request values — byte-identical across turns
  * - Stored user text/context parts replay in place without sender decoration
- * - Persisted reasoning parts replay ONLY into a request that continues the
- *   Chat storing them (D15); compaction input excludes them (D16)
+ * - One projection turns a stored reply into the model messages the live loop
+ *   sent: one assistant message per model step, then one tool message with the
+ *   results of its calls. It clears nothing and drops no tool pair — a
+ *   checkpoint is the only boundary.
+ * - Persisted reasoning and provider metadata follow the model rule of
+ *   `reasoning-output` (D7): they replay only into a request that continues the
+ *   Chat and only for the reply's own model after a completed reply.
  * - Deterministic: identical inputs → identical output
  * - No message-count cap: context size is governed in TOKENS by the compaction
  *   threshold (#57). A count cap would silently drop old turns without any
@@ -21,23 +27,27 @@ import type {
   ImagePart,
   ModelMessage,
   ProviderMetadata,
+  ToolCallPart,
+  ToolResultPart,
 } from 'ai';
 
 import type { RetainedMedia } from '../media/attempt-media';
 import { mergeRetainedMedia } from '../media/attempt-media';
 import { storedFilePartSchema } from '../media/media-descriptors';
 import { parseMediaLocator } from '../media/media-locator';
+import { storedToolPartMediaKey } from '../media/retained-media';
 import { isContextItemPart, type ContextItemPart } from './context-item';
 import { promptImportMediaParts } from './prompt-imports-item';
-import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
-  projectToolObservations,
-  renderToolObservationOmission,
-  type ProjectedToolObservationPair,
-  type ToolObservationProjection,
+  isNumber,
+  isRecord,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
+import {
+  projectStoredToolPart,
+  type StoredToolObservation,
 } from './tool-observation-part';
 
-export { projectToolObservations };
 /**
  * `ModelMessage` is now the SDK's own type, re-exported above. Content can
  * carry text, tool-call parts (assistant), and tool-result parts (tool role),
@@ -61,10 +71,10 @@ export interface TextPart {
    * Opaque provider metadata the adapter attached to this text part (design
    * A7), stored verbatim beside the text: on the Responses wire the item's
    * `itemId`. Same contract as `ReasoningPart`'s field — llame never reads a
-   * key inside it. This layer only stores it; the replay layer of
-   * exact-turn-replay sends it back so the wire recognizes its own part.
-   * Absent when the adapter supplied none, and it changes neither the part's
-   * display text nor its order. The owner
+   * key inside it, and `buildContext` sends it back as the prompt part's
+   * `providerOptions` when the reply meets the model rule of
+   * `reasoning-output`. Absent when the adapter supplied none, and it changes
+   * neither the part's display text nor its order. The owner
    * history response and owner event stream strip it; exports, public shares,
    * search, logs, and telemetry never carry it.
    */
@@ -73,14 +83,15 @@ export interface TextPart {
 
 /**
  * A reasoning ("thinking") part. PERSISTED for display (survives reload) and
- * replayed to the provider on the ONE request kind that reuses it: a
- * continuation of the Chat that stores it. `buildContext` re-emits it as a
- * reasoning content part ahead of the content the same turn produced, with the
- * text byte-identical to the stored part (never trimmed, repaired, re-ordered,
- * or neutralized) — DeepSeek's `tools` rule makes that replay mandatory on the
- * completions wire (D7/D15). Everywhere else the exclusion stands: `partsToText`
- * still strips reasoning, so compaction input, chat search, and public shares
- * never carry it.
+ * replayed to the provider in its stored position on the requests that the
+ * model rule of `reasoning-output` allows: a request that continues the Chat,
+ * for a reply that completed on the request's own model (D7). `buildContext`
+ * re-emits it as a reasoning content part where it occurred, with the text
+ * byte-identical to the stored part (never trimmed, repaired, re-ordered, or
+ * neutralized) — DeepSeek's `tools` rule makes that replay mandatory on the
+ * completions wire. Elsewhere the exclusion stands: `partsToText` still strips
+ * reasoning, so compaction input, chat search, and public shares never carry
+ * it.
  */
 export interface ReasoningPart {
   type: 'reasoning';
@@ -138,14 +149,6 @@ export function isReasoningPart(part: unknown): part is ReasoningPart {
 }
 
 /**
- * A stored `data-context` part with text is model-bearing content of its own:
- * replay emits it as a user-role message, unlike a metadata-only or empty one.
- */
-function hasModelContextText(part: MessagePart): boolean {
-  return isContextItemPart(part) && !!part.data.text;
-}
-
-/**
  * The subset of a stored DB message that ContextBuilder needs.
  * Mirrors the `messages` table columns used here.
  */
@@ -188,10 +191,17 @@ export interface BuildContextOptions {
   systemPrompt: string;
   /**
    * Required, with no default: every caller states whether this request
-   * continues the Chat (reasoning replays) or summarizes it (reasoning is
-   * excluded), so a new caller cannot inherit a silent choice (D16).
+   * continues the Chat or summarizes it (D16), so a new caller cannot inherit
+   * a silent choice.
    */
   requestKind: ContextRequestKind;
+  /**
+   * Required, with no default: the llame model id this request runs on. The
+   * model rule of `reasoning-output` (D7) replays a reply's reasoning and its
+   * provider metadata only when the reply's `usage.modelId` is this value, so
+   * a caller must state the model it builds for.
+   */
+  modelId: string;
   /** The active checkpoint for this request, if any. */
   checkpoint?: ContextCheckpoint;
 }
@@ -309,157 +319,226 @@ export function toPromptReasoningPart(
   };
 }
 
+/** A prompt-side text part, so each stored text part stays its own part. */
+type PromptTextPart = Extract<
+  Extract<AssistantContent, ReadonlyArray<unknown>>[number],
+  { type: 'text' }
+>;
+
 /**
- * Batches consecutive text parts into one assistant message and inserts the
- * omission notice at the right point in the stream — the running state
- * `pushAssistantHistory` below drives while walking `parts` in order.
- *
- * On a continuation request the emitter also carries each persisted reasoning
- * part through in its stored position: reasoning is buffered and emitted ahead
- * of the next assistant content the same turn produces (text, tool call, or
- * omission notice), and a turn ending on reasoning flushes it as its own
- * assistant message. Reasoning text is passed through byte-identically, with
- * the part's opaque provider metadata riding along as `providerOptions`.
+ * One assistant content part of a replayed step, in stored order. Shared with
+ * the Continue projection, whose kept steps are the same parts in the same
+ * shape.
  */
-class AssistantHistoryEmitter {
-  private readonly pendingText: Array<string> = [];
-  private readonly pendingReasoning: Array<PromptReasoningPart> = [];
-  private omissionRendered = false;
+export type ReplayedAssistantPart =
+  | PromptReasoningPart
+  | PromptTextPart
+  | ToolCallPart;
+
+/**
+ * The model step a stored part records (design D5), or undefined for a part
+ * stored before steps existed, whose step the consecutive rule recovers.
+ * Exported for the Continue projection's step offset.
+ */
+export function partStep(part: MessagePart): number | undefined {
+  return isRecord(part) && isNumber(part['step']) ? part['step'] : undefined;
+}
+
+type OpenStep = {
+  /** Its reasoning, text, and calls, in stored order. */
+  readonly content: Array<ReplayedAssistantPart>;
+  /** One result per call of `content`, in call order. */
+  readonly results: Array<ToolResultPart>;
+  readonly number: number | undefined;
+};
+
+/**
+ * Whether `partNumber`/`isTool` begins a new step instead of joining `open`.
+ *
+ * Two numbered parts with different numbers are different steps, and a row
+ * that mixes numbered with legacy parts keeps them apart. A part with no step
+ * number follows the Continue rule: each run of consecutive tool parts, with
+ * the text and the reasoning before it, is one step — so a call after the open
+ * step's calls begins the next one, and so does text or reasoning after a call.
+ */
+function startsNewStep(
+  open: OpenStep,
+  partNumber: number | undefined,
+  isTool: boolean,
+): boolean {
+  if (open.number !== undefined || partNumber !== undefined) {
+    return partNumber !== open.number;
+  }
+  const calls = open.results.length;
+  const lastWasTool = open.content.at(-1)?.type === 'tool-call';
+  return isTool ? calls > 0 && !lastWasTool : calls > 0;
+}
+
+/**
+ * One stored assistant reply as the model messages the live loop sent (D5,
+ * D14): one assistant message per model step with its reasoning, text, and
+ * calls in stored order, then one tool message with the results of its calls
+ * in call order. A `data-context` part follows the tool message of the step
+ * before it, which is where the live splice puts it.
+ *
+ * Nothing is cleared, dropped, or marked: the stored row is the request's
+ * history. `privateParts` carries the model rule
+ * of `reasoning-output` (D7) — when it is false, a reasoning part is omitted
+ * and every text and tool part keeps its text but loses its provider metadata.
+ */
+class StoredReplyProjection {
+  private readonly messages: Array<ModelMessage> = [];
+  private open: OpenStep | null = null;
 
   constructor(
-    private readonly result: Array<ModelMessage>,
-    private readonly projection: ToolObservationProjection | null,
+    private readonly privateParts: boolean,
+    private readonly retainedMedia: Map<string, RetainedMedia>,
   ) {}
 
-  appendText(text: string): void {
-    this.pendingText.push(text);
-  }
-
-  appendReasoning(part: PromptReasoningPart): void {
-    this.pendingReasoning.push(part);
-  }
-
-  flushPendingText(): void {
-    const text = this.pendingText.join('\n');
-    this.pendingText.length = 0;
-    if (text.length > 0) {
-      this.pushAssistantText(text);
+  /** The reply's messages, writing the retained entries its markers name. */
+  project(parts: Array<MessagePart>, messageId: string): Array<ModelMessage> {
+    for (const [partIndex, part] of parts.entries()) {
+      this.appendPart(part, partIndex, messageId);
     }
+    this.closeStep();
+    return this.messages;
   }
 
-  flushPendingToolPair(pair: ProjectedToolObservationPair): void {
-    const reasoning = this.takePendingReasoning();
-    this.result.push(
-      reasoning.length === 0
-        ? { role: 'assistant', content: [pair.toolCallPart] }
-        : { role: 'assistant', content: [...reasoning, pair.toolCallPart] },
-      { role: 'tool', content: [pair.toolResultPart] },
+  private appendPart(
+    part: MessagePart,
+    partIndex: number,
+    messageId: string,
+  ): void {
+    // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guard narrows it to the replayable variant.
+    if (isTextPart(part)) {
+      this.appendText(part);
+      return;
+    }
+    // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guard narrows it to the replayable variant.
+    if (isReasoningPart(part)) {
+      this.appendReasoning(part);
+      return;
+    }
+    if (isContextItemPart(part)) {
+      this.appendContextItem(part.data.text);
+      return;
+    }
+    const observation = projectStoredToolPart(
+      part,
+      storedToolPartMediaKey(messageId, partIndex),
     );
+    if (observation !== undefined) {
+      this.appendTool(partStep(part), observation);
+    }
+    // Every other part — a cap notice, an unfinished tool snapshot — is not
+    // model content.
   }
 
-  flushPendingReasoning(): void {
-    if (this.pendingReasoning.length === 0) return;
-    this.result.push({
-      role: 'assistant',
-      content: this.takePendingReasoning(),
+  /** The SDK skips an empty text part, so replay emits none. */
+  private appendText(part: TextPart): void {
+    if (part.text.length === 0) return;
+    this.openStep(partStep(part), false).content.push({
+      type: 'text',
+      text: part.text,
+      ...(this.privateParts &&
+        part.providerMetadata !== undefined && {
+          providerOptions: part.providerMetadata,
+        }),
     });
   }
 
   /**
-   * An item stored on the assistant message replays as its own user-role
-   * message at the stored position: the walk has already flushed the tool pair
-   * (or its omission notice) the item follows, so anything still pending here
-   * belongs before it. An item without text contributes nothing.
+   * The SDK sends a reasoning part even when its text is empty: such a part
+   * exists because the provider withheld the text but delivered a signature,
+   * redacted data, or encrypted content (D18). Only the model rule gates it.
    */
-  appendContextItem(text: string | undefined): void {
-    if (!text) return;
-    this.flushPendingText();
-    this.flushPendingReasoning();
-    this.result.push({ role: 'user', content: [{ type: 'text', text }] });
-  }
-
-  appendOmissionWhenDue(partIndex: number): void {
-    const { projection } = this;
-    if (
-      projection === null ||
-      this.omissionRendered ||
-      projection.omissionPartIndex === null ||
-      projection.omissionPartIndex > partIndex
-    ) {
-      return;
-    }
-    this.flushPendingText();
-    this.pushAssistantText(
-      renderToolObservationOmission(projection.omittedCount),
+  private appendReasoning(part: ReasoningPart): void {
+    if (!this.privateParts) return;
+    this.openStep(partStep(part), false).content.push(
+      toPromptReasoningPart(part),
     );
-    this.omissionRendered = true;
   }
 
-  private takePendingReasoning(): Array<PromptReasoningPart> {
-    const reasoning = [...this.pendingReasoning];
-    this.pendingReasoning.length = 0;
-    return reasoning;
+  private appendTool(
+    stepNumber: number | undefined,
+    observation: StoredToolObservation,
+  ): void {
+    const step = this.openStep(stepNumber, true);
+    step.content.push(this.callPart(observation));
+    step.results.push(this.resultPart(observation));
+    const { retained } = observation;
+    if (retained !== undefined) {
+      this.retainedMedia.set(retained.key, retained.entry);
+    }
+  }
+
+  private appendContextItem(text: string | undefined): void {
+    if (!text) return;
+    this.closeStep();
+    this.messages.push({ role: 'user', content: [{ type: 'text', text }] });
+  }
+
+  private openStep(stepNumber: number | undefined, isTool: boolean): OpenStep {
+    const { open } = this;
+    if (open !== null && !startsNewStep(open, stepNumber, isTool)) return open;
+    this.closeStep();
+    const created: OpenStep = {
+      content: [],
+      results: [],
+      number: stepNumber,
+    };
+    this.open = created;
+    return created;
+  }
+
+  private closeStep(): void {
+    const step = this.open;
+    this.open = null;
+    if (step === null || step.content.length === 0) return;
+    this.messages.push({ role: 'assistant', content: step.content });
+    if (step.results.length > 0) {
+      this.messages.push({ role: 'tool', content: step.results });
+    }
+  }
+
+  private callPart(observation: StoredToolObservation): ToolCallPart {
+    const { pair } = observation;
+    const part =
+      pair.refused && !this.privateParts && !isRecord(pair.toolCallPart.input)
+        ? { ...pair.toolCallPart, input: {} }
+        : pair.toolCallPart;
+    return this.privateParts && pair.providerMetadata !== undefined
+      ? { ...part, providerOptions: pair.providerMetadata }
+      : part;
   }
 
   /**
-   * Every assistant text message takes the reasoning collected ahead of it, so
-   * the stored order of reasoning against text and tool calls holds.
+   * The SDK copies the live call's provider metadata onto the result of a call
+   * that ran; its own synthesized result for a refused call carried none.
    */
-  private pushAssistantText(text: string): void {
-    const reasoning = this.takePendingReasoning();
-    this.result.push(
-      reasoning.length === 0
-        ? { role: 'assistant', content: text }
-        : {
-            role: 'assistant',
-            content: [...reasoning, { type: 'text' as const, text }],
-          },
-    );
+  private resultPart(observation: StoredToolObservation): ToolResultPart {
+    const { pair } = observation;
+    return this.privateParts &&
+      !pair.refused &&
+      pair.providerMetadata !== undefined
+      ? { ...pair.toolResultPart, providerOptions: pair.providerMetadata }
+      : pair.toolResultPart;
   }
 }
 
-function pushAssistantHistory(
-  result: Array<ModelMessage>,
-  parts: Array<MessagePart>,
-  projection: ToolObservationProjection | null,
-  requestKind: ContextRequestKind,
-): void {
-  // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
-  // this projector; stored assistant parts currently omit multi-step boundaries.
-  const pairsByPartIndex = new Map(
-    (projection?.pairs ?? []).map((pair) => [pair.partIndex, pair]),
+/**
+ * The model rule of `reasoning-output` (D7, A1/A2): a reply's reasoning and
+ * provider metadata replay only when the reply completed on the model of this
+ * request. A row without recorded usage — written before usage existed, or
+ * still running — replays neither.
+ */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- the reply's stored `usage` is untyped jsonb; the `isRecord` guard below is its parse.
+function replaysPrivateParts(usage: unknown, modelId: string): boolean {
+  return (
+    isRecord(usage) &&
+    usage['status'] === 'completed' &&
+    usage['modelId'] === modelId
   );
-  const emitter = new AssistantHistoryEmitter(result, projection);
-
-  for (const [partIndex, part] of parts.entries()) {
-    emitter.appendOmissionWhenDue(partIndex);
-    if (isTextPart(part)) {
-      emitter.appendText(part.text);
-      continue;
-    }
-    if (isReasoningPart(part)) {
-      // Text recorded before the reasoning flushes first: the reasoning part
-      // belongs in its stored position, not hoisted or pushed behind it.
-      if (requestKind === 'continuation') {
-        emitter.flushPendingText();
-        // The part's opaque provider metadata (D15) crosses unchanged as the
-        // prompt part's `providerOptions`; llame reads no key inside it.
-        emitter.appendReasoning(toPromptReasoningPart(part));
-      }
-      continue;
-    }
-    const pair = pairsByPartIndex.get(partIndex);
-    if (pair) {
-      emitter.flushPendingText();
-      emitter.flushPendingToolPair(pair);
-    } else if (isContextItemPart(part)) {
-      emitter.appendContextItem(part.data.text);
-    }
-  }
-
-  emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
-  emitter.flushPendingText();
-  emitter.flushPendingReasoning();
 }
 
 /**
@@ -474,7 +553,7 @@ export function buildContext(
   messages: Array<StoredMessage>,
   options: BuildContextOptions,
 ): ModelRequestContext {
-  const { systemPrompt, checkpoint, requestKind } = options;
+  const { systemPrompt, checkpoint } = options;
 
   // Checkpoint rows are storage-only markers. The selected checkpoint is
   // represented by its stored literal text below; every other checkpoint row
@@ -506,7 +585,7 @@ export function buildContext(
     if (m.role === 'user') {
       appendUserMessage(result, m, retained);
     } else {
-      appendAssistantMessage(result, m, requestKind, retained);
+      appendAssistantMessage(result, m, options, retained);
     }
   }
 
@@ -524,40 +603,26 @@ function appendUserMessage(
   }
 }
 
+/**
+ * One stored reply through the one projection. Assistant output is replayed
+ * byte-identically and never neutralized: a model does not treat its own prior
+ * turns as authoritative, and llame's users legitimately discuss llame's own
+ * envelope, which neutralization would corrupt.
+ */
 function appendAssistantMessage(
   result: Array<ModelMessage>,
   m: StoredMessage,
-  requestKind: ContextRequestKind,
+  options: BuildContextOptions,
   retained: Map<string, RetainedMedia>,
 ): void {
-  const visibleText = partsToText(m.parts);
-  const projected =
-    m.role === 'assistant' ? projectToolObservations(m.parts, m.id) : null;
-  // The one reuse of persisted reasoning: a request continuing this Chat
-  // re-sends the turn's reasoning where it occurred (D15). A compaction
-  // request summarizes the same turns with no reasoning in reach (D16).
-  const hasReasoning =
-    requestKind === 'continuation' && m.parts.some(isReasoningPart);
-  const hasContextText = m.parts.some(hasModelContextText);
-
-  if (
-    visibleText.length === 0 &&
-    !projected &&
-    !hasReasoning &&
-    !hasContextText
-  ) {
-    return;
-  }
-
-  if (projected || hasReasoning || hasContextText) {
-    pushAssistantHistory(result, m.parts, projected, requestKind);
-    if (projected) mergeRetainedMedia(retained, projected.retainedMedia);
-    return;
-  }
-
-  // Assistant output is replayed byte-identically and never neutralized: a
-  // model does not treat its own prior turns as authoritative, and llame's
-  // users legitimately discuss llame's own envelope, which neutralization
-  // would corrupt.
-  result.push({ role: 'assistant', content: visibleText });
+  // A continuation of this Chat is the only request kind that may reuse the
+  // reply's private continuation state, and only for the reply's own model
+  // after a completed reply (D7). A compaction request summarizes the same
+  // rows without it (D9 owns folding compaction into the same projection).
+  const privateParts =
+    options.requestKind === 'continuation' &&
+    replaysPrivateParts(m.usage, options.modelId);
+  result.push(
+    ...new StoredReplyProjection(privateParts, retained).project(m.parts, m.id),
+  );
 }

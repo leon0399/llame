@@ -84,7 +84,9 @@ When the AI SDK refused a call before llame ran it, the tool part MUST store the
 error text and the input of the live step. These fields are for the
 model only, and the owner-facing error stays as before. Replay MUST send that
 error text as an error-text output, with that input. A refused part stored before
-this change has neither field and replays through the failure rendering.
+this change has neither field and replays through the failure rendering. On
+another model or after a failed reply, a refused input that is not an object
+MUST replay as `{}`.
 
 #### Scenario: A call to an unknown tool replays the SDK error
 
@@ -97,6 +99,12 @@ this change has neither field and replays through the failure rendering.
 
 - **WHEN** the model called `read` with the input `not valid json{{{`, and a later turn replays that call
 - **THEN** the replayed call carries the input that the live step sent, which is `{}`
+
+#### Scenario: A non-object refused input falls back to an empty object on another model
+
+- **WHEN** the model called an unknown tool with the input `null`, and a later turn on another model replays that call
+- **THEN** the replayed call carries `{}`
+- **AND** a replay on the refusing model still carries `null`, the input the live step sent
 
 ### Requirement: Tool results replay in their live rendering
 

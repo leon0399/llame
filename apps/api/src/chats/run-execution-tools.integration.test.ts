@@ -2869,19 +2869,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
         content: [{ type: 'text', text: 'Old visible request.' }],
       },
       {
-        // The persisted reasoning part is replayed unchanged, in its stored
-        // position ahead of the answer it preceded: a continuation of the same
-        // Chat carries that Chat's reasoning even across a model switch, and
-        // llame neither coerces nor prunes it for the target model.
+        // The target model is not the reply's completed model, so the model
+        // rule omits the reasoning part and its metadata. The visible text and
+        // the call of the one step stay together.
         role: 'assistant',
         content: [
-          { type: 'reasoning', text: 'SECRET REASONING ARTIFACT' },
           { type: 'text', text: 'Old visible answer.' },
-        ],
-      },
-      {
-        role: 'assistant',
-        content: [
           expect.objectContaining({
             type: 'tool-call',
             toolCallId: 'old-call',
@@ -2963,7 +2956,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const providerInput = JSON.stringify(calls[0]);
     expect(providerInput).not.toContain(seeded.sourceReceipt.systemPrompt);
-    expect(providerInput).toContain('SECRET REASONING ARTIFACT');
+    // The target model is not the reply's model, so the model rule omits the
+    // reasoning part, which never reaches the provider input.
+    expect(providerInput).not.toContain('SECRET REASONING ARTIFACT');
     expect(providerInput).not.toContain('PROVIDER NATIVE ARTIFACT');
     expect(providerInput).toContain('TOOL DISPLAY INPUT');
     expect(providerInput).toContain('TOOL DISPLAY OUTPUT');
@@ -3217,7 +3212,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
 
-  it('keeps kb:// locator attribution through events, settlement, reconstruction, and bounded replay, and still renders historical knowledge_read parts', async () => {
+  it('keeps kb:// locator attribution through events, settlement, reconstruction, and replay, and replays historical knowledge_read parts whole', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-run-'));
     const knowledgeSpaceService = new KnowledgeSpaceService(
       tenantDb,
@@ -3368,6 +3363,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge replay test',
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       // The replayed read is the text rendering: the header names the shown
       // range and the total, and the attribution lines follow it, so every
@@ -3403,7 +3399,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ],
           },
         ],
-        { systemPrompt: 'Knowledge replay test', requestKind: 'continuation' },
+        {
+          systemPrompt: 'Knowledge replay test',
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        },
       );
       expect(JSON.stringify(historical.messages)).toContain(contentHash);
 
@@ -3430,7 +3430,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ],
           },
         ],
-        { systemPrompt: 'Knowledge replay test', requestKind: 'continuation' },
+        {
+          systemPrompt: 'Knowledge replay test',
+          requestKind: 'continuation',
+          modelId: 'test-model',
+        },
       );
       const degradedReplay = JSON.stringify(degraded.messages);
       expect(degraded.messages).toHaveLength(2);
@@ -3441,10 +3445,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
             type: 'tool-call',
             toolCallId: 'oversized-knowledge-call',
             toolName: 'knowledge_read',
-            input: {},
+            input: { path: relativePath },
           },
         ],
       });
+      // No budget clears or substitutes the call: its JSON result replays as
+      // the live loop sent it, oversized content included.
       expect(degraded.messages[1]).toMatchObject({
         role: 'tool',
         content: [
@@ -3453,13 +3459,19 @@ describeIfDb('executeRun tool-loop persistence', () => {
             toolCallId: 'oversized-knowledge-call',
             toolName: 'knowledge_read',
             output: {
-              type: 'text',
-              value: 'success',
+              type: 'json',
+              value: {
+                status: 'success',
+                knowledgeSpaceId: space.id,
+                path: relativePath,
+                content: oversizedContent,
+                contentHash,
+              },
             },
           },
         ],
       });
-      expect(degradedReplay).not.toContain(oversizedContent);
+      expect(degradedReplay).toContain(oversizedContent);
     } finally {
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       rmSync(root, { recursive: true, force: true });
@@ -3574,6 +3586,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         {
           systemPrompt: 'Conversation replay test',
           requestKind: 'continuation',
+          modelId: 'test-model',
         },
       );
       const replayed = JSON.stringify(replay.messages);
@@ -3994,6 +4007,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge search replay test',
         requestKind: 'continuation',
+        modelId: 'test-model',
       });
       const replayed = JSON.stringify(replay.messages);
       expect(replayed).toContain(space.id);
@@ -5835,7 +5849,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
                 createdAt: new Date(0),
               },
             ],
-            { systemPrompt: 'system', requestKind: 'continuation' },
+            {
+              systemPrompt: 'system',
+              requestKind: 'continuation',
+              modelId: 'test-model',
+            },
           );
           mergeRetainedMedia(resolver.retainedMedia, built.retainedMedia);
           const composed = await composeStepMessages(sent.messages, {

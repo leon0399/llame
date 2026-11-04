@@ -7,11 +7,14 @@ import {
 import { asDouble } from '../testing/support';
 import { createContextItemPart } from '../chats/context-item';
 import { type MessagePart } from '../chats/context-builder';
-import { projectToolObservations } from '../chats/tool-observation-part';
+import { projectStoredToolPart } from '../chats/tool-observation-part';
 
-/** The later-turn projection of one assistant row's parts. */
-const project = (parts: Parameters<typeof projectToolObservations>[0]) =>
-  projectToolObservations(parts, 'msg-1');
+/** The later-turn projection of one assistant row's tool parts. */
+const project = (parts: ReadonlyArray<MessagePart>) =>
+  parts.flatMap((part, partIndex) => {
+    const stored = projectStoredToolPart(part, `msg-1:${partIndex}`);
+    return stored === undefined ? [] : [stored];
+  });
 import {
   REJECTED_HOP_MESSAGE,
   REJECTED_URL_BOUND,

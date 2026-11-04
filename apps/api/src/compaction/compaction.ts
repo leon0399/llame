@@ -128,17 +128,17 @@ export function mediaOverflowCompacts(
 }
 
 /**
- * Chars/4 over a built request projection, with each replayed reasoning part's
- * opaque `providerOptions` left out (D15): that value is provider metadata
- * llame never interprets, and on the Responses wire it is a base64 blob of the
- * provider's own reasoning — potentially far larger than the prompt — so it
- * must not size the continuation estimate (D16). Reasoning TEXT still counts:
- * the model re-reads it on that continuation. Media references are sized by
- * `media` (vision-media D6, pdf-media D6), never by their bytes: each attached
- * image is charged `ceil(w × h / 750)` tokens on its model variant and each
- * attached PDF 3,000 tokens a page, every other reference counts as its
- * placeholder text, every reference as its label, and tool-result images are
- * sized in their moved form (see `projectSizedText`).
+ * Chars/4 over a built request projection, with every content part's opaque
+ * `providerOptions` left out (D7, A7): those values are provider metadata
+ * llame never interprets, and on the Responses and Chat Completions wires they
+ * include a base64 blob of the provider's own reasoning — potentially far
+ * larger than the prompt — so they must not size the continuation estimate.
+ * Reasoning TEXT still counts: the model re-reads it on that continuation.
+ * Media references are sized by `media` (vision-media D6, pdf-media D6), never
+ * by their bytes: each attached image is charged `ceil(w × h / 750)` tokens on
+ * its model variant and each attached PDF 3,000 tokens a page, every other
+ * reference counts as its placeholder text, every reference as its label, and
+ * tool-result images are sized in their moved form (see `projectSizedText`).
  */
 function estimateProjectionTokens(
   projection: {
@@ -168,27 +168,49 @@ function estimateProjectionTokens(
     Math.ceil(
       JSON.stringify({
         system: projection.system,
-        messages: withoutReasoningMetadata(messages),
+        messages: withoutPromptProviderOptions(messages),
         tools: projection.tools,
       }).length / 4,
     ) + mediaTokens
   );
 }
 
-/** `messages` with each reasoning part's opaque provider metadata removed. */
-function withoutReasoningMetadata(
+/**
+ * One content part with its opaque provider metadata left undefined.
+ * `JSON.stringify` drops an `undefined` member, so the estimate measures
+ * exactly the serialization the request will have, and the part keeps its
+ * declared shape.
+ */
+function withoutPartProviderOptions<Part extends object>(part: Part): Part {
+  return 'providerOptions' in part
+    ? { ...part, providerOptions: undefined }
+    : part;
+}
+
+/** `messages` with every content part's opaque provider metadata removed. */
+function withoutPromptProviderOptions(
   messages: ReadonlyArray<ModelMessage>,
 ): ReadonlyArray<ModelMessage> {
   return messages.map((message) => {
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
-      return message;
+    switch (message.role) {
+      case 'system':
+        return message;
+      case 'user': {
+        const content = message.content;
+        if (!Array.isArray(content)) return message;
+        return { ...message, content: content.map(withoutPartProviderOptions) };
+      }
+      case 'assistant': {
+        const content = message.content;
+        if (!Array.isArray(content)) return message;
+        return { ...message, content: content.map(withoutPartProviderOptions) };
+      }
+      case 'tool':
+        return {
+          ...message,
+          content: message.content.map(withoutPartProviderOptions),
+        };
     }
-    return {
-      ...message,
-      content: message.content.map((part) =>
-        part.type === 'reasoning' ? { type: part.type, text: part.text } : part,
-      ),
-    };
   });
 }
 
@@ -203,6 +225,8 @@ function withoutReasoningMetadata(
 export function estimateContinuationTokens(input: {
   rows: Array<StoredMessage>;
   railText: string;
+  /** The llame model id the measured request runs on (model rule, D7). */
+  modelId: string;
   media?: MediaSizing;
   /**
    * How many references follow these rows in the request: a Continue Run's
@@ -214,6 +238,7 @@ export function estimateContinuationTokens(input: {
   const { messages } = buildContext(input.rows, {
     systemPrompt: '',
     requestKind: 'continuation',
+    modelId: input.modelId,
   });
   return (
     estimateProjectionTokens(
@@ -389,6 +414,8 @@ export function planCompactionCheckpoint(input: {
  */
 export function buildCompactionRequest(input: {
   system: string;
+  /** The llame model id the summarization request runs on (model rule, D7). */
+  modelId: string;
   previous: ContextCheckpoint | undefined;
   absorb: Array<StoredMessage>;
 }): ModelRequestContext {
@@ -397,6 +424,7 @@ export function buildCompactionRequest(input: {
     // Summarization input, not a continuation: reasoning the absorbed turns
     // persisted must not be folded into the checkpoint (D16).
     requestKind: 'compaction',
+    modelId: input.modelId,
     ...(input.previous !== undefined && { checkpoint: input.previous }),
   });
 

@@ -195,6 +195,7 @@ describe('temporal rows in assembled context', () => {
     const result = buildContext(conversation, {
       systemPrompt,
       requestKind: 'continuation',
+      modelId: 'test-model',
     });
 
     const rendered = result.messages.map((m) => contentText(m.content));
@@ -210,6 +211,7 @@ describe('temporal rows in assembled context', () => {
     const [first] = buildContext(conversation, {
       systemPrompt,
       requestKind: 'continuation',
+      modelId: 'test-model',
     }).messages;
     const blocks = contentBlockTexts(first.content);
     expect(blocks).toHaveLength(2);
@@ -221,10 +223,12 @@ describe('temporal rows in assembled context', () => {
     const first = buildContext(conversation, {
       systemPrompt,
       requestKind: 'continuation',
+      modelId: 'test-model',
     });
     const second = buildContext(conversation, {
       systemPrompt,
       requestKind: 'continuation',
+      modelId: 'test-model',
     });
     // The property the whole design rests on: no message's serialized form
     // changes between requests, so the cached prefix stays valid.
@@ -243,6 +247,7 @@ describe('temporal rows in assembled context', () => {
     const result = buildContext([legacy], {
       systemPrompt,
       requestKind: 'continuation',
+      modelId: 'test-model',
     });
 
     // A single block, which the provider adapter collapses back to a plain
@@ -267,6 +272,7 @@ describe('temporal rows in assembled context', () => {
     const { messages } = buildContext(conversation, {
       systemPrompt,
       requestKind: 'continuation',
+      modelId: 'test-model',
       checkpoint: {
         text: 'earlier history',
         absorbedThroughSeq: 2,
