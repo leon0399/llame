@@ -1,6 +1,6 @@
 Track [#1539](https://github.com/leon0399/llame/issues/1539),
 [#599](https://github.com/leon0399/llame/issues/599), and their PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking). The
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking). The
 follow-up [#1550](https://github.com/leon0399/llame/issues/1550) owns the
 reasoning token estimate. Implementation waits for Leo's approval of the
 published proposal revision. Keep live status in the Project.
@@ -48,6 +48,10 @@ because a projection that two code paths disagree on cannot ship. Re-measure it
 at its boundary, and request a named exception before publication if it goes
 over. Every other layer stays inside about 2,000 lines.
 
+Measured at publication, three implementation layers took named exceptions
+recorded in their PR bodies: `seams` (#1560) at 2,474 authored lines, `replay`
+(#1569) at about 3,836, and `continue` (#1572) at 3,159.
+
 ## 1. proposal
 
 - [x] 1.1 Validate the change: `pnpm exec openspec validate exact-turn-replay --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/exact-turn-replay/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
@@ -67,8 +71,10 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: `CHANGELOG.md` 2026-11-03 entry; `pnpm lint:markdown` reports 0 issues.
 - [x] 2.4 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused `apps/api` model-client, transcript, stream, and DTO tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api typecheck` and `lint` pass; 16 focused unit files, 896 tests pass; `pnpm --filter api test:crap` exits 0; `pnpm format:check` and `git diff --check` are clean.
-- [ ] 2.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 2.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 2.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1560.
+- [x] 2.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1560 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 3. storage
 
@@ -82,8 +88,10 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: `CHANGELOG.md` 2026-11-03 entry; `pnpm lint:markdown` reports 0 issues.
 - [x] 3.5 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused transcript, admission, and tool-gate tests, the migration integration test, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api typecheck` and `lint` pass; unit coverage 9,894 tests pass and `test:crap` exits 0; the affected integration files pass; `pnpm format:check` and `git diff --check` are clean.
-- [ ] 3.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 3.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 3.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1563.
+- [x] 3.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1563 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 4. responses-store
 
@@ -93,8 +101,10 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: `README.md`'s operator provider-options section states `store: false`, the encrypted reasoning include, and that a part carrying an item id and no encrypted content is omitted, and the precedence comment in `apps/api/llame.config.jsonc.example` matches it (the plain `openai-responses` wire has no `docs/product/operator/providers/` page); `CHANGELOG.md` carries the dated 2026-11-03 entry; `pnpm lint:markdown` reports 0 issues.
 - [x] 4.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused model-client tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api typecheck` and `lint` pass; 24 focused model-client and Continue-wire test files pass (430 tests); `pnpm format`, `pnpm format:check`, and `git diff --check` are clean.
-- [ ] 4.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 4.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 4.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1564.
+- [x] 4.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1564 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); the mutation gate is red only on the zero-mutant shard tracked in #1573; pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 5. live-rendering
 
@@ -104,8 +114,10 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: `SPEC.md` §28.2 drops the untrusted-label claim; `model-output.md` states that no label, outcome line, or artifact line is added and that the cap notice is the only locator; `artifact.md` says replay keeps that notice and no separate line; `web-search.md` states the part replays as the live loop sent it; `CHANGELOG.md` carries the dated 2026-11-03 **BREAKING** entry; `pnpm lint:markdown` reports 0 issues.
 - [x] 5.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused tool-observation and context-builder tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api typecheck` and `lint` pass; the focused unit files (`tool-observation-part*`, `context-builder`, `continue-projection`, `compaction`, `model-text`, `assistant-transcript`, `step-composer`) pass; the unit coverage run with `llame.config.yaml` moved aside reports 11,119 tests and 0 failures and restores the file byte-for-byte, and `test:crap` exits 0; `run-execution-tools.integration.test.ts` (65), `compaction-context.integration.test.ts` (28), and `continue-run.integration.test.ts` with `fork-chat.integration.test.ts` (27) pass; `pnpm format:check` and `git diff --check` are clean.
-- [ ] 5.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 5.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 5.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1565.
+- [x] 5.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1565 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 6. harness
 
@@ -113,8 +125,10 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: the `step-script` behavior (`apps/api/src/runs/scripted-model-client.ts`) serves one scripted provider request per SDK step; `scripted-model-step.ts` expands ordered reasoning/text blocks (start, delta, and end with provider metadata), parallel and refused calls (an undeclared tool and malformed JSON input), and a terminal error part. A whole-step script installs the production seams — `applyToolCallingOptions` (gated execution plus `refuseUnavailableToolCalls`), `installStepPreparation`, and one `fullStream` consumer through `deferTerminalCallbacks`/`bindStreamChannel` — so the real `streamText` builds each next step itself. `scripted-step-harness.integration.test.ts` asserts the stored parts of each scripted step (reasoning and text step numbers and metadata, tool-input metadata, `sdkRefusal` on both refused calls) and that step 2's recorded prompt carries step 1's reasoning, text, calls, and tool results; it also asserts a stream error after a reasoning part fails the Run while storing that reasoning part. `scripted-model-step.test.ts` and three new `scripted-model-client.test.ts` cases pin the expansion, the fullStream channel, the repair hook, and the error path.
 - [x] 6.2 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused harness tests, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api typecheck` and `pnpm --filter api lint` pass; `scripted-model-client.test.ts` and `scripted-model-step.test.ts` pass (37 tests) and `scripted-step-harness.integration.test.ts` passes (2 tests); `pnpm format:check` and `git diff --check` are clean.
-- [ ] 6.3 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 6.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 6.3 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1566.
+- [x] 6.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1566 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 7. replay
 
@@ -132,8 +146,10 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: `docs/product/reference/tools/edit.md` drops the replay budget, `SPEC.md` §28.2 states the model rule and the absence of a replay budget, `docs/product/reference/continue-a-turn.md` already stated that no replay budget applies, and `CHANGELOG.md` carries a dated **BREAKING** 2026-11-03 entry that names the `context_incompatible` risk for long older Chats. `pnpm lint:markdown` reports 0 issues.
 - [x] 7.7 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused context-builder, tool-observation, and run-execution tests, the new integration test, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api typecheck`, `pnpm --filter api lint`, `pnpm format:check`, `git diff --check`, and `pnpm lint:markdown` are clean. Focused unit files pass: `context-builder.test.ts`, `tool-observation-part.test.ts`, `tool-observation-part.behavior.test.ts`, `continue-projection.test.ts`, `compaction.test.ts`, `assistant-transcript.test.ts`, `step-composer.test.ts`, `run-execution.service.test.ts` (796 tests). The new integration test passes (4 tests). The full unit run passes except two `config-loader.test.ts` cases that the checked-out `apps/api/llame.config.yaml` causes in this worktree; the coverage run with that file moved aside, and `test:crap`, were not re-run before this record.
-- [ ] 7.8 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 7.9 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1539` and `Closes #599`.
+- [x] 7.8 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1569.
+- [x] 7.9 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1539` and `Closes #599`.
+  - Evidence: #1569 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 8. compaction
 
@@ -141,9 +157,12 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: `BuildContextOptions` has one projection: `modelId` decides reasoning and provider metadata for every request, and `ContextRequestKind`, its option, and its condition are deleted from `context-builder.ts`, `compaction.ts`, `run-execution.service.ts`, and the seven test files that passed it. `buildCompactionRequest` replays its absorbed rows through `buildContext` and appends `COMPACTION_INSTRUCTION` as the last message. `compaction.test.ts` pins the reasoning parts and provider metadata of the request's own model in their stored positions and messages byte-identical to a continuation but for the instruction; the model rule's negative cases (another model, an unfinished reply) stay pinned in `context-builder.test.ts`. `compaction-context.integration.test.ts` runs a real first turn of two scripted whole steps, a tool call then the answer that follows it, with reasoning carrying provider metadata on both, then a forced one-token threshold compaction before the next turn's first step: the summary request's provider prompt equals that turn's last provider request, its response message, and the instruction, and the checkpoint row is exactly `[createCompactionCheckpointPart(SUMMARY)]` with no reasoning or tool part. Forcing the model rule to replay no private parts makes that test fail. The unit tests that pinned reasoning exclusion from compaction are deleted, not re-pinned.
 - [x] 8.2 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
   - Evidence: `CHANGELOG.md` carries the dated 2026-11-03 entry; `pnpm lint:markdown` reports 0 issues.
-- [ ] 8.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused compaction and run-execution tests, `pnpm format:check`, `git diff --check`.
-- [ ] 8.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 8.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 8.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused compaction and run-execution tests, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter api lint` and `pnpm --filter api typecheck` pass; focused compaction, compaction.service, context-builder, and run-execution.service unit tests and the compaction-context and turn-replay-prefix integration suites pass; `pnpm format:check` and `git diff --check` are clean (#1571).
+- [x] 8.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1571.
+- [x] 8.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1571 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 9. continue
 
@@ -151,14 +170,19 @@ over. Every other layer stays inside about 2,000 lines.
   - Evidence: `continue-projection.ts` now holds only the kept-part records — `continueStateFromEvents` reads `parts` and stamps the `steps` map an older event holds onto the parts it stored before they carried one (its `results` map is ignored), `continueStepOffset` reads each part's `step`, and `continuedCallSteps` derives the numbers of the kept calls from the source Run's own `run.continued` state and its `tool.requested` events. `projectContinueParts`, its `results` map, and the live-result renderer are deleted; `run-execution.service.ts` builds the kept messages with `projectStoredReplyParts` (`privateParts: true`, `continuedMediaKey`), the same function `buildContext` uses for a later turn and compaction. `withKeptSteps` now numbers a whole kept step — a call from its record, and the text and reasoning around it from the call they lead into or follow — so a mixed numbered/unnumbered reply groups as the live step did, a number never reaches across an unnumbered call, and `startsNewStep` lets an unnumbered part that precedes a numbered call join it while keeping a call directly after another call in its step. `run-creation.ts` writes only `{sourceRunId, parts}`; `follow-up-admission.service.ts` reads the source Run's own `run.continued` and `tool.requested` events and passes numbered parts, so a Continue of a Run admitted before this change keeps the chain's numbers and offset. Tests: `continue-projection.test.ts` is rewritten around the records, the stamping, and the shared projection; `context-builder.test.ts` pins "Continue and a later turn replay a reply the same way" (byte-identical messages for the same parts) and the mixed reply; `continue-run.integration.test.ts` covers the kept-step shape, the sequential steps of a reply stored before `step`, the two inherited steps of a master-era Continue, a master-admitted Continue rebuilt after the deploy, and the kept reasoning of a failed Run; `turn-replay-prefix.integration.test.ts` admits a real Continue after a failed scripted turn and asserts its first prompt is byte-identical to the source Run's last live request. `continue-run.integration.test.ts` also pins "A kept part of a Continue Run replays in the key order of the event log": a kept input written `offset`, `path` reaches the first request as `path`, `offset` and the Continue reply stores that order. All focused unit and integration suites pass.
 - [x] 9.2 Update `docs/product/reference/continue-a-turn.md`, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
   - Evidence: `continue-a-turn.md` states that Continue builds its kept steps through the same projection as a later turn (the "No replay budget applies" contrast is gone), that only the model check applies to kept reasoning and metadata, and how admission numbers a reply stored before `step`; `CHANGELOG.md` carries the dated 2026-11-03 entry. `pnpm lint:markdown` reports 0 issues.
-- [ ] 9.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused Continue and regenerate tests, `pnpm format:check`, `git diff --check`.
-- [ ] 9.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 9.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 9.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, focused Continue and regenerate tests, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter api lint` and `pnpm --filter api typecheck` pass; focused Continue unit tests and the continue-run, continue-route, regenerate-run, follow-up-admission, and turn-replay-prefix integration suites pass; `pnpm format:check` and `git diff --check` are clean (#1572).
+- [x] 9.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: four independent passes (correctness, security, simplify, over-engineering) on the parent-relative diff before ready; accepted findings fixed in new commits and recorded under Self-review in #1572.
+- [x] 9.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1572 current head CI green on every test, build, typecheck, DAST, and e2e check (flake reruns noted in PR comments); pullfrog reports no new issues on the head, CodeRabbit and Codex reviewed or were rate-limited, Indent was out of credits; every review thread is answered and resolved.
 
 ## 10. finalize
 
-- [ ] 10.1 Enter `exact-turn-replay/finalize` with `$gh-stack` before any canonical spec write. Then run `$openspec-sync-specs`. Verify the ADDED requirements appear word for word, each MODIFIED requirement matches its delta with every canonical scenario kept, and both REMOVED `tool-calling` requirements are gone.
-- [ ] 10.2 Confirm archive readiness: `openspec status --change exact-turn-replay --json` reports every artifact done and every task above is checked. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 10.1 Enter `exact-turn-replay/finalize` with `$gh-stack` before any canonical spec write. Then run `$openspec-sync-specs`. Verify the ADDED requirements appear word for word, each MODIFIED requirement matches its delta with every canonical scenario kept, and both REMOVED `tool-calling` requirements are gone.
+  - Evidence: `exact-turn-replay/finalize` was entered with `gh stack add` before the sync commit. Every ADDED block of the 14 deltas equals its canonical block byte for byte (the new `turn-replay` capability and the `tool-calling`, `provider-api-selection`, and `reasoning-output` additions), every MODIFIED block equals its delta with every pre-sync canonical scenario kept in order, and both REMOVED `tool-calling` requirements are gone; `openspec validate --specs` reports 56 passed, 0 failed.
+- [x] 10.2 Confirm archive readiness: `openspec status --change exact-turn-replay --json` reports every artifact done and every task above is checked. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+  - Evidence: `openspec status --change exact-turn-replay --json` reports proposal, specs, design, and tasks done, and every task above is checked. Before the archive move, `openspec validate --specs --strict` reports 10 passed, 46 failed and `--all --strict` 11 passed, 47 failed; `master` reports the same 46 and 47 failures (the CLI's long-requirement warning on existing specs, and the open `tool-search` change), the new `turn-replay` spec passes strict, and `openspec validate --specs` reports 0 failures. `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` are clean.
 
 ## Workflow follow-up
 

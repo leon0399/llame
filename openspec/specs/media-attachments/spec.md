@@ -292,15 +292,15 @@ PDF part of a provider request.
 
 ### Requirement: Retained bytes count toward no text budget
 
-The tool-result truncation cap, the replay budgets, the prompt-import output bound, and each
+The tool-result truncation cap, the prompt-import output bound, and each
 request-size estimate MUST exclude retained bytes. An attached image MUST keep its dimension
 charge, and an attached PDF MUST keep its page charge.
 
 #### Scenario: A large retained PDF does not clear its pair
 
-- **WHEN** a later turn replays a `read` result whose retained original is 18 MiB, and the pair's
-  text fits its replay budget
-- **THEN** the system does not clear or drop the pair's payload because of the PDF
+- **WHEN** a later turn replays a `read` result whose retained original is 18 MiB
+- **THEN** the replayed result carries its whole text
+- **AND** the retained bytes add no text to it
 
 #### Scenario: Truncation does not cut retained bytes
 

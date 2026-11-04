@@ -188,45 +188,76 @@ There is no operation-wide content revision or snapshot. A file changed after it
 
 ### Requirement: Retrieval persists safe response-time attribution
 
-Every newly successful search passage SHALL include the logical Knowledge Space identifier, response-time display name, exact Knowledge-relative path, `kb://` locator with its one-based line range, and bounded excerpt. `kb://` read, listing, edit, and write results follow the native file tools' result contract and carry the same Space identifier and display name. These fields describe what that live call observed and SHALL NOT claim that a path, display name, authorization binding, coordinates, or content remains unchanged or permanently replayable. New results SHALL expose no content hash, expected hash, revision, configured root, or resolved host path.
+Each new successful search passage MUST include five fields. These are the
+logical Knowledge Space identifier, the display name at response time, and the
+exact Knowledge-relative path. The other two are the `kb://` locator with its
+one-based line range, and a bounded excerpt. `kb://`
+read, list, edit, and write results follow the result contract of the native file
+tools and carry the same Space identifier and display name. These fields describe
+what that live call observed. They MUST NOT claim that a path, a display name, an
+authorization binding, coordinates, or content stays the same or replays forever. New results MUST
+expose no content hash, expected hash, revision, configured root, or resolved host
+path.
 
-The fields SHALL remain complete in the persisted tool-result part, live event stream, and browser reconstruction because Knowledge success results preflight below the live-result cap. Later model replay MAY clear payload detail or omit the complete call/result pair under the tool-calling capability's existing pair and turn/ledger budgets. A successful search that explicitly records `complete: false` SHALL retain an `incomplete` outcome in every later payload-cleared model projection, including ordinary bounded next-turn replay and compacted-ledger replay, instead of being projected as complete success after detail is cleared.
+The fields MUST stay complete in the persisted tool-result part, in the live event
+stream, and in browser reconstruction. Knowledge success results preflight below
+the live-result cap, so nothing cuts them. Later model replay MUST carry the result as the live
+loop sent it, under `turn-replay`. A successful search that records
+`complete: false` keeps that field in each later replay.
 
-Historical persisted Knowledge observations SHALL remain immutable. Results authored before this change MAY retain their original `contentHash`, matching-line, and snippet fields; replay and browser reconstruction SHALL preserve those fields as recorded and SHALL NOT synthesize new range fields or remove historical attribution. Historical `knowledge_read` observations SHALL render as recorded; the tool itself no longer exists and a Run whose snapshot names it fails closed before the provider request.
+Historical persisted Knowledge observations MUST stay immutable. A result written
+before this change can keep its original `contentHash`, matching-line, and snippet
+fields. Replay and browser reconstruction MUST keep those fields as recorded. They
+MUST NOT add new range fields or remove historical attribution. Historical
+`knowledge_read` observations MUST render as recorded. The tool no longer exists,
+and a Run whose snapshot names it fails closed before the provider request.
 
-The persisted observation SHALL include the bounded excerpt or returned Markdown in the existing PostgreSQL-backed Run-event and assistant-message-part stores and SHALL follow their existing Run and Chat retention and deletion lifecycle. This execution history SHALL NOT become a canonical Knowledge content projection, index, source store, or alternate read authority. The system SHALL add no separate Knowledge-content persistence; every later retrieval SHALL read the live files again.
+The persisted observation MUST include the bounded excerpt or the returned
+Markdown in the PostgreSQL stores of Run events and assistant message parts. It
+MUST follow the Run and Chat retention and deletion lifecycle of those stores.
+This execution history MUST NOT become a canonical Knowledge content projection,
+an index, a source store, or another read authority. The system MUST add no
+separate Knowledge-content persistence, and each later retrieval MUST read the
+live files again.
 
-Attribution SHALL exclude configured roots, resolved child paths, hosted owner IDs, credentials, worker identity, and raw filesystem diagnostics. The structured tool-result UI SHALL visibly present the response-time display name, stable identifier, Knowledge-relative path, and locator so duplicate names remain distinguishable; `kb://` results render through the `read` tool's renderer, which shows the same fields from the native envelope. The packaged tool description SHALL instruct the model to cite the space and path of a note it uses; the system SHALL NOT post-process arbitrary provider text to fabricate a citation.
+Attribution MUST exclude configured roots, resolved child paths, hosted owner ids,
+credentials, worker identity, and raw filesystem diagnostics. The structured
+tool-result UI MUST show the display name at response time, the stable
+identifier, the Knowledge-relative path, and the locator. Thus two spaces with
+the same name stay different. `kb://` results render through the renderer of the
+`read` tool, which shows the same fields from the native envelope. The packaged
+tool description MUST tell the model to cite the space and the path of a note that
+it uses. The system MUST NOT change arbitrary provider text to make a citation.
 
 #### Scenario: Browser reload retains attribution
 
-- **WHEN** a Chat uses a newly successful Knowledge passage and the browser reloads
-- **THEN** the reconstructed result retains the same space identifier, response-time name, path, locator, and recorded excerpt
-- **AND** it does not require a content hash
+- **WHEN** a Chat uses a new successful Knowledge passage and the browser reloads
+- **THEN** the rebuilt result keeps the same space identifier, response-time name, path, locator, and recorded excerpt
+- **AND** it requires no content hash
 
 #### Scenario: Historical hash-bearing result remains historical
 
 - **WHEN** a Chat reloads a Knowledge result persisted before this change
-- **THEN** its original hash, matching line, snippet, or complete content remains as recorded
+- **THEN** its original hash, matching line, snippet, or complete content stays as recorded
 - **AND** replay does not rewrite it into the new result shape
 
 #### Scenario: Later file change does not alter history
 
-- **WHEN** a space name or file changes after a successful tool result was persisted
-- **THEN** the persisted result retains its original response-time name, path, locator, and excerpt
-- **AND** a later tool call may return different metadata, ranges, or bytes
+- **WHEN** a space name or a file changes after the system persisted a successful tool result
+- **THEN** the persisted result keeps its original response-time name, path, locator, and excerpt
+- **AND** a later tool call can return different metadata, ranges, or bytes
 
 #### Scenario: Browser Chat exposes the note citation
 
-- **WHEN** a browser Chat finds and uses a live note from one of multiple spaces
-- **THEN** the structured result visibly cites the response-time space identity and Knowledge-relative path
-- **AND** the tool description directs the model to cite both in its answer without exposing configured or resolved host paths
+- **WHEN** a browser Chat finds and uses a live note from one of several spaces
+- **THEN** the structured result visibly cites the response-time space identity and the Knowledge-relative path
+- **AND** the tool description tells the model to cite both in its answer, with no configured or resolved host path
 
 #### Scenario: Payload-cleared replay preserves incomplete search honesty
 
-- **WHEN** a successful search with `complete: false` is reduced to any payload-cleared model observation
-- **THEN** replay identifies its outcome as `incomplete`, not `success`
-- **AND** the degraded call cannot become indistinguishable from a complete search
+- **WHEN** a successful search with `complete: false` replays on a later turn
+- **THEN** the replay carries `complete: false` as the live loop sent it
+- **AND** no replay clears the payload, so the call cannot look like a complete search
 
 ### Requirement: Knowledge content is untrusted and potentially stale
 
