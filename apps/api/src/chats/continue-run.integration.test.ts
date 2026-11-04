@@ -650,6 +650,10 @@ describeIfDb('a Continue Run', () => {
           : [],
       );
     expect(callsPerMessage).toEqual([[CALL_ID], [], ['call-second'], []]);
+    expect(sent.at(-2)?.content).toEqual([
+      { type: 'text', text: 'second read' },
+      expect.objectContaining({ toolCallId: 'call-second' }),
+    ]);
   });
 
   it('keeps the inherited steps of a master-era Continue apart', async () => {
@@ -721,6 +725,16 @@ describeIfDb('a Continue Run', () => {
       ['call-own'],
       [],
     ]);
+    const resultIds = sent
+      .slice(-6)
+      .flatMap(({ role, content }) =>
+        role === 'tool' && Array.isArray(content)
+          ? content.flatMap((part) =>
+              part.type === 'tool-result' ? [part.toolCallId] : [],
+            )
+          : [],
+      );
+    expect(resultIds).toEqual([CALL_ID, 'call-second', 'call-own']);
   });
 
   it('replays the reasoning of a failed Run with its provider metadata', async () => {
