@@ -897,8 +897,10 @@ describeIfDb(
         expect(waiting).toBe(1);
         resolveCommitB!();
 
-        await revoke;
+        // A can reject as soon as B commits, possibly before `revoke` settles:
+        // assert it first so its rejection always has a handler.
         await expect(promote).rejects.toMatchObject({ code: 'OW001' });
+        await revoke;
         expect(await placeOf(alice, child.id)).toEqual([
           { parent_id: root.id, path: child.path, created_by: alice },
         ]);
