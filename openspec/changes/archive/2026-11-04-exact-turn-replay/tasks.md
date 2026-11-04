@@ -1,6 +1,6 @@
 Track [#1539](https://github.com/leon0399/llame/issues/1539),
 [#599](https://github.com/leon0399/llame/issues/599), and their PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking). The
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking). The
 follow-up [#1550](https://github.com/leon0399/llame/issues/1550) owns the
 reasoning token estimate. Implementation waits for Leo's approval of the
 published proposal revision. Keep live status in the Project.
