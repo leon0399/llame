@@ -11,6 +11,7 @@ import {
   tool,
   type OnFinishEvent,
   type ModelMessage,
+  type ProviderMetadata,
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
@@ -647,7 +648,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     // adapter part id rides along to decide persisted part boundaries — scoped
     // to the provider step, because an adapter may number its parts per
     // response and restart at zero on a later step (design D18).
-    expect(onTextDelta.mock.calls).toEqual([['done']]);
+    expect(onTextDelta.mock.calls).toEqual([['done', '0:answer', undefined]]);
     expect(onReasoningDelta.mock.calls).toEqual([
       ['think', '0:reasoning', undefined],
     ]);
@@ -710,7 +711,10 @@ describe('createOpenAIModelClient — reasoning provider metadata', () => {
     ]);
     const client = buildClient(model);
     const collector = createAssistantPartCollector();
-    const onTextDelta = vi.fn((text: string) => collector.text(text));
+    const onTextDelta = vi.fn(
+      (text: string, partId?: string, providerMetadata?: ProviderMetadata) =>
+        collector.text(text, partId, providerMetadata),
+    );
 
     await expect(
       client.streamText({
@@ -729,7 +733,7 @@ describe('createOpenAIModelClient — reasoning provider metadata', () => {
     // the stream the caller consumes: the text still resolves exactly once,
     // and every part's text and metadata arrive once, in stream order, under
     // the id scoped to this provider step.
-    expect(onTextDelta.mock.calls).toEqual([['done']]);
+    expect(onTextDelta.mock.calls).toEqual([['done', '0:answer', undefined]]);
     expect(collector.parts()).toEqual([
       {
         type: 'reasoning',
@@ -998,7 +1002,9 @@ describe('createOpenAIModelClient — delta callbacks', () => {
 
     await client.streamText({ chat: CHAT, messages, onTextDelta }).text;
 
-    expect(onTextDelta.mock.calls).toEqual([['answer']]);
+    // A text-only turn still takes its id off the shared consumer: `onChunk`
+    // alone would never see the part's start (design A7).
+    expect(onTextDelta.mock.calls).toEqual([['answer', '0:answer', undefined]]);
   });
 });
 

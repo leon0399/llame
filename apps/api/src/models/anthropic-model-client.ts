@@ -29,7 +29,7 @@ import {
 import {
   applyToolCallingOptions,
   awaitSettlementAfter,
-  bindReasoningChannel,
+  bindStreamChannel,
   deferTerminalCallbacks,
   KEYLESS_PLACEHOLDER_API_KEY,
   productUserAgentHeaders,
@@ -361,9 +361,11 @@ function anthropicStatusMessage(statusCode: number): string {
  * Builds one streaming request: the declared Messages wire (anthropic-provider
  * D1), the caller's message/system/abort plumbing, the composed options, the
  * catalog output limit, and the shared tool loop with its tool-call gate.
- * Text deltas ride `onChunk`; the whole reasoning channel — deltas, part
- * metadata, and the provider-invocation-scoped part ids — comes off one
- * `fullStream` branch the shared terminal deferral starts for this request.
+ * The whole text and reasoning channels — deltas, part metadata, and the
+ * provider-invocation-scoped part ids — come off one `fullStream` branch the
+ * shared terminal deferral starts for this request: `onChunk` never sees a
+ * text part's start or end, so it cannot carry a citation or compaction
+ * metadata the part persists (design A7).
  */
 function buildStreamOptions(
   provider: AnthropicProvider,
@@ -398,13 +400,6 @@ function buildStreamOptions(
   installStepPreparation(streamOptions, input, config);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
-  if (input.onTextDelta) {
-    streamOptions.onChunk = ({ chunk }) => {
-      if (chunk.type === 'text-delta') {
-        input.onTextDelta?.(chunk.text);
-      }
-    };
-  }
   return { streamOptions, gate };
 }
 
@@ -425,14 +420,14 @@ function runAnthropicStream(
           onError({ error: sanitizeAnthropicError(error) }),
   );
   streamOptions.onFinish = createModelStreamFinishCallback(input.onFinish);
-  // SDK callbacks return immediately so the `fullStream` reasoning branch can
+  // SDK callbacks return immediately so the `fullStream` stream branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D15/D18).
   const terminals = deferTerminalCallbacks(streamOptions, input);
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;
   const result = dependencies.streamText(streamOptions);
-  bindReasoningChannel(terminals, result, input, gate);
+  bindStreamChannel(terminals, result, input, gate);
 
   return awaitSettlementAfter(
     result,

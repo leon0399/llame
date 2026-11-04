@@ -39,6 +39,7 @@ import {
   applyToolCallingOptions,
   awaitSettlementAfter,
   generateToolBoundObject,
+  hasStreamChannel,
   KEYLESS_PLACEHOLDER_API_KEY,
   productUserAgentHeaders,
   trackAbortSettlement,
@@ -49,6 +50,7 @@ import {
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
+import { forwardChunk } from './stream-parts';
 import { createToolCallGate, type ToolCallGate } from './tool-call-gate';
 
 /**
@@ -332,28 +334,37 @@ function reportBoundedFailure(
 }
 
 /**
- * Routes text and reasoning off `onChunk`. Reasoning rides `onChunk`, which
- * the SDK reaches only after it has already repaired (refused) a call, so the
- * gate holds refusal reports and executions until `onChunk` passes the call's
- * own part (#1184), and releases whatever it still holds once the stream
- * finishes, fails, or aborts, so no call outlives its stream.
+ * Routes text, reasoning, and tool-call metadata off `onChunk`. Reasoning
+ * rides `onChunk`, which the SDK reaches only after it has already repaired
+ * (refused) a call, so the gate holds refusal reports and executions until
+ * `onChunk` passes the call's own part (#1184), and releases whatever it still
+ * holds once the stream finishes, fails, or aborts, so no call outlives its
+ * stream.
+ *
+ * Unlike the Responses and Messages wires, this one has no `fullStream`
+ * consumer: the adapter never puts metadata on a text part, so `onChunk`'s
+ * delta is the whole text seam. It emits ONE constant text id per provider
+ * response, and `onChunk` sees neither a step number nor a part start, so the
+ * id cannot be step-scoped here. That is harmless: consecutive text parts are
+ * always separated by a tool part — a step that only wrote text ends the tool
+ * loop — so a text id can never name two parts the collector could merge.
+ * The call's own metadata (`thoughtSignature`) does ride `onChunk`, and is
+ * reported before `gate.reach`, so the run holds it before the call executes
+ * or is refused (design A7).
  */
 function applyChunkDelivery(
   streamOptions: StreamOptions,
   input: ModelStreamInput,
   gate: ToolCallGate,
 ): void {
-  if (!input.onTextDelta && !input.onReasoningDelta) return;
+  if (!hasStreamChannel(input)) return;
   streamOptions.onChunk = ({ chunk }) => {
-    if (chunk.type === 'text-delta') {
-      input.onTextDelta?.(chunk.text);
-    } else if (chunk.type === 'reasoning-delta') {
-      input.onReasoningDelta?.(chunk.text, chunk.id);
-    } else if (chunk.type === 'tool-call') {
-      gate.reach(chunk.toolCallId);
-    }
+    forwardChunk(chunk, input);
+    if (chunk.type === 'tool-call') gate.reach(chunk.toolCallId);
   };
-  if (!input.onReasoningDelta) return;
+  // The gate reports refusals synchronously when it is reached, so it must be
+  // attached whenever `onChunk` is the channel that reports a call.
+  if (!input.onReasoningDelta && !input.onToolCallMetadata) return;
   gate.attach();
   const { onFinish, onError, onAbort } = streamOptions;
   streamOptions.onFinish = (event) => {

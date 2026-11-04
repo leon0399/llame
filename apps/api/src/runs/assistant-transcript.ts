@@ -36,13 +36,19 @@ import { isArtifactLocator } from '../tools/artifacts/locator';
 import {
   type PermissionClauseReference,
   type PermissionDecision,
-  type PermissionDecisionReason,
 } from '../tools/permissions/types';
 import {
   isDerivedLocatorKind,
   type DerivedDecisionRecord,
 } from '../tools/web-read/admission';
 import { isSystemOriginPayload } from './tool-activity-origin';
+import { TextPartTrack } from './transcript-text-parts';
+import {
+  eventPayloadField,
+  eventPayloadString,
+  eventProviderMetadata,
+  isPermissionRejectionReason,
+} from './run-event-payload';
 import {
   parseRetainedMedia,
   RETAINED_MEDIA_KEY,
@@ -87,6 +93,16 @@ export type ToolActivityPart = {
    *  rather than by the tool itself. Persisted so the UI can render
    *  "Cancelled" without parsing error text, and survives the live transport. */
   resultProviderMetadata?: { llame: { cancelled: true } };
+  /**
+   * The opaque provider metadata the adapter attached to this call (design
+   * A7): the Responses item's `itemId`, or a Chat Completions
+   * `thoughtSignature`. Stored once, on the call, and replayed unchanged on a
+   * later request for the same Chat; llame never reads inside it. Absent when
+   * the wire supplied none. The owner history response and owner event stream
+   * strip it, and exports, public shares, search, logs, and telemetry never
+   * carry it.
+   */
+  providerMetadata?: ProviderMetadata;
   /**
    * Safe, owner-visible permission decision metadata (openspec/changes/
    * tool-call-permissions D5). Excluded from model replay, public shares,
@@ -151,6 +167,8 @@ class AssistantPartCollectorImpl {
   // last), so the metadata is routed to the part its id names rather than to
   // whatever part is open (design D15).
   private readonly reasoningPartIndexes = new Map<string, number>();
+  // Text part boundaries and metadata binding (design A7).
+  private readonly textParts = new TextPartTrack();
 
   /**
    * Start the transcript from the parts an earlier Run kept (turn-actions D5),
@@ -172,14 +190,21 @@ class AssistantPartCollectorImpl {
     }
   }
 
-  text(text: string): void {
-    if (text.length === 0) return;
-    const last = this.collected.at(-1);
-    if (last?.type === 'text' && isString(last.text)) {
-      last.text += text;
-      return;
-    }
-    this.collected.push({ type: 'text', text });
+  /**
+   * A text delivery; boundaries and metadata binding: see `TextPartTrack`
+   * (design A7). Reports the metadata this delivery stored on a part, if any.
+   */
+  text(
+    text: string,
+    partId?: string,
+    providerMetadata?: ProviderMetadata,
+  ): ProviderMetadata | undefined {
+    return this.textParts.record(
+      this.collected,
+      text,
+      partId,
+      providerMetadata,
+    );
   }
 
   /**
@@ -339,6 +364,12 @@ export type ToolActivityPartInput = {
   readonly toolName: string;
   readonly input: unknown;
   readonly result: ToolResult;
+  /**
+   * The call's opaque provider metadata (design A7), stored once on the call:
+   * the consumer delivered it before the call executed, and every settlement
+   * path carries it here from the event's open call entry.
+   */
+  readonly providerMetadata?: ProviderMetadata;
   readonly permission?: PermissionDecision;
   readonly derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
   /**
@@ -378,12 +409,20 @@ export function toolActivityPart(
 ): ToolActivityPart {
   const part = toolPartBody(call);
   if (call.retainedMedia !== undefined) part.retainedMedia = call.retainedMedia;
+  if (call.providerMetadata !== undefined)
+    part.providerMetadata = call.providerMetadata;
   if (call.permission !== undefined) part.permission = call.permission;
   if (call.derivedDecisions !== undefined && call.derivedDecisions.length > 0) {
     part.derivedDecisions = call.derivedDecisions;
   }
-  const refusedTarget = hopRejectionTarget(call.toolName, call.result);
-  if (refusedTarget !== undefined) part.errorRejectedUrl = refusedTarget;
+  // Only the native `read` tool's refused hop names a redirect target, and an
+  // absent value must add no property at all.
+  const refusedUrl =
+    call.result.status === 'error' &&
+    isHopRejection(call.toolName, call.result.type)
+      ? call.result.rejectedUrl
+      : undefined;
+  if (refusedUrl !== undefined) part.errorRejectedUrl = refusedUrl;
   const artifact = isRecord(call.result) ? call.result['artifact'] : undefined;
   if (isString(artifact) && isArtifactLocator(artifact))
     part.artifact = artifact;
@@ -424,48 +463,6 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
 }
 
 /**
- * The refused redirect target to store beside a call's error, or undefined.
- * Only the native `read` tool's refused hop carries one, so a result from any
- * other tool or error type stores none.
- */
-function hopRejectionTarget(
-  toolName: string,
-  result: ToolResult,
-): string | undefined {
-  return result.status === 'error' && isHopRejection(toolName, result.type)
-    ? result.rejectedUrl
-    : undefined;
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the ternary test `isRecord(payload)` below -- an `isXxx`-named guard call, but as a ternary test rather than an `if`/`return`-of-boolean, a shape the structural exemption doesn't unwrap.
-function eventPayloadField(payload: unknown, key: string) {
-  return isRecord(payload) ? payload[key] : undefined;
-}
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `eventPayloadField` above, which validates via `isRecord(payload)` as its own ternary test; bare-identifier delegation, not itself a validating call.
-function eventPayloadString(payload: unknown, key: string): string | undefined {
-  const value = eventPayloadField(payload, key);
-  return isString(value) ? value : undefined;
-}
-
-/**
- * The opaque provider metadata a `reasoning.delta` event carries (design
- * D15). Stored jsonb is untrusted on the way back in, so only a record is
- * accepted; llame never reads inside it.
- */
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- reads one field off the raw `run_events.payload` JSONB value, validating with `isRecord` before the value is trusted; mirrors `eventPayloadString` above.
-function eventProviderMetadata(payload: unknown): ProviderMetadata | undefined {
-  const value = eventPayloadField(payload, 'providerMetadata');
-  if (!isRecord(value)) return undefined;
-  // SAFETY: the value is the adapter's own provider-metadata object as
-  // Postgres jsonb stored and returned it; the check above only rules out a
-  // malformed or legacy payload shape, and nothing reads inside it.
-  // eslint-disable-next-line typescript/no-unsafe-type-assertion
-  const metadata = value as ProviderMetadata;
-  return metadata;
-}
-
-/**
  * Rebuild the observable assistant prefix from the append-only event log and
  * identify calls that were durably requested but never durably completed.
  * Request-time reservations keep synthetic results in occurrence order even
@@ -475,34 +472,9 @@ type OpenToolCall = {
   readonly toolName: string;
   readonly toolInput: unknown;
   readonly permission?: PermissionDecision;
+  /** The call's opaque provider metadata, from its `tool.requested` (A7). */
+  readonly providerMetadata?: ProviderMetadata;
 };
-
-const PERMISSION_REASONS: ReadonlySet<string> = new Set([
-  'explicit_reject',
-  'no_allow',
-  'invalid_field',
-  'input_limit',
-  'matched_allow',
-  'permission_mode_bypass',
-  'permission_mode_read_only',
-]);
-
-function isPermissionReason(value: unknown): value is PermissionDecisionReason {
-  return isString(value) && PERMISSION_REASONS.has(value);
-}
-
-function isPermissionRejectionReason(
-  value: unknown,
-): value is Exclude<
-  PermissionDecisionReason,
-  'matched_allow' | 'permission_mode_bypass'
-> {
-  return (
-    isPermissionReason(value) &&
-    value !== 'matched_allow' &&
-    value !== 'permission_mode_bypass'
-  );
-}
 
 function permissionClauseFromPayload(
   value: unknown,
@@ -662,7 +634,11 @@ class DurableAssistantReconstructor {
   private applyEvent(event: RunEvent): void {
     switch (event.eventType) {
       case 'model.delta':
-        this.collector.text(eventPayloadString(event.payload, 'text') ?? '');
+        this.collector.text(
+          eventPayloadString(event.payload, 'text') ?? '',
+          eventPayloadString(event.payload, 'partId'),
+          eventProviderMetadata(event.payload),
+        );
         return;
       case 'reasoning.delta':
         this.collector.reasoning(
@@ -718,7 +694,12 @@ class DurableAssistantReconstructor {
     this.seenToolCallIds.add(toolCallId);
     const toolInput = eventPayloadField(event.payload, 'input');
     const permission = permissionFromPayload(event.payload);
-    this.openToolCalls.set(toolCallId, { toolName, toolInput, permission });
+    this.openToolCalls.set(toolCallId, {
+      toolName,
+      toolInput,
+      permission,
+      providerMetadata: eventProviderMetadata(event.payload),
+    });
     this.collector.toolRequested(toolCallId);
   }
 
@@ -772,6 +753,7 @@ class DurableAssistantReconstructor {
         input: request.toolInput,
         result,
         permission: request.permission,
+        providerMetadata: request.providerMetadata,
         classification: this.recordedClassification(toolCallId),
         // The call decision rides on the request; the derived-locator
         // decisions only exist once the call settled, so they are read from

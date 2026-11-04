@@ -832,6 +832,10 @@ describe('ScriptedModelsService streamText options', () => {
       },
     });
 
-    expect(onReasoningDelta).toHaveBeenCalledExactlyOnceWith('thinking');
+    expect(onReasoningDelta).toHaveBeenCalledExactlyOnceWith(
+      'thinking',
+      'reasoning-part',
+      undefined,
+    );
   });
 });

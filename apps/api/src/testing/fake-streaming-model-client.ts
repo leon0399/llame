@@ -20,6 +20,7 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 
 import { applyRequestUsageCallback } from '../models/request-usage';
+import { forwardChunk } from '../models/stream-parts';
 import { installStepPreparation } from '../models/step-composer';
 import { TITLE_SYSTEM_PROMPT } from '../titles/title';
 import {
@@ -306,13 +307,7 @@ function answerStreamHandlers(
 > {
   const onFinish = createModelStreamFinishCallback(input.onFinish);
   return {
-    onChunk: ({ chunk }) => {
-      if (chunk.type === 'text-delta') {
-        input.onTextDelta?.(chunk.text);
-      } else if (chunk.type === 'reasoning-delta') {
-        input.onReasoningDelta?.(chunk.text);
-      }
-    },
+    onChunk: ({ chunk }) => forwardChunk(chunk, input),
     onError: (event) => {
       if (!input.abortSignal?.aborted) {
         return input.onError?.(event);

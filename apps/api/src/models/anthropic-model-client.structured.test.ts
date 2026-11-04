@@ -281,8 +281,9 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
       ]),
     });
     const client = buildClient(harness);
-    const { texts, onTextDelta } = captureText();
-    const { deliveries, onReasoningDelta } = captureReasoning();
+    const { texts, deliveries, onTextDelta } = captureText();
+    const { deliveries: reasoningDeliveries, onReasoningDelta } =
+      captureReasoning();
 
     await expect(
       client.streamText({
@@ -293,12 +294,13 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
       }).text,
     ).resolves.toBe('answer');
 
-    // Exact delivery lists: text travels only on onChunk and reasoning only
-    // through the shared helper, so a chunk routed to both would duplicate
-    // here. The helper scopes the adapter's per-response block index to the
-    // provider invocation, so the first step's block is `0:0`.
+    // Exact delivery lists: text and reasoning both ride the shared consumer,
+    // so a chunk routed to both would duplicate here. The helper scopes the
+    // adapter's per-response block index to the provider invocation, so the
+    // first step's blocks are `0:0` and `0:1`.
     expect(texts).toEqual(['answer']);
-    expect(deliveries).toEqual([
+    expect(deliveries).toEqual([['answer', '0:1', undefined]]);
+    expect(reasoningDeliveries).toEqual([
       ['deep thought', '0:0', undefined],
       ['', '0:0', { anthropic: { signature: 'SIG123' } }],
     ]);

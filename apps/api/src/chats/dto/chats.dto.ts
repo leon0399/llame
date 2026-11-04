@@ -40,6 +40,7 @@ import {
 import { ChatLatestRunResponse } from './latest-run.dto';
 import { CreateMessageBodyDto } from './message-parts.dto';
 import { withoutRetainedMedia } from '../retained-media-egress';
+import { withoutProviderMetadata } from '../provider-metadata-egress';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
@@ -525,7 +526,10 @@ export function toChatMessageResponse(
     seq: message.seq,
     role: message.role,
     senderUserId: message.senderUserId,
-    parts: withoutRetainedMedia(message.parts),
+    // Retained bytes stay on the server (retain-read-media D4), and so does
+    // the opaque provider metadata of a text part or a tool call (design A7):
+    // replay reads the stored row, never this response.
+    parts: withoutProviderMetadata(withoutRetainedMedia(message.parts)),
     attachments: message.attachments,
     usage: isRecord(message.usage) ? message.usage : null,
     inReplyTo: message.inReplyTo,

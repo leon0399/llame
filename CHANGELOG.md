@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-03
 
+- A reply's stored text and tool parts now keep the opaque provider metadata
+  their stream carried, so a later turn can send it back unchanged. On the
+  Responses wire two `message` items stay two stored text parts, each with its
+  item id; a tool call keeps its own item id, and a Chat Completions call keeps
+  its `thoughtSignature`. The metadata is server-side plumbing only: the owner
+  chat history response and run event stream strip it, and exports, public
+  shares, search, logs, and telemetry never carry it. Reasoning metadata keeps
+  its current exposure. Nothing replays it yet.
+
 - A third Run permission mode, `read-only`, caps the operator policy for one
   send. `tools.permissionModes` accepts `"read-only"` (the default stays
   `["default"]`), and a chat send, chat creation, or follow-up request accepts

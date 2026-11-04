@@ -410,6 +410,142 @@ describe('RunsController context receipt', () => {
     ]);
   });
 
+  it('strips text and tool-call provider metadata from the owner frames without changing stored events', async () => {
+    const textMetadata = { openai: { itemId: 'msg_1' } };
+    const callMetadata = { openai: { itemId: 'fc_1' } };
+    const keptTextMetadata = { openai: { itemId: 'msg_2' } };
+    const keptCallMetadata = { openai: { itemId: 'fc_2' } };
+    // The reasoning part's metadata is carried today, so this strip leaves it
+    // alone: this change adds text and call metadata, it does not alter
+    // reasoning.
+    const reasoningMetadata = { anthropic: { signature: 'SIG_1' } };
+    const events: Array<RunEvent> = [
+      {
+        runId: run.id,
+        sequence: 7,
+        eventType: 'model.delta',
+        payload: {
+          text: 'answer',
+          partId: '0:msg_1',
+          providerMetadata: textMetadata,
+        },
+        createdAt: new Date('2026-07-18T10:00:01.000Z'),
+      },
+      {
+        runId: run.id,
+        sequence: 8,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'call-1',
+          toolName: 'echo',
+          input: {},
+          stepNumber: 0,
+          providerMetadata: callMetadata,
+        },
+        createdAt: new Date('2026-07-18T10:00:01.500Z'),
+      },
+      {
+        runId: run.id,
+        sequence: 9,
+        eventType: 'run.continued',
+        payload: {
+          runId: run.id,
+          parts: [
+            { type: 'text', text: 'kept', providerMetadata: keptTextMetadata },
+            {
+              type: 'tool-read',
+              toolCallId: 'call-2',
+              state: 'output-available',
+              input: {},
+              output: { status: 'success' },
+              providerMetadata: keptCallMetadata,
+            },
+          ],
+        },
+        createdAt: new Date('2026-07-18T10:00:02.000Z'),
+      },
+      {
+        runId: run.id,
+        sequence: 10,
+        eventType: 'reasoning.delta',
+        payload: {
+          text: 'think',
+          partId: '0:0',
+          providerMetadata: reasoningMetadata,
+        },
+        createdAt: new Date('2026-07-18T10:00:02.500Z'),
+      },
+    ];
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValueOnce(events)
+      .mockResolvedValueOnce([]);
+    const sse = response();
+
+    await controller().streamRunEvents(
+      'owner',
+      run.id,
+      {},
+      request(),
+      sse.value,
+    );
+
+    expect(sse.writes).toEqual([
+      `id: 7\ndata: ${JSON.stringify({
+        sequence: 7,
+        eventType: 'model.delta',
+        payload: { text: 'answer' },
+        createdAt: events[0].createdAt,
+      })}\n\n`,
+      `id: 8\ndata: ${JSON.stringify({
+        sequence: 8,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'call-1',
+          toolName: 'echo',
+          input: {},
+          stepNumber: 0,
+        },
+        createdAt: events[1].createdAt,
+      })}\n\n`,
+      `id: 9\ndata: ${JSON.stringify({
+        sequence: 9,
+        eventType: 'run.continued',
+        payload: {
+          runId: run.id,
+          parts: [
+            { type: 'text', text: 'kept' },
+            {
+              type: 'tool-read',
+              toolCallId: 'call-2',
+              state: 'output-available',
+              input: {},
+              output: { status: 'success' },
+            },
+          ],
+        },
+        createdAt: events[2].createdAt,
+      })}\n\n`,
+      `id: 10\ndata: ${JSON.stringify({
+        sequence: 10,
+        eventType: 'reasoning.delta',
+        payload: {
+          text: 'think',
+          partId: '0:0',
+          providerMetadata: reasoningMetadata,
+        },
+        createdAt: events[3].createdAt,
+      })}\n\n`,
+      'data: [DONE]\n\n',
+    ]);
+    // The stored events keep their metadata: the next attempt replays them.
+    expect(events[0].payload).toHaveProperty('providerMetadata');
+    expect(events[1].payload).toHaveProperty('providerMetadata');
+    // The adapter item id is server-side plumbing too: on the Responses wire
+    // it is the metadata's own `itemId`, and the owner stream names no part.
+    expect(sse.writes.join('')).not.toContain('msg_1');
+  });
+
   it('strips retained read bytes from the tool.completed and run.continued frames without changing stored events', async () => {
     const retainedMedia = {
       mediaType: 'image/png',

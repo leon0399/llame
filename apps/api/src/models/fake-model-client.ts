@@ -12,6 +12,7 @@ import {
   type ModelStreamInput,
 } from './model-client';
 import { applyRequestUsageCallback } from './request-usage';
+import { forwardChunk } from './stream-parts';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 import { applyToolCallingOptions } from './openai-model-client';
 import { createToolCallGate } from './tool-call-gate';
@@ -82,13 +83,7 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
   return {
     completion,
     handlers: {
-      onChunk: ({ chunk }) => {
-        if (chunk.type === 'text-delta') {
-          input.onTextDelta?.(chunk.text);
-        } else if (chunk.type === 'reasoning-delta') {
-          input.onReasoningDelta?.(chunk.text);
-        }
-      },
+      onChunk: ({ chunk }) => forwardChunk(chunk, input),
       onError: async (event) => {
         try {
           await input.onError?.(event);

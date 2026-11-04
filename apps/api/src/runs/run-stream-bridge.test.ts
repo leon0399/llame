@@ -1139,6 +1139,53 @@ describe('createRunEventTranslator part identity and error text', () => {
     });
   });
 
+  it('never carries text or tool-call provider metadata into the UI chunk stream', () => {
+    const build = () => {
+      const t = createRunEventTranslator('run-1');
+      t.translate({ eventType: 'run.started', payload: null });
+      return t;
+    };
+    const metadata = { openai: { itemId: 'msg_1' } };
+
+    // A metadata-only `model.delta` (a text part's start) emits nothing: the
+    // browser receives neither the opaque value nor a boundary it did not
+    // already see (design A7).
+    expect(
+      build().translate({
+        eventType: 'model.delta',
+        payload: { partId: '0:msg_1', providerMetadata: metadata },
+      }),
+    ).toEqual([]);
+
+    const plain = build().translate({
+      eventType: 'model.delta',
+      payload: { text: 'answer', partId: '0:msg_1' },
+    });
+    const withMetadata = build().translate({
+      eventType: 'model.delta',
+      payload: {
+        text: 'answer',
+        partId: '0:msg_1',
+        providerMetadata: metadata,
+      },
+    });
+    expect(withMetadata).toEqual(plain);
+    expect(JSON.stringify(withMetadata)).not.toContain('itemId');
+
+    // The tool-call metadata rides the request event, which the bridge renders
+    // without it.
+    const callChunks = build().translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'call-1',
+        toolName: 'echo',
+        input: {},
+        providerMetadata: metadata,
+      },
+    });
+    expect(JSON.stringify(callChunks)).not.toContain('itemId');
+  });
+
   it('uses a generic error text only when the tool output carries none', () => {
     const withMessage = createRunEventTranslator('run-1');
     withMessage.translate({ eventType: 'run.started', payload: null });
@@ -1398,8 +1445,16 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
           sourceRunId: 'run-0',
           steps: { 'call-1': 0 },
           parts: [
-            { type: 'reasoning', text: 'thinking first' },
-            { type: 'text', text: 'reading' },
+            {
+              type: 'reasoning',
+              text: 'thinking first',
+              providerMetadata: { anthropic: { signature: 'SIG_1' } },
+            },
+            {
+              type: 'text',
+              text: 'reading',
+              providerMetadata: { openai: { itemId: 'msg_1' } },
+            },
             {
               type: 'tool-read',
               toolCallId: 'call-1',
@@ -1407,6 +1462,7 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
               input: { path: '/tmp/file.txt' },
               output: { status: 'success', text: 'file body' },
               outcome: 'success',
+              providerMetadata: { openai: { itemId: 'fc_1' } },
             },
             // A kept in-Run item has no chunk of its own.
             {

@@ -1062,11 +1062,13 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
 
     // Exact call lists, not `toHaveBeenCalledWith`: each normalized delta
     // must reach its own callback exactly once, so a chunk routed to both
-    // cannot pass. The constant adapter id rides along (D8).
-    expect(onTextDelta.mock.calls).toEqual([['done']]);
+    // cannot pass. The adapter's constant text id (`answer`, one per provider
+    // response) and reasoning id ride along (D8/A7); this wire supplies no
+    // part metadata anywhere.
+    expect(onTextDelta.mock.calls).toEqual([['done', 'answer']]);
     expect(onReasoningDelta.mock.calls).toEqual([
-      ['looking up', 'reasoning-0'],
-      ['found it', 'reasoning-0'],
+      ['looking up', 'reasoning-0', undefined],
+      ['found it', 'reasoning-0', undefined],
     ]);
     expect(model.doStreamCalls).toHaveLength(2);
     // The follow-up request of the same turn carries the prior assistant
@@ -1093,6 +1095,67 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
     ).resolves.toBe('answer');
 
     expect(onReasoningDelta).not.toHaveBeenCalled();
+  });
+});
+
+describe('createOpenAICompletionsModelClient — provider metadata on the call (A7)', () => {
+  it('forwards a call’s opaque metadata before the gate releases it', async () => {
+    // The adapter puts a Gemini `thought_signature` on the call's own part; a
+    // later request for the same Chat must send it back, so the run holds it
+    // before the call executes (design A7).
+    const order: Array<string> = [];
+    const metadata = { openaiCompatible: { thoughtSignature: 'SIG-1' } };
+    const model = scriptedModel([
+      {
+        stream: simulateReadableStream<LanguageModelV3StreamPart>({
+          chunks: [
+            { type: 'stream-start', warnings: [] },
+            { type: 'reasoning-start', id: 'r' },
+            { type: 'reasoning-delta', id: 'r', delta: 'think' },
+            { type: 'reasoning-end', id: 'r' },
+            {
+              type: 'tool-call',
+              toolCallId: 'call-0',
+              toolName: 'echo',
+              input: '{"value":"x"}',
+              providerMetadata: metadata,
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'tool-calls', raw: undefined },
+              usage: PROVIDER_USAGE,
+            },
+          ],
+        }),
+      },
+      textResponse(),
+    ]);
+    const onToolCallMetadata = vi.fn(() => order.push('metadata'));
+
+    await buildClient(model).client.streamText({
+      chat: CHAT,
+      messages,
+      tools: {
+        echo: tool({
+          inputSchema: z.strictObject({ value: z.string() }),
+          execute: ({ value }) => {
+            order.push('execute');
+            return value;
+          },
+        }),
+      },
+      maxSteps: 2,
+      onReasoningDelta: (text) => {
+        if (text.length > 0) order.push('reasoning');
+      },
+      onToolCallMetadata,
+    }).text;
+
+    expect(onToolCallMetadata).toHaveBeenCalledExactlyOnceWith(
+      'call-0',
+      metadata,
+    );
+    expect(order).toEqual(['reasoning', 'metadata', 'execute']);
   });
 });
 

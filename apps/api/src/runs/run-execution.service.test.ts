@@ -152,7 +152,9 @@ import {
   RunEventsRepository,
   RunsRepository,
   type CompletedRunWithTrigger,
+  type RunEventType,
 } from './runs-repository';
+import { reconstructDurableAssistant } from './assistant-transcript';
 import type {
   CompactionCapability,
   CompactionSummary,
@@ -3862,7 +3864,7 @@ function makeWideningClient() {
 
 /** Replaces the `append` stub with one that records the durable event order. */
 function recordAppendedEvents() {
-  const appended: Array<{ type: string; payload: unknown }> = [];
+  const appended: Array<{ type: RunEventType; payload: unknown }> = [];
   vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
     (_runId, eventType, payload) => {
       appended.push({ type: eventType, payload });
@@ -3878,21 +3880,25 @@ function recordAppendedEvents() {
   return appended;
 }
 
+/** The events `recordAppendedEvents` captured, as the stored rows would read. */
+function durableEventsFrom(
+  appended: Array<{ type: RunEventType; payload: unknown }>,
+): Array<RunEvent> {
+  return appended.map((entry, index) => ({
+    ...event,
+    sequence: index + 1,
+    eventType: entry.type,
+    payload: entry.payload ?? null,
+  }));
+}
+
 /** Replays whatever `recordAppendedEvents` captured back through `listByRunId`,
  * so `finishRun`'s durable reconstruction sees the run's real event log. */
 function replayAppendedEvents(
-  appended: Array<{ type: string; payload: unknown }>,
+  appended: Array<{ type: RunEventType; payload: unknown }>,
 ) {
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-    () =>
-      Promise.resolve(
-        appended.map((entry, index) => ({
-          ...event,
-          sequence: index + 1,
-          eventType: entry.type,
-          payload: entry.payload ?? null,
-        })),
-      ),
+    () => Promise.resolve(durableEventsFrom(appended)),
   );
 }
 
@@ -4506,6 +4512,92 @@ describe('RunExecutionService executeRun — stream completion', () => {
           { type: 'text', text: 'the answer' },
         ],
       }),
+    );
+  });
+
+  it('binds a text part’s start metadata once its id writes text, splitting at a new id', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const firstMetadata = { openai: { itemId: 'msg_1' } };
+    const secondMetadata = { openai: { itemId: 'msg_2' } };
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    // A start's metadata names a part that has no text yet, so it is held
+    // until the id writes one (design A7) …
+    options.onTextDelta?.('', '0:msg_1', firstMetadata);
+    options.onTextDelta?.('first ', '0:msg_1');
+    // … and the second item's start is a new part, whose text drains the
+    // first part's buffer before its own id is adopted.
+    options.onTextDelta?.('', '0:msg_2', secondMetadata);
+    options.onTextDelta?.('second', '0:msg_2');
+    await options.onFinish?.({
+      text: 'first second',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'model.requested',
+      'model.delta',
+      'model.delta',
+      'model.delta',
+      'model.delta',
+      'model.completed',
+      'run.completed',
+    ]);
+    // One event per part: the buffer drains before the id switches, and each
+    // part's metadata follows its text.
+    expect(appended.slice(2, 6).map((entry) => entry.payload)).toStrictEqual([
+      { text: 'first ', partId: '0:msg_1' },
+      { partId: '0:msg_1', providerMetadata: firstMetadata },
+      { text: 'second', partId: '0:msg_2' },
+      { partId: '0:msg_2', providerMetadata: secondMetadata },
+    ]);
+    const parts = [
+      { type: 'text', text: 'first ', providerMetadata: firstMetadata },
+      { type: 'text', text: 'second', providerMetadata: secondMetadata },
+    ];
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({ parts }),
+    );
+    // The event log alone rebuilds the live collector's parts.
+    expect(
+      reconstructDurableAssistant(
+        durableEventsFrom(appended),
+      ).collector.parts(),
+    ).toStrictEqual(parts);
+  });
+
+  it('records no text metadata for an id that never writes text', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const metadata = { openai: { itemId: 'msg_2' } };
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('answer', '0:msg_1');
+    options.onTextDelta?.('', '0:msg_2', metadata);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    // The second item produced no visible text, so its metadata binds to no
+    // stored part and stays transient: no durable event carries it.
+    expect(appended.filter((entry) => entry.type === 'model.delta')).toEqual([
+      { type: 'model.delta', payload: { text: 'answer', partId: '0:msg_1' } },
+    ]);
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [{ type: 'text', text: 'answer' }] }),
     );
   });
 
@@ -6400,6 +6492,112 @@ describe('RunExecutionService executeRun — tool loop', () => {
             permission: allowDecision(toolDeclaration.id),
           },
           { type: 'text', text: 'answer' },
+        ],
+      }),
+    );
+  });
+
+  it('stores a call’s stream metadata on its request and its settled part', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const providerMetadata = { openai: { itemId: 'fc_1' } };
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const, hits: 1 }),
+      }),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    // The stream reports the call's own metadata before the gate releases the
+    // call (design A7); the request then records what the run holds.
+    options.onToolCallMetadata?.('call-1', providerMetadata);
+    await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    options.onTextDelta?.('answer');
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'tool.requested')?.payload,
+    ).toStrictEqual({
+      toolCallId: 'call-1',
+      toolName: toolDeclaration.id,
+      input: { q: 'llame' },
+      stepNumber: 0,
+      permission: allowDecision(toolDeclaration.id),
+      providerMetadata,
+    });
+    const parts = [
+      expect.objectContaining({ toolCallId: 'call-1', providerMetadata }),
+      { type: 'text', text: 'answer' },
+    ];
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({ parts }),
+    );
+    // The durable log rebuilds the same tool part.
+    expect(
+      reconstructDurableAssistant(
+        durableEventsFrom(appended),
+      ).collector.parts(),
+    ).toStrictEqual(parts);
+  });
+
+  it('stores a call’s stream metadata when the call is refused', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const providerMetadata = { openai: { itemId: 'fc_9' } };
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const }),
+      }),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onToolCallMetadata?.('call-9', providerMetadata);
+    options.onUnavailableToolCall?.({
+      toolCallId: 'call-9',
+      toolName: 'ghost_tool',
+      input: { q: 'x' },
+      reason: 'not_available',
+    });
+    await options.onFinish?.({
+      text: 'sorry',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'tool.requested')?.payload,
+    ).toMatchObject({ toolCallId: 'call-9', providerMetadata });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          expect.objectContaining({ toolCallId: 'call-9', providerMetadata }),
+          { type: 'text', text: 'sorry' },
         ],
       }),
     );

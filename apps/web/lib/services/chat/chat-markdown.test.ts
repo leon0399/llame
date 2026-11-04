@@ -136,6 +136,26 @@ describe("chatToMarkdown", () => {
     );
   });
 
+  it("omits a text part's opaque provider metadata from the export", () => {
+    // The stored text part may carry the Responses item id for a later request
+    // (design A7); the export renders its text and nothing else.
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: "answer",
+            providerMetadata: { openai: { itemId: "PRIVATE_TEXT_ITEM" } },
+          },
+        ],
+      }),
+    ]);
+
+    expect(md).toContain("answer");
+    expect(md).not.toMatch(/PRIVATE_TEXT_ITEM|providerMetadata/);
+  });
+
   it("unglues a reasoning-summary heading persisted as one glued run", () => {
     const reasoning = {
       type: "reasoning",
