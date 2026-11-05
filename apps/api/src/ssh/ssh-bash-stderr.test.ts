@@ -96,6 +96,25 @@ describe('remote bash stderr tail', () => {
       'a'.repeat(100) + 'b'.repeat(headBytes + TAIL_BYTES),
     );
     expect(outcome.stderrOverflow).toBe(true);
+    // The head is all ASCII here, so its byte count is its code-unit count.
+    expect(outcome.diagnosticGap).toBe(SSH_DIAGNOSTIC_BYTES);
+  });
+
+  it('locates a gap that splits a multi-byte character', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stderr.write(`${'a'.repeat(SSH_DIAGNOSTIC_BYTES - 1)}é`);
+    process.stderr.write('b'.repeat(100));
+    process.close(1);
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.stderrOverflow).toBe(true);
+    // The head ends inside the two-byte `é`; the gap sits before the
+    // character starts, so it is the byte count of the ASCII prefix.
+    expect(outcome.diagnosticGap).toBe(SSH_DIAGNOSTIC_BYTES - 1);
   });
 
   it('keeps its own copy of the head, not a view of the chunk', async () => {

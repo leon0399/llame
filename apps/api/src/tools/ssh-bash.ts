@@ -177,6 +177,16 @@ async function knownResult(
         wallTimeMs,
       },
       request.executorContext,
+      request.context.configuredCredentials,
+      {
+        stdout: { endedByLlame: outcome.stdoutOverflow },
+        stderr: {
+          endedByLlame: outcome.stderrOverflow,
+          ...(frames.stderrGapAt !== undefined && {
+            gapAt: frames.stderrGapAt,
+          }),
+        },
+      },
     ),
     // An `ssh://` host cannot open a llame host path (D10).
     true,
@@ -253,6 +263,7 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
       outcome.outcome === 'ended' ? outcome.stdout : Buffer.alloc(0),
       outcome.diagnostic,
       request.nonce,
+      outcome.outcome === 'ended' ? outcome.diagnosticGap : undefined,
     ),
     Math.round(performance.now() - startedAtMs),
   );

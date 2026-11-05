@@ -1,7 +1,14 @@
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
+import { type ProcBashResult } from '@workspace/machine-protocol';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
-import { admitManagedBash, type BashResult } from '@workspace/bash-executor';
+import {
+  admitManagedBash,
+  sanitizeKnownResult,
+  type BashKnownResult,
+  type BashResult,
+  type BashTimedOutResult,
+} from '@workspace/bash-executor';
 import { parsePathScheme } from '@workspace/native-file-tools';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
@@ -25,6 +32,7 @@ import {
 } from '../machines/machine-locator';
 import {
   MACHINE_BASH_BUDGET_MS,
+  MACHINE_BASH_SANITIZE_CONTEXT,
   machineBudgetMs,
   machineCallEnvelope,
   machineConnector,
@@ -202,9 +210,35 @@ async function runMachineBash(
       );
       const result = readProcBashResult(raw);
       if (result === undefined) return machineUnusableResult(name);
+      const sanitized = sanitizeMachineBashResult(context, result);
       // The Machine opens its own paths; the llame host files are a cache this
       // command cannot reach (tool-result-artifacts D10).
-      return spillBashResult(context, result, true);
+      return spillBashResult(context, sanitized, true);
+    },
+  );
+}
+
+/**
+ * Redact the daemon's answer before it is spilled or recorded. Only a known
+ * result carries streams; its capture has no lookahead, so a stream the
+ * daemon's bound or deadline cut drops a trailing member prefix. A refusal or
+ * an unknown outcome passes through unchanged.
+ */
+function sanitizeMachineBashResult(
+  context: ToolContext,
+  result: ProcBashResult,
+): ProcBashResult {
+  if (!('stdout' in result)) return result;
+  const endedByLlame =
+    result.truncated || ('type' in result && result.type === 'timed_out');
+  const observed: BashKnownResult | BashTimedOutResult = result;
+  return sanitizeKnownResult(
+    observed,
+    MACHINE_BASH_SANITIZE_CONTEXT,
+    context.configuredCredentials,
+    {
+      stdout: { endedByLlame },
+      stderr: { endedByLlame },
     },
   );
 }
@@ -342,6 +376,7 @@ async function runHostBash(
       timeoutSignal: context.timeoutSignal,
       timeoutMs: context.timeoutMs,
       toolCallId,
+      protectedValues: context.configuredCredentials,
     },
   );
   if ('type' in admitted) return toToolResult(admitted);

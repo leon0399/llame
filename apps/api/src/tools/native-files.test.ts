@@ -102,6 +102,7 @@ function deferred<T>(): Deferred<T> {
 function trustedContext(root?: string): ToolContext {
   const db: Db = drizzle.mock({ schema });
   return {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
@@ -121,6 +122,7 @@ function trustedContext(root?: string): ToolContext {
 
 describe('native tool admission', () => {
   const context: ToolContext = {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     permissionPolicy: compileTestPermissionPolicy(),
@@ -893,6 +895,7 @@ describe('knowledge locator resolution', () => {
     resolver: KnowledgeToolResolver | null = resolverFor(root),
   ): ToolContext {
     const base: ToolContext = {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       runId: 'run',
@@ -1397,6 +1400,7 @@ describe('skill locator resolution', () => {
     } = {},
   ): ToolContext {
     const base: ToolContext = {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       runId: 'run',
@@ -2152,6 +2156,7 @@ describe('Machine Workspace skill reads', () => {
   function machineContext(connector: MachineConnector): ToolContext {
     const db: Db = drizzle.mock({ schema });
     return {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       runId: 'run',

@@ -110,6 +110,7 @@ function context(
     sshClient: remoteClient.client,
     sshBinding: BINDING,
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

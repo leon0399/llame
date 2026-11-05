@@ -43,6 +43,7 @@ function resolverFor(
 
 function contextOf(resolver?: KnowledgeToolResolver): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner-a',
     chatId: 'chat-a',
     tenantDb: { runAs: () => Promise.reject(new Error('unused')) },

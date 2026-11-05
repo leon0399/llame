@@ -96,6 +96,11 @@ export type SshBashFrames = {
   readonly stdout: Buffer;
   /** The command's stderr, without the marker, the login noise, or the trailer. */
   readonly stderr: string;
+  /**
+   * Code-unit offset in `stderr` where the transport dropped bytes between
+   * its head and tail, when the gap falls inside the command's own stderr.
+   */
+  readonly stderrGapAt?: number;
   /** The refusal kind, exactly as the host wrote it, when a precondition failed. */
   readonly refusal?: string;
   /** The status of the end trailer; absent when the trailer did not arrive. */
@@ -316,18 +321,40 @@ export function parseSshReadFrames(
   };
 }
 
+/** The command's stderr plus the transport gap when it falls inside it. */
+type CommandStderr = {
+  readonly text: string;
+  readonly gapAt?: number;
+};
+
 /**
  * The command's stderr: everything after the stderr start marker line and
  * before the end trailer. A stream with no marker carries no command output,
- * because nothing after the marker can be told apart from login noise.
+ * because nothing after the marker can be told apart from login noise. A
+ * transport gap after the marker and before the trailer is reported relative
+ * to the command text, so a re-sanitizer drops only the two halves of a value
+ * the gap cut.
  */
-function commandStderr(stderr: string, marker: string, nonce: string): string {
+function commandStderr(
+  stderr: string,
+  marker: string,
+  nonce: string,
+  diagnosticGap: number | undefined,
+): CommandStderr {
   const index = stderr.indexOf(marker);
-  if (index === -1) return '';
+  if (index === -1) return { text: '' };
   const lineEnd = stderr.indexOf('\n', index + marker.length);
   const start = lineEnd === -1 ? stderr.length : lineEnd + 1;
-  const end = stderr.lastIndexOf(`${nonce}:end:`);
-  return end < start ? stderr.slice(start) : stderr.slice(start, end);
+  const trailer = stderr.lastIndexOf(`${nonce}:end:`);
+  const end = trailer < start ? stderr.length : trailer;
+  const gapAt =
+    diagnosticGap !== undefined && diagnosticGap > start && diagnosticGap < end
+      ? diagnosticGap - start
+      : undefined;
+  return {
+    text: stderr.slice(start, end),
+    ...(gapAt !== undefined && { gapAt }),
+  };
 }
 
 /**
@@ -340,6 +367,7 @@ export function parseSshBashFrames(
   stdout: Buffer,
   stderr: string,
   nonce: string,
+  diagnosticGap?: number,
 ): SshBashFrames {
   const marker = sshStartMarker(nonce);
   const index = stdout.indexOf(Buffer.from(marker));
@@ -348,10 +376,14 @@ export function parseSshBashFrames(
   const status = started ? parseSshTrailer(stderr, nonce) : undefined;
   const lineEnd =
     index === -1 ? -1 : stdout.indexOf(0x0a, index + marker.length);
+  const command: CommandStderr = started
+    ? commandStderr(stderr, marker, nonce, diagnosticGap)
+    : { text: '' };
   return {
     started,
     stdout: lineEnd === -1 ? Buffer.alloc(0) : stdout.subarray(lineEnd + 1),
-    stderr: started ? commandStderr(stderr, marker, nonce) : '',
+    stderr: command.text,
+    ...(command.gapAt !== undefined && { stderrGapAt: command.gapAt }),
     ...(refusal !== undefined && { refusal }),
     ...(status !== undefined && { status }),
   };

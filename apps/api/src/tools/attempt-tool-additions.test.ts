@@ -158,7 +158,12 @@ describe('AttemptToolAdditions', () => {
     if (executor === undefined) throw new Error('expected operator executor');
     expect(
       executor.execute(
-        { userId: 'u', chatId: 'c', tenantDb: { runAs: vi.fn() } },
+        {
+          configuredCredentials: [],
+          userId: 'u',
+          chatId: 'c',
+          tenantDb: { runAs: vi.fn() },
+        },
         {},
       ),
     ).toEqual({ status: 'success', value: 'operator' });
@@ -183,7 +188,12 @@ describe('AttemptToolAdditions', () => {
     if (executor === undefined) throw new Error('expected operator executor');
     expect(
       executor.execute(
-        { userId: 'u', chatId: 'c', tenantDb: { runAs: vi.fn() } },
+        {
+          configuredCredentials: [],
+          userId: 'u',
+          chatId: 'c',
+          tenantDb: { runAs: vi.fn() },
+        },
         {},
       ),
     ).toEqual({ status: 'success', value: 'operator' });
@@ -238,7 +248,12 @@ describe('AttemptToolAdditions', () => {
     if (executor === undefined) throw new Error('expected retained executor');
     expect(
       await executor.execute(
-        { userId: 'u', chatId: 'c', tenantDb: { runAs: vi.fn() } },
+        {
+          configuredCredentials: [],
+          userId: 'u',
+          chatId: 'c',
+          tenantDb: { runAs: vi.fn() },
+        },
         {},
       ),
     ).toEqual({
@@ -296,7 +311,12 @@ describe('AttemptToolAdditions', () => {
     if (executor === undefined) throw new Error('expected retained executor');
     expect(
       await executor.execute(
-        { userId: 'u', chatId: 'c', tenantDb: { runAs: vi.fn() } },
+        {
+          configuredCredentials: [],
+          userId: 'u',
+          chatId: 'c',
+          tenantDb: { runAs: vi.fn() },
+        },
         {},
       ),
     ).toEqual({

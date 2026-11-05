@@ -251,6 +251,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     permissionPolicy: policy(),
     executorGit: executors(),
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

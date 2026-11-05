@@ -55,6 +55,7 @@ function createPackage(name: string, body: string): string {
 function harness(policy = compileTestPermissionPolicy()) {
   const audit: Array<AuditRecord> = [];
   const context: ToolContext = {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     runId: RUN_ID,

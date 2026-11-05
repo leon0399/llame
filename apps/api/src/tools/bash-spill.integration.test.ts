@@ -63,6 +63,7 @@ describe('bash stream spill', () => {
       new ChatsRepository(tx).create({ ownerUserId: owner, title: 'Bash' }),
     );
     return {
+      configuredCredentials: [],
       userId: owner,
       chatId: chat.id,
       runId: crypto.randomUUID(),

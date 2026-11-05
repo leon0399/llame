@@ -20,6 +20,7 @@ export function removalFor(
 ): ResultRemoval {
   return createResultRemoval(
     {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       tenantDb: {

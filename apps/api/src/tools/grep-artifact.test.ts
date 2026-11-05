@@ -72,6 +72,7 @@ function contextOf(overrides: Partial<ToolContext> = {}): ToolContext {
     artifactReadable: true,
     workspaceRoot: createWorkspaceRootCell(root),
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

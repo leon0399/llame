@@ -242,6 +242,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
       expect(
         await bound.executor.execute(
           {
+            configuredCredentials: [],
             userId: 'user-1',
             chatId: 'chat-1',
             tenantDb: fakeTenantDb,
@@ -317,7 +318,12 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
       expect(bound.executor.id).toBe(declaration.id);
       expect(
         await bound.executor.execute(
-          { userId: 'user-1', chatId: 'chat-1', tenantDb: fakeTenantDb },
+          {
+            configuredCredentials: [],
+            userId: 'user-1',
+            chatId: 'chat-1',
+            tenantDb: fakeTenantDb,
+          },
           { query: 'llame' },
         ),
       ).toMatchObject({ status: 'error', type: 'not_available' });

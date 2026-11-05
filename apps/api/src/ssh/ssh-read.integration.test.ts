@@ -83,6 +83,7 @@ describe('ssh reads over a real sshd', () => {
       permissionPolicy: policy,
       sshClient,
       ...overrides,
+      configuredCredentials: overrides.configuredCredentials ?? [],
     };
   }
 

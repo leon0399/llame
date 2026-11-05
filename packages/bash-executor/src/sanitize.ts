@@ -12,6 +12,7 @@ import {
 import type {
   BashExecutorContext,
   BashKnownResult,
+  BashTimedOutResult,
   BashUnavailableResult,
 } from "./types";
 
@@ -84,12 +85,14 @@ export function requireManagedBoundary(
  * bound, replace intersecting intervals clipped to it, then cut marker growth
  * without splitting a marker.
  */
-export function sanitizeKnownResult(
-  result: BashKnownResult,
+export function sanitizeKnownResult<
+  T extends BashKnownResult | BashTimedOutResult,
+>(
+  result: T,
   context: BashExecutorContext,
   protectedValues: ReadonlyArray<string> = [],
   captures: ResultCaptures = {},
-): BashKnownResult {
+): T {
   const bound = streamOutputBound(context);
   const stdout = sanitizeStream(
     result.stdout,

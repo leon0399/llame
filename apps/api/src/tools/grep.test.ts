@@ -141,6 +141,7 @@ type ContextOptions = {
 
 function contextOf(options: ContextOptions = {}): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner-a',
     chatId: 'chat-a',
     permissionPolicy: compileToolPermissionMap(

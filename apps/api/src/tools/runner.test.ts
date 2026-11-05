@@ -37,6 +37,7 @@ function fakeContext(userId = 'user-A'): ToolContext {
   return {
     userId,
     chatId: 'chat-1',
+    configuredCredentials: [],
     tenantDb,
     permissionPolicy: compileTestPermissionPolicy(['echo']),
   };
@@ -887,6 +888,7 @@ describe('runTool permission gate', () => {
   const contextWithoutPolicy: ToolContext = {
     userId: 'user-A',
     chatId: 'chat-1',
+    configuredCredentials: [],
     tenantDb: {
       runAs: () => Promise.reject(new Error('tenant DB is not used')),
     },
@@ -1986,6 +1988,7 @@ describe('runTool read-only ceiling', () => {
       ]),
       permissionMode: 'read-only',
       ...overrides,
+      configuredCredentials: overrides.configuredCredentials ?? [],
     };
   }
 

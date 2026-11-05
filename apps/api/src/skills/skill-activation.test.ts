@@ -104,6 +104,7 @@ function harness(
 ) {
   const audit: Array<AuditRecord> = [];
   const context: ToolContext = {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     runId: RUN_ID,

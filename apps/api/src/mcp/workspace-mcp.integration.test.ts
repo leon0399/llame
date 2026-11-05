@@ -176,11 +176,16 @@ describe('Workspace MCP production integration', () => {
         throw new Error('Workspace HTTP tools did not become available.');
       }
       const firstResult = await first.executor.execute(
-        { userId, chatId: firstChat, tenantDb },
+        { configuredCredentials: [], userId, chatId: firstChat, tenantDb },
         {},
       );
       const secondResult = await second.executor.execute(
-        { userId: secondOwnerId, chatId: secondChat, tenantDb },
+        {
+          configuredCredentials: [],
+          userId: secondOwnerId,
+          chatId: secondChat,
+          tenantDb,
+        },
         {},
       );
       expect(JSON.stringify(firstResult)).toContain('workspace-first');
@@ -286,7 +291,7 @@ describe('Workspace MCP production integration', () => {
       if (resolution.state !== 'available')
         throw new Error('Workspace redaction tool unavailable.');
       const result = await resolution.executor.execute(
-        { userId, chatId, tenantDb },
+        { configuredCredentials: [], userId, chatId, tenantDb },
         {},
       );
       expect(JSON.stringify(result)).not.toContain(secret);
@@ -400,6 +405,7 @@ describe('Workspace MCP production integration', () => {
       const record = {};
       additions.bindToolRecord(record);
       const context = {
+        configuredCredentials: [],
         runId: seeded.runId,
         nativeExecutorId: 'integration-worker',
         nativeDeliverySequence: seeded.deliverySequence,
@@ -423,6 +429,7 @@ describe('Workspace MCP production integration', () => {
       }
       const callResult = await added.execute(
         {
+          configuredCredentials: [],
           runId: seeded.runId,
           nativeDeliverySequence: seeded.deliverySequence,
           userId,
@@ -435,7 +442,10 @@ describe('Workspace MCP production integration', () => {
       expect(JSON.stringify(callResult)).toContain('workspace-entering-run');
       context.workspaceRoot?.beginStep();
       const sameRoot = await enterWorkspaceTool.execute(
-        { ...context, toolCallId: 'same-root-entry' },
+        {
+          ...context,
+          toolCallId: 'same-root-entry',
+        },
         { path: root },
       );
       expect(sameRoot).toMatchObject({
@@ -481,6 +491,7 @@ describe('Workspace MCP production integration', () => {
       expect(
         unavailable.execute(
           {
+            configuredCredentials: [],
             runId: seeded.runId,
             nativeDeliverySequence: seeded.deliverySequence,
             userId,
@@ -554,6 +565,7 @@ describe('Workspace MCP production integration', () => {
     toolCallId: string,
   ) {
     return {
+      configuredCredentials: [],
       runId: seeded.runId,
       nativeExecutorId: 'integration-worker',
       nativeDeliverySequence: seeded.deliverySequence,
@@ -614,7 +626,10 @@ describe('Workspace MCP production integration', () => {
       });
       context.workspaceRoot?.beginStep();
       const sameRoot = await enterWorkspaceTool.execute(
-        { ...context, toolCallId: 're-enter-read-only' },
+        {
+          ...context,
+          toolCallId: 're-enter-read-only',
+        },
         { path: root },
       );
       expect(sameRoot).toMatchObject({
@@ -782,6 +797,7 @@ describe('Workspace MCP production integration', () => {
         return { runId: run.id, deliverySequence: event.sequence };
       });
       const context = {
+        configuredCredentials: [],
         runId: seeded.runId,
         nativeExecutorId: 'integration-worker',
         nativeDeliverySequence: seeded.deliverySequence,
@@ -808,7 +824,10 @@ describe('Workspace MCP production integration', () => {
       });
 
       const unsupported = await enterWorkspaceTool.execute(
-        { ...context, toolCallId: 'enter-unsupported' },
+        {
+          ...context,
+          toolCallId: 'enter-unsupported',
+        },
         { path: unsupportedRoot },
       );
       expect(unsupported).toMatchObject({

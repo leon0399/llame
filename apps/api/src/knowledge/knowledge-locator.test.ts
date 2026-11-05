@@ -264,6 +264,7 @@ describe('knowledge locator resolution', () => {
       },
     };
     return {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
@@ -332,6 +333,7 @@ describe('knowledge locator resolution', () => {
       }),
     };
     return {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       tenantDb: { runAs: () => Promise.reject(new Error('unused')) },

@@ -47,6 +47,7 @@ function contextOf(binding: KnowledgeFilesystemBinding): ToolContext {
     createAdapter: (bound) => new KnowledgeFilesystemAdapter(bound),
   };
   return {
+    configuredCredentials: [],
     userId: 'owner-a',
     chatId: 'chat-a',
     permissionPolicy: compileToolPermissionMap(

@@ -96,6 +96,7 @@ function fakeContext(
   return {
     userId: 'user-A',
     chatId: 'chat-1',
+    configuredCredentials: [],
     tenantDb,
   };
 }

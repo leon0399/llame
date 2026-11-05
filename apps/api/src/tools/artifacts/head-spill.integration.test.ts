@@ -54,6 +54,7 @@ d('head spill', () => {
   });
 
   const context = (): ToolContext => ({
+    configuredCredentials: [],
     userId: owner,
     chatId,
     runId: crypto.randomUUID(),

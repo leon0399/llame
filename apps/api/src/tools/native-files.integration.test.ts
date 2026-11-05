@@ -85,6 +85,7 @@ describe('native file authority and durable effects', () => {
     });
     runId = run.id;
     context = {
+      configuredCredentials: [],
       userId: owner,
       chatId,
       tenantDb,
@@ -685,6 +686,7 @@ describe('native file authority and durable effects', () => {
       media: createToolMediaStore(media, owner, new Map()),
     };
     const otherContext: ToolContext = {
+      configuredCredentials: [],
       userId: otherOwner,
       chatId: randomUUID(),
       tenantDb,
@@ -839,6 +841,7 @@ describe('kb:// mutations under real owner binding', () => {
     // No `nativeExecutorId`: a kb:// mutation must work on a worker that has
     // never accepted host authority.
     context = {
+      configuredCredentials: [],
       userId: owner,
       chatId,
       tenantDb,

@@ -521,6 +521,7 @@ describe('operator-configured MCP production acceptance', () => {
         throw new Error('expected the dynamic tool to be available');
       }
       const context = {
+        configuredCredentials: [],
         runId: seeded.run.id,
         nativeDeliverySequence: seeded.deliverySequence,
         userId,
@@ -667,6 +668,7 @@ describe('operator-configured MCP production acceptance', () => {
       }
       const workerDisconnect = await workerExecutor.executor.execute(
         {
+          configuredCredentials: [],
           userId,
           chatId: crypto.randomUUID(),
           tenantDb,
@@ -693,6 +695,7 @@ describe('operator-configured MCP production acceptance', () => {
       expect(
         diverged[0]?.executor.execute(
           {
+            configuredCredentials: [],
             userId,
             chatId: crypto.randomUUID(),
             tenantDb,
@@ -890,6 +893,7 @@ describe('operator-configured MCP production acceptance', () => {
       }
       const disconnectResult = await apiExecutor.executor.execute(
         {
+          configuredCredentials: [],
           userId,
           chatId,
           tenantDb,

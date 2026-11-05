@@ -65,6 +65,7 @@ export function auditedContext() {
     chatId: 'chat',
     runId: STUB_RUN_ID,
     permissionPolicy: compileTestPermissionPolicy(),
+    configuredCredentials: [],
     skillCatalog: new SkillCatalog([]),
     timeoutMs: 5000,
     tenantDb: { runAs: () => Promise.reject(new Error('no database in test')) },

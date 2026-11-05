@@ -127,6 +127,7 @@ function context(
       maxFileBytes: null,
     },
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

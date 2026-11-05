@@ -7,6 +7,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { resetManagedExecutorForTests } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
+import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -19,6 +20,7 @@ import {
 import { SSH_READ_NOISE_BYTES } from '../ssh/ssh-script';
 import { managedBashContext } from './bash-limits';
 import { executeSshBash } from './ssh-bash';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { type ToolContext } from './types';
 
 const BINDING: SshBinding = {
@@ -106,6 +108,7 @@ function context(
     sshClient: remoteClient.client,
     sshBinding: BINDING,
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 
@@ -114,13 +117,16 @@ function stubFence() {
   vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
     undefined,
   );
-  vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
-    runId: 'run',
-    sequence: 1,
-    eventType: 'native.result',
-    payload: null,
-    createdAt: new Date(),
-  });
+  const append = vi
+    .spyOn(RunEventsRepository.prototype, 'append')
+    .mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+  return { append };
 }
 
 afterEach(() => {
@@ -182,6 +188,111 @@ describe('ssh bash request bounds', () => {
     });
     expect(within).toMatchObject({ status: 'success' });
     expect(remoteClient.runs).toHaveLength(1);
+  });
+});
+
+describe('ssh bash credential redaction', () => {
+  const provider = 'PROVIDER-CANARY-7f3';
+  const mcp = 'MCP-HEADER-CANARY-2b9';
+  const knowledge = '/srv/knowledge/root';
+
+  /** Artifact writes, captured instead of hitting the database. */
+  function stubArtifacts() {
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
+      {
+        id: 'artifact-1',
+        createdAt: new Date('2026-11-05T00:00:00.000Z'),
+      },
+    );
+    return vi
+      .spyOn(ArtifactsRepository.prototype, 'insertParts')
+      .mockResolvedValue(undefined);
+  }
+
+  it('redacts configured credentials from the result, parts, and native.result', async () => {
+    const filler = Array.from(
+      { length: 4000 },
+      (_, line) => `line ${String(line)}`,
+    ).join('\n');
+    const remoteClient = remote((nonce) =>
+      ended(
+        `${nonce}:start\nprovider ${provider}\nmcp ${mcp}\nknowledge ${knowledge}\n${filler}\n`,
+        `${nonce}:start\nstderr ${provider} ${mcp}\n${nonce}:end:0\n`,
+      ),
+    );
+    const { append } = stubFence();
+    const insertParts = stubArtifacts();
+
+    const result = await executeSshBash(
+      context(remoteClient, {
+        artifactReadable: true,
+        permissionPolicy: compileTestPermissionPolicy(),
+        configuredCredentials: [provider, mcp],
+      }),
+      { command: 'true', cwd: CWD },
+    );
+
+    const shown = JSON.stringify(result);
+    expect(shown).toContain('[REDACTED]');
+    expect(shown).not.toContain(provider);
+    expect(shown).not.toContain(mcp);
+    expect(shown).toContain(knowledge);
+
+    const parts = insertParts.mock.calls
+      .flatMap(([, written]) => written)
+      .map((part) => part.content.toString('utf8'))
+      .join('\n');
+    expect(parts).toContain('[REDACTED]');
+    expect(parts).not.toContain(provider);
+    expect(parts).not.toContain(mcp);
+    expect(parts).toContain(knowledge);
+
+    const events = append.mock.calls
+      .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
+      .join('\n');
+    expect(events).toContain('[REDACTED]');
+    expect(events).not.toContain(provider);
+    expect(events).not.toContain(mcp);
+    expect(events).toContain(knowledge);
+
+    const sent = JSON.stringify({
+      input: String(remoteClient.runs[0]?.input),
+      destination: remoteClient.runs[0]?.destination,
+    });
+    expect(sent).not.toContain(provider);
+    expect(sent).not.toContain(mcp);
+  });
+
+  it('drops both halves of a member the stderr gap cut and a stdout cut prefix', async () => {
+    const member = 'SECRET-KEY';
+    const head = `head ${'x'.repeat(8100)}SEC`;
+    const remoteClient = remote((nonce) => {
+      const start = `${nonce}:start\n`;
+      const diagnostic = `${start}${head}RET-KEY\n${nonce}:end:0\n`;
+      return {
+        ...ended(`${start}provider SECRET-`, diagnostic, 0, {
+          stdout: true,
+          stderr: true,
+        }),
+        diagnosticGap: start.length + head.length,
+      };
+    });
+    stubFence();
+
+    const result = await executeSshBash(
+      context(remoteClient, { configuredCredentials: [member] }),
+      { command: 'true', cwd: CWD },
+    );
+
+    expect(result).toMatchObject({ status: 'success', cut: true });
+    if (result.status !== 'success') throw new Error('Expected a known result');
+    expect(result.stdout).toBe('provider ');
+    expect(result.stdout).not.toContain('SECRET');
+    expect(result.stderr).not.toContain(member);
+    expect(result.stderr).not.toContain('SEC');
+    expect(result.stderr).not.toContain('RET-KEY');
+    expect(result.stderr).toBe(`${head.slice(0, -3)}\n`);
   });
 });
 

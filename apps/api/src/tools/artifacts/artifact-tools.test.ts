@@ -20,6 +20,7 @@ function contextOf(): ToolContext {
   const db = drizzle.mock({ schema });
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
   return {
+    configuredCredentials: [],
     userId: USER_ID,
     chatId: CHAT_ID,
     tenantDb: { runAs },

@@ -43,6 +43,7 @@ function context(
         Promise.reject<T>(new Error('tenant DB is not used by these tests')),
     },
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

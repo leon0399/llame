@@ -937,6 +937,7 @@ describeIfDb('web search through the real tool loop', () => {
     if (!isString(record['artifact']))
       throw new Error('Expected the artifact locator.');
     const readContext: ToolContext = {
+      configuredCredentials: [],
       userId,
       chatId: seeded.chatId,
       tenantDb,

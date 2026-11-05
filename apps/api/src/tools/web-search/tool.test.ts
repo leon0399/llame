@@ -117,6 +117,7 @@ describe('web search tool declaration', () => {
 
   it('uses the stable read-only declaration and fixed unconfigured error', async () => {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -162,6 +163,7 @@ it('passes the chat id and each call’s model clients to hosted search', async 
     chain: ['hosted'],
   };
   const baseContext: Omit<ToolContext, 'chatId' | 'modelClients'> = {
+    configuredCredentials: [],
     userId: 'user',
     tenantDb: {
       runAs: () => Promise.reject(new Error('unused')),
@@ -230,6 +232,7 @@ it('forwards recency and the product user agent to the configured engine', async
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -283,6 +286,7 @@ it('forwards the objective to an engine that accepts one', async () => {
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -337,6 +341,7 @@ it('wires aggregate children and merges their results', async () => {
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -400,6 +405,7 @@ it('skips an over-long aggregate child and calls only the other engine', async (
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -440,6 +446,7 @@ it('refuses an unknown selected engine before any request', async () => {
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -489,6 +496,7 @@ it('runs only the engine the call selects, also an aggregate child', async () =>
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -589,6 +597,7 @@ it('reuses one Exa MCP client across tool executions', async () => {
   );
   vi.stubGlobal('fetch', fetch);
   const context: ToolContext = {
+    configuredCredentials: [],
     userId: 'user',
     chatId: 'chat',
     tenantDb: {
@@ -669,6 +678,7 @@ function searchContext(
   } = {},
 ): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'user',
     chatId: 'chat',
     tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
@@ -923,6 +933,7 @@ it('runs a hosted child inside an aggregate and returns its answer', async () =>
 
   const output = await webSearchTool.execute(
     {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
@@ -972,6 +983,7 @@ it('asks each engine for the fetch size and clamps it to the vendor maximum', as
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -1011,6 +1023,7 @@ it('passes a fetch size below the vendor maximum through unchanged', async () =>
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
@@ -1062,6 +1075,7 @@ it('cuts the aggregate merge to the fetch size', async () => {
   vi.stubGlobal('fetch', fetch);
   try {
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'user',
       chatId: 'chat',
       tenantDb: {
