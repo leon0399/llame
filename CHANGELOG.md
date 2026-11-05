@@ -51,7 +51,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Experimental: `grep` file runs can be reranked.** `grep` takes an optional
   `objective` (1–2000 code units) beside its patterns, and with its own
   `tools.grep.rerank` block set — `{ mode: "shadow" | "on", model:
-  <decisions.models id> }` — it asks that catalogue model one
+  <decisionModels[] id> }` — it asks that catalogue model one
   yes/no question per file run after the walk: is this file likely to contain
   what the objective or the patterns look for? A run's card is its path plus up
   to three matching lines (at most 384 code units); a term-overlap prefilter

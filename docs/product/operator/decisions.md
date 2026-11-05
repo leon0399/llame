@@ -151,7 +151,7 @@ call.
 ### `grep`
 
 With the tool's own `tools.grep.rerank` block set (`{ mode: "shadow" | "on",
-model: <decisions.models id> }`), `grep` ranks its **file runs**, not single
+model: <decisionModels[] id> }`), `grep` ranks its **file runs**, not single
 passages. One card carries a run's
 path and up to three of its matching lines (at most 384 code units). A
 term-overlap prefilter over the caller's `objective` and patterns keeps at
