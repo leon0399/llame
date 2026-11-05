@@ -20,13 +20,14 @@ locator that `read` accepts, so you can open the exact window it names.
 
 ## Arguments
 
-| Argument     | Meaning                                                                                  |
-| ------------ | ---------------------------------------------------------------------------------------- |
-| `patterns`   | one to eight RE2 patterns. One line matches when any pattern matches it.                 |
-| `scopes`     | one to sixteen scopes. The section below defines the grammar.                            |
-| `literal`    | `true` matches each pattern as written text. Default `false`.                            |
-| `ignoreCase` | `true` ignores letter case. Default `false`.                                             |
-| `limit`      | the most files the inline part holds, from 1 to 20. Default 20. It never stops the walk. |
+| Argument     | Meaning                                                                                                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `patterns`   | one to eight RE2 patterns. One line matches when any pattern matches it.                                                                                    |
+| `scopes`     | one to sixteen scopes. The section below defines the grammar.                                                                                               |
+| `literal`    | `true` matches each pattern as written text. Default `false`.                                                                                               |
+| `ignoreCase` | `true` ignores letter case. Default `false`.                                                                                                                |
+| `limit`      | the most files the inline part holds, from 1 to 20. Default 20. It never stops the walk.                                                                    |
+| `objective`  | one optional sentence, 1–2000 code units, saying what the caller looks for. The decision lane may rank file runs by it; it never changes a match or a stop. |
 
 The engine compiles every pattern with RE2 and runs in linear time. A refused
 pattern fails the call as `invalid_pattern` and names its index. The tool never
@@ -158,6 +159,34 @@ heading and lines as `[withheld]` with unchanged line numbers and leaves it
 out of the `:outline`. The host files hold the content as it was admitted; only
 `read` on `artifact://` withholds.
 
+### Ranked file runs
+
+The operator may enable the experimental decision lane for `grep` through the
+tool's own `tools.grep.rerank` block; see
+[decisions](../../operator/decisions.md). With that block set, and when the
+result holds at least three file runs, `grep` asks a decision model one yes/no
+question per file run after the walk: is this file likely to contain what the
+`objective` (or the patterns) looks for, as a substantive implementation or
+explanation rather than a mere mention?
+
+One card carries a run's path and up to three of its matching lines, at most
+384 code units. A term-overlap prefilter keeps at most 48 runs for the
+request. Any run it leaves out keeps its canonical position, and so does every
+run a failed request never answered; both sorts follow the judged runs, which
+sort by probability, strongest first.
+
+Ranking moves whole file runs and never a single passage. Every run therefore
+stays contiguous and still opens exactly one `## <file locator>` line, and the
+artifact, its findings, the inline head, and the remainder map all read the
+ranked order. It changes no match, count, warning, or walk stop.
+
+The result's `display.rerank` field records the mode, the model, the ranked
+order, the probabilities, the latency, and the cost for the owner's UI; the
+model never reads it. With mode `shadow` the record is written and nothing is
+reordered. Without a `tools.grep.rerank` block, without a decision model in the
+catalogue, or when the call fails, the canonical order stands — an unavailable
+call is not a negative judgment.
+
 `ignored` reports the directories the walk declined to enter, in walk order,
 so the model knows which directory to scope when a search comes back empty or
 partial. It holds the admitted count and the first five locators. A count of
@@ -199,7 +228,9 @@ from a reject.
 The order is the submitted scope order, then the walk order, then the start
 line. The walk order is depth-first with names in byte order. A bare
 `kb://` visits Spaces in byte order of the Space identifier. A bare `skill://`
-visits packages in byte order of the package name.
+visits packages in byte order of the package name. A configured decision lane
+in `on` mode reorders file runs after the walk; see [Ranked file
+runs](#ranked-file-runs).
 
 ## Behavior
 

@@ -28,6 +28,12 @@ import {
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import {
+  type CandidateJudgement,
+  type DecisionJudge,
+  type JudgeCandidatesInput,
+} from '../decisions/decisions.service';
+import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { finishGrepCall } from './grep-artifact';
 import { addGrepPassages, createPageState, pageResult } from './grep-page';
@@ -535,6 +541,227 @@ describe('grep artifacts', () => {
   });
 });
 
+describe('grep rerank', () => {
+  type JudgeDouble = {
+    readonly decisions: Partial<DecisionJudge>;
+    /** The tool's own `tools.grep.rerank` block; absent means off. */
+    readonly grepBounds: GrepBoundsConfig;
+    readonly calls: Array<JudgeCandidatesInput>;
+  };
+
+  const NO_BOUNDS = {
+    maxFilesExamined: null,
+    maxEntriesListed: null,
+    maxBytesRead: null,
+    maxFileBytes: null,
+  } as const;
+
+  /** A lane double: the tool's rerank block and the probabilities it answers. */
+  function lane(
+    mode: 'shadow' | 'on' | undefined,
+    answers?: Record<string, number> | 'unavailable',
+  ): JudgeDouble {
+    const calls: Array<JudgeCandidatesInput> = [];
+    return {
+      calls,
+      grepBounds:
+        mode === undefined
+          ? NO_BOUNDS
+          : { ...NO_BOUNDS, rerank: { mode, model: 'jev' } },
+      decisions: {
+        judgeCandidates: (input) => {
+          calls.push(input);
+          const judgement: CandidateJudgement =
+            answers === undefined ||
+            answers === 'unavailable' ||
+            Object.keys(answers).length === 0
+              ? {
+                  status: 'unavailable',
+                  probabilities: undefined,
+                  usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+                  model: null,
+                  latencyMs: 1,
+                }
+              : {
+                  status: 'answered',
+                  probabilities: new Map(Object.entries(answers)),
+                  usage: { inputTokens: 500, outputTokens: 0, costUsd: 0.001 },
+                  model: 'jev-test',
+                  latencyMs: 30,
+                };
+          return Promise.resolve(judgement);
+        },
+      },
+    };
+  }
+
+  /** The display-only record of a result, when it carries one. */
+  function rerankRecordOf(result: ToolResult) {
+    const display = success(result).display;
+    if (!isRecord(display)) return undefined;
+    const rerank = display['rerank'];
+    return isRecord(rerank) ? rerank : undefined;
+  }
+
+  /** The heading names of the stored artifact text, in its order. */
+  function storedFiles(): ReadonlyArray<string> {
+    return headings(artifactText()).map((line) => path.basename(line.slice(3)));
+  }
+
+  /** The artifact line each stored finding starts on. */
+  function findingStarts(): ReadonlyArray<number> {
+    const stored = writtenParts()[0]?.findings;
+    if (!isRecord(stored) || !Array.isArray(stored['findings'])) return [];
+    return stored['findings']
+      .filter(isRecord)
+      .map((finding) => Number(finding['start']));
+  }
+
+  it('never asks without a tools.grep.rerank block', async () => {
+    await writePassageFiles(25);
+    const { decisions, grepBounds, calls } = lane(undefined, { p00: 0.9 });
+    const result = await run(contextOf({ decisions, grepBounds }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(rerankRecordOf(result)).toBeUndefined();
+    expect(storedFiles()[0]).toBe('file-000.ts');
+  });
+
+  it('computes and records the order in shadow mode without applying it', async () => {
+    await writePassageFiles(25);
+    const { decisions, grepBounds, calls } = lane('shadow', {
+      p00: 0.1,
+      p02: 0.9,
+    });
+    const result = await run(contextOf({ decisions, grepBounds }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+      objective: 'the file that owns the needle',
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.objective).toBe('the file that owns the needle');
+    // The stored order and the inline head stay canonical.
+    expect(storedFiles()[0]).toBe('file-000.ts');
+    expect(resultsOf(result)[0]?.locator).toContain('file-000.ts');
+    const rerank = rerankRecordOf(result);
+    expect(rerank?.['mode']).toBe('shadow');
+    expect(rerank?.['order']).toEqual([
+      'p02',
+      'p00',
+      'p01',
+      ...Array.from(
+        { length: 22 },
+        (_, index) => `p${String(index + 3).padStart(2, '0')}`,
+      ),
+    ]);
+    expect(rerank?.['model']).toBe('jev-test');
+    // Display data never reaches the model.
+    expect(renderToolResultText('grep', result)).not.toContain('jev-test');
+    expect(renderToolResultText('grep', result)).not.toContain('rerank');
+  });
+
+  it('applies the order to the artifact, its findings, and the inline head', async () => {
+    await writePassageFiles(25);
+    const { decisions, grepBounds } = lane('on', {
+      p00: 0.1,
+      p01: 0.5,
+      p02: 0.9,
+    });
+    const result = await run(contextOf({ decisions, grepBounds }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+    });
+
+    expect(storedFiles().slice(0, 4)).toEqual([
+      'file-002.ts',
+      'file-001.ts',
+      'file-000.ts',
+      'file-003.ts',
+    ]);
+    // Every stored finding starts on its file's heading line.
+    const lines = artifactText().split('\n');
+    const starts = findingStarts();
+    expect(starts).toHaveLength(25);
+    for (const start of starts) {
+      expect(lines[start - 1]?.startsWith('## ')).toBe(true);
+    }
+    // The inline head is a prefix of the same order.
+    const inline = resultsOf(result).map((passage) =>
+      path.basename(passage.locator.split(':')[0] ?? ''),
+    );
+    expect(inline[0]).toBe('file-002.ts');
+    expect(storedFiles().slice(0, inline.length)).toEqual(inline);
+  });
+
+  it('changes nothing when the lane is unavailable', async () => {
+    await writePassageFiles(25);
+    const { decisions, grepBounds, calls } = lane('on', 'unavailable');
+    const result = await run(contextOf({ decisions, grepBounds }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(rerankRecordOf(result)).toBeUndefined();
+    expect(storedFiles()[0]).toBe('file-000.ts');
+  });
+
+  it('puts judged runs first and keeps the rest in canonical order', async () => {
+    await writePassageFiles(25);
+    const { decisions, grepBounds } = lane('on', { p05: 0.7 });
+    await run(contextOf({ decisions, grepBounds }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+    });
+
+    expect(storedFiles().slice(0, 3)).toEqual([
+      'file-005.ts',
+      'file-000.ts',
+      'file-001.ts',
+    ]);
+  });
+
+  it('never asks for fewer than three file runs', async () => {
+    await writeAt('d/a.ts', longLine('needle a'));
+    await writeAt('d/b.ts', longLine('needle b'));
+    const { decisions, grepBounds, calls } = lane('on', { p00: 0.9 });
+    await run(contextOf({ decisions, grepBounds }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+    });
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it('asks at most 48 file runs and leaves the rest unjudged', async () => {
+    await writePassageFiles(60);
+    const answers = Object.fromEntries(
+      Array.from({ length: 48 }, (_, index) => [
+        `p${String(index).padStart(2, '0')}`,
+        1 - index / 100,
+      ]),
+    );
+    const { decisions, grepBounds, calls } = lane('shadow', answers);
+    const result = await run(contextOf({ decisions, grepBounds }), {
+      patterns: ['needle'],
+      scopes: [`${root}/d/**`],
+    });
+
+    expect(calls[0]?.cards).toHaveLength(48);
+    const rerank = rerankRecordOf(result);
+    // 48 judged runs, then the 12 the prefilter never asked about.
+    expect(rerank?.['unjudged']).toBe(12);
+    expect(rerank?.['order']).toHaveLength(60);
+    // Shadow keeps every file in walk order whatever was asked.
+    expect(storedFiles()[0]).toBe('file-000.ts');
+    expect(storedFiles()).toHaveLength(60);
+  });
+});
+
 describe('grep inline boundaries', () => {
   function stateOf(passages: ReadonlyArray<GrepPassage>, maxBytes = 1_000_000) {
     const state = createPageState({ maxBytes, mayCarryKnowledge: false });
@@ -553,7 +780,9 @@ describe('grep inline boundaries', () => {
     ]);
     // The fixture renders the whole result in exactly the inline bound.
     expect(measureGrepRendering(pageResult(two))).toBe(15_000);
-    const exact = await finishGrepCall(two, unreadable(), 20);
+    const exact = await finishGrepCall(two, unreadable(), 20, {
+      patterns: ['needle'],
+    });
     expect(exact).not.toHaveProperty('leftOut');
     expect(success(exact).results).toHaveLength(2);
 
@@ -562,7 +791,9 @@ describe('grep inline boundaries', () => {
       { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
       { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7489)}`, matches: [1] },
     ]);
-    const capped = await finishGrepCall(over, unreadable(), 20);
+    const capped = await finishGrepCall(over, unreadable(), 20, {
+      patterns: ['needle'],
+    });
     expect(leftOutOf(capped)).toMatchObject({ of: 'files', count: 1 });
   });
 
@@ -582,6 +813,7 @@ describe('grep inline boundaries', () => {
       ]),
       unreadable(),
       1,
+      { patterns: ['needle'] },
     );
 
     // The first file fits to the unit, so only the second file is left out.
@@ -599,6 +831,7 @@ describe('grep inline boundaries', () => {
       stateOf([{ locator: 'a.md:1-40', content, matches: [1] }]),
       unreadable(),
       20,
+      { patterns: ['y'] },
     );
 
     const cut = resultsOf(result)[0];
@@ -612,7 +845,9 @@ describe('grep inline boundaries', () => {
     const state = stateOf([
       { locator: 'a.md:1-2', content: '1: a\n2: b', matches: [1], cut: true },
     ]);
-    const result = await finishGrepCall(state, unreadable(), 20);
+    const result = await finishGrepCall(state, unreadable(), 20, {
+      patterns: ['needle'],
+    });
     const plain = resultsOf(result)[0];
     expect(plain?.cut).toBe(false);
     expect(plain?.truncated).toBe(false);
@@ -629,7 +864,9 @@ describe('grep inline boundaries', () => {
         truncated: true,
       },
     ]);
-    const cappedResult = await finishGrepCall(capped, unreadable(), 20);
+    const cappedResult = await finishGrepCall(capped, unreadable(), 20, {
+      patterns: ['needle'],
+    });
     expect(resultsOf(cappedResult)[0]?.truncated).toBe(true);
     expect(renderToolResultText('grep', cappedResult)).toContain(
       '[more passages in this file; read it to see them]',

@@ -48,6 +48,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   catalogue model on every judgement, and the lane answers `unavailable` for an
   id it has no client for.
 
+- **Experimental: `grep` file runs can be reranked.** `grep` takes an optional
+  `objective` (1–2000 code units) beside its patterns, and with its own
+  `tools.grep.rerank` block set — `{ mode: "shadow" | "on", model:
+  <decisions.models id> }` — it asks that catalogue model one
+  yes/no question per file run after the walk: is this file likely to contain
+  what the objective or the patterns look for? A run's card is its path plus up
+  to three matching lines (at most 384 code units); a term-overlap prefilter
+  keeps at most 48 runs for the request, and every run it leaves out — or a
+  failed answer never judged — stays in canonical order after the judged ones,
+  which sort by probability. Whole runs are permuted and never single
+  passages, so a run stays contiguous and still opens one `## <path>` heading;
+  the stored artifact, its findings, the inline head, and the remainder map all
+  read one order, and no match, count, warning, or walk stop changes. `shadow`
+  records the ranked order, model, probabilities, and cost under the result's
+  display-only `display.rerank` field and changes nothing; `on` applies the
+  order before the inline head and the artifact are built.
+
 # 2026-11-03
 
 - A Continue Run now builds its kept steps through the same projection a later
