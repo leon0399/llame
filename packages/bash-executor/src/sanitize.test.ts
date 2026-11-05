@@ -234,4 +234,53 @@ describe("bash result sanitization", () => {
     expectNoSplitMarker(sanitized.stdout);
     expectWithinBound(sanitized.stdout, options);
   });
+  it("replaces a complete member whose capture cut starts inside it", () => {
+    const members = ["ABCDEFGHIJ", "JKL"];
+    const options = { bound: 16 };
+    const sanitized = sanitizeStdout(
+      `${"x".repeat(15)}${members[0]}K`,
+      members,
+      { ...options, endedByLlame: true },
+    );
+
+    expect(sanitized.stdout).toBe("x".repeat(15));
+    expect(sanitized.stdout).not.toMatch(/[A-K]/u);
+    expect(sanitized.truncated).toBe(true);
+    expectNoMember(sanitized.stdout, members);
+    expectWithinBound(sanitized.stdout, options);
+  });
+
+  it("replaces a complete member a timeout drop starts inside", () => {
+    const members = ["sk-live-abc123e", "eyJhbGciOiJIUzI1NiJ9"];
+    const sanitized = sanitizeStdout("key=sk-live-abc123e", members, {
+      endedByLlame: true,
+    });
+
+    expect(sanitized.stdout).toBe(`key=${MARKER}`);
+    expect(sanitized.stdout).not.toContain("abc123");
+    expect(sanitized.truncated).toBe(true);
+    expectNoMember(sanitized.stdout, members);
+  });
+
+  it("drops only the tail fragment a transport gap left", () => {
+    const members = ["SECRET-KEY-ABCDEF"];
+    const sanitized = sanitizeStdout("aaaKEY-ABCDEF zzz", members, {
+      gapAt: 3,
+    });
+
+    expect(sanitized.stdout).toBe("aaa zzz");
+    expect(sanitized.truncated).toBe(true);
+    expectNoMember(sanitized.stdout, members);
+  });
+
+  it("replaces a complete member wholly kept in front of a transport gap", () => {
+    const members = ["ABCDEFGHIJ"];
+    const sanitized = sanitizeStdout("xxABCDEFGHIJKLMN", members, {
+      gapAt: 12,
+    });
+
+    expect(sanitized.stdout).toBe(`xx${MARKER}KLMN`);
+    expect(sanitized.truncated).toBe(true);
+    expectNoMember(sanitized.stdout, members);
+  });
 });

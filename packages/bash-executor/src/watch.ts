@@ -29,18 +29,19 @@ export type WatchRequest = {
   };
 };
 
-type StreamState = {
-  stdout: string;
-  stderr: string;
+type CapturedStream = {
+  text: string;
   /** One decoder per pipe: a character split across chunks decodes once. */
-  readonly stdoutDecoder: StringDecoder;
-  readonly stderrDecoder: StringDecoder;
-  /** Each stream's own measure against its bound, updated per chunk. */
-  stdoutUsed: number;
-  stderrUsed: number;
+  readonly decoder: StringDecoder;
+  /** The stream's own measure against its bound, updated per chunk. */
+  used: number;
   /** True once output was discarded: the capture limit or a drain stopped it. */
-  stdoutTruncated: boolean;
-  stderrTruncated: boolean;
+  lost: boolean;
+};
+
+type StreamState = {
+  readonly stdout: CapturedStream;
+  readonly stderr: CapturedStream;
 };
 
 type CapturedChunk = {
@@ -77,18 +78,19 @@ type OutputDrainState = {
   settled: boolean;
 };
 
+/** One captured stream: its text, its decoder, and its measure so far. */
+function emptyStream(): CapturedStream {
+  return {
+    text: "",
+    decoder: new StringDecoder("utf8"),
+    used: 0,
+    lost: false,
+  };
+}
+
 /** One call's streams, each with its own decoder and its measure used so far. */
 function emptyStreams(): StreamState {
-  return {
-    stdout: "",
-    stderr: "",
-    stdoutDecoder: new StringDecoder("utf8"),
-    stderrDecoder: new StringDecoder("utf8"),
-    stdoutUsed: 0,
-    stderrUsed: 0,
-    stdoutTruncated: false,
-    stderrTruncated: false,
-  };
+  return { stdout: emptyStream(), stderr: emptyStream() };
 }
 
 export function watchManagedChild(
@@ -280,46 +282,25 @@ function finishOutputDrain(state: OutputDrainState, timedOut: boolean): void {
 }
 
 /**
- * Emit the bytes each decoder still holds: a command that ends on an
- * incomplete UTF-8 sequence keeps that sequence's replacement text, and a
- * stream stopped mid-character still reports its output.
+ * A decoder still holding bytes holds an incomplete trailing UTF-8 sequence.
+ * Discarding it instead of flushing its replacement character keeps a partial
+ * member from being hidden behind U+FFFD; the stream lost output, so it is
+ * marked truncated.
  */
 function flushDecoders(session: WatchSession): void {
-  const capture = withLookahead(
-    streamOutputBound(session.request.context),
-    session.request.options.protectedValues ?? [],
-  );
-  const stdout = session.streams.stdoutDecoder.end();
-  if (stdout !== "") {
-    const next = appendCapture(
-      session.streams.stdout,
-      session.streams.stdoutUsed,
-      stdout,
-      capture,
-    );
-    session.streams.stdout = next.text;
-    session.streams.stdoutUsed = next.used;
-    session.streams.stdoutTruncated ||= next.overflow;
-  }
-  const stderr = session.streams.stderrDecoder.end();
-  if (stderr !== "") {
-    const next = appendCapture(
-      session.streams.stderr,
-      session.streams.stderrUsed,
-      stderr,
-      capture,
-    );
-    session.streams.stderr = next.text;
-    session.streams.stderrUsed = next.used;
-    session.streams.stderrTruncated ||= next.overflow;
-  }
+  discardIncomplete(session.streams.stdout);
+  discardIncomplete(session.streams.stderr);
+}
+
+function discardIncomplete(stream: CapturedStream): void {
+  if (stream.decoder.end() !== "") stream.lost = true;
 }
 
 function markOutputTruncated(session: WatchSession, stream: Readable): void {
   if (stream === session.child.stdout) {
-    session.streams.stdoutTruncated = true;
+    session.streams.stdout.lost = true;
   } else if (stream === session.child.stderr) {
-    session.streams.stderrTruncated = true;
+    session.streams.stderr.lost = true;
   }
 }
 
@@ -391,36 +372,35 @@ function attachStreams(session: WatchSession): void {
     session.request.options.protectedValues ?? [],
   );
   session.child.stdout?.on("data", (chunk: Buffer) => {
-    // Decoding a chunk a full capture will discard buys nothing.
-    if (session.streams.stdoutUsed >= capture.limit) {
-      session.streams.stdoutTruncated = true;
-      return;
-    }
-    const next = appendCapture(
-      session.streams.stdout,
-      session.streams.stdoutUsed,
-      session.streams.stdoutDecoder.write(chunk),
-      capture,
-    );
-    session.streams.stdout = next.text;
-    session.streams.stdoutUsed = next.used;
-    session.streams.stdoutTruncated ||= next.overflow;
+    onStreamData(session.streams.stdout, chunk, capture);
   });
   session.child.stderr?.on("data", (chunk: Buffer) => {
-    if (session.streams.stderrUsed >= capture.limit) {
-      session.streams.stderrTruncated = true;
-      return;
-    }
-    const next = appendCapture(
-      session.streams.stderr,
-      session.streams.stderrUsed,
-      session.streams.stderrDecoder.write(chunk),
-      capture,
-    );
-    session.streams.stderr = next.text;
-    session.streams.stderrUsed = next.used;
-    session.streams.stderrTruncated ||= next.overflow;
+    onStreamData(session.streams.stderr, chunk, capture);
   });
+}
+
+function onStreamData(
+  stream: CapturedStream,
+  chunk: Buffer,
+  capture: StreamBound,
+): void {
+  // Decoding a chunk a full capture will discard buys nothing.
+  if (stream.used >= capture.limit) {
+    stream.lost = true;
+    return;
+  }
+  appendDecoded(stream, stream.decoder.write(chunk), capture);
+}
+
+function appendDecoded(
+  stream: CapturedStream,
+  text: string,
+  capture: StreamBound,
+): void {
+  const next = appendCapture(stream.text, stream.used, text, capture);
+  stream.text = next.text;
+  stream.used = next.used;
+  stream.lost ||= next.overflow;
 }
 
 /**
@@ -485,15 +465,15 @@ function knownCloseResult(
   const bound = streamOutputBound(context);
   const streams = session.streams;
   const stdoutTruncated =
-    streams.stdoutTruncated || streams.stdoutUsed > bound.limit;
+    streams.stdout.lost || streams.stdout.used > bound.limit;
   const stderrTruncated =
-    streams.stderrTruncated || streams.stderrUsed > bound.limit;
+    streams.stderr.lost || streams.stderr.used > bound.limit;
   const exitCode = code ?? 1;
   const raw: BashKnownResult = {
     status: exitCode === 0 ? "success" : "error",
     exitCode,
-    stdout: streams.stdout,
-    stderr: streams.stderr,
+    stdout: streams.stdout.text,
+    stderr: streams.stderr.text,
     truncated: stdoutTruncated || stderrTruncated,
     wallTimeMs: Math.round(performance.now() - session.startedAtMs),
   };
@@ -502,8 +482,8 @@ function knownCloseResult(
     context,
     session.request.options.protectedValues ?? [],
     {
-      stdout: { endedByLlame: endedByLlame || streams.stdoutTruncated },
-      stderr: { endedByLlame: endedByLlame || streams.stderrTruncated },
+      stdout: { endedByLlame: endedByLlame || streams.stdout.lost },
+      stderr: { endedByLlame: endedByLlame || streams.stderr.lost },
     },
   );
 }

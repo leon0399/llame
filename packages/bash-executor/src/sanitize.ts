@@ -3,12 +3,7 @@ import {
   protectedValueIntervals,
   type ProtectedValueInterval,
 } from "@workspace/runtime-safety";
-import {
-  boundedLength,
-  cutToBound,
-  streamOutputBound,
-  type StreamBound,
-} from "./output-bound";
+import { cutLength, streamOutputBound, type StreamBound } from "./output-bound";
 import type {
   BashExecutorContext,
   BashKnownResult,
@@ -21,11 +16,10 @@ const MARKER = PROTECTED_VALUE_REDACTION_MARKER;
 /**
  * What llame knows about one captured stream beyond its text. A capture that
  * llame ended (a capture or transport limit cut it, or the command timed out)
- * may stop inside a protected value, so its trailing member prefix is dropped.
- * A transport that kept two parts of a stream with dropped bytes between them
- * passes `gapAt`, the code-unit offset in the stream text where the gap sits;
- * the routine drops the member-prefix fragment before it and the member-suffix
- * fragment after it.
+ * may stop inside a protected value, so its trailing member prefix is trimmed
+ * away. A transport that kept two parts of a stream with dropped bytes between
+ * them passes `gapAt`, the code-unit offset in the stream text where the gap
+ * sits; each part is scanned and trimmed on its own.
  */
 export type StreamCapture = {
   readonly endedByLlame: boolean;
@@ -43,19 +37,22 @@ type SanitizedStream = {
   readonly truncated: boolean;
 };
 
-type TrimmedCapture = {
+/** The kept text with every member interval mapped to output coordinates. */
+type KeptCapture = {
   readonly text: string;
+  readonly intervals: ReadonlyArray<ProtectedValueInterval>;
   readonly dropped: boolean;
-};
-
-type ReplacedText = {
-  readonly text: string;
-  readonly markerStarts: ReadonlyArray<number>;
 };
 
 type BoundedText = {
   readonly text: string;
   readonly clipped: boolean;
+};
+
+/** The members and the longest member length both streams share. */
+type Redaction = {
+  readonly values: ReadonlyArray<string>;
+  readonly longest: number;
 };
 
 export function requireManagedBoundary(
@@ -81,9 +78,10 @@ export function requireManagedBoundary(
 /**
  * The one bash redaction routine (design D2). A stream may hold the bound plus
  * a capture lookahead, so a member starting before the bound is found whole.
- * Steps: trim a cut capture, find merged member intervals once, cut at the
- * bound, replace intersecting intervals clipped to it, then cut marker growth
- * without splitting a marker.
+ * Steps: find merged member intervals on the raw capture, trim a cut capture
+ * by shortening the kept range only, cut that range at the bound, replace
+ * intersecting intervals clipped to it, then cut marker growth without
+ * splitting a marker.
  */
 export function sanitizeKnownResult<
   T extends BashKnownResult | BashTimedOutResult,
@@ -93,17 +91,41 @@ export function sanitizeKnownResult<
   protectedValues: ReadonlyArray<string> = [],
   captures: ResultCaptures = {},
 ): T {
-  const bound = streamOutputBound(context);
+  return sanitizeKnownResultAtBound(
+    result,
+    streamOutputBound(context),
+    protectedValues,
+    captures,
+  );
+}
+
+/**
+ * The same routine for a caller that already knows the bound's unit: the
+ * Machine hub re-sanitizes the daemon's answer under the protocol's
+ * code-unit bound, with no executor context to fabricate.
+ */
+export function sanitizeKnownResultAtBound<
+  T extends BashKnownResult | BashTimedOutResult,
+>(
+  result: T,
+  bound: StreamBound,
+  protectedValues: ReadonlyArray<string> = [],
+  captures: ResultCaptures = {},
+): T {
+  const redaction: Redaction = {
+    values: protectedValues,
+    longest: longestMemberLength(protectedValues),
+  };
   const stdout = sanitizeStream(
     result.stdout,
     bound,
-    protectedValues,
+    redaction,
     captures.stdout,
   );
   const stderr = sanitizeStream(
     result.stderr,
     bound,
-    protectedValues,
+    redaction,
     captures.stderr,
   );
   return {
@@ -117,107 +139,147 @@ export function sanitizeKnownResult<
 function sanitizeStream(
   value: string,
   bound: StreamBound,
-  protectedValues: ReadonlyArray<string>,
+  redaction: Redaction,
   capture: StreamCapture | undefined,
 ): SanitizedStream {
-  const trimmed = trimCapture(value, capture, protectedValues);
-  const intervals = protectedValueIntervals(trimmed.text, protectedValues);
-  const keptLength = cutToBound(trimmed.text, bound).length;
-  const replaced = replaceIntervals(trimmed.text, intervals, keptLength);
+  const kept = keptCapture(value, capture, redaction);
+  const cut = cutLength(kept.text, bound);
+  const replaced = replaceIntervals(kept.text, kept.intervals, cut);
   const bounded = clampMarkerGrowth(replaced, bound);
   return {
     text: bounded.text,
-    truncated:
-      trimmed.dropped || keptLength !== trimmed.text.length || bounded.clipped,
+    truncated: kept.dropped || cut < kept.text.length || bounded.clipped,
   };
 }
 
-function trimCapture(
+/**
+ * Step 1 and 2: find intervals on the raw capture, then shorten the kept range
+ * for a capture llame ended. The intervals are never re-scanned, so a drop
+ * that starts inside a complete member still replaces its kept part.
+ */
+function keptCapture(
   value: string,
   capture: StreamCapture | undefined,
-  protectedValues: ReadonlyArray<string>,
-): TrimmedCapture {
+  redaction: Redaction,
+): KeptCapture {
   if (capture?.gapAt !== undefined) {
-    return trimGap(value, capture.gapAt, protectedValues);
+    return keptGap(value, capture.gapAt, redaction);
   }
-  if (capture?.endedByLlame !== true) {
-    return { text: value, dropped: false };
-  }
-  const text = dropTrailingMemberPrefix(value, protectedValues);
-  return { text, dropped: text.length !== value.length };
+  const drop =
+    capture?.endedByLlame === true
+      ? trailingMemberPrefixLength(value, redaction)
+      : 0;
+  const keptEnd = value.length - drop;
+  return {
+    text: value.slice(0, keptEnd),
+    intervals: clipIntervals(
+      protectedValueIntervals(value, redaction.values),
+      keptEnd,
+    ),
+    dropped: drop > 0,
+  };
 }
 
 /**
- * Drop the member-prefix fragment before a transport gap and the member-suffix
- * fragment after it, so neither half of a value cut by the gap survives.
+ * A transport gap: each part is scanned on its own, because no member is
+ * contiguous across the dropped bytes. The gap drops the head's member-prefix
+ * suffix and the tail's member-suffix prefix, again only shortening the kept
+ * ranges.
  */
-function trimGap(
+function keptGap(
   value: string,
   gapAt: number,
-  protectedValues: ReadonlyArray<string>,
-): TrimmedCapture {
+  redaction: Redaction,
+): KeptCapture {
   const gap = Math.max(0, Math.min(gapAt, value.length));
-  const head = dropTrailingMemberPrefix(value.slice(0, gap), protectedValues);
-  const tail = dropLeadingMemberSuffix(value.slice(gap), protectedValues);
-  const text = head + tail;
-  // A gap means the transport dropped bytes between the two parts, so the
-  // capture was cut even when neither fragment matched a member.
-  return { text, dropped: true };
+  const head = value.slice(0, gap);
+  const tail = value.slice(gap);
+  const headDrop = trailingMemberPrefixLength(head, redaction);
+  const tailDrop = leadingMemberSuffixLength(tail, redaction);
+  const headText = head.slice(0, head.length - headDrop);
+  const tailText = tail.slice(tailDrop);
+  const intervals: Array<ProtectedValueInterval> = [
+    ...clipIntervals(
+      protectedValueIntervals(head, redaction.values),
+      headText.length,
+    ),
+    ...tailIntervals(tail, tailDrop, headText.length, redaction.values),
+  ];
+  return { text: headText + tailText, intervals, dropped: true };
+}
+
+/** Map the tail part's intervals into output coordinates, dropping the cut. */
+function tailIntervals(
+  tail: string,
+  tailDrop: number,
+  headLength: number,
+  protectedValues: ReadonlyArray<string>,
+): Array<ProtectedValueInterval> {
+  const mapped: Array<ProtectedValueInterval> = [];
+  for (const interval of protectedValueIntervals(tail, protectedValues)) {
+    if (interval.end <= tailDrop) continue;
+    mapped.push({
+      start: headLength + Math.max(0, interval.start - tailDrop),
+      end: headLength + interval.end - tailDrop,
+    });
+  }
+  return mapped;
+}
+
+function clipIntervals(
+  intervals: ReadonlyArray<ProtectedValueInterval>,
+  end: number,
+): Array<ProtectedValueInterval> {
+  const clipped: Array<ProtectedValueInterval> = [];
+  for (const interval of intervals) {
+    if (interval.start >= end) break;
+    clipped.push({ start: interval.start, end: Math.min(interval.end, end) });
+  }
+  return clipped;
 }
 
 /** Drop the longest suffix that is a proper prefix of a protected value. */
-function dropTrailingMemberPrefix(
+function trailingMemberPrefixLength(
   value: string,
-  protectedValues: ReadonlyArray<string>,
-): string {
-  const maxLength = Math.min(
-    longestMemberLength(protectedValues) - 1,
-    value.length,
-  );
+  redaction: Redaction,
+): number {
+  const maxLength = Math.min(redaction.longest - 1, value.length);
   for (let length = maxLength; length > 0; length -= 1) {
     const suffix = value.slice(value.length - length);
-    if (isProperMemberPrefix(suffix, length, protectedValues)) {
-      return value.slice(0, value.length - length);
-    }
+    if (isProperMemberPrefix(suffix, redaction.values)) return length;
   }
-  return value;
+  return 0;
 }
 
 /** Drop the longest prefix that is a proper suffix of a protected value. */
-function dropLeadingMemberSuffix(
+function leadingMemberSuffixLength(
   value: string,
-  protectedValues: ReadonlyArray<string>,
-): string {
-  const maxLength = Math.min(
-    longestMemberLength(protectedValues) - 1,
-    value.length,
-  );
+  redaction: Redaction,
+): number {
+  const maxLength = Math.min(redaction.longest - 1, value.length);
   for (let length = maxLength; length > 0; length -= 1) {
     const prefix = value.slice(0, length);
-    if (isProperMemberSuffix(prefix, length, protectedValues)) {
-      return value.slice(length);
-    }
+    if (isProperMemberSuffix(prefix, redaction.values)) return length;
   }
-  return value;
+  return 0;
 }
 
 function isProperMemberPrefix(
   candidate: string,
-  length: number,
   protectedValues: ReadonlyArray<string>,
 ): boolean {
   return protectedValues.some(
-    (member) => member.length > length && member.startsWith(candidate),
+    (member) =>
+      member.length > candidate.length && member.startsWith(candidate),
   );
 }
 
 function isProperMemberSuffix(
   candidate: string,
-  length: number,
   protectedValues: ReadonlyArray<string>,
 ): boolean {
   return protectedValues.some(
-    (member) => member.length > length && member.endsWith(candidate),
+    (member) => member.length > candidate.length && member.endsWith(candidate),
   );
 }
 
@@ -231,29 +293,22 @@ function longestMemberLength(protectedValues: ReadonlyArray<string>): number {
 
 /**
  * Step 4: replace every merged interval that intersects the kept range,
- * clipped to it. Markers are recorded so step 5 can cut without splitting one.
+ * clipped to it. The intervals were found once, before any drop.
  */
 function replaceIntervals(
   value: string,
   intervals: ReadonlyArray<ProtectedValueInterval>,
-  keptLength: number,
-): ReplacedText {
+  end: number,
+): string {
   const output: Array<string> = [];
-  const markerStarts: Array<number> = [];
   let cursor = 0;
-  let written = 0;
   for (const interval of intervals) {
-    if (interval.start >= keptLength) break;
-    const plain = value.slice(cursor, interval.start);
-    output.push(plain);
-    written += plain.length;
-    markerStarts.push(written);
-    output.push(MARKER);
-    written += MARKER.length;
-    cursor = Math.min(interval.end, keptLength);
+    if (interval.start >= end) break;
+    output.push(value.slice(cursor, interval.start), MARKER);
+    cursor = Math.min(interval.end, end);
   }
-  output.push(value.slice(cursor, keptLength));
-  return { text: output.join(""), markerStarts };
+  output.push(value.slice(cursor, end));
+  return output.join("");
 }
 
 /**
@@ -261,19 +316,11 @@ function replaceIntervals(
  * bound, before any marker the cut would split, so an artifact part never
  * exceeds `tools.artifacts.maxBytes`.
  */
-function clampMarkerGrowth(
-  replaced: ReplacedText,
-  bound: StreamBound,
-): BoundedText {
-  if (boundedLength(replaced.text, bound) <= bound.limit) {
-    return { text: replaced.text, clipped: false };
-  }
-  let cut = cutToBound(replaced.text, bound).length;
-  for (const markerStart of replaced.markerStarts) {
-    if (markerStart < cut && markerStart + MARKER.length > cut) {
-      cut = markerStart;
-      break;
-    }
-  }
-  return { text: replaced.text.slice(0, cut), clipped: true };
+function clampMarkerGrowth(text: string, bound: StreamBound): BoundedText {
+  const cut = cutLength(text, bound);
+  if (cut === text.length) return { text, clipped: false };
+  const markerStart = text.lastIndexOf(MARKER, cut - 1);
+  const safeCut =
+    markerStart !== -1 && markerStart + MARKER.length > cut ? markerStart : cut;
+  return { text: text.slice(0, safeCut), clipped: true };
 }

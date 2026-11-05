@@ -235,6 +235,79 @@ describe("process-group settlement", () => {
     expect(result.stdout).not.toContain(member);
   });
 
+  it("redacts a complete member whose capture cut starts inside it", async () => {
+    const member = "SECRET-KEY";
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_365 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      true,
+    );
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: {
+            ...context,
+            outputBound: undefined,
+            outputBoundBytes: 16,
+          },
+          attemptId: "cut-inside-member",
+          options: { protectedValues: [member] },
+        },
+        resolve,
+      );
+    });
+    // The capture limit lands after 24 bytes because the emoji cannot fit, so
+    // a drop-before-find would leave the member's first character visible.
+    child.stdout.emit("data", Buffer.from(`${"x".repeat(15)}SECRET-KE😀`));
+    child.emit("close", 0, null);
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (!("stdout" in result)) throw new Error("Expected known output");
+    expect(result.stdout).toBe("x".repeat(15));
+    expect(result.stdout).not.toContain("S");
+  });
+
+  it("discards an incomplete UTF-8 sequence the drain stopped on", async () => {
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_366 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "stopProcessGroup").mockImplementation(() => {
+      setImmediate(() => {
+        // `л` is D0 BB; the drain ends after its first byte, so the decoder
+        // holds an incomplete sequence rather than a character.
+        child.stdout?.emit(
+          "data",
+          Buffer.concat([Buffer.from("prefix SECRET-к"), Buffer.from([0xd0])]),
+        );
+        child.stdout?.emit("end");
+        child.stderr?.emit("end");
+      });
+      return Promise.resolve(true);
+    });
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, durationMs: 0 },
+          attemptId: "incomplete-sequence",
+          options: { protectedValues: ["SECRET-ключ"] },
+        },
+        resolve,
+      );
+    });
+
+    const result = await pending;
+    expect(result).toMatchObject({ type: "timed_out", truncated: true });
+    if (!("stdout" in result)) throw new Error("Expected known output");
+    expect(result.stdout).toBe("prefix ");
+    expect(result.stdout).not.toContain("\uFFFD");
+  });
+
   it("keeps a natural exit's trailing member prefix", async () => {
     const child = new ChildProcess();
     Object.defineProperty(child, "pid", { value: 12_363 });

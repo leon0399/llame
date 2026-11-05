@@ -1,5 +1,6 @@
 import {
   boundedLength,
+  cutLength,
   cutToBound,
   streamOutputBound,
   type StreamBound,
@@ -45,6 +46,13 @@ describe("the stream output bound", () => {
   it("measures a string in the bound's own unit", () => {
     expect(boundedLength("é😀", BYTES)).toBe(6);
     expect(boundedLength("é😀", UNITS)).toBe(3);
+  });
+
+  it("reports the code-point-safe cut length without slicing", () => {
+    expect(cutLength("😀abc", { kind: "code-units", limit: 1 })).toBe(0);
+    expect(cutLength("😀abc", { kind: "code-units", limit: 2 })).toBe(2);
+    expect(cutLength("a😀b", { kind: "bytes", limit: 4 })).toBe(1);
+    expect(cutLength("abc", BYTES)).toBe(3);
   });
 
   it("keeps a string within the bound as the same value", () => {
