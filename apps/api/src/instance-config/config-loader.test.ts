@@ -21,6 +21,7 @@ const TEST_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
+import { configuredCredentials } from './configured-credentials';
 import {
   loadInstanceConfig as loadInstanceConfigFromPath,
   resolveConfigPath,
@@ -4756,5 +4757,325 @@ describe('resolveConfigPath override hygiene', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: '   ' })).toBe(
       path.join(process.cwd(), 'llame.config.jsonc'),
     );
+  });
+});
+
+describe('loadInstanceConfig — configured credential set', () => {
+  function credentialsOf(json: string, env: NodeJS.ProcessEnv = {}) {
+    writeConfig(json);
+    return configuredCredentials(loadInstanceConfig(env));
+  }
+
+  it('is empty for a configuration the loader did not build', () => {
+    expect(configuredCredentials({ ...BUILT_IN_DEFAULTS })).toEqual([]);
+  });
+
+  it('is not a property of the returned configuration', () => {
+    writeConfig(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "sk-canary-set" }] }',
+    );
+    const config = loadInstanceConfig();
+
+    expect(configuredCredentials(config)).toContain('sk-canary-set');
+    expect(Object.keys(config)).not.toContain('credentials');
+    expect(JSON.stringify(config)).toContain('sk-canary-set'); // the key itself
+    expect(
+      JSON.stringify(Object.values(config).filter(Array.isArray)),
+    ).not.toContain('configuredCredentials');
+  });
+
+  it('returns a fresh configuration, never the shared built-in defaults', () => {
+    const first = loadInstanceConfig();
+    const second = loadInstanceConfig();
+
+    expect(first).not.toBe(BUILT_IN_DEFAULTS);
+    expect(first).not.toBe(second);
+    expect(configuredCredentials(BUILT_IN_DEFAULTS)).toEqual([]);
+  });
+
+  it('freezes the set and sorts longest first without duplicates', () => {
+    const members = credentialsOf(
+      `{ "providers": [
+        { "id": "a", "type": "openai-responses", "key": "short" },
+        { "id": "b", "type": "openai-responses", "key": "a-much-longer-key" },
+        { "id": "c", "type": "openai-responses", "key": "short" }
+      ] }`,
+    );
+
+    expect(members).toEqual(['a-much-longer-key', 'short']);
+    expect(Object.isFrozen(members)).toBe(true);
+  });
+
+  it('contains credential fields however written and not the yandex folderId', () => {
+    const members = credentialsOf(
+      `{
+        "providers": [{ "id": "p", "type": "openai-responses", "key": "{env:OPENAI_KEY}" }],
+        "tools": { "webAdapters": [{ "id": "gh", "use": "github", "token": "{env:GH_TOKEN}" }] },
+        "webSearch": {
+          "engines": [
+            { "id": "brave", "type": "brave", "key": "brave-literal" },
+            { "id": "yandex", "type": "yandex", "key": "{env:YANDEX_KEY}", "searchType": "com", "folderId": "{env:YANDEX_FOLDER}" },
+            { "id": "exa", "type": "exa-mcp", "key": "exa-mcp-key" }
+          ],
+          "chain": ["brave"]
+        }
+      }`,
+      {
+        OPENAI_KEY: 'sk-openai',
+        GH_TOKEN: 'ghp_token',
+        YANDEX_KEY: 'yandex-key',
+        YANDEX_FOLDER: 'b1g-folder',
+      },
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'sk-openai',
+        'ghp_token',
+        'brave-literal',
+        'yandex-key',
+        'exa-mcp-key',
+      ]),
+    );
+    expect(members).not.toContain('b1g-folder');
+  });
+
+  it('keeps a short credential field and a Codex accountId', () => {
+    const members = credentialsOf(
+      `{ "providers": [
+        { "id": "p", "type": "openai-responses", "key": "secret7" },
+        { "id": "c", "type": "openai-codex", "key": "a-token", "accountId": "acct-1" }
+      ] }`,
+    );
+
+    expect(members).toEqual(expect.arrayContaining(['secret7', 'acct-1']));
+  });
+
+  it('contributes nothing for a keyless provider', () => {
+    expect(
+      credentialsOf(
+        `{ "providers": [
+          { "id": "a", "type": "openai-responses" },
+          { "id": "b", "type": "openai-responses", "key": "{env:BLANK}" }
+        ] }`,
+        { BLANK: '  ' },
+      ),
+    ).toEqual([]);
+  });
+
+  it('adds the whole POSTGRES_URL, its password in both spellings, and PGPASSWORD from the given env', () => {
+    const members = credentialsOf('{}', {
+      POSTGRES_URL: 'postgres://app:pw%2Fcanary-1065@db:5432/llame',
+      PGPASSWORD: 'pgpass-canary',
+    });
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'postgres://app:pw%2Fcanary-1065@db:5432/llame',
+        'pw%2Fcanary-1065',
+        'pw/canary-1065',
+        'pgpass-canary',
+      ]),
+    );
+    expect(members).not.toContain('app');
+  });
+
+  it('does not read POSTGRES_URL from process.env, only from the env given', () => {
+    process.env.POSTGRES_URL = 'postgres://app:ambient-password@db/llame';
+    try {
+      expect(credentialsOf('{}', {})).toEqual([]);
+    } finally {
+      delete process.env.POSTGRES_URL;
+    }
+  });
+
+  it('applies the 8-character floor to a database password and PGPASSWORD only', () => {
+    const members = credentialsOf('{}', {
+      POSTGRES_URL: 'postgres://app:app@db:5432/llame',
+      PGPASSWORD: 'short',
+    });
+
+    expect(members).toEqual(['postgres://app:app@db:5432/llame']);
+  });
+
+  it('adds substitutions in headers and stdio fields without literal text or fallbacks', () => {
+    const gateway = path.join(tmpDir, 'gw');
+    writeFileSync(gateway, 'gw-file-secret\n');
+    const members = credentialsOf(
+      `{
+        "providers": [{ "id": "p", "type": "openai-responses", "headers": {
+          "Authorization": "Bearer {path:${gateway}}",
+          "X-Fallback": "{env:NOPE:-fallback-text}",
+          "X-Session": "{env:SHORT_HDR}-{session:id}"
+        } }],
+        "mcpServers": { "local": { "type": "stdio", "command": "run", "args": ["--token={env:MCP_TOKEN}"], "env": { "A": "{env:MCP_ENV}" } } }
+      }`,
+      { MCP_TOKEN: 't0ken', MCP_ENV: 'e', SHORT_HDR: 'k-6chr' },
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining(['gw-file-secret', 't0ken', 'e', 'k-6chr']),
+    );
+    expect(members).not.toContain('Bearer');
+    expect(members).not.toContain('Bearer ');
+    expect(members).not.toContain('--token=');
+    expect(members).not.toContain('fallback-text');
+    expect(members).not.toContain('Authorization');
+  });
+
+  it('adds only credential-shaped literal headers for a remote MCP server', () => {
+    const members = credentialsOf(
+      `{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": {
+        "X-Api-Key": "abcdefgh-canary", "X-Region": "eu-west-1"
+      } } } }`,
+    );
+
+    expect(members).toContain('abcdefgh-canary');
+    expect(members).not.toContain('eu-west-1');
+  });
+
+  it('adds only credential-shaped literal headers for a provider', () => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": {
+        "X-Api-Key": "provider-header-canary", "X-Region": "eu-west-1"
+      } }] }`,
+    );
+
+    expect(members).toContain('provider-header-canary');
+    expect(members).not.toContain('eu-west-1');
+  });
+
+  it('adds a remote MCP URL substitution in its query and not the URL', () => {
+    const members = credentialsOf(
+      '{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey={env:MCP_KEY}" } } }',
+      { MCP_KEY: 'mcp-key-value' },
+    );
+
+    expect(members).toEqual(['mcp-key-value']);
+  });
+
+  it('adds a query substitution whatever its name and never a host substitution', () => {
+    const members = credentialsOf(
+      '{ "mcpServers": { "r": { "type": "http", "url": "https://{env:MCP_HOST}/mcp?region={env:MCP_REGION}" } } }',
+      { MCP_HOST: 'mcp.example', MCP_REGION: 'eu-west-1' },
+    );
+
+    expect(members).toEqual(['eu-west-1']);
+  });
+
+  it('adds a credential written into a URL however it was written', () => {
+    const members = credentialsOf(
+      `{
+        "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey=sk-canary-1065&region=eu-west-1" } },
+        "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "{env:GATEWAY_URL}" }]
+      }`,
+      { GATEWAY_URL: 'https://gateway.example/v1?signature=gw-canary-1065' },
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining(['sk-canary-1065', 'gw-canary-1065']),
+    );
+    expect(members).not.toContain('eu-west-1');
+    expect(members).not.toContain(
+      'https://gateway.example/v1?signature=gw-canary-1065',
+    );
+    expect(members).not.toContain(
+      'https://mcp.example/mcp?apiKey=sk-canary-1065&region=eu-west-1',
+    );
+  });
+
+  it('adds a provider baseUrl userinfo password at any length and a username from 8 characters', () => {
+    const members = credentialsOf(
+      `{ "providers": [
+        { "id": "a", "type": "openai-responses", "baseUrl": "https://svc:abc123@gw.internal/v1" },
+        { "id": "b", "type": "openai-responses", "baseUrl": "https://username8:p%40ss@gw.internal/v1" }
+      ] }`,
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining(['abc123', 'username8', 'p%40ss', 'p@ss']),
+    );
+    expect(members).not.toContain('svc');
+  });
+
+  it('adds a query value as written and percent-decoded', () => {
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?access_token=a%2Fb&mode=fast" }] }',
+    );
+
+    expect(members).toEqual(expect.arrayContaining(['a%2Fb', 'a/b']));
+    expect(members).not.toContain('fast');
+  });
+
+  it('does not add an endpoint, whether the fallback applied or the variable was set', () => {
+    const json =
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "{env:OPENAI_BASE_URL:-http://localhost:11434/v1}" }] }';
+
+    expect(credentialsOf(json, {})).toEqual([]);
+    expect(
+      credentialsOf(json, { OPENAI_BASE_URL: 'https://gateway.example/v1' }),
+    ).toEqual([]);
+  });
+
+  it('adds a Codex auth document credential leaves and not a timestamp', () => {
+    const authFile = path.join(tmpDir, 'codex-auth.json');
+    writeFileSync(
+      authFile,
+      JSON.stringify({
+        tokens: {
+          access_token: 'at-123',
+          refresh_token: 'rt-123',
+          id_token: 'id-123',
+        },
+        last_refresh: '2026-01-01T00:00:00Z',
+      }),
+    );
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "c", "type": "openai-codex", "accountId": "acct", "key": "{path:${authFile}|json:/tokens/access_token}" }] }`,
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining(['at-123', 'rt-123', 'id-123']),
+    );
+    expect(members).not.toContain('2026-01-01T00:00:00Z');
+  });
+
+  it('adds document leaves for a header substitution too', () => {
+    const authFile = path.join(tmpDir, 'gw.json');
+    writeFileSync(
+      authFile,
+      JSON.stringify({ token: 'tk-1', password: 'pw-1', region: 'eu' }),
+    );
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": { "X-Auth": "{path:${authFile}|json:/token}" } }] }`,
+    );
+
+    expect(members).toEqual(expect.arrayContaining(['tk-1', 'pw-1']));
+    expect(members).not.toContain('eu');
+  });
+
+  it('adds none of knowledge.root, a numeric setting, or a searxng baseUrl', () => {
+    const members = credentialsOf(
+      `{
+        "knowledge": { "root": "{env:KB_ROOT}" },
+        "db": { "poolSize": "{env:POOL_SIZE}" },
+        "webSearch": { "engines": [{ "id": "s", "type": "searxng", "baseUrl": "{env:SEARXNG_URL}" }], "chain": ["s"] }
+      }`,
+      {
+        KB_ROOT: '/srv/kb',
+        POOL_SIZE: '12',
+        SEARXNG_URL: 'https://searx.example',
+      },
+    );
+
+    expect(members).toEqual([]);
+  });
+
+  it('does not add a session rendering or the keyless placeholder', () => {
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "headers": { "X-Trace": "{session:id}" } }] }',
+    );
+
+    expect(members).toEqual([]);
   });
 });

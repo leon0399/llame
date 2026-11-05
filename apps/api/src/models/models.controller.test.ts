@@ -1,8 +1,14 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { HttpException, HttpStatus } from '@nestjs/common';
 
+import { loadInstanceConfig } from '../instance-config/config-loader';
+import { configuredCredentials } from '../instance-config/configured-credentials';
 import type { ProviderConfig } from '../instance-config/llame-config';
 import { ModelsController, type ModelsReader } from './models.controller';
-import { ModelConfigurationError } from './models.service';
+import { ModelConfigurationError, ModelsService } from './models.service';
 import { toAvailableModelResponse } from './dto/models.dto';
 import type { PublicModelCatalogEntry } from './model-catalog';
 
@@ -247,5 +253,68 @@ describe('ModelsController', () => {
     });
 
     expect(response.input).toEqual(['text', 'image', 'pdf']);
+  });
+});
+
+/** Distinct values each placed in a different membership position. */
+const canaries = {
+  urlPassword: ['pw', 'canary', '1065'].join('-'),
+  urlQuery: ['qs', 'canary', '1065'].join('-'),
+  header: ['hd', 'canary', '1065'].join('-'),
+  database: ['db', 'canary', '1065'].join('-'),
+};
+
+describe('GET /api/v1/models with a configured credential set', () => {
+  it('serializes neither the provider key nor any other set member', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'llame-models-canary-'));
+    const configFile = path.join(dir, 'llame.config.json');
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        providers: [
+          {
+            id: 'p',
+            type: 'openai-responses',
+            key: '{env:CANARY_KEY}',
+            baseUrl: `https://svc:${canaries.urlPassword}@gateway.example/v1?token=${canaries.urlQuery}`,
+            headers: { 'X-Api-Key': canaries.header },
+          },
+        ],
+        models: [
+          {
+            id: 'system:p:model',
+            provider: 'p',
+            providerModelId: 'model',
+            contextWindowTokens: 1000,
+          },
+        ],
+        defaults: { modelId: 'system:p:model' },
+      }),
+    );
+    const config = loadInstanceConfig({
+      LLAME_CONFIG_PATH: configFile,
+      CANARY_KEY: 'sk-canary-set',
+      POSTGRES_URL: `postgres://app:${canaries.database}@db:5432/llame`,
+    });
+    const members = configuredCredentials(config);
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'sk-canary-set',
+        canaries.urlPassword,
+        canaries.urlQuery,
+        canaries.header,
+        canaries.database,
+      ]),
+    );
+
+    const controller = new ModelsController(
+      new ModelsService({ config, productUserAgent: 'llame/0.0.0-test' }),
+    );
+    const body = JSON.stringify(controller.listModels());
+
+    expect(body).toContain('system:p:model');
+    for (const member of members) {
+      expect(body).not.toContain(member);
+    }
   });
 });
