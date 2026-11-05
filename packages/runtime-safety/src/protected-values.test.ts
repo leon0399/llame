@@ -5,6 +5,7 @@ import {
   containsProtectedValueJson,
   credentialHeaderValues,
   normalizeProtectedValues,
+  protectedValueIntervals,
   redactProtectedString,
   sanitizeProtectedValueJson,
 } from "./protected-values";
@@ -96,6 +97,50 @@ describe("protected values", () => {
     expect(
       redactProtectedString("AUTH-SENTINEL", ["AUTH", "AUTH-SENTINEL"]),
     ).toBe(PROTECTED_VALUE_REDACTION_MARKER);
+  });
+
+  it("returns one merged interval for a contained protected value", () => {
+    expect(
+      protectedValueIntervals("xxAUTH-SENTINELyy", ["AUTH", "AUTH-SENTINEL"]),
+    ).toEqual([{ start: 2, end: 15 }]);
+    expect(
+      redactProtectedString("xxAUTH-SENTINELyy", ["AUTH", "AUTH-SENTINEL"]),
+    ).toBe(`xx${PROTECTED_VALUE_REDACTION_MARKER}yy`);
+  });
+
+  it("merges partially overlapping protected values so no tail remains", () => {
+    expect(protectedValueIntervals("abcdefgh", ["abcde", "defgh"])).toEqual([
+      { start: 0, end: 8 },
+    ]);
+    expect(redactProtectedString("abcdefgh", ["abcde", "defgh"])).toBe(
+      PROTECTED_VALUE_REDACTION_MARKER,
+    );
+  });
+
+  it("merges adjacent protected values into one interval", () => {
+    expect(protectedValueIntervals("abcdefgh", ["abcd", "efgh"])).toEqual([
+      { start: 0, end: 8 },
+    ]);
+    expect(redactProtectedString("abcdefgh", ["abcd", "efgh"])).toBe(
+      PROTECTED_VALUE_REDACTION_MARKER,
+    );
+  });
+
+  it("keeps disjoint merged intervals sorted", () => {
+    expect(
+      protectedValueIntervals("AUTH then AUTH-SENTINEL", [
+        "AUTH",
+        "AUTH-SENTINEL",
+      ]),
+    ).toEqual([
+      { start: 0, end: 4 },
+      { start: 10, end: 23 },
+    ]);
+  });
+
+  it("returns no interval without a nonempty match", () => {
+    expect(protectedValueIntervals("safe", ["", "AUTH"])).toEqual([]);
+    expect(protectedValueIntervals("", ["AUTH"])).toEqual([]);
   });
 
   it("redacts an earlier shorter match before a later longer match", () => {

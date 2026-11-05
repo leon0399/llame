@@ -74,47 +74,82 @@ function canonicalJsonScalar(value: unknown): string | undefined {
   return undefined;
 }
 
+/** One half-open code-unit range a protected value occupies in a string. */
+export type ProtectedValueInterval = {
+  readonly start: number;
+  readonly end: number;
+};
+
 /**
- * Redacts every protected value inside a single string, longest match first.
- * Exported for the stdio diagnostic path, which redacts plain text rather than
- * a JSON document.
+ * Every protected value occurrence in a string as merged raw code-unit
+ * intervals, sorted: overlapping and adjacent intervals join, so a replacement
+ * leaves no tail of either value. Values are expected normalized (as
+ * {@link normalizeProtectedValues} returns them); empty values are skipped
+ * defensively.
+ */
+export function protectedValueIntervals(
+  value: string,
+  protectedValues: ReadonlyArray<string>,
+): ReadonlyArray<ProtectedValueInterval> {
+  const matches: Array<ProtectedValueInterval> = [];
+  for (const protectedValue of protectedValues) {
+    if (protectedValue.length === 0) continue;
+    let index = value.indexOf(protectedValue);
+    while (index !== -1) {
+      matches.push({ start: index, end: index + protectedValue.length });
+      index = value.indexOf(protectedValue, index + 1);
+    }
+  }
+  if (matches.length === 0) return [];
+
+  matches.sort(
+    (left, right) => left.start - right.start || left.end - right.end,
+  );
+  return mergeIntervals(matches);
+}
+
+function mergeIntervals(
+  sorted: ReadonlyArray<ProtectedValueInterval>,
+): ReadonlyArray<ProtectedValueInterval> {
+  const merged: Array<ProtectedValueInterval> = [];
+  for (const interval of sorted) {
+    const previous = merged.at(-1);
+    if (previous !== undefined && interval.start <= previous.end) {
+      if (interval.end > previous.end) {
+        merged[merged.length - 1] = {
+          start: previous.start,
+          end: interval.end,
+        };
+      }
+      continue;
+    }
+    merged.push(interval);
+  }
+  return merged;
+}
+
+/**
+ * Redacts every protected value inside a single string through the merged
+ * intervals, so overlapping members leave no tail. Exported for the stdio
+ * diagnostic path, which redacts plain text rather than a JSON document.
  */
 export function redactProtectedString(
   value: string,
   protectedValues: ReadonlyArray<string>,
 ): string {
+  const intervals = protectedValueIntervals(value, protectedValues);
+  if (intervals.length === 0) return value;
+
   const output: Array<string> = [];
   let cursor = 0;
-
-  while (cursor < value.length) {
-    let earliestIndex = -1;
-    let match = "";
-
-    for (const protectedValue of protectedValues) {
-      const index = value.indexOf(protectedValue, cursor);
-      if (
-        index !== -1 &&
-        (earliestIndex === -1 ||
-          index < earliestIndex ||
-          (index === earliestIndex && protectedValue.length > match.length))
-      ) {
-        earliestIndex = index;
-        match = protectedValue;
-      }
-    }
-
-    if (earliestIndex === -1) {
-      output.push(value.slice(cursor));
-      break;
-    }
-
+  for (const interval of intervals) {
     output.push(
-      value.slice(cursor, earliestIndex),
+      value.slice(cursor, interval.start),
       PROTECTED_VALUE_REDACTION_MARKER,
     );
-    cursor = earliestIndex + match.length;
+    cursor = interval.end;
   }
-
+  output.push(value.slice(cursor));
   return output.join("");
 }
 
