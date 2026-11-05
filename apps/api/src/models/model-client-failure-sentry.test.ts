@@ -138,6 +138,7 @@ describe('a structured Responses stream failure', () => {
       partialErrorStream({
         type: 'error',
         sequence_number: 1,
+        code: `upstream-code-${KEY}`,
         message: `Upstream echoed ${KEY}`,
       }),
     );
@@ -154,7 +155,10 @@ describe('a structured Responses stream failure', () => {
         type: 'response.failed',
         sequence_number: 2,
         response: {
-          error: { code: 'server_error', message: `Upstream echoed ${KEY}` },
+          error: {
+            code: `server-error-${KEY}`,
+            message: `Upstream echoed ${KEY}`,
+          },
           incomplete_details: { reason: 'error' },
         },
       }),

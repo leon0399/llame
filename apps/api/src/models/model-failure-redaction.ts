@@ -30,8 +30,15 @@ export function isFailureGraph(value: unknown): value is FailureNode {
   return prototype === null || prototype === Object.prototype;
 }
 
-function isClassificationKey(key: PropertyKey): boolean {
-  return isString(key) && Object.hasOwn(CLASSIFICATION_KEYS, key);
+function isClassificationKey(
+  container: FailureNode,
+  key: PropertyKey,
+): boolean {
+  return (
+    container instanceof Error &&
+    isString(key) &&
+    Object.hasOwn(CLASSIFICATION_KEYS, key)
+  );
 }
 
 /**
@@ -104,7 +111,7 @@ function redactInPlace(
   if (visited.has(container)) return;
   visited.add(container);
   for (const key of Reflect.ownKeys(container)) {
-    if (isClassificationKey(key)) continue;
+    if (isClassificationKey(container, key)) continue;
     const descriptor = Object.getOwnPropertyDescriptor(container, key);
     if (descriptor === undefined) continue;
     if (!('value' in descriptor)) {
@@ -234,7 +241,7 @@ function copyProperty(
   const current: unknown = descriptor.value;
   let next: unknown = current;
   if (isString(current)) {
-    if (!isClassificationKey(key)) {
+    if (!isClassificationKey(state.original, key)) {
       next = redactedText(current, state.credentials);
     }
   } else if (isFailureGraph(current)) {
