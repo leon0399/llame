@@ -21,10 +21,10 @@
  * have applied and returns the canonical one; `on` returns the ranked source,
  * which every downstream step (the inline fit, the stored artifact text, the
  * findings and the continuation line) reads, so they agree by construction.
- * Either way the result carries `rerank: { mode, model, order, probabilities,
- * latencyMs, costUsd }` beside its closed output shape, which the model-facing
- * renderer strips: a reorder never changes counts, and the record is for the
- * owner's UI and for a later comparison, not for the model.
+ * Either way the result carries `display.rerank: { mode, model, order,
+ * probabilities, latencyMs, costUsd }` beside its closed output shape, in the
+ * field the model-facing renderer strips: a reorder never changes counts, and
+ * the record is for the owner's UI and for a later comparison, not for the model.
  */
 
 import pino from 'pino';
@@ -56,7 +56,7 @@ export const WEB_SEARCH_RERANK_MIN_RESULTS = 3;
 /** One card stays under this, so a state of 20 cards fits one request. */
 export const WEB_SEARCH_RERANK_CARD_MAX_CODE_UNITS = 400;
 
-/** What a ranked call records beside its closed output shape. */
+/** What a ranked call records under `display` beside its closed output shape. */
 export type WebSearchRerankRecord = {
   readonly mode: 'shadow' | 'on';
   readonly model: string | null;

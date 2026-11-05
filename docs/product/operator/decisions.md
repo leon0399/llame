@@ -132,11 +132,12 @@ the output cannot show it.
 
 The order is decided once, before the inline fit, the artifact and its findings
 are built, so a `read` of the artifact continues in the same order the model
-read inline. The result carries the record either way, beside its closed output
-shape: `rerank: { mode, model, order, probabilities, latencyMs, costUsd }`,
-naming the order `on` applied or the one `shadow` would have. The model-facing
-text ignores the field; it exists for the owner's UI and for comparing a shadow
-run against the live order. One `web_search.rerank` line is logged per ranked
+read inline. The result carries the record either way in its display-only
+field, beside its closed output shape:
+`display.rerank: { mode, model, order, probabilities, latencyMs, costUsd }`,
+naming the order `on` applied or the one `shadow` would have. The model never
+sees `display`; it exists for the owner's UI and for comparing a shadow run
+against the live order. One `web_search.rerank` line is logged per ranked
 call.
 
 ## Cost and failure

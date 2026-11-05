@@ -301,13 +301,15 @@ it('records the shadow order beside an unchanged output', async () => {
   expect(urls(shadow)).toEqual(urls(baseline));
   expect(renderWebSearchText(shadow)).toBe(renderWebSearchText(baseline));
   expect(shadow).toMatchObject({
-    rerank: {
-      mode: 'shadow',
-      model: 'jev-1.13',
-      order: ['p02', 'p05', 'p03', 'p01', 'p04'],
-      probabilities: { p01: 0.1, p02: 0.9, p03: 0.5, p04: 0.05, p05: 0.7 },
-      latencyMs: 180,
-      costUsd: 0.0000042,
+    display: {
+      rerank: {
+        mode: 'shadow',
+        model: 'jev-1.13',
+        order: ['p02', 'p05', 'p03', 'p01', 'p04'],
+        probabilities: { p01: 0.1, p02: 0.9, p03: 0.5, p04: 0.05, p05: 0.7 },
+        latencyMs: 180,
+        costUsd: 0.0000042,
+      },
     },
   });
   // The record is display-only: the model-facing text has no trace of it.
@@ -337,7 +339,9 @@ it('applies the order before every cap, so inline and artifact agree', async () 
   );
   expect(headings(writtenText())).toEqual(ranked);
   expect(result).toMatchObject({
-    rerank: { mode: 'on', order: ['p02', 'p05', 'p03', 'p01', 'p04'] },
+    display: {
+      rerank: { mode: 'on', order: ['p02', 'p05', 'p03', 'p01', 'p04'] },
+    },
   });
   // A permutation only: the counts the notice measures do not move.
   const canonical = normalizeOutput(source, 3);
@@ -361,7 +365,7 @@ it('keeps the canonical order when the judge is unavailable', async () => {
   );
 
   expect(urls(result)).toEqual(source.results.map((item) => item.url));
-  expect(result).not.toHaveProperty('rerank');
+  expect(result).not.toHaveProperty('display');
 });
 
 it('survives a judge that throws and keeps the canonical order', async () => {
@@ -377,7 +381,7 @@ it('survives a judge that throws and keeps the canonical order', async () => {
   );
 
   expect(urls(result)).toEqual(source.results.map((item) => item.url));
-  expect(result).not.toHaveProperty('rerank');
+  expect(result).not.toHaveProperty('display');
 });
 
 it('appends a partially judged tail in its canonical order', async () => {
@@ -401,7 +405,7 @@ it('appends a partially judged tail in its canonical order', async () => {
     'Title 05',
   ]);
   expect(result).toMatchObject({
-    rerank: { order: ['p02', 'p04', 'p01', 'p03', 'p05'] },
+    display: { rerank: { order: ['p02', 'p04', 'p01', 'p03', 'p05'] } },
   });
 });
 

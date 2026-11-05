@@ -56,7 +56,8 @@ export async function spillWebSearchResult(
 ): Promise<ToolResult> {
   const rerank = await rerankWebSearchResults(context, source, objective);
   const ordered = rerank?.source ?? source;
-  const record = rerank === undefined ? {} : { rerank: rerank.record };
+  const record =
+    rerank === undefined ? {} : { display: { rerank: rerank.record } };
   const full = normalizeFullOutput(ordered, fetchSize);
   const whole = normalizeOutput(ordered, limit);
   if (JSON.stringify(full) === JSON.stringify(whole))
