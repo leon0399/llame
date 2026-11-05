@@ -478,6 +478,33 @@ their scores to the model
 - A **wrapper** inherits the egress of the provider it wraps: if that provider
   may not see chat text, neither may the wrapper.
 
+### F11. Live probe: one request shape answers on every hosted route
+
+A throwaway script (not committed) sent one state with three `noul`, one
+`choice` and one `score` question to each route on 2026-11-05, with the keys
+in the operator's environment. Every route that answered used the System One
+request shape verbatim and returned the same answer envelope.
+
+| Route                                             | Model id sent          | Model id served              | HTTP | Latency                               | `usage`                                                              |
+| ------------------------------------------------- | ---------------------- | ---------------------------- | ---- | ------------------------------------- | -------------------------------------------------------------------- |
+| OpenRouter `POST /api/v1/systemone`               | `typesafe/jev-1.14`    | `typesafe/jev-1.14-20261014` | 200  | 600 ms (first call), 245–290 ms after | `input_tokens` 514, `output_tokens` 104, `cost` 0.000021588          |
+| OpenRouter `POST /api/v1/systemone`               | `~typesafe/jev-latest` | `typesafe/jev-1.14-20261014` | 200  | 261 ms                                | same                                                                 |
+| OpenRouter `POST /api/alpha/decisions`            | `typesafe/jev-1.14`    | `typesafe/jev-1.14-20261014` | 200  | 245 ms                                | same, plus `id` and `provider: "TypeSafe"`                           |
+| OpenRouter `POST /api/v1/systemone`               | `typesafe/jev-1.13`    | `typesafe/jev-1.13-20260917` | 200  | 290 ms                                | same                                                                 |
+| OpenCode `POST /zen/v1/systemone`                 | `jev-1.13`             | `jev-1.13`                   | 200  | 223 ms                                | same tokens; `cost` 0.00002159, `opencode.billing_source: "balance"` |
+| OpenCode `POST /inference/systemone/v1/systemone` | `jev-1.13-free`        | `jev-1.13-free`              | 200  | 340 ms                                | `cost` 0, `opencode.billing_source: "free"`                          |
+
+The `cost` field matches $0.042 per million input tokens with free output on
+both gateways. An OpenRouter key with a $0 spending limit answers 403
+`key_limit` on every route; the error names the key hash and `limit_usd`.
+The served `model` carries the pinned revision, so an alias such as
+`~typesafe/jev-latest` resolves to a dated id in the response and a receipt
+can record it. Calibration looked stable across revisions on this one state:
+the two relevant candidates scored 0.86–0.91 and the unrelated one 0.01 on
+every route, while `choice` confidence varied between 0.30 and 0.44.
+`[INFERENCE]` One codec and a per-entry `baseUrl` therefore cover TypeSafe,
+OpenRouter and OpenCode; that settles Q1 for an implementation.
+
 ## Open decisions
 
 - **Q1. Which wire is canonical?** The System One shape (`state` plus a keyed
