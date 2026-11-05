@@ -48,9 +48,12 @@ the [operator index](../index.md#operator):
 `key` and `accountId` must resolve to nonblank strings. `baseUrl` is rejected.
 Codex sends no default provider headers; add
 `"headers": { "X-Session-Id": "{session:id}" }` to opt in when a gateway needs
-session affinity. The fixed transport uses the Codex Responses endpoint;
-llame reads these fields once at API/worker startup and never reads refresh or
-ID tokens or writes the credential file. Omit `pricingUsdPer1M` when the cost is
+session affinity. The fixed transport uses the Codex Responses endpoint.
+At API/worker startup the loader reads this credential file — the configured
+`key` and `accountId` fields and its credential-shaped leaves, refresh and ID
+tokens included — only to build the in-memory set of values it redacts from
+tool output and provider failures. It does not log, send, or write those values
+and never writes the credential file. Omit `pricingUsdPer1M` when the cost is
 unknown: completed Run telemetry retains token counts and latency with
 `costUsd: null`.
 

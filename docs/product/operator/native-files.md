@@ -334,6 +334,44 @@ That is how the directory of a deleted Chat goes away; a live Chat gets its
 files back at its next reconcile. A worker that does not allowlist `bash`
 never sweeps.
 
+## Credential redaction in bash output
+
+At API/worker startup the loader derives one in-memory set of configured
+credentials from the instance configuration: provider, engine, and adapter
+credential fields; the credential-shaped leaves of a JSON document a member
+substitution reads; `POSTGRES_URL`, its password, and `PGPASSWORD`; provider and
+remote MCP header substitutions; stdio MCP `command`, `args`, and `env`
+substitutions; URL userinfo and credential-shaped query values; and literal
+header values under a credential-shaped name. Every host `bash` result, every
+`ssh://` result, and every Machine result is redacted in the API before it is
+stored or previewed, so an artifact part and the persisted `native.result` hold
+`[REDACTED]` rather than the value. The set is never sent to an `ssh://` host or
+to a Machine.
+
+The set is a boot snapshot and changes no configuration key. Restart API and Run
+workers after rotating a credential file, or the old value stays a member and
+the new one does not. The set is not written anywhere: it is not part of
+`LlameConfig`, no API response serializes it, and the loader reads a credential
+file only to redact it.
+
+The 8-character floor applies only to the database password, `PGPASSWORD`, and a
+URL userinfo username. A shorter one printed on its own reaches the bash result;
+the database password is redacted only inside the whole `POSTGRES_URL`. Every
+other member counts at any nonblank length, so a short or common value in a
+credential position can over-redact ordinary output. Because stdio MCP
+`command`, `args`, and `env` substitutions are members, interpolate only real
+secrets there and write non-secret values literally. Non-credential
+configuration such as `knowledge.root` and ports is never a member.
+
+Matching is exact substring replacement. An encoded or split form (`base64`,
+`cut`, a value assembled from pieces) is not matched, and a partial value a
+command printed itself before exiting on its own is kept. Redaction is not a
+sandbox: native `read`/`grep`, other tools' output, and a Workspace's own
+`.mcp.json` secrets are outside it, and a model that intends to exfiltrate can
+encode the value. Use the permission policy and the executor's OS user as the
+controls for that. Redaction also does not protect the credential files on
+disk: restrict their ownership and mode as the provider pages describe.
+
 ## Instruction files
 
 Per-directory project instruction files are loaded into the model's context by

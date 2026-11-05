@@ -1,5 +1,20 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-05
+
+- Configured credentials are redacted from every `bash` result on the llame
+  host, an `ssh://` host, and a Machine. The API derives one in-memory set of
+  configured credentials at startup (credential fields, credential-shaped JSON
+  leaves, `POSTGRES_URL` and `PGPASSWORD`, header and stdio MCP substitutions,
+  and URL userinfo or credential-shaped query values), keeps it out of every
+  remote request, and replaces each member with `[REDACTED]` before the result,
+  its artifact parts, and the persisted `native.result` are written. The output
+  bound is applied on raw positions with a longest-member lookahead, so a value
+  that crosses the byte bound or is cut by a timeout leaves no fragment.
+  Exact substring matching only: encoded forms and a partial value a command
+  printed itself are out of scope. Refs
+  [#1065](https://github.com/leon0399/llame/issues/1065).
+
 # 2026-11-03
 
 - A Continue Run now builds its kept steps through the same projection a later
