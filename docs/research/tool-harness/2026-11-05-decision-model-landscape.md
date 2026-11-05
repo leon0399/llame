@@ -505,6 +505,36 @@ every route, while `choice` confidence varied between 0.30 and 0.44.
 `[INFERENCE]` One codec and a per-entry `baseUrl` therefore cover TypeSafe,
 OpenRouter and OpenCode; that settles Q1 for an implementation.
 
+### F12. Live rerank through the experimental stack
+
+The experimental decision lane (PRs #1584, #1588, #1590: a `system-one`
+provider type, a `decisionModels[]` catalogue, and per-tool
+`webSearch.rerank` / `tools.grep.rerank` blocks) was exercised on 2026-11-06
+through the real `grep` and `web_search` tool code with the artifact store
+stubbed, on the operator's keys. Two fixtures: 30 files of which three
+implement a retry budget and 27 mention `retry` in a comment, objective "find
+where the retry backoff budget is implemented"; and the query "postgres row
+level security security definer" with the objective "how does RLS interact
+with SECURITY DEFINER functions", 20 fetched results.
+
+| Model (route)                              | grep: 30 cards       | implementations' p | comments' p | web_search: 20 cards | top p     |
+| ------------------------------------------ | -------------------- | ------------------ | ----------- | -------------------- | --------- |
+| `~typesafe/jev-latest` → 1.14 (OpenRouter) | 353–789 ms, $0.00018 | 0.73–0.79          | 0.03        | 238–277 ms, $0.00017 | 0.80–0.94 |
+| `typesafe/jev-1.13` (OpenRouter)           | 496 ms, $0.00018     | 0.78–0.80          | 0.04        | 291 ms, $0.00017     | 0.91      |
+| `jev-1.13` (OpenCode, paid)                | 753 ms, $0.00018     | 0.81–0.83          | 0.04        | 276 ms, $0.00017     | 0.90      |
+| `jev-1.13-free` (OpenCode)                 | 751 ms, $0           | 0.79–0.81          | 0.04        | 326 ms, $0           | 0.90      |
+
+Every model put the three implementations first in `on` mode and left the
+canonical walk order in `shadow`; on web_search the objective-specific
+SECURITY DEFINER pages reached the inline head only with the rerank applied,
+while the engine order led with generic RLS documentation. One request per
+call sufficed (4.1–4.3k input tokens for 20–30 cards). A question must name
+its card key in `instructions`; the same rubric on a shared state without the
+key gave near-identical 0.80 probabilities to every card. `[INFERENCE]` No
+quality gap between the 1.13 and 1.14 revisions or between the gateways is
+visible on two fixtures; a labeled set is needed before choosing a default,
+and the free OpenCode model is a reasonable shadow-mode default until then.
+
 ## Open decisions
 
 - **Q1. Which wire is canonical?** The System One shape (`state` plus a keyed
