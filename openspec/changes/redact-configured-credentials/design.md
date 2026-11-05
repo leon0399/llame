@@ -2,31 +2,55 @@
 
 ## Context
 
-- The bash executor redacts a `protectedValues` list in `sanitize.ts` with its
-  own sequential split/join, but only after `watch.ts` `appendBound` has
-  already clipped each raw stream at the output bound while capturing, so a
-  credential crossing the bound leaves its prefix. `sanitizeStream` then clips
-  the redacted text at the bound a second time. `apps/api/src/tools/bash.ts`
-  passes no list.
-- On timeout, `settleDeadline` kills the process group and drains output;
-  a stream that ends within the 50 ms drain settles unforced, unmarked, and
-  not destroyed, so a value the kill cut short reaches the result as printed.
+- Host bash bounds each stream at `tools.artifacts.maxBytes` UTF-8 bytes
+  (`bash-limits.ts`). The executor (`packages/bash-executor`) decodes with a
+  streaming decoder, keeps exactly the bound while capturing (`watch.ts`
+  `appendBound`), then `sanitize.ts` `sanitizeStream` redacts a
+  `protectedValues` list with a sequential split/join and clips the redacted
+  text at the bound a second time, so a credential crossing the bound leaves
+  its prefix. `apps/api/src/tools/bash.ts` passes no list.
+- An `ssh://` command's stdout arrives bounded at the byte bound plus
+  `SSH_READ_NOISE_BYTES` (64 KiB) before decoding; its stderr is an 8 KiB
+  head plus a tail of the bound, joined with a gap when the tail dropped
+  bytes; `ssh-bash.ts` then calls `sanitizeKnownResult` with no list.
+- A Machine command runs in the daemon (`apps/machine/src/proc.ts`) under the
+  protocol's 32,000-unit bound with no lookahead, and the hub
+  (`bash.ts` `runMachineBash`) applies no sanitizer before `spillBashResult`.
+- Every placement then goes through `spillBashResult`, which writes each
+  executor-bounded stream as an artifact part (a part over
+  `tools.artifacts.maxBytes` is rejected) and records the previewed result as
+  `native.result`, which replay returns verbatim.
+- On timeout, `settleDeadline` kills the process group and drains output for
+  at most 50 ms; a stream that ends within the drain settles unmarked, so a
+  value the kill cut short reaches the result as printed.
 - `@workspace/runtime-safety` `redactProtectedString` redacts with one
-  leftmost-longest scan, and `normalizeProtectedValues` dedupes, drops empties,
-  and sorts. MCP uses them; `bash-executor` already depends on the package.
-- MCP protects per server: every whole resolved remote header value, and every
-  stdio `command`/`args`/`env` substitution
-  (`config-loader.ts` `resolveStdioServer`). Provider headers resolve through
-  `resolveInterpolatedString`, which does not report substitutions.
+  leftmost-longest scan and does not merge overlapping matches, and
+  `normalizeProtectedValues` dedupes, drops empties, and sorts. MCP uses them;
+  `bash-executor` already depends on the package.
+- MCP protects per server: every remote header substitution, the whole value
+  of an `authorization`, `proxy-authorization`, or `cookie` header, and every
+  stdio `command`/`args`/`env` substitution (`config-loader.ts`
+  `resolveStdioServer`). Provider headers are split on `{session:id}` and each
+  part resolved through `resolveInterpolatedString`, which does not report
+  substitutions; nothing protects them.
+- `interpolateStringWithSubstitutions` reports substituted values only, with
+  no position or fallback flag, and a `{path:…|json:…}` read returns only the
+  selected string.
+- `POSTGRES_URL` is read from the environment outside the loader, and
+  `PGPASSWORD` by no application code. The loaded configuration is
+  `LlameConfig`, compared by deep equality in many tests.
 - Every language-model client is built by `createModelClient`
-  (`apps/api/src/models/model-client-factory.ts`). Failures leave a client
-  through the stream's `onError`, the stream result's rejected promises
-  (`text`, `consumeStream`), and a rejected `generateObject`. When a caller
-  supplies no `onError`, the Responses and Messages clients pass none, and the
-  AI SDK's default handler logs the raw error object.
+  (`apps/api/src/models/model-client-factory.ts`), reached only through
+  `ModelsService.createClient`. Failures leave a client through the stream's
+  `onError`, the stream result's rejected promises (`text`, `consumeStream`,
+  `sources`, `toolCalls`, `usage`, `finishReason`), and a rejected
+  `generateObject`. When a caller supplies no `onError`, the Responses and
+  Messages clients pass none and the AI SDK's default handler logs the raw
+  error object. Chat Completions' `generateObject` has no sanitizer.
 - Consumers classify failures by identity and properties:
   `run-execution.service.ts` reads `instanceof ModelStreamIdleError` and
-  `.code`; hosted web search reads `RetryError.isInstance`, `lastError`, and
+  `.code`, logs the stack through `loggableError`, and sends the error to
+  Sentry; hosted web search reads `RetryError.isInstance`, `lastError`, and
   `statusCode`; the Codex and Messages sanitizers keep `statusCode`; abort
   settlement passes the signal's reason, which may be a string.
 - Title generation logs `error.message` and `error.stack`
@@ -55,88 +79,127 @@ credential fields at any nonblank length; the substitutions
 `interpolateStringWithSubstitutions`
 reports, extended to give each substitution's start and end in the raw
 resolved string and whether its `:-` fallback applied, for provider and
-remote MCP headers and stdio `command`, `args`, and `env`, excluding `:-`
-fallback text; for provider base URLs and the remote MCP `url`, substitutions
-whose resolved span lies in the userinfo password or query spans computed on
-that raw string, not on a re-serialized `URL`, and, from the same raw spans,
-the userinfo password and username and each query value under a credential-shaped
-name, as written and percent-decoded, so a credential written literally or
-inside a whole-URL substitution is still a member; literal header values
-under a credential-shaped name; and `POSTGRES_URL`, its parsed password in both
-percent-encoded and decoded spellings, and `PGPASSWORD`. A `{path:…|json:…}`
-substitution that is a member also contributes the credential-shaped string
-leaves of its document, together with each leaf's JSON-escaped spelling when
-that differs. `@workspace/config-interpolation` reports those leaves from the
-same single read that selects the value, so the set never mixes two versions
-of a file. The result is normalized, drops blank values, applies the
-8-character floor only to the database password, `PGPASSWORD`, and a URL
-userinfo username (proposal A4), is frozen on the loaded
-configuration, and excluded from every serialized projection.
+remote MCP headers (each `{session:id}`-separated part of a provider header
+is its own resolved string) and stdio `command`, `args`, and `env`,
+excluding `:-` fallback text; for provider base URLs and the remote MCP
+`url`, substitutions whose resolved span lies in the userinfo password or
+query spans computed on that raw string, not on a re-serialized `URL`, and,
+from the same raw spans, the userinfo password and username and each query
+value under a credential-shaped name, as written and percent-decoded, so a
+credential written literally or inside a whole-URL substitution is still a
+member; literal header values under a credential-shaped name; and, from the
+`env` the loader was given, `POSTGRES_URL`, its parsed password in both
+percent-encoded and decoded spellings, and `PGPASSWORD`. A
+`{path:…|json:…}` substitution that is a member also contributes the
+credential-shaped string leaves of its document, together with each leaf's
+JSON-escaped spelling when that differs. `@workspace/config-interpolation`
+reports those leaves from the same single read that selects the value, so
+the set never mixes two versions of a file. The result is normalized, drops
+blank values, and applies the 8-character floor only to the database
+password, `PGPASSWORD`, and a URL userinfo username (proposal A4).
+
+The loader records the frozen set in a module-level `WeakMap` keyed by the
+configuration object it returns, read through one exported accessor. The set
+is therefore no property of `LlameConfig`: no serializer, spread, or
+deep-equality comparison sees it, and a configuration the loader did not
+build has an empty set. `ModelsService` and the run's tool context read it
+through that accessor.
 
 - Alternative: every interpolation. Rejected: see proposal A1.
 - Alternative: whole provider header values. Rejected: their literal parts
-  (the `Bearer` prefix) are not secret. Remote MCP keeps whole values in its
-  own per-server set, as `mcp-tools` requires; only this instance set uses
-  substitutions and credential-shaped literals.
+  (the `Bearer` prefix) are not secret. Remote MCP keeps its own per-server
+  set, as `mcp-tools` requires; only this instance set uses substitutions and
+  credential-shaped literals.
 - Alternative: every leaf of a selected document. Rejected: a Codex auth file
   holds timestamps and modes that would be redacted everywhere.
+- Alternative: a field on `LlameConfig` or the config service. Rejected: the
+  configuration is serialized and deep-compared, and a field invites a
+  projection to carry it.
 
-### D2. Bash redacts on raw positions
+### D2. One bash routine redacts on raw positions, at the API
 
-`bash.ts` passes the set as `protectedValues`. The executor decodes each
-stream with a streaming UTF-8 decoder, so a multibyte character split across
-pipe chunks still matches, and captures up to `bound + longest member − 1`
-raw characters. It then works on raw positions only:
+`sanitizeKnownResult` in `packages/bash-executor` is the only redaction
+routine. On the llame host `bash.ts` passes the set as `protectedValues` to
+the executor; the `ssh://` path passes it to the `sanitizeKnownResult` call it
+already makes, and the Machine path calls it in the hub on the daemon's
+answer before `spillBashResult`. The set never leaves the API process, so a
+remote host or a Machine never holds it. The routine works on raw positions
+in the bound's unit, UTF-8 bytes on the host and for `ssh://` and code units
+for a Machine:
 
-1. Find every member occurrence in the raw capture once.
-2. Cut at `bound`, extending once to the end of any occurrence that starts
-   before it.
-3. When timeout settlement ended the stream, whether the 50 ms drain saw it
-   end or destroyed it, drop the longest trailing suffix of the kept text that
-   is a proper prefix of a member: llame cut that value, not the command. A
-   command that exits on its own keeps its tail, since a partial value it
-   printed itself is out of scope (proposal Non-goals). At the capture cap no
-   drop is needed: the lookahead already holds any member that starts before
-   the bound.
-4. Replace each merged occurrence interval (D4) that intersects the kept
-   range, clipped to it, with `[REDACTED]`, without re-scanning.
+1. When llame ended the capture, because a capture or transport limit cut it
+   or the command timed out, drop the longest trailing suffix that is a
+   proper prefix of a member: llame cut that value, not the command. Where a
+   transport kept two parts of a stream with a gap between them (an `ssh://`
+   stderr head and tail after the tail dropped bytes), drop the longest
+   suffix of the first part that is a proper prefix of a member and the
+   longest prefix of the second that is a proper suffix of one. A command
+   that exits on its own within its capture keeps its tail, since a partial
+   value it printed itself is out of scope (proposal Non-goals).
+2. Find every member occurrence in what remains, once, merged (D4).
+3. Cut at the bound.
+4. Replace each merged interval that intersects the kept range, clipped to
+   it, with `[REDACTED]`, without re-scanning.
+5. If markers made the stream longer than the bound, cut it at the bound,
+   before any marker the cut would split, so an artifact part never exceeds
+   `tools.artifacts.maxBytes`.
 
-No step re-scans altered text, and step 4 clips every interval found in step
-1, so a drop or cut through an occurrence still leaves a marker for its kept
-part. A throwaway fuzz of exactly these steps (200k trials of 1-4 members of
-8-200 characters with shared prefixes, suffixes, and containment, bounds
-20-300, natural exit, capture cap, and a close with the step 3 drop) emitted
-no member character. Output can exceed the raw bound by the extended match
-and marker growth; the truncation metadata still reports the cut. D2 replaces
-`sanitizeStream`'s split/join redaction and its second clip at the bound, so
-no later step re-cuts or re-scans the result.
+Any member occurrence the capture holds is an interval, so step 4 replaces
+its kept part; any occurrence the capture cut short lies within the step 1
+drop; step 5 only removes text. The host capture keeps a lookahead of the
+longest member's length past the bound, so a member that starts before the
+bound is found whole and leaves a marker; `ssh://` stdout already has 64 KiB
+of lookahead. A Machine capture has none, so a member its bound cuts is
+dropped without a marker. A throwaway fuzz of steps 1-4 (100k trials of 1-3
+members of 2-6 characters over a two-letter alphabet, bounds 1-20, with and
+without lookahead, natural exit and timeout with continued output) emitted no
+character of any member occurrence the command printed. D2 replaces
+`sanitizeStream`'s split/join redaction and its second clip of unredacted
+text; step 5 clips only redacted text.
 
 ### D3. Model failures keep their identity
 
-`createModelClient` wraps the client it builds:
+`ModelsService.createClient` passes the set (D1 accessor) to
+`createModelClient`, which wraps the client it builds in a `Proxy` that
+intercepts `streamText` and `generateObject` only, so `'generateObject' in
+client` and the metadata fields are unchanged. `streamText` installs its own
+`onError` and wraps the result's promise channels (`text`, `consumeStream`,
+`sources`, `toolCalls`, `usage`, `finishReason`, and the rest the result
+exposes) with the existing `wrapStreamTextResult`; `generateObject` redacts
+its rejection. For every failure value:
 
 - An error whose redactable strings contain no member passes through as the
   same object.
 - Otherwise, in place on the original object, it redacts `message`, `stack`,
   and every other string own property except `name` and `code`, recursing into
   `cause`, `lastError`, and `errors[]`, through a guarded `defineProperty`
-  that never throws. `instanceof`, the AI SDK's symbol-marked `isInstance`,
-  `name`, `code`, `statusCode`, and `lastError` identity are untouched.
+  that never throws. The walk enumerates own property keys with
+  `Reflect.ownKeys`, so symbol-keyed properties are visited, and it rewrites
+  only values whose `typeof` is `"string"`, so the AI SDK's boolean
+  `Symbol.for("vercel.ai.error.…")` marker is never touched. `instanceof`,
+  `isInstance`, `name`, `code`, `statusCode`, and `lastError` identity are
+  untouched.
 - If any of those strings cannot be redefined (a non-writable,
   non-configurable property, or a frozen error), the original object is never
-  forwarded: the wrapper replaces it with a new `Error` carrying the redacted
-  `message` and `stack`, the original `name`, and copies of `code` and
-  `statusCode`, and with the redacted `cause` and `lastError`. Only that case
-  loses class identity, and the wrapper logs that it happened, without values.
+  forwarded: the wrapper builds a replacement with
+  `Object.create(Object.getPrototypeOf(original))` and copies every own
+  property onto it, symbol keys included, redacting string values and
+  substituting the redacted `cause`, `lastError`, and `errors[]`. The
+  replacement keeps the prototype chain, so `instanceof` holds, and the copied
+  marker, so `isInstance` holds; classification is unchanged. The wrapper logs
+  that it substituted, without values. No shipped SDK produces such an error,
+  so this path is exercised only by a synthetic test double.
 - A non-`Error` value passes through unless it is a string containing a
   member, which is redacted.
 - The wrapper always installs an `onError`; when the caller supplied none, it
-  logs the redacted error through llame's logger instead of letting the SDK
+  logs the redacted error through a Nest `Logger` instead of letting the SDK
   log the raw object.
 - Title generation logs through the redacted error.
 
-Per-wire sanitizers run first and are unchanged. The AI SDK creates a new
-error per attempt, so in-place redaction affects no other request.
+Per-wire sanitizers run first and are unchanged; the wrapper also covers
+Chat Completions' structured generation, which has none. The AI SDK creates a
+new error per attempt, so in-place redaction affects no other request. An
+empty set makes the wrapper pass every value through untouched.
 
 - Alternative: replace the error with a new `Error`. Rejected: it breaks the
   classification consumers above.

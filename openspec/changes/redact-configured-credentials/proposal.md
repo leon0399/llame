@@ -33,10 +33,11 @@ nothing builds one for the instance.
   written; and literal header values under a credential-shaped name. An
   8-character floor applies only to the database password, `PGPASSWORD`, and
   a URL userinfo username; every other member counts at any nonblank length.
-- Every host `bash` result replaces each member with `[REDACTED]`. The output
-  bound is applied on raw positions without splitting a member, so a
-  credential crossing the bound is redacted whole. This needs an executor
-  change.
+- Every host `bash` result replaces each member with `[REDACTED]`, and so does
+  every `ssh://` and Machine result, redacted in the API so the set never
+  leaves it. The output bound is applied on raw positions, and a value llame
+  cut at a capture limit or a timeout leaves no fragment, so a credential
+  crossing the bound is never partly shown. This needs an executor change.
 - No language-model failure, on any wire or request kind, carries a member;
   where a wire forwards upstream text, the member is replaced with
   `[REDACTED]`. Failure classification is unchanged.
@@ -65,13 +66,15 @@ None.
 ## Impact
 
 - `apps/api/src/instance-config` and `packages/config-interpolation` (building
-  the set from one read of each selected document), `apps/api/src/tools/bash.ts`
-  and `packages/bash-executor` (cutting on raw positions),
+  the set from one read of each selected document), `packages/bash-executor`
+  (cutting on raw positions), `apps/api/src/tools/bash.ts`, `ssh-bash.ts`, and
+  the Machine bash path (passing the set), the run's tool context,
   `packages/runtime-safety` (one redaction routine),
-  `apps/api/src/models/model-client-factory.ts` (wrapping every client's
-  failures), and the title path's logging.
+  `apps/api/src/models/model-client-factory.ts` and `models.service.ts`
+  (wrapping every client's failures), and the title path's logging.
 - Operator docs for bash and providers; `CHANGELOG.md`.
-- No API, schema, or configuration change; nothing new is configurable.
+- No API, schema, protocol, or configuration change; nothing new is
+  configurable.
 
 ## Acceptance
 

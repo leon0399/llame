@@ -4,8 +4,9 @@
 
 At startup the API process SHALL derive one set of configured credentials,
 held only in process memory and never serialized to an API, an event, a log,
-or model context. It SHALL NOT narrow "Resolved secret values are never
-exposed". A name is credential-shaped when it contains, ignoring case,
+or model context, and never sent to a Machine or a remote host. It SHALL NOT
+narrow "Resolved secret values are never exposed". A name is credential-shaped
+when it contains, ignoring case,
 `authorization`, `cookie`, `credential`, `token`, `key`, `secret`, `passw`,
 or `signature`.
 
@@ -35,15 +36,16 @@ other member counts at any nonblank length.
 ### Requirement: Credential fields and their sources are members
 
 The set SHALL contain each provider `key` and `openai-codex` `accountId`, each
-`brave`, `exa`, `perplexity`, and `exa-mcp` engine `key`, and the `github`
-adapter `token`, written literally or interpolated; and the `POSTGRES_URL`
-connection string, its password percent-encoded and decoded, and
-`PGPASSWORD` when set.
+web search engine `key`, and the `github` web adapter `token`, however each
+was written; and, from the environment the configuration loader reads, the
+`POSTGRES_URL` connection string, its password percent-encoded and decoded,
+and `PGPASSWORD` when set.
 
 #### Scenario: Credential fields are members
 
-- **WHEN** a provider declares `key: "{env:OPENAI_KEY}"`, a `brave` engine declares a literal `key`, and the `github` adapter declares `token: "{env:GH_TOKEN}"`
+- **WHEN** a provider declares `key: "{env:OPENAI_KEY}"`, a `brave` engine declares a literal `key`, a `yandex` engine declares `key: "{env:YANDEX_KEY}"`, and the `github` adapter declares `token: "{env:GH_TOKEN}"`
 - **THEN** the set contains each of those resolved values
+- **AND** it does not contain the `yandex` engine's `folderId`
 
 #### Scenario: A short credential field is a member
 
@@ -90,11 +92,11 @@ around a substitution or a `:-` fallback written in the file.
 ### Requirement: Credentials in configured URLs are members
 
 For a provider `baseUrl` and a remote MCP `url`, the set SHALL contain each
-substitution that resolves within the resolved URL's userinfo password or
-query and, however the URL was written, the userinfo password at any nonblank
-length, the userinfo username from 8 characters, and each query parameter
-value under a credential-shaped name, all as written and percent-decoded. It
-SHALL NOT contain the whole URL or any other part of it.
+substitution that resolves within the URL's userinfo password or query and,
+however the URL was written, each query value under a credential-shaped name,
+the userinfo password at any nonblank length, and the userinfo username from
+8 characters, each as written and percent-decoded. It SHALL NOT contain the
+whole URL or any other part of it.
 
 #### Scenario: A URL substitution is a member
 

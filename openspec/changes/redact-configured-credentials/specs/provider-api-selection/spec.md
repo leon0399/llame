@@ -29,6 +29,7 @@ change how a failure is classified.
 
 - **WHEN** a failure that contains a configured credential is a stalled stream, a retried rate limit, or an authentication rejection
 - **THEN** the run and a hosted web search classify it exactly as they would the same failure without the credential
+- **AND** a failure whose credential-bearing message cannot be rewritten on the original error is reported through a replacement that still classifies as the original
 
 #### Scenario: A failure without a credential is unchanged
 
