@@ -1060,7 +1060,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
   });
 
   it('resolves a GitHub token from an environment interpolation', () => {
-    process.env.GITHUB_READ_TOKEN = 'github-env-token';
+    process.env.GITHUB_READ_TOKEN = '  github-env-token  ';
     const entry = {
       id: 'github',
       use: 'github' as const,
@@ -5098,6 +5098,105 @@ describe('loadInstanceConfig — configured credential set', () => {
 
     expect(members).toContain('pw-sub-canary-1065');
     expect(members).not.toContain(resolved);
+  });
+
+  it('adds a padded credential as written and trimmed', () => {
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "  pad-sk  " }] }',
+    );
+
+    expect(members).toEqual(['  pad-sk  ', 'pad-sk']);
+  });
+
+  it.each([
+    ['a whitespace-only PGPASSWORD', { PGPASSWORD: '   ' }],
+    ['a whitespace-only POSTGRES_URL', { POSTGRES_URL: '   ' }],
+  ])('adds nothing for %s', (_title, env) => {
+    expect(credentialsOf('{}', env)).toEqual([]);
+  });
+
+  it.each([
+    ['1234567', []],
+    ['12345678', ['12345678']],
+  ])('keeps PGPASSWORD %s when the floor allows it', (value, expected) => {
+    expect(credentialsOf('{}', { PGPASSWORD: value })).toEqual(expected);
+  });
+
+  it.each([
+    ['https://longusr@gw.internal/v1', []],
+    ['https://longusr8@gw.internal/v1', ['longusr8']],
+  ])('keeps a username-only URL userinfo at its floor: %s', (url, expected) => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
+    );
+
+    expect(members).toEqual(expected);
+  });
+
+  it('does not add a URL fallback host', () => {
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://{env:GW_HOST:-gw.internal}/v1" }] }',
+    );
+
+    expect(members).toEqual([]);
+  });
+
+  it('adds a credential-shaped query fallback value as written', () => {
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?apiKey={env:NOPE:-not-a-secret}" }] }',
+    );
+
+    expect(members).toEqual(['not-a-secret']);
+  });
+
+  it.each([
+    ['a non-credential query value', 'https://gw.example/v1?x=mysecret', []],
+    [
+      'a credential word in the value only',
+      'https://gw.example/v1?redirect=access_token',
+      [],
+    ],
+    [
+      'a credential-shaped name without a value',
+      'https://gw.example/v1?access_token',
+      [],
+    ],
+    [
+      'a path segment that looks like a query',
+      'https://gw.example/v1/key=notsecret',
+      [],
+    ],
+    [
+      'a credential-shaped path segment',
+      'https://gw.internal/key/v1?mode=fast',
+      [],
+    ],
+  ])('adds nothing for %s', (_title, url, expected) => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
+    );
+
+    expect(members).toEqual(expected);
+  });
+
+  it.each([
+    ['https://gw.example/v1?access_token=abc#frag', ['abc']],
+    ['https://gw.example/v1#frag?access_token=abc', []],
+  ])('ends the query span at a fragment in %s', (url, expected) => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
+    );
+
+    expect(members).toEqual(expected);
+  });
+
+  it('adds a substitution at the query start', () => {
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?{env:Q}" }] }',
+      { Q: 'alpha-1' },
+    );
+
+    expect(members).toEqual(['alpha-1']);
   });
 
   it('does not add an endpoint, whether the fallback applied or the variable was set', () => {

@@ -147,8 +147,8 @@ export class ConfiguredCredentialCollector {
     return Object.freeze(normalizeProtectedValues(this.members));
   }
 
-  private add(value: string | null | undefined, minimumLength?: number): void {
-    if (value === null || value === undefined) return;
+  private add(value: string | undefined, minimumLength?: number): void {
+    if (value === undefined) return;
     const trimmed = value.trim();
     if (trimmed.length === 0) return;
     if (minimumLength !== undefined && trimmed.length < minimumLength) return;
@@ -204,7 +204,6 @@ export class ConfiguredCredentialCollector {
     if (spans.query === undefined) return;
     const query = rawUrl.slice(spans.query.start, spans.query.end);
     for (const pair of query.split('&')) {
-      if (pair.length === 0) continue;
       const equals = pair.indexOf('=');
       const rawName = equals === -1 ? pair : pair.slice(0, equals);
       const rawValue = equals === -1 ? '' : pair.slice(equals + 1);
