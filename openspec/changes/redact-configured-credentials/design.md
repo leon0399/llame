@@ -127,35 +127,46 @@ remote host or a Machine never holds it. The routine works on raw positions
 in the bound's unit, UTF-8 bytes on the host and for `ssh://` and code units
 for a Machine:
 
-1. When llame ended the capture, because a capture or transport limit cut it
-   or the command timed out, drop the longest trailing suffix that is a
-   proper prefix of a member: llame cut that value, not the command. Where a
-   transport kept two parts of a stream with a gap between them (an `ssh://`
-   stderr head and tail after the tail dropped bytes), drop the longest
-   suffix of the first part that is a proper prefix of a member and the
-   longest prefix of the second that is a proper suffix of one. A command
-   that exits on its own within its capture keeps its tail, since a partial
-   value it printed itself is out of scope (proposal Non-goals).
-2. Find every member occurrence in what remains, once, merged (D4).
-3. Cut at the bound.
+1. Find every member occurrence in the raw capture once, merged (D4); for a
+   stream a transport kept as two parts with a gap between them (an `ssh://`
+   stderr head and tail after the tail dropped bytes), find them in each part
+   separately. No later step re-scans.
+2. When llame ended the capture, because a capture or transport limit cut it
+   or the command timed out, end the kept range before the longest trailing
+   suffix that is a proper prefix of a member: llame cut that value, not the
+   command. At a gap, likewise end the first part's kept range before its
+   longest suffix that is a proper prefix of a member, and start the second
+   part's after its longest prefix that is a proper suffix of one. This only
+   shortens the kept range; the step 1 intervals are kept. A command that
+   exits on its own within its capture keeps its tail, since a partial value
+   it printed itself is out of scope (proposal Non-goals).
+3. Cut the kept range at the bound.
 4. Replace each merged interval that intersects the kept range, clipped to
-   it, with `[REDACTED]`, without re-scanning.
+   it, with `[REDACTED]`.
 5. If markers made the stream longer than the bound, cut it at the bound,
    before any marker the cut would split, so an artifact part never exceeds
    `tools.artifacts.maxBytes`.
 
-Any member occurrence the capture holds is an interval, so step 4 replaces
-its kept part; any occurrence the capture cut short lies within the step 1
-drop; step 5 only removes text. The host capture keeps a lookahead of the
-longest member's length past the bound, so a member that starts before the
-bound is found whole and leaves a marker; `ssh://` stdout already has 64 KiB
-of lookahead. A Machine capture has none, so a member its bound cuts is
-dropped without a marker. A throwaway fuzz of steps 1-4 (100k trials of 1-3
-members of 2-6 characters over a two-letter alphabet, bounds 1-20, with and
-without lookahead, natural exit and timeout with continued output) emitted no
-character of any member occurrence the command printed. D2 replaces
-`sanitizeStream`'s split/join redaction and its second clip of unredacted
-text; step 5 clips only redacted text.
+Any member occurrence the capture holds is a step 1 interval, so step 4
+replaces its kept part even when step 2 or 3 cuts through it; any occurrence
+the capture cut short lies within the step 2 drop; step 5 only removes text.
+Dropping before finding would be wrong: a drop that starts inside a complete
+occurrence would break the match and pass the rest of the value through. The
+capture never holds a partial character: an incomplete UTF-8 sequence left
+when llame stops a stream is discarded, not decoded to U+FFFD, since a
+replacement character would hide a member fragment from step 2; at a gap,
+each part is decoded on its own character boundaries.
+
+The host capture keeps a lookahead of the longest member's length past the
+bound, so a member that starts before the bound is found whole and leaves a
+marker; `ssh://` stdout already has 64 KiB of lookahead. A Machine capture
+has none, so a member its bound cuts is dropped without a marker. A
+throwaway fuzz of steps 1-4 (100k trials of 1-3 members of 2-6 characters
+over a two-letter alphabet, bounds 1-20, with and without lookahead, natural
+exit and timeout with continued output) emitted no character of any member
+occurrence the command printed. D2 replaces `sanitizeStream`'s split/join
+redaction and its second clip of unredacted text; step 5 clips only redacted
+text.
 
 ### D3. Model failures keep their identity
 
