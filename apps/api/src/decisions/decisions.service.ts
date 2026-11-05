@@ -38,6 +38,11 @@ export type JudgeCandidate = {
 };
 
 export type JudgeCandidatesInput = {
+  /**
+   * A `decisions.models[].id`: the catalogue entry whose client judges this
+   * call. The tool reads it from its own `rerank` block.
+   */
+  readonly model: string;
   /** For the structured log line only; layer 1 records no RunEvent. */
   readonly runId: string;
   readonly chatId: string;
@@ -64,8 +69,10 @@ export type CandidateJudgement = {
 };
 
 /**
- * The capability tools receive as `ToolContext.decisions`. Absent means the
- * lane is not configured, and a tool keeps its canonical order.
+ * The capability tools receive as `ToolContext.decisions`. Absent means no
+ * decision model is configured, and a tool keeps its canonical order. A tool
+ * that reranks names its own catalogue id on every call; an id with no client
+ * fails closed like an absent lane.
  */
 export type DecisionJudge = {
   judgeCandidates(input: JudgeCandidatesInput): Promise<CandidateJudgement>;
@@ -101,6 +108,20 @@ export function buildJudgeRequest(input: JudgeCandidatesInput) {
 }
 
 /**
+ * The fail-closed answer: nothing was asked or nothing answered, and the
+ * caller keeps its canonical order. Zero usage, no model, no latency.
+ */
+function unavailableJudgement(): CandidateJudgement {
+  return {
+    status: 'unavailable',
+    probabilities: undefined,
+    usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+    model: null,
+    latencyMs: 0,
+  };
+}
+
+/**
  * Judge a batch of candidates through one decision client, merge the answers,
  * and emit one structured log line. Never throws: a provider failure leaves
  * those cards unjudged, so the caller keeps its canonical order for them.
@@ -111,13 +132,7 @@ export async function judgeCandidatesWith(
   logger: DecisionLogger = decisionLogger,
 ): Promise<CandidateJudgement> {
   if (input.cards.length === 0) {
-    return {
-      status: 'unavailable',
-      probabilities: undefined,
-      usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
-      model: null,
-      latencyMs: 0,
-    };
+    return unavailableJudgement();
   }
 
   const outcome = await decideSafely(client, buildJudgeRequest(input));
@@ -208,48 +223,44 @@ function logPayload(
 }
 
 /**
- * The configured decision lane (experimental). Absent `decisions` config means
- * no client exists and every call fails closed with `unavailable`; the boot
- * loader has already proved the named provider exists and is `system-one`.
+ * The configured decision models (experimental). One client per catalogue id is
+ * built once at boot; `decisions` absent means the catalogue is empty and every
+ * call fails closed with `unavailable`. The boot loader has already proved each
+ * entry's provider exists, is `system-one`, and that ids are unique, so a
+ * missing client here can only mean a caller named an id that is not in the
+ * catalogue — which also fails closed.
  */
 @Injectable()
 export class DecisionsService implements DecisionJudge {
-  private readonly client: DecisionClient | undefined;
+  private readonly clients: ReadonlyMap<string, DecisionClient>;
 
   constructor(
     @Inject(InstanceConfigService)
     instanceConfig: Pick<InstanceConfigService, 'config'>,
   ) {
-    const config = instanceConfig.config.decisions;
-    const provider =
-      config === undefined
-        ? undefined
-        : instanceConfig.config.providers.find(
-            (entry) => entry.id === config.provider,
-          );
-    if (config === undefined || provider?.type !== 'system-one') {
-      this.client = undefined;
-      return;
+    const clients = new Map<string, DecisionClient>();
+    for (const entry of instanceConfig.config.decisions?.models ?? []) {
+      const provider = instanceConfig.config.providers.find(
+        (candidate) => candidate.id === entry.provider,
+      );
+      if (provider?.type !== 'system-one') continue;
+      clients.set(
+        entry.id,
+        createDecisionClient(provider, entry.model, {
+          ...(entry.pricingUsdPer1M !== undefined && {
+            pricingUsdPer1M: entry.pricingUsdPer1M,
+          }),
+        }),
+      );
     }
-    this.client = createDecisionClient(provider, config.model, {
-      ...(config.pricingUsdPer1M !== undefined && {
-        pricingUsdPer1M: config.pricingUsdPer1M,
-      }),
-    });
+    this.clients = clients;
   }
 
   async judgeCandidates(
     input: JudgeCandidatesInput,
   ): Promise<CandidateJudgement> {
-    if (this.client === undefined) {
-      return {
-        status: 'unavailable',
-        probabilities: undefined,
-        usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
-        model: null,
-        latencyMs: 0,
-      };
-    }
-    return judgeCandidatesWith(this.client, input);
+    const client = this.clients.get(input.model);
+    if (client === undefined) return unavailableJudgement();
+    return judgeCandidatesWith(client, input);
   }
 }

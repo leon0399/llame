@@ -34,81 +34,216 @@ const SYSTEM_ONE_PROVIDER = {
   baseUrl: 'https://opencode.ai/zen/v1',
 };
 
+const OPENROUTER_PROVIDER = {
+  id: 'openrouter-decisions',
+  type: 'system-one',
+  key: 'or-test-key',
+  baseUrl: 'https://openrouter.ai/api/v1',
+};
+
+const CATALOGUE = {
+  models: [
+    {
+      id: 'opencode',
+      provider: 'opencode-decisions',
+      model: 'jev-1.13',
+    },
+    {
+      id: 'openrouter',
+      provider: 'openrouter-decisions',
+      model: '~typesafe/jev-latest',
+      pricingUsdPer1M: { input: 0.042 },
+    },
+  ],
+};
+
+const WEB_SEARCH = {
+  engines: [{ id: 'duckduckgo', type: 'duckduckgo' }],
+  chain: ['duckduckgo'],
+};
+
 function configWith(
-  decisions: UnknownRecord,
-  providers: ReadonlyArray<unknown> = [SYSTEM_ONE_PROVIDER],
+  decisions: UnknownRecord | undefined,
+  options: {
+    readonly providers?: ReadonlyArray<unknown>;
+    readonly webSearch?: UnknownRecord;
+    readonly grep?: UnknownRecord;
+  } = {},
 ): void {
-  writeConfig({ providers, decisions });
+  writeConfig({
+    providers: options.providers ?? [SYSTEM_ONE_PROVIDER, OPENROUTER_PROVIDER],
+    ...(decisions !== undefined && { decisions }),
+    ...(options.webSearch !== undefined && { webSearch: options.webSearch }),
+    ...(options.grep !== undefined && { tools: { grep: options.grep } }),
+  });
 }
 
 describe('decisions config', () => {
   it('is absent when the block is not configured', () => {
-    writeConfig({ providers: [SYSTEM_ONE_PROVIDER] });
+    configWith(undefined);
     expect(loadInstanceConfig().decisions).toBeUndefined();
   });
 
-  it('resolves the block with both rerank modes defaulting to off', () => {
-    configWith({ provider: 'opencode-decisions', model: 'jev-1.13' });
+  it('resolves the catalogue entries with their provider, model, and price', () => {
+    configWith(CATALOGUE);
 
     expect(loadInstanceConfig().decisions).toEqual({
-      provider: 'opencode-decisions',
-      model: 'jev-1.13',
-      rerank: { webSearch: 'off', grep: 'off' },
+      models: [
+        {
+          id: 'opencode',
+          provider: 'opencode-decisions',
+          model: 'jev-1.13',
+        },
+        {
+          id: 'openrouter',
+          provider: 'openrouter-decisions',
+          model: '~typesafe/jev-latest',
+          pricingUsdPer1M: { input: 0.042 },
+        },
+      ],
     });
   });
 
-  it('keeps the configured rerank modes and the fallback price', () => {
+  it('accepts an empty catalogue and builds no client for it', () => {
+    configWith({ models: [] });
+
+    expect(loadInstanceConfig().decisions).toEqual({ models: [] });
+  });
+
+  it('rejects a duplicate catalogue id', () => {
     configWith({
-      provider: 'opencode-decisions',
-      model: '~typesafe/jev-latest',
-      pricingUsdPer1M: { input: 0.042 },
-      rerank: { webSearch: 'shadow', grep: 'on' },
+      models: [
+        { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+        { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+      ],
     });
-
-    expect(loadInstanceConfig().decisions).toEqual({
-      provider: 'opencode-decisions',
-      model: '~typesafe/jev-latest',
-      pricingUsdPer1M: { input: 0.042 },
-      rerank: { webSearch: 'shadow', grep: 'on' },
-    });
-  });
-
-  it('rejects a provider id that does not exist', () => {
-    configWith({ provider: 'missing', model: 'jev-1.13' });
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'decisions.provider: unknown provider id "missing"',
+        'decisions.models: duplicate decision model id "jev"',
       ),
     );
   });
 
-  it('rejects a provider that is not a system-one entry', () => {
-    configWith({ provider: 'openai', model: 'jev-1.13' }, [
+  it('rejects a catalogue entry naming a provider that does not exist', () => {
+    configWith({
+      models: [{ id: 'jev', provider: 'missing', model: 'jev-1.13' }],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(
+      new InstanceConfigError(
+        'decisions.models[jev].provider: unknown provider id "missing" (not defined in providers[])',
+      ),
+    );
+  });
+
+  it('rejects a catalogue entry naming a provider that is not a system-one entry', () => {
+    configWith(
+      { models: [{ id: 'jev', provider: 'openai', model: 'jev-1.13' }] },
       {
-        id: 'openai',
-        type: 'openai-responses',
-        key: 'sk-test',
+        providers: [{ id: 'openai', type: 'openai-responses', key: 'sk-test' }],
       },
-    ]);
+    );
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'decisions.provider: provider "openai" has type "openai-responses", not "system-one"',
+        'decisions.models[jev].provider: provider "openai" has type "openai-responses", not "system-one"',
       ),
     );
   });
 
-  it('rejects an unknown rerank mode at the config path', () => {
+  it('rejects a catalogue model id that resolves blank', () => {
     configWith({
-      provider: 'opencode-decisions',
-      model: 'jev-1.13',
-      rerank: { webSearch: 'always' },
+      models: [{ id: 'jev', provider: 'opencode-decisions', model: '   ' }],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(
+      new InstanceConfigError(
+        'decisions.models[jev].model: must resolve to a nonblank string',
+      ),
+    );
+  });
+});
+
+describe('per-tool rerank config', () => {
+  it('resolves webSearch.rerank and tools.grep.rerank against the catalogue', () => {
+    configWith(CATALOGUE, {
+      webSearch: {
+        ...WEB_SEARCH,
+        rerank: { mode: 'shadow', model: 'openrouter' },
+      },
+      grep: { rerank: { mode: 'on', model: 'opencode' } },
+    });
+
+    const config = loadInstanceConfig();
+    expect(config.webSearch?.rerank).toEqual({
+      mode: 'shadow',
+      model: 'openrouter',
+    });
+    expect(config.tools.grep.rerank).toEqual({ mode: 'on', model: 'opencode' });
+  });
+
+  it('leaves both tools off when no rerank block is configured', () => {
+    configWith(CATALOGUE, { webSearch: WEB_SEARCH, grep: {} });
+
+    const config = loadInstanceConfig();
+    expect(config.webSearch).not.toHaveProperty('rerank');
+    expect(config.tools.grep).not.toHaveProperty('rerank');
+  });
+
+  it('rejects webSearch.rerank naming an id outside the catalogue', () => {
+    configWith(CATALOGUE, {
+      webSearch: {
+        ...WEB_SEARCH,
+        rerank: { mode: 'shadow', model: 'missing' },
+      },
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(
+      new InstanceConfigError(
+        'webSearch.rerank.model: unknown decision model id "missing" (not defined in decisions.models)',
+      ),
+    );
+  });
+
+  it('rejects tools.grep.rerank naming an id outside the catalogue', () => {
+    configWith(CATALOGUE, {
+      grep: { rerank: { mode: 'shadow', model: 'missing' } },
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(
+      new InstanceConfigError(
+        'tools.grep.rerank.model: unknown decision model id "missing" (not defined in decisions.models)',
+      ),
+    );
+  });
+
+  it('rejects a rerank block while no catalogue exists', () => {
+    configWith(undefined, {
+      grep: { rerank: { mode: 'shadow', model: 'opencode' } },
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools\.grep\.rerank\.model: unknown decision model id "opencode"/u,
+    );
+  });
+
+  it('rejects an "off" mode: removing the block is how a tool stops reranking', () => {
+    configWith(CATALOGUE, {
+      grep: { rerank: { mode: 'off', model: 'opencode' } },
     });
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
   });
 
+  it('rejects a rerank block without a model', () => {
+    configWith(CATALOGUE, { grep: { rerank: { mode: 'shadow' } } });
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+});
+
+describe('system-one provider config', () => {
   it('requires a system-one provider to carry a key and a baseUrl', () => {
     writeConfig({
       providers: [{ id: 'native', type: 'system-one', key: 'k' }],

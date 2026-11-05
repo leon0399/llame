@@ -14,6 +14,10 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import type { MachinesConfig, RawMachinesConfig } from './machines-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
+import type {
+  RawToolRerankConfig,
+  ToolRerankConfig,
+} from './tool-rerank-config';
 import type { RawWebSearchConfig, WebSearchConfig } from './web-search-config';
 
 /**
@@ -291,35 +295,41 @@ export type RawProviderEntry =
     };
 
 /**
- * Per-tool rerank mode for the experimental decision lane. Closed on purpose:
- * a mode the tools cannot implement fails validation, not execution.
+ * One entry of the decision-model catalogue: the model a tool's rerank block
+ * names. `provider` must be a `providers[]` entry of `type: 'system-one'` and
+ * `model` is sent verbatim on the wire; both references are checked at boot,
+ * because the published JSON Schema cannot express them.
  */
-export const DECISION_RERANK_MODES = ['off', 'shadow', 'on'] as const;
-export type DecisionRerankMode = (typeof DECISION_RERANK_MODES)[number];
-
-/** Resolved `decisions` block; absent means the lane does not exist. */
-export type DecisionsConfig = {
+export type DecisionModelConfig = {
+  /** Unique catalogue id, referenced by a tool's `rerank.model`. */
+  readonly id: string;
   /** A `providers[]` entry of `type: 'system-one'` (checked at boot). */
   readonly provider: string;
   /** Model id sent verbatim on the wire. */
   readonly model: string;
   /** Fallback input price for a wire that reports no `usage.cost`. */
   readonly pricingUsdPer1M?: { readonly input: number };
-  readonly rerank: {
-    readonly webSearch: DecisionRerankMode;
-    readonly grep: DecisionRerankMode;
-  };
+};
+
+/**
+ * Resolved `decisions` block; absent means no decision model exists. It is a
+ * catalogue only: whether a tool reranks, and with which entry, is the tool's
+ * own setting (`webSearch.rerank`, `tools.grep.rerank`).
+ */
+export type DecisionsConfig = {
+  readonly models: ReadonlyArray<DecisionModelConfig>;
 };
 
 /** The still-uninterpolated `decisions` block once schema-validated. */
-export type RawDecisionsConfig = {
+export type RawDecisionModelEntry = {
+  id: string;
   provider: string;
   model: string;
   pricingUsdPer1M?: { input: number };
-  rerank?: {
-    webSearch?: DecisionRerankMode;
-    grep?: DecisionRerankMode;
-  };
+};
+
+export type RawDecisionsConfig = {
+  models: Array<RawDecisionModelEntry>;
 };
 
 /**
@@ -531,14 +541,16 @@ export type RawToolsConfig = {
     readonly maxEntriesListed?: unknown;
     readonly maxBytesRead?: unknown;
     readonly maxFileBytes?: unknown;
+    readonly rerank?: RawToolRerankConfig;
   } | null;
 };
 
 /**
- * The operator's `grep` walk bounds (grep-scan-throughput D1). Every field
- * takes the nullable numeric path `tools.maxStepsPerRun` uses: `null` leaves
- * that bound off, and only a positive integer (or a token resolving to one)
- * sets it.
+ * The operator's `grep` settings: the walk bounds (grep-scan-throughput D1) and
+ * the tool's own rerank block. Every bound field takes the nullable numeric
+ * path `tools.maxStepsPerRun` uses: `null` leaves that bound off, and only a
+ * positive integer (or a token resolving to one) sets it. An absent `rerank`
+ * means the tool never asks a decision model.
  */
 export type GrepBoundsConfig = {
   /** Files one call may take for a match, across every scope. */
@@ -549,6 +561,8 @@ export type GrepBoundsConfig = {
   readonly maxBytesRead: number | null;
   /** Largest regular file the walk searches, by announced and read size. */
   readonly maxFileBytes: number | null;
+  /** Opt-in ranking of the walk's file runs by a catalogue decision model. */
+  readonly rerank?: ToolRerankConfig;
 };
 
 /** The smallest artifact byte bound; a Machine stream always fits it. */
@@ -752,11 +766,12 @@ export type LlameConfig = {
   /** Operator web search engines and chain; absent when not configured. */
   webSearch?: WebSearchConfig;
   /**
-   * Optional System One decision lane (experimental). Absent means the lane
-   * does not exist: no decision client is built, no tool consults one, and
-   * every tool keeps its canonical order. Decision calls are side calls —
-   * they are logged with their own usage and never folded into a Run's
-   * message usage aggregate.
+   * Optional System One decision-model catalogue (experimental). Absent means
+   * no decision model exists: no client is built, no tool consults one, and
+   * every tool keeps its canonical order. A tool reranks only through its own
+   * `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names one
+   * catalogue id. Decision calls are side calls — they are logged with their
+   * own usage and never folded into a Run's message usage aggregate.
    */
   decisions?: DecisionsConfig;
   /**

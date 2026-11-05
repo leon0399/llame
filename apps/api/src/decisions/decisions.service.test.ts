@@ -31,6 +31,7 @@ function input(
   overrides: Partial<JudgeCandidatesInput> = {},
 ): JudgeCandidatesInput {
   return {
+    model: 'jev',
     runId: 'run-1',
     chatId: 'chat-1',
     tool: 'web_search',
@@ -94,6 +95,17 @@ function configWith(
 }
 
 const SILENT = { info: () => undefined };
+
+/** The one catalogue entry the service tests judge through. */
+const CATALOGUE: LlameConfig['decisions'] = {
+  models: [
+    {
+      id: 'jev',
+      provider: 'opencode-decisions',
+      model: 'jev-1.13',
+    },
+  ],
+};
 
 describe('buildJudgeRequest', () => {
   it('packs every card into one state with a fixed rubric and untrusted-data instruction', () => {
@@ -267,13 +279,11 @@ describe('DecisionsService', () => {
     });
   });
 
-  it('fails closed when the named provider is not a system-one entry', async () => {
+  it('fails closed when a catalogue entry names a provider that is not system-one', async () => {
     const service = new DecisionsService(
       configWith(
         {
-          provider: 'openai',
-          model: 'jev-1.13',
-          rerank: { webSearch: 'shadow', grep: 'off' },
+          models: [{ id: 'jev', provider: 'openai', model: 'jev-1.13' }],
         },
         [
           {
@@ -289,6 +299,20 @@ describe('DecisionsService', () => {
 
     await expect(service.judgeCandidates(input())).resolves.toMatchObject({
       status: 'unavailable',
+    });
+  });
+
+  it('fails closed when the caller names an id outside the catalogue', async () => {
+    const service = new DecisionsService(configWith(CATALOGUE));
+
+    await expect(
+      service.judgeCandidates(input({ model: 'missing' })),
+    ).resolves.toEqual({
+      status: 'unavailable',
+      probabilities: undefined,
+      usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+      model: null,
+      latencyMs: 0,
     });
   });
 
@@ -314,13 +338,7 @@ describe('DecisionsService', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
     try {
-      const service = new DecisionsService(
-        configWith({
-          provider: 'opencode-decisions',
-          model: 'jev-1.13',
-          rerank: { webSearch: 'shadow', grep: 'off' },
-        }),
-      );
+      const service = new DecisionsService(configWith(CATALOGUE));
 
       const judgement = await service.judgeCandidates(input());
 
@@ -337,6 +355,76 @@ describe('DecisionsService', () => {
       expect(url).toBe('https://opencode.ai/zen/v1/systemone');
       expect(init.body).toContain('"model":"jev-1.13"');
       expect(init.body).toContain('"query":"postgres row level security"');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('routes each catalogue id to its own provider and model', async () => {
+    type DecisionFetch = (
+      url: string,
+      init: { readonly body: string },
+    ) => Promise<Response>;
+    const fetchMock = vi.fn<DecisionFetch>((url) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            model: url.includes('openrouter') ? 'jev-1.14' : 'jev-1.13',
+            answers: { p00: { type: 'noul', noul: 0.5 } },
+            usage: { input_tokens: 10, output_tokens: 0, cost: 0 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const service = new DecisionsService(
+        configWith(
+          {
+            models: [
+              {
+                id: 'opencode',
+                provider: 'opencode-decisions',
+                model: 'jev-1.13',
+              },
+              {
+                id: 'openrouter',
+                provider: 'openrouter-decisions',
+                model: '~typesafe/jev-latest',
+              },
+            ],
+          },
+          [
+            {
+              id: 'opencode-decisions',
+              type: 'system-one',
+              key: 'sk-test',
+              baseUrl: 'https://opencode.ai/zen/v1',
+              headers: {},
+            },
+            {
+              id: 'openrouter-decisions',
+              type: 'system-one',
+              key: 'sk-test',
+              baseUrl: 'https://openrouter.ai/api/v1',
+              headers: {},
+            },
+          ],
+        ),
+      );
+
+      await service.judgeCandidates(input({ model: 'openrouter' }));
+      await service.judgeCandidates(input({ model: 'opencode' }));
+
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        'https://openrouter.ai/api/v1/systemone',
+        'https://opencode.ai/zen/v1/systemone',
+      ]);
+      expect(fetchMock.mock.calls[0][1].body).toContain(
+        '"model":"~typesafe/jev-latest"',
+      );
+      expect(fetchMock.mock.calls[1][1].body).toContain('"model":"jev-1.13"');
     } finally {
       vi.unstubAllGlobals();
     }

@@ -31,6 +31,8 @@ import {
   type ProviderConfig,
   type SystemOneProviderConfig,
   type DecisionsConfig,
+  type DecisionModelConfig,
+  type RawDecisionModelEntry,
   type RawProviderEntry,
   type RawInstanceConfig,
   type RawMcpServerEntry,
@@ -47,6 +49,10 @@ import type {
 import { WEB_SEARCH_FETCH_LIMIT_DEFAULT } from './web-search-config';
 import type { MachineHostConfig } from './machines-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
+import type {
+  RawToolRerankConfig,
+  ToolRerankConfig,
+} from './tool-rerank-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
@@ -217,6 +223,7 @@ function resolveDbConfig(
 function resolveToolsConfig(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
+  decisionModelIds: ReadonlySet<string>,
 ): LlameConfig['tools'] {
   const nativeExecutorId = resolveNullableString({
     configPath: 'tools.nativeExecutorId',
@@ -249,7 +256,7 @@ function resolveToolsConfig(
       ...readLeaf(raw, 'tools', 'permissionModes'),
     }),
     ...resolveToolNumbers(raw, env),
-    grep: resolveGrepBounds(raw, env),
+    grep: resolveGrepBounds(raw, env, decisionModelIds),
     artifacts: resolveArtifactBounds(raw, env),
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, env),
@@ -290,19 +297,28 @@ function resolveToolNumbers(
 }
 
 /**
- * The operator `tools.grep` walk bounds (grep-scan-throughput D1). Each field
- * resolves through the same nullable numeric path as `tools.maxStepsPerRun`,
- * so an absent field, an explicit `null`, and an empty-resolving token all
- * mean "no bound", and zero, a negative number, or a fraction fails startup
- * naming the field. An absent or `null` object bounds nothing.
+ * The operator `tools.grep` block (grep-scan-throughput D1): the walk bounds
+ * and the tool's own rerank setting. Each bound resolves through the same
+ * nullable numeric path as `tools.maxStepsPerRun`, so an absent field, an
+ * explicit `null`, and an empty-resolving token all mean "no bound", and zero,
+ * a negative number, or a fraction fails startup naming the field. An absent
+ * or `null` object bounds nothing and reranks nothing. `rerank.model` must name
+ * a `decisions.models[].id`, so the catalogue is resolved first.
  */
 function resolveGrepBounds(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
+  decisionModelIds: ReadonlySet<string>,
 ): LlameConfig['tools']['grep'] {
   const bounds = raw?.tools?.grep;
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.grep;
-  const resolve = (key: keyof LlameConfig['tools']['grep']) =>
+  const resolve = (
+    key:
+      | 'maxFilesExamined'
+      | 'maxEntriesListed'
+      | 'maxBytesRead'
+      | 'maxFileBytes',
+  ) =>
     resolveNumeric({
       configPath: `tools.grep.${key}`,
       present: Object.hasOwn(bounds, key),
@@ -311,12 +327,45 @@ function resolveGrepBounds(
       nullable: true,
       env,
     });
+  const rerank = resolveToolRerank(
+    bounds.rerank,
+    'tools.grep.rerank',
+    decisionModelIds,
+  );
   return {
     maxFilesExamined: resolve('maxFilesExamined'),
     maxEntriesListed: resolve('maxEntriesListed'),
     maxBytesRead: resolve('maxBytesRead'),
     maxFileBytes: resolve('maxFileBytes'),
+    ...(rerank !== undefined && { rerank }),
   };
+}
+
+/**
+ * One tool's opt-in rerank block (`webSearch.rerank`, `tools.grep.rerank`).
+ * Absent or `null` means off — the tool never asks a decision model. Present,
+ * it names a mode and a catalogue id; the id must exist, so a typo fails at
+ * boot instead of silently ranking with nothing. The schema has already closed
+ * the mode set and the field shapes.
+ */
+function resolveToolRerank(
+  rerank: RawToolRerankConfig | null | undefined,
+  configPath: string,
+  decisionModelIds: ReadonlySet<string>,
+): ToolRerankConfig | undefined {
+  if (rerank === undefined || rerank === null) return undefined;
+  const model = rerank.model.trim();
+  if (model.length === 0) {
+    throw new InstanceConfigError(
+      `${configPath}.model: must resolve to a nonblank string`,
+    );
+  }
+  if (!decisionModelIds.has(model)) {
+    throw new InstanceConfigError(
+      `${configPath}.model: unknown decision model id "${model}" (not defined in decisions.models)`,
+    );
+  }
+  return { mode: rerank.mode, model };
 }
 
 /**
@@ -545,13 +594,16 @@ export function loadInstanceConfig(
   const models = resolveModels(raw, env, providersById, promptLoader);
   promptLoader.validateProjectDefault();
   const mcpServers = resolveMcpServers(raw, env);
+  // The catalogue resolves first: `tools.grep.rerank` and `webSearch.rerank`
+  // name a catalogue id, and that reference is checked while resolving them.
+  const decisions = resolveDecisions(raw, providersById);
   const { embeddingModels, search, webSearch, tools } = resolveSearchSettings(
     raw,
     env,
     providersById,
     models,
+    decisions,
   );
-  const decisions = resolveDecisions(raw, providersById);
 
   return {
     defaults: resolveDefaults(raw, env, new Set(models.map((m) => m.id))),
@@ -578,8 +630,12 @@ function resolveSearchSettings(
   env: NodeJS.ProcessEnv,
   providersById: ReadonlyMap<string, ProviderConfig>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
+  decisions: DecisionsConfig | undefined,
 ) {
-  const tools = resolveToolsConfig(raw, env);
+  const decisionModelIds = new Set(
+    decisions?.models.map((entry) => entry.id) ?? [],
+  );
+  const tools = resolveToolsConfig(raw, env, decisionModelIds);
   const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
   const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
   const search = resolveSearchConfig(raw, env, embeddingModelIds);
@@ -589,17 +645,20 @@ function resolveSearchSettings(
     tools.allowed,
     models,
     providersById,
+    decisionModelIds,
   );
   return { embeddingModels, search, webSearch, tools };
 }
 
 /**
- * Resolve the optional `decisions` block (experimental decision lane). The
- * cross-array reference the JSON Schema cannot express is checked here: the
- * named provider must exist AND be of `type: 'system-one'`, so a chat provider
- * named by mistake fails at boot instead of at the first decision call. Absent
- * means the lane does not exist — no client is built and every consumer keeps
- * its canonical order.
+ * Resolve the optional `decisions` block (experimental decision lane). It is a
+ * CATALOGUE only — each entry names a decision model, and a tool's own rerank
+ * block references one by id. The cross-array references the JSON Schema
+ * cannot express are checked here: ids are unique, and every `provider` must
+ * exist AND be of `type: 'system-one'`, so a chat provider named by mistake
+ * fails at boot instead of at the first decision call. Absent means no
+ * decision model exists — no client is built and every tool keeps its
+ * canonical order.
  */
 function resolveDecisions(
   raw: RawInstanceConfig | undefined,
@@ -608,36 +667,59 @@ function resolveDecisions(
   const section = raw?.decisions;
   if (section === undefined) return undefined;
 
-  const providerId = section.provider.trim();
+  const seenIds = new Set<string>();
+  const models = section.models.map((entry) => {
+    const id = entry.id.trim();
+    if (id.length === 0) {
+      throw new InstanceConfigError(
+        'decisions.models: every id must resolve to a nonblank string',
+      );
+    }
+    if (seenIds.has(id)) {
+      throw new InstanceConfigError(
+        `decisions.models: duplicate decision model id "${id}"`,
+      );
+    }
+    seenIds.add(id);
+    return resolveDecisionModel(entry, id, providersById);
+  });
+
+  return { models };
+}
+
+/** One catalogue entry: its id is unique, its provider is a `system-one` entry. */
+function resolveDecisionModel(
+  entry: RawDecisionModelEntry,
+  id: string,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+): DecisionModelConfig {
+  const providerId = entry.provider.trim();
   const provider = providersById.get(providerId);
   if (provider === undefined) {
     throw new InstanceConfigError(
-      `decisions.provider: unknown provider id "${providerId}"`,
+      `decisions.models[${id}].provider: unknown provider id "${providerId}" (not defined in providers[])`,
     );
   }
   if (provider.type !== 'system-one') {
     throw new InstanceConfigError(
-      `decisions.provider: provider "${providerId}" has type "${provider.type}", not "system-one"`,
+      `decisions.models[${id}].provider: provider "${providerId}" has type "${provider.type}", not "system-one"`,
     );
   }
 
-  const model = section.model.trim();
+  const model = entry.model.trim();
   if (model.length === 0) {
     throw new InstanceConfigError(
-      'decisions.model: must resolve to a nonblank string',
+      `decisions.models[${id}].model: must resolve to a nonblank string`,
     );
   }
 
   return {
+    id,
     provider: providerId,
     model,
-    ...(section.pricingUsdPer1M !== undefined && {
-      pricingUsdPer1M: { input: section.pricingUsdPer1M.input },
+    ...(entry.pricingUsdPer1M !== undefined && {
+      pricingUsdPer1M: { input: entry.pricingUsdPer1M.input },
     }),
-    rerank: {
-      webSearch: section.rerank?.webSearch ?? 'off',
-      grep: section.rerank?.grep ?? 'off',
-    },
   };
 }
 
@@ -666,13 +748,14 @@ function resolveKnowledge(
   return { root: resolved };
 }
 
-/** Resolve the configured web-search engines. */
+/** Resolve the configured web-search engines and the tool's own rerank block. */
 function resolveWebSearch(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
   allowed: ReadonlyArray<string>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
   providersById: ReadonlyMap<string, ProviderConfig>,
+  decisionModelIds: ReadonlySet<string>,
 ): WebSearchConfig | undefined {
   const section = raw?.webSearch;
   if (section === undefined) {
@@ -691,10 +774,16 @@ function resolveWebSearch(
     providersById,
   );
   assertWebSearchChain(section.chain, engines);
+  const rerank = resolveToolRerank(
+    section.rerank,
+    'webSearch.rerank',
+    decisionModelIds,
+  );
   return {
     engines,
     chain: section.chain,
     fetchLimit: section.fetchLimit ?? WEB_SEARCH_FETCH_LIMIT_DEFAULT,
+    ...(rerank !== undefined && { rerank }),
   };
 }
 

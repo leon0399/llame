@@ -5,23 +5,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Experimental: a System One decision lane.** A new provider `type`,
   `system-one`, speaks the one JSON wire every verified Jev route answers —
   `POST {baseUrl}/systemone` with `{ model, state, questions }` in and
-  `{ model, answers, usage }` back — and the new optional `decisions` block
-  names one such provider, a model id, a fallback input price, and a per-tool
-  `rerank` mode (`off` by default, `shadow`, `on`) for `web_search` and `grep`.
-  The boot loader proves the named provider exists and is `system-one`; a
-  `models[]` entry that names one fails with "not a model client", because a
-  decision call returns typed probabilities in one forward pass and has its own
-  usage shape rather than streaming. The client packs up to 48 yes/no questions
-  over one shared state per request, four requests in flight, retries only
-  408/429/5xx and transport failures three times with `retry-after` honoured up
-  to five seconds, and never throws: an exhausted retry leaves those candidates
-  unjudged so the caller keeps its canonical order, while a malformed envelope,
-  a missing answer, a wrong answer type, or a probability outside `[0, 1]`
-  makes the whole call `unavailable`. `ToolContext.decisions` carries the judge
-  to tools, absent when the block is not configured. Each call logs one
-  `decision.completed` line with its own tokens and cost; it is a side call and
-  is never folded into a Run's message usage. See
-  `docs/product/operator/decisions.md`.
+  `{ model, answers, usage }` back — and the new optional `decisions` block is a
+  catalogue of decision models: `{ id, provider, model, pricingUsdPer1M? }`,
+  where ids are unique and every `provider` must be a `providers[]` entry of
+  `type: "system-one"`. Each TOOL owns whether it reranks: `webSearch.rerank`
+  and `tools.grep.rerank` take `{ mode: "shadow" | "on", model: <catalogue id> }`,
+  the id is checked against the catalogue at startup, and an absent block means
+  the tool never calls a decision model (there is no `off` value). A `models[]`
+  entry that names a `system-one` provider fails with "not a model client",
+  because a decision call returns typed probabilities in one forward pass and
+  has its own usage shape rather than streaming. The service builds and caches
+  one client per catalogue id, so two entries on different routes never share
+  an endpoint. The client packs up to 48 yes/no questions over one shared state
+  per request, four requests in flight, retries only 408/429/5xx and transport
+  failures three times with `retry-after` honoured up to five seconds, and never
+  throws: an exhausted retry leaves those candidates unjudged so the caller
+  keeps its canonical order, while a malformed envelope, a missing answer, a
+  wrong answer type, or a probability outside `[0, 1]` makes the whole call
+  `unavailable`. `ToolContext.decisions` carries the judge to tools, absent when
+  the catalogue is empty. Each call logs one `decision.completed` line with its
+  own tokens and cost; it is a side call and is never folded into a Run's
+  message usage. See `docs/product/operator/decisions.md`.
 
 # 2026-11-03
 

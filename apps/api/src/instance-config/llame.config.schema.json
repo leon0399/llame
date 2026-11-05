@@ -427,10 +427,59 @@
         }
       ]
     },
-    "decisionRerankMode": {
-      "type": "string",
-      "enum": ["off", "shadow", "on"],
-      "description": "\"off\" never calls the decision model; \"shadow\" computes the order, logs it and leaves the tool output unchanged; \"on\" applies it before the inline cap and the artifact are built."
+    "decisionModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One entry of the decision-model catalogue. Referenced by id from a tool's `rerank` block.",
+      "required": ["id", "provider", "model"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique catalogue id, referenced by `webSearch.rerank.model` or `tools.grep.rerank.model` (boot failure if duplicated)."
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A `providers[].id` whose `type` is \"system-one\" (boot failure otherwise)."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model id sent verbatim on the wire, e.g. \"~typesafe/jev-latest\", \"typesafe/jev-1.14\", or \"jev-1.13\". The alias is not a revision: the response's `model` is logged, so a moved alias is visible."
+        },
+        "pricingUsdPer1M": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Fallback price for a wire that reports no `usage.cost` (the native TypeSafe wire). A reported cost always wins.",
+          "required": ["input"],
+          "properties": {
+            "input": {
+              "type": "number",
+              "minimum": 0,
+              "description": "US dollars per million input tokens. Output tokens are free on every Jev route today."
+            }
+          }
+        }
+      }
+    },
+    "toolRerank": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One tool's opt-in rerank setting. The tool owns this block, never the lane: absent means the tool never asks a decision model, and there is no \"off\" value.",
+      "required": ["mode", "model"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["shadow", "on"],
+          "description": "\"shadow\" computes the order, logs it and leaves the tool output unchanged; \"on\" applies it before every cap and the artifact are built."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A `decisions.models[].id` (boot failure if unknown)."
+        }
+      }
     },
     "mcpServerEntry": {
       "type": "object",
@@ -701,40 +750,13 @@
     "decisions": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional System One decision lane (experimental). Absent means the lane does not exist: no decision client is built and every tool that would consult it keeps its canonical order. Present names one `providers[]` entry of `type: \"system-one\"` and the model it answers with; that reference is checked at startup, because the JSON Schema cannot express it. Decision calls are side calls: they are logged, never folded into a Run's message usage. See docs/product/operator/decisions.md.",
-      "required": ["provider", "model"],
+      "description": "Optional System One decision-model catalogue (experimental). Absent means no decision model exists: no client is built and every tool keeps its canonical order. It is a catalogue only — each entry names one `providers[]` entry of `type: \"system-one\"` and the model it answers with; those references and id uniqueness are checked at startup, because the JSON Schema cannot express them. A tool reranks through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names a catalogue id. Decision calls are side calls: they are logged, never folded into a Run's message usage. See docs/product/operator/decisions.md.",
+      "required": ["models"],
       "properties": {
-        "provider": {
-          "type": "string",
-          "minLength": 1,
-          "description": "A `providers[].id` whose `type` is \"system-one\" (boot failure otherwise)."
-        },
-        "model": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Model id sent verbatim on the wire, e.g. \"~typesafe/jev-latest\", \"typesafe/jev-1.14\", or \"jev-1.13\". The alias is not a revision: the response's `model` is logged, so a moved alias is visible."
-        },
-        "pricingUsdPer1M": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Fallback price for a wire that reports no `usage.cost` (the native TypeSafe wire). A reported cost always wins.",
-          "required": ["input"],
-          "properties": {
-            "input": {
-              "type": "number",
-              "minimum": 0,
-              "description": "US dollars per million input tokens. Output tokens are free on every Jev route today."
-            }
-          }
-        },
-        "rerank": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Per-tool rerank mode. Both default to \"off\".",
-          "properties": {
-            "webSearch": { "$ref": "#/$defs/decisionRerankMode" },
-            "grep": { "$ref": "#/$defs/decisionRerankMode" }
-          }
+        "models": {
+          "type": "array",
+          "description": "The catalogue. Ids are unique (boot failure otherwise) and are what a tool's `rerank.model` references.",
+          "items": { "$ref": "#/$defs/decisionModel" }
         }
       }
     },
@@ -788,6 +810,10 @@
           "minimum": 1,
           "maximum": 100,
           "description": "How many results every call asks its engines for, before each vendor's own maximum clamps it. Defaults to 20. The model's `limit` argument bounds the results it reads inline; fetched results beyond that stay in the call's artifact."
+        },
+        "rerank": {
+          "$ref": "#/$defs/toolRerank",
+          "description": "Optional ranking of this call's results by a `decisions.models[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
         }
       }
     },
@@ -1015,6 +1041,10 @@
             "maxFileBytes": {
               "$ref": "#/$defs/nullableNumberOrToken",
               "description": "Largest regular file the walk searches, checked on the announced size and again on the bytes it reads. Omitted or null = a file of any size is searched; a larger file is skipped and counted as `oversized`."
+            },
+            "rerank": {
+              "$ref": "#/$defs/toolRerank",
+              "description": "Optional ranking of the walk's file runs by a `decisions.models[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
             }
           }
         },
