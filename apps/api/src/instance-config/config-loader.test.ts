@@ -5074,6 +5074,32 @@ describe('loadInstanceConfig — configured credential set', () => {
     expect(members).not.toContain('svc');
   });
 
+  it.each([
+    'https:svc:pw-canary-1065@gateway.example/v1',
+    'https:/svc:pw-canary-1065@gateway.example/v1',
+  ])('takes a userinfo password from the absolute form %s', (url) => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
+    );
+
+    expect(members).toContain('pw-canary-1065');
+    expect(members).not.toContain(url);
+  });
+
+  it.each([
+    'https:svc:{env:PW}@gateway.example/v1',
+    'https:/svc:{env:PW}@gateway.example/v1',
+  ])('takes a userinfo password substitution from %s', (template) => {
+    const resolved = template.replace('{env:PW}', 'pw-sub-canary-1065');
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(template)} }] }`,
+      { PW: 'pw-sub-canary-1065' },
+    );
+
+    expect(members).toContain('pw-sub-canary-1065');
+    expect(members).not.toContain(resolved);
+  });
+
   it('does not add an endpoint, whether the fallback applied or the variable was set', () => {
     const json =
       '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "{env:OPENAI_BASE_URL:-http://localhost:11434/v1}" }] }';

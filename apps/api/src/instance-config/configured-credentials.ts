@@ -229,23 +229,46 @@ function within(
 /**
  * The userinfo and query spans of an absolute URL, computed by scanning the
  * raw string so a resolved (possibly substituted) URL — and a `POSTGRES_URL`
- * `new URL` cannot parse — is read exactly as written. `new URL`, the loader's
- * validator, accepts `https:host/path?x` and `https:/host/path?x` as well as
- * `https://host/path?x`, so the query span never depends on an authority.
+ * `new URL` cannot parse — is read exactly as written. WHATWG, the loader's
+ * validator, treats `https://host/`, `https:/host/`, and `https:host/` alike
+ * for HTTP(S) (and `\` as `/`), so the authority starts after the scheme colon
+ * plus any slash run rather than after a literal `://`.
  */
 function urlCredentialSpans(url: string): UrlCredentialSpans {
-  const colon = url.indexOf(':');
-  if (colon <= 0) return {};
+  const colon = schemeColon(url);
+  if (colon === undefined) return {};
   const query = querySpan(url, colon + 1);
-  if (!url.startsWith('//', colon + 1)) {
-    return query === undefined ? {} : { query };
-  }
-  const authorityStart = colon + 3;
-  const authorityEnd = indexOfFirstOf(url, ['/', '?', '#'], authorityStart);
+  const scheme = url.slice(0, colon).toLowerCase();
+  const hasAuthority =
+    scheme === 'http' || scheme === 'https' || url.startsWith('//', colon + 1);
+  if (!hasAuthority) return query === undefined ? {} : { query };
+
+  const authorityStart = skipAuthoritySlashes(url, colon + 1);
+  const authorityEnd = indexOfFirstOf(
+    url,
+    ['/', '\\', '?', '#'],
+    authorityStart,
+  );
   return {
     ...userinfoSpans(url, authorityStart, authorityEnd),
     ...(query !== undefined && { query }),
   };
+}
+
+/** The index of the scheme's `:`, when `url` starts with a valid scheme. */
+function schemeColon(url: string): number | undefined {
+  const colon = url.indexOf(':');
+  if (colon <= 0) return undefined;
+  return /^[A-Za-z][A-Za-z0-9+.-]*$/u.test(url.slice(0, colon))
+    ? colon
+    : undefined;
+}
+
+/** The authority's first non-slash character; WHATWG accepts `//`, `/`, and none. */
+function skipAuthoritySlashes(url: string, from: number): number {
+  let index = from;
+  while (url[index] === '/' || url[index] === '\\') index += 1;
+  return index;
 }
 
 function userinfoSpans(
