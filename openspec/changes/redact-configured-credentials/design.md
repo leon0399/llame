@@ -123,23 +123,57 @@ routine. On the llame host `bash.ts` passes the set as `protectedValues` to
 the executor; the `ssh://` path passes it to the `sanitizeKnownResult` call it
 already makes, and the Machine path calls it in the hub on the daemon's
 answer before `spillBashResult`. The set never leaves the API process, so a
-remote host or a Machine never holds it. The routine works on raw positions
-in the bound's unit, UTF-8 bytes on the host and for `ssh://` and code units
-for a Machine:
+remote host or a Machine never holds it.
+
+The routine accepts a `BashKnownResult` or a `BashTimedOutResult` and returns
+the same shape, so the Machine's `timed_out` answer keeps its `type`,
+`durationMs`, and other fields. A fourth argument carries per-stream capture
+metadata, with one optional entry for `stdout` and one for `stderr`:
+
+- `endedByLlame`: true when llame ended that stream, not the command.
+- `gapAt`: the code-unit position in the decoded stream text where a kept
+  tail begins after a dropped middle; absent when the stream has no gap.
+
+The `ssh://` collector reports the decoded head's length as `gapAt` when its
+tail dropped bytes, so the joined text keeps the position of the gap. It
+reports no `gapAt` when the stream fits both bounds. `parseSshBashFrames`
+subtracts the length of the prefix it removes with the marker and the login
+noise, so the offset then refers to `commandStderr`. Only an `ssh://` stderr
+stream can carry a `gapAt`; an `ssh://` stdout stream is one bounded prefix,
+and a host or Machine stream has no gap.
+
+The host watcher sets `endedByLlame` for a stream when `appendBound` truncated
+that stream. It also sets `endedByLlame` for a stream that is still open when
+the deadline's drain ends, and keeps it false for a stream that closed before
+that drain. The hub sets `endedByLlame` on both streams of a
+`BashTimedOutResult`, because the daemon's deadline ended the capture. It also
+sets both streams for a `BashKnownResult` whose `truncated` flag is set, since
+the daemon's answer carries no per-stream flag; a drop that this causes in the
+other stream is the safe direction. On the `ssh://` path, each stream's
+overflow flag sets `endedByLlame`, and a stderr overflow also supplies
+`gapAt`.
+
+The routine gets the bound through `streamOutputBound(context)`. The
+per-stream helper it calls takes a `StreamBound` and that stream's metadata
+directly, so a caller or a test that handles one stream supplies the bound and
+does not fabricate a context.
+
+The routine works on raw positions in the bound's unit, UTF-8 bytes on the
+host and for `ssh://` and code units for a Machine:
 
 1. Find every member occurrence in the raw capture once, merged (D4); for a
    stream a transport kept as two parts with a gap between them (an `ssh://`
    stderr head and tail after the tail dropped bytes), find them in each part
    separately. No later step re-scans.
-2. When llame ended the capture, because a capture or transport limit cut it
-   or the command timed out, end the kept range before the longest trailing
-   suffix that is a proper prefix of a member: llame cut that value, not the
-   command. At a gap, likewise end the first part's kept range before its
-   longest suffix that is a proper prefix of a member, and start the second
-   part's after its longest prefix that is a proper suffix of one. This only
-   shortens the kept range; the step 1 intervals are kept. A command that
-   exits on its own within its capture keeps its tail, since a partial value
-   it printed itself is out of scope (proposal Non-goals).
+2. When the stream's `endedByLlame` flag is set, because a capture or
+   transport limit cut it or the command timed out, end the kept range before
+   the longest trailing suffix that is a proper prefix of a member: llame cut
+   that value, not the command. At `gapAt`, likewise end the first part's kept
+   range before its longest suffix that is a proper prefix of a member, and
+   start the second part's after its longest prefix that is a proper suffix of
+   one. This only shortens the kept range; the step 1 intervals are kept. A
+   command that exits on its own within its capture keeps its tail, since a
+   partial value it printed itself is out of scope (proposal Non-goals).
 3. Cut the kept range at the bound.
 4. Replace each merged interval that intersects the kept range, clipped to
    it, with `[REDACTED]`.
