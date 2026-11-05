@@ -54,10 +54,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   <decisionModels[] id> }` — it asks that catalogue model one
   yes/no question per file run after the walk: is this file likely to contain
   what the objective or the patterns look for? A run's card is its path plus up
-  to three matching lines (at most 384 code units); a term-overlap prefilter
-  keeps at most 48 runs for the request, and every run it leaves out — or a
-  failed answer never judged — stays in canonical order after the judged ones,
-  which sort by probability. Whole runs are permuted and never single
+  to three matching lines (at most 384 code units); every run of the walk is
+  judged, and a run a failed answer never judged stays in canonical order
+  after the judged ones, which sort by probability. Whole runs are permuted and never single
   passages, so a run stays contiguous and still opens one `## <path>` heading;
   the stored artifact, its findings, the inline head, and the remainder map all
   read one order, and no match, count, warning, or walk stop changes. `shadow`

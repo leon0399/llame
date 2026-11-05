@@ -9,8 +9,8 @@
  * stored artifact text, its findings, and the remainder map) reads one order.
  *
  * It runs in `finishGrepCall`, after the walk: the walk's stop, its counts, and
- * its warnings are already settled, and the stage-1 prefilter only decides
- * which runs are worth asking about. A run nobody judged keeps its canonical
+ * its warnings are already settled, and every run of the walk is asked about;
+ * the lane chunks the questions. A run nobody judged keeps its canonical
  * relative order after the judged ones; an unavailable call changes nothing.
  */
 
@@ -39,13 +39,6 @@ import { type GrepArtifact } from './grep-page';
  */
 export const GREP_RERANK_RUBRIC =
   'Is this file likely to contain what the objective (or query) is looking for: a substantive implementation or explanation, not a mere mention?';
-
-/**
- * The lanes share one request budget: a state billed once, one question per
- * card, and at most this many cards before a second request. `grep` keeps the
- * same bound OMP's sketch routing uses.
- */
-export const GREP_RERANK_MAX_CARDS = 48;
 
 /** One card holds the file path and up to three matching lines. */
 export const GREP_RERANK_CARD_UNITS = 384;
@@ -82,7 +75,7 @@ export type GrepRerankRecord = {
   readonly probabilities: Readonly<Record<string, number>>;
   readonly latencyMs: number;
   readonly costUsd: number | null;
-  /** Runs the prefilter or a failed chunk left in canonical order. */
+  /** Runs a failed chunk left in canonical order. */
   readonly unjudged: number;
 };
 
@@ -128,42 +121,7 @@ export function grepRunCard(artifact: GrepArtifact, run: GrepFileRun): string {
 }
 
 /**
- * The runs worth asking about, strongest first: term overlap between the
- * objective, the patterns, and the path and matching lines, then how densely
- * the run matched. Every run beyond `cap` stays canonical and unjudged.
- */
-export function prefilterGrepRuns(
-  artifact: GrepArtifact,
-  runs: ReadonlyArray<GrepFileRun>,
-  request: GrepRerankRequest,
-  cap = GREP_RERANK_MAX_CARDS,
-): Array<GrepFileRun> {
-  const terms = termsOf([request.objective, ...request.patterns]);
-  const scored = runs.map((run, position) => {
-    const haystack = [run.path, ...matchingLines(artifact, run)]
-      .join('\n')
-      .toLowerCase();
-    return {
-      run,
-      position,
-      overlap: terms.reduce(
-        (total, term) => total + (haystack.includes(term) ? 1 : 0),
-        0,
-      ),
-      density: matchDensity(artifact, run),
-    };
-  });
-  scored.sort(
-    (left, right) =>
-      right.overlap - left.overlap ||
-      right.density - left.density ||
-      left.position - right.position,
-  );
-  return scored.slice(0, cap).map((entry) => entry.run);
-}
-
-/**
- * Ask the lane about the prefiltered runs, or return nothing when the tool has
+ * Ask the lane about every run, or return nothing when the tool has
  * no `tools.grep.rerank` block, the lane is absent, or the artifact holds too
  * few runs to rank.
  */
@@ -183,12 +141,7 @@ export async function planGrepRerank(input: {
   const runs = grepFileRuns(input.artifact);
   if (runs.length < GREP_RERANK_MIN_RUNS) return undefined;
 
-  const candidates = prefilterGrepRuns(input.artifact, runs, input.request);
-  const judgement = await judgeGrepRuns(
-    judge,
-    { ...input, rerank },
-    candidates,
-  );
+  const judgement = await judgeGrepRuns(judge, { ...input, rerank }, runs);
   const probabilities = judgement.probabilities;
   // Unavailable is not a negative judgment: nothing is reordered and no order
   // is recorded, exactly as if the lane had never been asked.
@@ -335,31 +288,6 @@ function matchingLines(
     }
   }
   return lines;
-}
-
-/** How many lines of one run matched, per passage: a dense run matched often. */
-function matchDensity(artifact: GrepArtifact, run: GrepFileRun): number {
-  const matches = run.indices.reduce(
-    (total, index) => total + artifact.results[index].matches.length,
-    0,
-  );
-  return matches / Math.max(1, run.indices.length);
-}
-
-/**
- * The words a card can be scored on: the objective and the patterns split on
- * anything that is not a letter, a digit, or an underscore. A pattern is a
- * regular expression, so this is a heuristic prior, not a matcher.
- */
-function termsOf(sources: ReadonlyArray<string | undefined>): Array<string> {
-  const terms = new Set<string>();
-  for (const source of sources) {
-    if (source === undefined) continue;
-    for (const term of source.toLowerCase().split(/[^a-z0-9_]+/u)) {
-      if (term.length >= 2) terms.add(term);
-    }
-  }
-  return [...terms];
 }
 
 /** One structured line beside the lane's own `decision.completed`. */

@@ -153,10 +153,9 @@ call.
 With the tool's own `tools.grep.rerank` block set (`{ mode: "shadow" | "on",
 model: <decisionModels[] id> }`), `grep` ranks its **file runs**, not single
 passages. One card carries a run's
-path and up to three of its matching lines (at most 384 code units). A
-term-overlap prefilter over the caller's `objective` and patterns keeps at
-most 48 runs for the request; every run it leaves out, and every run a failed
-request never answered, stays in canonical order after the judged ones.
+path and up to three of its matching lines (at most 384 code units). Every
+run of the walk is judged; a run a failed request never answered stays in
+canonical order after the judged ones.
 Judged runs sort by probability, strongest first. A reordered run keeps
 exactly one `## <path>` heading, so the stored artifact, its findings, the
 inline head, and the remainder map all agree; no match, count, warning, or

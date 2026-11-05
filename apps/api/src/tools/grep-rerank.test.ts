@@ -1,7 +1,6 @@
 /**
  * Ranked `grep` file runs (decision-lane experiment, shadow/on modes): one card
- * per file run, a stage-1 prefilter that keeps at most 48, a permutation of
- * whole runs, and the block and finding renumbering that keeps every later
+ * per file run, a permutation of whole runs, and the block and finding renumbering that keeps every later
  * step consistent with the reordered text.
  */
 
@@ -17,12 +16,10 @@ import { type ToolRerankMode } from '../instance-config/tool-rerank-config';
 import {
   applyGrepRerank,
   GREP_RERANK_CARD_UNITS,
-  GREP_RERANK_MAX_CARDS,
   GREP_RERANK_RUBRIC,
   grepFileRuns,
   grepRunCard,
   planGrepRerank,
-  prefilterGrepRuns,
 } from './grep-rerank';
 import {
   addGrepPassages,
@@ -174,26 +171,6 @@ describe('grep file runs', () => {
     expect(grepRunCard(short, grepFileRuns(short)[0]).split('\n')).toHaveLength(
       4,
     );
-  });
-
-  it('ranks the runs whose path or lines hold the objective first', () => {
-    const artifact = artifactOf(files(3));
-    const runs = grepFileRuns(artifact);
-    const [first] = prefilterGrepRuns(artifact, runs, {
-      patterns: ['needle'],
-      objective: 'where is file-02 registered',
-    });
-
-    expect(first?.path).toBe('/src/file-02.ts');
-  });
-
-  it('keeps at most 48 runs and drops the rest to canonical order', () => {
-    const artifact = artifactOf(files(GREP_RERANK_MAX_CARDS + 12));
-    const runs = grepFileRuns(artifact);
-
-    expect(
-      prefilterGrepRuns(artifact, runs, { patterns: ['needle'] }),
-    ).toHaveLength(GREP_RERANK_MAX_CARDS);
   });
 });
 

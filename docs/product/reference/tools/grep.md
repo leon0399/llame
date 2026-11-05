@@ -170,10 +170,9 @@ question per file run after the walk: is this file likely to contain what the
 explanation rather than a mere mention?
 
 One card carries a run's path and up to three of its matching lines, at most
-384 code units. A term-overlap prefilter keeps at most 48 runs for the
-request. Any run it leaves out keeps its canonical position, and so does every
-run a failed request never answered; both sorts follow the judged runs, which
-sort by probability, strongest first.
+384 code units. Every run of the walk is judged. A run a failed request never
+answered keeps its canonical position after the judged runs, which sort by
+probability, strongest first.
 
 Ranking moves whole file runs and never a single passage. Every run therefore
 stays contiguous and still opens exactly one `## <file locator>` line, and the

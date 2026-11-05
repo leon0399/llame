@@ -737,7 +737,7 @@ describe('grep rerank', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('asks at most 48 file runs and leaves the rest unjudged', async () => {
+  it('asks about every file run and leaves an unanswered one unjudged', async () => {
     await writePassageFiles(60);
     const answers = Object.fromEntries(
       Array.from({ length: 48 }, (_, index) => [
@@ -751,9 +751,9 @@ describe('grep rerank', () => {
       scopes: [`${root}/d/**`],
     });
 
-    expect(calls[0]?.cards).toHaveLength(48);
+    expect(calls[0]?.cards).toHaveLength(60);
     const rerank = rerankRecordOf(result);
-    // 48 judged runs, then the 12 the prefilter never asked about.
+    // 48 answered runs, then the 12 the lane never answered.
     expect(rerank?.['unjudged']).toBe(12);
     expect(rerank?.['order']).toHaveLength(60);
     // Shadow keeps every file in walk order whatever was asked.
