@@ -27,6 +27,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   is empty. Each call logs one `decision.completed` line with its own tokens and
   cost; it is a side call and is never folded into a Run's message usage. See
   `docs/product/operator/decisions.md`.
+- **`web_search` reranks its results through the decision lane.** With
+  `webSearch.rerank` set — `{ mode: "shadow" | "on", model: <decisions.models id> }`,
+  the tool's own setting beside its engines — a `results` call with at least three
+  canonically addressable results becomes one `[k] <title> — <host> —
+  <snippet>` card per result (cut at 400 units) and one fixed yes/no question
+  per card — does it help answer the call's `objective`, or the query when no
+  objective was given — and the answers order the output: a stable sort by
+  probability descending, with every card the judge did not answer keeping its
+  canonical relative order after the judged ones. A grounded answer is never
+  ranked, and nothing is judged with fewer than three results or without a
+  `rerank` block. The order is decided once, before the inline fit and the stored
+  artifact, so the inline head, the artifact text, its findings, and the
+  continuation line agree; a permutation never changes a count or the `left
+  out` notice. `shadow` leaves the output untouched, records the order it would
+  have applied as `rerank: { mode, model, order, probabilities, latencyMs,
+  costUsd }` beside the closed result shape — a field the model-facing text
+  ignores — and logs one `web_search.rerank` line; `on` applies it and records
+  the same field. The call names its
+  catalogue model on every judgement, and the lane answers `unavailable` for an
+  id it has no client for.
 
 # 2026-11-03
 

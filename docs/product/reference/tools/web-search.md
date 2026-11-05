@@ -139,6 +139,48 @@ with artifact://web_search-<n>:<next>-]` line ends the text, after the notes.
 cannot read the artifact, the last line is instead `[left out: <count>
 results; full result not stored]`.
 
+### Reranked results
+
+With the tool's `webSearch.rerank` block set (`{ mode: "shadow" | "on", model:
+<decisions.models id> }`, see [Decisions](../../operator/decisions.md)), a
+`results` call with
+at least three results whose URLs are canonical locators is ranked before any
+cap: one card per result, `[k] <title> — <host> — <snippet>` cut at 400 units,
+and one fixed yes/no question per card — does it help answer the call's
+`objective` (or, without one, the query)? The order is a stable sort by
+probability, highest first; a card the judge did not answer keeps its canonical
+relative order after the judged ones. The inline head, the stored artifact
+text, its findings, and the continuation line all read that one order.
+
+The ranked record carries one extra field beside the closed shape above:
+
+```json
+{
+  "rerank": {
+    "mode": "on",
+    "model": "jev-1.13",
+    "order": ["p02", "p05", "p03", "p01", "p04"],
+    "probabilities": {
+      "p01": 0.1,
+      "p02": 0.9,
+      "p03": 0.5,
+      "p04": 0.05,
+      "p05": 0.7
+    },
+    "latencyMs": 180,
+    "costUsd": 0.0000042
+  }
+}
+```
+
+`order` names every judged result by its canonical rank key (`p<rank>`), and
+`probabilities` maps exactly those keys to P(helps answer). `shadow` records the
+order it would have applied and leaves the results in canonical order; `on`
+applies it. Counts never change either way, and the model-facing text never
+shows the field. An `answer` output is never ranked, and a call that sends no
+question — fewer than three results, the lane unavailable, or a failure — keeps
+its canonical order with no `rerank` field.
+
 ## Behavior
 
 The configured chain runs in order, or the call's `engines` when it sets them: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. An engine whose vendor query limit the query exceeds sends nothing and advances as `unsupported`; an `aggregate` runs only the children that accept the query. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
