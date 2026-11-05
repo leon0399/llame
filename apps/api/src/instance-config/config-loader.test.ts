@@ -5018,6 +5018,27 @@ describe('loadInstanceConfig — configured credential set', () => {
     expect(credentialsOf(json, env)).toEqual(expected);
   });
 
+  it.each(['https:mcp.example/mcp', 'https:/mcp.example/mcp'])(
+    'adds a query credential from the absolute form %s',
+    (base) => {
+      const queried = `${base}?apiKey=${['gw', 'canary', '1065'].join('-')}`;
+      const members = credentialsOf(
+        `{ "mcpServers": { "r": { "type": "http", "url": ${JSON.stringify(queried)} } } }`,
+      );
+
+      expect(members).toEqual(['gw-canary-1065']);
+    },
+  );
+
+  it('adds a credential field whole and never a substitution inside it', () => {
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "secret-prefix-{env:KEY_VERSION}-secret-suffix" }] }',
+      { KEY_VERSION: '1' },
+    );
+
+    expect(members).toEqual(['secret-prefix-1-secret-suffix']);
+  });
+
   it('adds a credential written into a URL however it was written', () => {
     const members = credentialsOf(
       `{

@@ -315,6 +315,25 @@ describe("interpolateString — {path:...}", () => {
     ]);
   });
 
+  it("rejects a blank document leaf before escaping it", () => {
+    const file = tempSecretFile(
+      JSON.stringify({
+        tokens: {
+          access_token: "at-123",
+          refresh_token: "\n",
+          id_token: "\t",
+        },
+      }),
+      "auth.json",
+    );
+
+    const [substitution] = interpolateStringWithSubstitutions(
+      `{path:${file}|json:/tokens/access_token}`,
+    ).substituted;
+
+    expect(substitution.documentLeaves).toEqual(["at-123"]);
+  });
+
   it("reports credential leaves from an array under a credential-shaped name", () => {
     const file = tempSecretFile(
       JSON.stringify({

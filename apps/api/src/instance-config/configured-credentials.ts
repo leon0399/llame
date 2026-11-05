@@ -73,10 +73,18 @@ export class ConfiguredCredentialCollector {
   readonly onUrl = (result: InterpolationResult): void =>
     this.addUrlMembers(result);
 
-  /** A credential field: the whole resolved value plus its document leaves. */
+  /**
+   * A credential field: the whole resolved value, and the credential leaves of
+   * any selected JSON document. A substitution inside the field is deliberately
+   * NOT a member on its own — design D1 takes whole values for credential
+   * fields, so `secret-prefix-{env:VERSION}-suffix` does not make `1` a
+   * member.
+   */
   addSecret(result: InterpolationResult): void {
     this.add(result.value);
-    this.addSubstitutions(result);
+    for (const substitution of result.substituted) {
+      for (const leaf of substitution.documentLeaves) this.add(leaf);
+    }
   }
 
   /**
@@ -221,14 +229,19 @@ function within(
 /**
  * The userinfo and query spans of an absolute URL, computed by scanning the
  * raw string so a resolved (possibly substituted) URL — and a `POSTGRES_URL`
- * `new URL` cannot parse — is read exactly as written.
+ * `new URL` cannot parse — is read exactly as written. `new URL`, the loader's
+ * validator, accepts `https:host/path?x` and `https:/host/path?x` as well as
+ * `https://host/path?x`, so the query span never depends on an authority.
  */
 function urlCredentialSpans(url: string): UrlCredentialSpans {
-  const schemeAt = url.indexOf('://');
-  if (schemeAt === -1) return {};
-  const authorityStart = schemeAt + 3;
+  const colon = url.indexOf(':');
+  if (colon <= 0) return {};
+  const query = querySpan(url, colon + 1);
+  if (!url.startsWith('//', colon + 1)) {
+    return query === undefined ? {} : { query };
+  }
+  const authorityStart = colon + 3;
   const authorityEnd = indexOfFirstOf(url, ['/', '?', '#'], authorityStart);
-  const query = querySpan(url, authorityEnd);
   return {
     ...userinfoSpans(url, authorityStart, authorityEnd),
     ...(query !== undefined && { query }),
@@ -252,12 +265,9 @@ function userinfoSpans(
   };
 }
 
-function querySpan(
-  url: string,
-  authorityEnd: number,
-): InterpolationSpan | undefined {
-  const queryStart = url.indexOf('?', authorityEnd);
-  const fragmentStart = url.indexOf('#', authorityEnd);
+function querySpan(url: string, from: number): InterpolationSpan | undefined {
+  const queryStart = url.indexOf('?', from);
+  const fragmentStart = url.indexOf('#', from);
   if (queryStart === -1) return undefined;
   if (fragmentStart !== -1 && fragmentStart < queryStart) return undefined;
   return {

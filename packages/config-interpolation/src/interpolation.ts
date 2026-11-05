@@ -386,6 +386,9 @@ function collectLeaves(
 }
 
 function pushCredentialLeaf(value: string, leaves: Array<string>): void {
+  // A blank original leaf carries no secret, and its JSON-escaped spelling
+  // (`\n`, `\t`) would become a nonblank member that redacts unrelated text.
+  if (value.trim().length === 0) return;
   leaves.push(value);
   const escaped = JSON.stringify(value).slice(1, -1);
   if (escaped !== value) leaves.push(escaped);
