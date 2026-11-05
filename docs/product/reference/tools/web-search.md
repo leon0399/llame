@@ -142,7 +142,7 @@ results; full result not stored]`.
 ### Reranked results
 
 With the tool's `webSearch.rerank` block set (`{ mode: "shadow" | "on", model:
-<decisions.models id> }`, see [Decisions](../../operator/decisions.md)), a
+<decisionModels[] id> }`, see [Decisions](../../operator/decisions.md)), a
 `results` call with
 at least three results whose URLs are canonical locators is ranked before any
 cap: one card per result, `[k] <title> — <host> — <snippet>` cut at 400 units,

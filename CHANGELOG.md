@@ -28,7 +28,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   cost; it is a side call and is never folded into a Run's message usage. See
   `docs/product/operator/decisions.md`.
 - **`web_search` reranks its results through the decision lane.** With
-  `webSearch.rerank` set — `{ mode: "shadow" | "on", model: <decisions.models id> }`,
+  `webSearch.rerank` set — `{ mode: "shadow" | "on", model: <decisionModels[] id> }`,
   the tool's own setting beside its engines — a `results` call with at least three
   canonically addressable results becomes one `[k] <title> — <host> —
   <snippet>` card per result (cut at 400 units) and one fixed yes/no question
