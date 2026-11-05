@@ -1,8 +1,8 @@
 /**
- * The failure-value redaction design D3 defines: an error is rewritten in
- * place so its identity and classification are untouched, a failure that
- * refuses the rewrite is replaced on the same prototype, and a string failure
- * value (an abort reason) is redacted in place.
+ * The failure-value redaction design D3 defines: an error or a structured
+ * failure object is rewritten in place so its identity and classification are
+ * untouched, a graph that refuses the rewrite is rebuilt with every alias and
+ * cycle preserved, and a string failure value (an abort reason) is redacted.
  */
 import { APICallError } from '@ai-sdk/provider';
 import { RetryError } from 'ai';
@@ -30,6 +30,13 @@ function surfaces(error: unknown): string {
     : String(error);
 }
 
+function asError(error: unknown): Error {
+  if (!(error instanceof Error)) {
+    throw new TypeError('expected an error');
+  }
+  return error;
+}
+
 describe('redactModelFailure', () => {
   it('redacts a string failure value that carries a credential', () => {
     const redacted = redactModelFailure(`failed: ${CANARY}`, credentials);
@@ -41,9 +48,12 @@ describe('redactModelFailure', () => {
     expect(redactModelFailure('run-timeout', credentials)).toBe('run-timeout');
   });
 
-  it('passes a value that is neither an error nor a string through untouched', () => {
+  it('passes a value outside a failure graph through untouched', () => {
     expect(redactModelFailure(undefined, credentials)).toBeUndefined();
     expect(redactModelFailure(42, credentials)).toBeUndefined();
+    expect(
+      redactModelFailure(new Uint8Array([1, 2, 3]), credentials),
+    ).toBeUndefined();
   });
 
   it('returns a failure without a credential as the same object', () => {
@@ -112,6 +122,84 @@ describe('redactModelFailure', () => {
     ).toBe(true);
   });
 
+  it('redacts the rest of the message-bearing graph in place', () => {
+    const error = new APICallError({
+      message: `Upstream echoed ${CANARY}`,
+      url: 'https://endpoint.example.test/v1',
+      requestBodyValues: { model: 'test-model' },
+      statusCode: 401,
+      responseHeaders: { 'x-echo': CANARY },
+      responseBody: `{"error":{"message":"${CANARY}"}}`,
+      data: { error: { message: `nested ${CANARY}` } },
+    });
+
+    const redacted = redactModelFailure(error, credentials);
+
+    expect(redacted).toBe(error);
+    expect(error.responseHeaders).toMatchObject({
+      'x-echo': PROTECTED_VALUE_REDACTION_MARKER,
+    });
+    expect(error.responseBody).toBe(
+      `{"error":{"message":"${PROTECTED_VALUE_REDACTION_MARKER}"}}`,
+    );
+    expect(error.data).toEqual({
+      error: { message: `nested ${PROTECTED_VALUE_REDACTION_MARKER}` },
+    });
+    expect(error.requestBodyValues).toEqual({ model: 'test-model' });
+    expect(JSON.stringify(error.data)).not.toContain(CANARY);
+  });
+
+  it('redacts a structured failure object the Responses wire forwards', () => {
+    const failure = {
+      type: 'error',
+      sequence_number: 3,
+      message: `Upstream echoed ${CANARY}`,
+    };
+
+    const redacted = redactModelFailure(failure, credentials);
+
+    expect(redacted).toBe(failure);
+    expect(failure).toEqual({
+      type: 'error',
+      sequence_number: 3,
+      message: `Upstream echoed ${PROTECTED_VALUE_REDACTION_MARKER}`,
+    });
+  });
+
+  it('redacts a structured response.failed failure and keeps its classification', () => {
+    const failure = {
+      type: 'response.failed',
+      sequence_number: 7,
+      response: {
+        error: { code: 'server_error', message: `echoed ${CANARY}` },
+        incomplete_details: { reason: 'error' },
+      },
+    };
+
+    const redacted = redactModelFailure(failure, credentials);
+
+    expect(redacted).toBe(failure);
+    expect(failure.type).toBe('response.failed');
+    expect(failure.response).toEqual({
+      error: {
+        code: 'server_error',
+        message: `echoed ${PROTECTED_VALUE_REDACTION_MARKER}`,
+      },
+      incomplete_details: { reason: 'error' },
+    });
+    expect(JSON.stringify(failure)).not.toContain(CANARY);
+  });
+
+  it('keeps an array of plain-object failures redacted and in place', () => {
+    const failures = [{ message: `one ${CANARY}` }, { message: 'two' }];
+
+    expect(redactModelFailure(failures, credentials)).toBe(failures);
+    expect(failures[0]?.message).toBe(
+      `one ${PROTECTED_VALUE_REDACTION_MARKER}`,
+    );
+    expect(failures[1]?.message).toBe('two');
+  });
+
   it('redacts a credential in cause, lastError, and errors[]', () => {
     const lastError = apiError(`rate limit for ${CANARY}`);
     const retried = new RetryError({
@@ -157,20 +245,18 @@ describe('redactModelFailure', () => {
     const redacted = redactModelFailure(frozen, credentials);
 
     expect(redacted).not.toBe(frozen);
-    if (!(redacted instanceof Error)) {
-      throw new TypeError('expected an error replacement');
-    }
-    expect(redacted).toBeInstanceOf(APICallError);
-    expect(APICallError.isInstance(redacted)).toBe(true);
-    expect(redacted.message).toContain(PROTECTED_VALUE_REDACTION_MARKER);
-    expect(surfaces(redacted)).not.toContain(CANARY);
-    expect(redacted).toMatchObject({
+    const error = asError(redacted);
+    expect(error).toBeInstanceOf(APICallError);
+    expect(APICallError.isInstance(error)).toBe(true);
+    expect(error.message).toContain(PROTECTED_VALUE_REDACTION_MARKER);
+    expect(surfaces(error)).not.toContain(CANARY);
+    expect(error).toMatchObject({
       statusCode: 401,
       name: 'AI_APICallError',
     });
     expect(
       Object.getOwnPropertyDescriptor(
-        redacted,
+        error,
         Symbol.for('vercel.ai.error.AI_APICallError'),
       )?.value,
     ).toBe(true);
@@ -188,12 +274,102 @@ describe('redactModelFailure', () => {
     const redacted = redactModelFailure(error, credentials);
 
     expect(redacted).not.toBe(error);
-    if (!(redacted instanceof Error)) {
-      throw new TypeError('expected an error replacement');
+    const replacement = asError(redacted);
+    expect(replacement).toBeInstanceOf(Error);
+    expect(replacement.message).toContain(PROTECTED_VALUE_REDACTION_MARKER);
+    expect(surfaces(replacement)).not.toContain(CANARY);
+  });
+
+  it('never leaks a frozen child through its alias (RetryError.lastError)', () => {
+    const frozenLast = Object.freeze(apiError(`limit ${CANARY}`));
+    const retried = new RetryError({
+      message: 'Failed after 2 attempts',
+      reason: 'maxRetriesExceeded',
+      errors: [apiError('first attempt'), frozenLast],
+    });
+
+    const redacted = asError(redactModelFailure(retried, credentials));
+    if (!RetryError.isInstance(redacted)) {
+      throw new TypeError('expected the retry wrapper to survive');
     }
-    expect(redacted).toBeInstanceOf(Error);
+
+    expect(redacted).not.toBe(retried);
+    expect(surfaces(redacted.errors.at(-1))).not.toContain(CANARY);
+    expect(redacted.lastError).toBe(redacted.errors.at(-1));
+    expect(surfaces(redacted.lastError)).toContain(
+      PROTECTED_VALUE_REDACTION_MARKER,
+    );
+  });
+
+  it('replaces every reference to the same frozen child (AggregateError)', () => {
+    const frozen = Object.freeze(apiError(`echoed ${CANARY}`));
+    const aggregate = new AggregateError([frozen, frozen], 'both failed');
+
+    const redacted = asError(redactModelFailure(aggregate, credentials));
+    if (!(redacted instanceof AggregateError)) {
+      throw new TypeError('expected the aggregate error to survive');
+    }
+
+    expect(redacted).not.toBe(aggregate);
+    expect(redacted.errors[0]).toBe(redacted.errors[1]);
+    expect(surfaces(redacted.errors[0])).not.toContain(CANARY);
+    expect(surfaces(redacted.errors[0])).toContain(
+      PROTECTED_VALUE_REDACTION_MARKER,
+    );
+  });
+
+  it('rebuilds a cycle that contains frozen nodes without keeping an original', () => {
+    const first = new Error(`first ${CANARY}`);
+    const second = new Error(`second ${CANARY}`);
+    first.cause = second;
+    second.cause = first;
+    Object.freeze(first);
+    Object.freeze(second);
+
+    const redacted = asError(redactModelFailure(first, credentials));
+    const cause = asError(redacted.cause);
+
+    expect(redacted).not.toBe(first);
+    expect(cause).not.toBe(second);
+    expect(cause.cause).toBe(redacted);
+    expect(surfaces(redacted)).not.toContain(CANARY);
+    expect(surfaces(cause)).not.toContain(CANARY);
+  });
+
+  it('does not throw when an accessor cannot be read', () => {
+    const error = new Error(`Upstream echoed ${CANARY}`);
+    Object.defineProperty(error, 'unreadable', {
+      get() {
+        throw new Error('the getter rejects');
+      },
+      enumerable: true,
+      configurable: false,
+    });
+
+    const redacted = asError(redactModelFailure(error, credentials));
+
+    expect(redacted).not.toBe(error);
+    expect('unreadable' in redacted).toBe(false);
     expect(redacted.message).toContain(PROTECTED_VALUE_REDACTION_MARKER);
     expect(surfaces(redacted)).not.toContain(CANARY);
+  });
+
+  it('materializes an accessor that returns a credential-bearing graph', () => {
+    const error = new Error('plain');
+    Object.defineProperty(error, 'details', {
+      get: () => ({ message: `echoed ${CANARY}` }),
+      enumerable: true,
+      configurable: false,
+    });
+
+    const redacted = asError(redactModelFailure(error, credentials));
+    const descriptor = Object.getOwnPropertyDescriptor(redacted, 'details');
+    const details: unknown = descriptor?.value;
+
+    expect(details).toEqual({
+      message: `echoed ${PROTECTED_VALUE_REDACTION_MARKER}`,
+    });
+    expect(JSON.stringify(details)).not.toContain(CANARY);
   });
 
   it('does not loop on a cause cycle', () => {

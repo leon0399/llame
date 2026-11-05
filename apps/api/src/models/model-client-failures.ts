@@ -7,7 +7,7 @@ import type {
   ModelStreamInput,
   ModelStreamResult,
 } from './model-client';
-import { redactModelFailure } from './model-failure-redaction';
+import { isFailureGraph, redactModelFailure } from './model-failure-redaction';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 
 const logger = new Logger('ModelClientFailures');
@@ -16,9 +16,11 @@ const logger = new Logger('ModelClientFailures');
  * Every promise channel a `StreamTextResult` exposes (AI SDK 6): reading one
  * settles the request, and each rejects with the failure the request raised.
  * The stream channels (`fullStream`, `textStream`, …) report a failure as
- * their own error part instead, so only these need wrapping.
+ * their own error part instead, so only these need wrapping. The `satisfies`
+ * turns a channel renamed in the SDK into a compile error, so a rename can
+ * never silently stop being redacted.
  */
-const PROMISE_CHANNELS = [
+export const STREAM_PROMISE_CHANNELS = [
   'content',
   'text',
   'reasoning',
@@ -41,20 +43,33 @@ const PROMISE_CHANNELS = [
   'response',
   'providerMetadata',
   'output',
-] as const;
+] as const satisfies ReadonlyArray<keyof ModelStreamResult>;
 
 type ConsumeOptions = Parameters<ModelStreamResult['consumeStream']>[0];
 
 /**
- * The redacted form of one failure, logging the substitution when the original
- * object could not be rewritten in place (never the values it carried).
+ * Redacted failures already produced for this client: the SDK rejects several
+ * channels with the same error instance, and a frozen one can only be
+ * reported through a replacement, which every channel must share.
+ */
+type FailureMemo = WeakMap<object, object>;
+
+/**
+ * The redacted form of one failure, memoized and logged when the original
+ * could not be rewritten in place (never the values it carried). `undefined`
+ * means the value is not part of a failure graph and is forwarded as it is.
  */
 function redactedFailure(
   error: unknown,
   credentials: ReadonlyArray<string>,
-): Error | string | undefined {
-  const redacted = redactModelFailure(error, credentials);
-  if (redacted !== undefined && redacted !== error) {
+  memo: FailureMemo,
+): object | string | undefined {
+  if (!isFailureGraph(error)) return redactModelFailure(error, credentials);
+  const memoized = memo.get(error);
+  if (memoized !== undefined) return memoized;
+  const redacted = redactModelFailure(error, credentials) ?? error;
+  memo.set(error, redacted);
+  if (redacted !== error) {
     logger.warn(
       'A model failure could not be rewritten in place; reporting a redacted replacement.',
     );
@@ -63,23 +78,28 @@ function redactedFailure(
 }
 
 function isRedactedRejection<T>(
-  promise: PromiseLike<T>,
+  promise: PromiseLike<T> | undefined,
   credentials: ReadonlyArray<string>,
-): Promise<T> {
+  memo: FailureMemo,
+): Promise<T | undefined> {
   return Promise.resolve(promise).catch((error: unknown) => {
-    const redacted = redactedFailure(error, credentials);
+    const redacted = redactedFailure(error, credentials, memo);
     throw redacted === undefined ? error : redacted;
   });
 }
 
 /**
  * The result's promise channels, each rejecting with the redacted failure
- * instead of the raw one. Built per request and read lazily by
- * {@link wrapStreamTextResult}, so nothing consumes the stream early.
+ * instead of the raw one. Built once per wrapped client; `wrapStreamTextResult`
+ * supplies each result's own target lazily, so nothing consumes the stream
+ * early and no channel is created per request.
  */
-function redactedChannels(credentials: ReadonlyArray<string>) {
+function redactedChannels(
+  credentials: ReadonlyArray<string>,
+  memo: FailureMemo,
+) {
   const overrides = Object.fromEntries(
-    PROMISE_CHANNELS.map(
+    STREAM_PROMISE_CHANNELS.map(
       (
         channel,
       ): [
@@ -93,6 +113,7 @@ function redactedChannels(credentials: ReadonlyArray<string>) {
           value: isRedactedRejection(
             target[channel] as PromiseLike<unknown>,
             credentials,
+            memo,
           ),
         }),
       ],
@@ -100,7 +121,7 @@ function redactedChannels(credentials: ReadonlyArray<string>) {
   );
   overrides.consumeStream = (target: ModelStreamResult) => ({
     value: (options?: ConsumeOptions) =>
-      isRedactedRejection(target.consumeStream(options), credentials),
+      isRedactedRejection(target.consumeStream(options), credentials, memo),
   });
   return overrides;
 }
@@ -111,14 +132,24 @@ function redactedChannels(credentials: ReadonlyArray<string>) {
  * credential"): it redacts the failure and forwards it to the caller's own
  * handler, or — when the caller supplied none — logs the redacted failure
  * through Nest instead of letting the AI SDK's default handler print the raw
- * object.
+ * object. A request the caller aborted is not a failure: its own reason is
+ * not logged, exactly as the SDK's default handler never logged it.
  */
 function redactingOnError(
   caller: StreamTextOnErrorCallback | undefined,
   credentials: ReadonlyArray<string>,
+  abortSignal: AbortSignal | undefined,
+  memo: FailureMemo,
 ): StreamTextOnErrorCallback {
   return ({ error }) => {
-    const redacted = redactedFailure(error, credentials);
+    if (
+      caller === undefined &&
+      abortSignal?.aborted === true &&
+      error === abortSignal.reason
+    ) {
+      return;
+    }
+    const redacted = redactedFailure(error, credentials, memo);
     const failure = redacted === undefined ? error : redacted;
     if (caller !== undefined) return caller({ error: failure });
     if (failure instanceof Error) {
@@ -146,6 +177,8 @@ export function withRedactedFailures(
   client: ModelClient,
   credentials: ReadonlyArray<string>,
 ): ModelClient {
+  const memo: FailureMemo = new WeakMap();
+  const channels = redactedChannels(credentials, memo);
   return new Proxy(client, {
     get(target, property, receiver) {
       if (property === 'streamText') {
@@ -153,19 +186,23 @@ export function withRedactedFailures(
           wrapStreamTextResult(
             target.streamText({
               ...input,
-              onError: redactingOnError(input.onError, credentials),
+              onError: redactingOnError(
+                input.onError,
+                credentials,
+                input.abortSignal,
+                memo,
+              ),
             }),
-            redactedChannels(credentials),
+            channels,
           );
       }
       if (property === 'generateObject') {
         if (target.generateObject === undefined) return undefined;
         return <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-          Promise.resolve(target.generateObject?.(input)).catch(
-            (error: unknown) => {
-              const redacted = redactedFailure(error, credentials);
-              throw redacted === undefined ? error : redacted;
-            },
+          isRedactedRejection(
+            target.generateObject?.(input),
+            credentials,
+            memo,
           );
       }
       // eslint-disable-next-line anti-slop/no-reflect-get, typescript/no-unsafe-return -- pass-through read of an untouched client member; the trap has no per-property type, and the receiver-correct rationale is owned by wrapStreamTextResult.

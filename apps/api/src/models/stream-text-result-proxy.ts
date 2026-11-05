@@ -9,7 +9,11 @@
  * model-client boundary that augments `consumeStream()`/`text` with
  * abort-settlement or completion tracking (`openai-model-client.ts`,
  * `fake-model-client.ts`, and the `testing/support.ts`/
- * `runs/worker-harness.ts` test doubles) into one reviewed, owned location.
+ * `runs/worker-harness.ts` test doubles), and the failure redaction that
+ * wraps every promise channel (`model-client-failures.ts`), into one
+ * reviewed, owned location. An override key may be a symbol or a
+ * non-enumerable own key: the pass-through lookup is an own-property test,
+ * not an enumerable-string scan.
  *
  * Uses `Reflect.get(target, property, receiver)` for the fall-through path
  * rather than direct `target[property]` access: the AI SDK's

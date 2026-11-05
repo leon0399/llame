@@ -120,6 +120,29 @@ const completionsProvider: ProviderConfig = {
   headers: { authorization: ['Bearer ', HEADER_SECRET] },
 };
 
+/** A Chat Completions client whose stubbed upstream echoes `message`. */
+function completionsClient(message: string, status = 401): ModelClient {
+  return factoryClient(
+    completionsProvider,
+    completionsDependencies(
+      serve(() => jsonResponse(JSON.stringify({ error: { message } }), status)),
+    ),
+  );
+}
+
+/** The Chat Completions client's dependencies, with only its transport stubbed. */
+function completionsDependencies(
+  fetch: Fetch = serve(() =>
+    jsonResponse(JSON.stringify({ error: { message: `echoed ${KEY}` } }), 401),
+  ),
+): Parameters<typeof createModelClient>[1] {
+  return {
+    createOpenAIModelClient,
+    createOpenAICompletionsModelClient: (config) =>
+      createOpenAICompletionsModelClient({ ...config, fetch }),
+  };
+}
+
 describe('createModelClient failure redaction', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -157,21 +180,7 @@ describe('createModelClient failure redaction', () => {
   });
 
   it('reports an echoed credential as [REDACTED] on the openai-completions wire, including a configured header value', async () => {
-    const client = factoryClient(completionsProvider, {
-      createOpenAIModelClient,
-      createOpenAICompletionsModelClient: (config) =>
-        createOpenAICompletionsModelClient({
-          ...config,
-          fetch: serve(() =>
-            jsonResponse(
-              JSON.stringify({
-                error: { message: `echoed ${KEY} and ${HEADER_SECRET}` },
-              }),
-              401,
-            ),
-          ),
-        }),
-    });
+    const client = completionsClient(`echoed ${KEY} and ${HEADER_SECRET}`);
 
     const { reported, settlement } = await streamFailure(client);
 
@@ -252,19 +261,7 @@ describe('createModelClient failure redaction', () => {
   });
 
   it("reports a failure's own class unchanged when it carries a credential", async () => {
-    const client = factoryClient(completionsProvider, {
-      createOpenAIModelClient,
-      createOpenAICompletionsModelClient: (config) =>
-        createOpenAICompletionsModelClient({
-          ...config,
-          fetch: serve(() =>
-            jsonResponse(
-              JSON.stringify({ error: { message: `${KEY} is not allowed` } }),
-              401,
-            ),
-          ),
-        }),
-    });
+    const client = completionsClient(`${KEY} is not allowed`);
 
     const { reported } = await streamFailure(client);
 
@@ -309,19 +306,7 @@ describe('createModelClient failure redaction', () => {
   });
 
   it('reports a rejected structured generation redacted on the Chat Completions wire', async () => {
-    const client = factoryClient(completionsProvider, {
-      createOpenAIModelClient,
-      createOpenAICompletionsModelClient: (config) =>
-        createOpenAICompletionsModelClient({
-          ...config,
-          fetch: serve(() =>
-            jsonResponse(
-              JSON.stringify({ error: { message: `echoed ${KEY}` } }),
-              401,
-            ),
-          ),
-        }),
-    });
+    const client = completionsClient(`echoed ${KEY}`);
     if (client.generateObject === undefined) {
       throw new TypeError(
         'expected the Chat Completions client to generate objects',
@@ -346,19 +331,7 @@ describe('createModelClient failure redaction', () => {
   });
 
   it('leaves a failure without a credential unchanged', async () => {
-    const client = factoryClient(completionsProvider, {
-      createOpenAIModelClient,
-      createOpenAICompletionsModelClient: (config) =>
-        createOpenAICompletionsModelClient({
-          ...config,
-          fetch: serve(() =>
-            jsonResponse(
-              JSON.stringify({ error: { message: 'Invalid API key.' } }),
-              401,
-            ),
-          ),
-        }),
-    });
+    const client = completionsClient('Invalid API key.');
 
     const { reported } = await streamFailure(client);
 
@@ -427,19 +400,7 @@ describe('createModelClient failure redaction', () => {
   it('passes every failure through untouched when no credential is configured', async () => {
     const client = factoryClient(
       completionsProvider,
-      {
-        createOpenAIModelClient,
-        createOpenAICompletionsModelClient: (config) =>
-          createOpenAICompletionsModelClient({
-            ...config,
-            fetch: serve(() =>
-              jsonResponse(
-                JSON.stringify({ error: { message: `echoed ${KEY}` } }),
-                401,
-              ),
-            ),
-          }),
-      },
+      completionsDependencies(),
       [],
     );
 

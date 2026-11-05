@@ -263,17 +263,11 @@ export class ModelsService {
       provider,
       model,
       userAgent: this.instanceConfig.productUserAgent,
-      credentials: this.credentialSet(),
+      // Read through the loader's accessor (design D1), never from
+      // `LlameConfig` itself: every failure this client reports is redacted
+      // against the instance's configured credentials.
+      credentials: configuredCredentials(this.instanceConfig.config),
     });
-  }
-
-  /**
-   * The instance's configured credentials, read through the loader's accessor
-   * (design D1) — never carried on `LlameConfig` itself. Every failure a
-   * client this service builds reports is redacted against them.
-   */
-  private credentialSet(): ReadonlyArray<string> {
-    return configuredCredentials(this.instanceConfig.config);
   }
 
   private resolveConfiguredModel(

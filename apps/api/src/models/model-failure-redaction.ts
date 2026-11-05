@@ -1,4 +1,9 @@
-import { isString, redactProtectedString } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  redactProtectedString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 /**
  * Own properties whose string value is a classification key, not text:
@@ -9,8 +14,25 @@ import { isString, redactProtectedString } from '@workspace/runtime-safety';
  */
 const CLASSIFICATION_KEYS = { name: true, code: true } as const;
 
-/** Own properties that hold another failure rather than inert data. */
-const FAILURE_KEYS = { cause: true, lastError: true, errors: true } as const;
+/** One message-bearing container of a failure: an error, an array, or a plain object. */
+type FailureNode = Error | Array<unknown> | UnknownRecord;
+
+/**
+ * Whether `value` is part of a failure's message-bearing graph: an error, an
+ * array, or a plain object. Binary payloads, dates, maps, and class instances
+ * are not walked — an error's `requestBodyValues` can hold a typed array, and
+ * enumerating its indices would walk megabytes of image bytes.
+ */
+export function isFailureGraph(value: unknown): value is FailureNode {
+  if (value instanceof Error || Array.isArray(value)) return true;
+  if (!isRecord(value)) return false;
+  const prototype = Reflect.getPrototypeOf(value);
+  return prototype === null || prototype === Object.prototype;
+}
+
+function isClassificationKey(key: PropertyKey): boolean {
+  return isString(key) && Object.hasOwn(CLASSIFICATION_KEYS, key);
+}
 
 /**
  * `text` with every configured credential replaced by the shared marker, or
@@ -27,45 +49,96 @@ function redactedText(
   return carriesCredential ? redactProtectedString(text, credentials) : text;
 }
 
-function isRedactableKey(
-  key: PropertyKey,
-  keys: Readonly<Record<string, true>>,
-): boolean {
-  return isString(key) && Object.hasOwn(keys, key);
+/**
+ * Redacts a failure value — an `Error`, a structured failure object, or an
+ * abort reason string — so no configured credential survives in it
+ * (`provider-api-selection`, "Provider failures never carry a configured
+ * credential").
+ *
+ * An error is rewritten in place, so its identity, prototype chain, symbol
+ * marker, `name`, `code`, and any property a consumer branches on are
+ * unchanged: `instanceof`, the AI SDK's `isInstance` checks, and a run's own
+ * error code keep classifying the failure exactly as they would without the
+ * credential. Only string own values are rewritten, except `name` and `code`;
+ * the rest of the message-bearing graph — `cause`, `lastError`, `errors[]`,
+ * response bodies, headers, and parsed payloads — is walked too (cycle-safe).
+ *
+ * A graph that cannot be rewritten in place — a non-writable,
+ * non-configurable property, a frozen object, or an unreadable accessor — is
+ * never forwarded: the whole graph is rebuilt on the same prototypes with
+ * every string redacted and every alias preserved, so classification still
+ * holds and no original object survives behind a second reference.
+ *
+ * Returns `undefined` for a value that is not part of a failure graph; the
+ * caller forwards that value unchanged.
+ */
+export function redactModelFailure(
+  error: string,
+  credentials: ReadonlyArray<string>,
+): string;
+export function redactModelFailure(
+  error: FailureNode,
+  credentials: ReadonlyArray<string>,
+): FailureNode;
+export function redactModelFailure(
+  error: unknown,
+  credentials: ReadonlyArray<string>,
+): object | string | undefined;
+export function redactModelFailure(
+  error: unknown,
+  credentials: ReadonlyArray<string>,
+): object | string | undefined {
+  if (isString(error)) return redactedText(error, credentials);
+  if (!isFailureGraph(error)) return undefined;
+  const unrewritable = new Set<object>();
+  redactInPlace(error, credentials, new Set(), unrewritable);
+  return unrewritable.size === 0
+    ? error
+    : rebuildRedacted(error, credentials, new Map());
 }
 
-/**
- * Redefines one own data property with the redacted value, keeping the
- * original descriptor's attributes. A non-configurable, non-writable property
- * (or a frozen object) refuses the change; the caller then builds a
- * replacement instead of forwarding the original.
- */
-function defineRedacted(
-  error: Error,
-  key: PropertyKey,
-  descriptor: PropertyDescriptor,
-  redacted: Error | string | Array<unknown>,
-): boolean {
-  try {
-    Object.defineProperty(error, key, {
-      ...descriptor,
-      value: redacted,
-    });
-    return true;
-  } catch {
-    return false;
+/** Redacts one container's own strings and records containers it cannot rewrite. */
+function redactInPlace(
+  container: FailureNode,
+  credentials: ReadonlyArray<string>,
+  visited: Set<object>,
+  unrewritable: Set<object>,
+): void {
+  if (visited.has(container)) return;
+  visited.add(container);
+  for (const key of Reflect.ownKeys(container)) {
+    if (isClassificationKey(key)) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(container, key);
+    if (descriptor === undefined) continue;
+    if (!('value' in descriptor)) {
+      if (!redactAccessor(container, key, descriptor, credentials)) {
+        unrewritable.add(container);
+      }
+      continue;
+    }
+    const current: unknown = descriptor.value;
+    if (isString(current)) {
+      const redacted = redactedText(current, credentials);
+      if (redacted === current) continue;
+      if (!defineValue(container, key, descriptor, redacted)) {
+        unrewritable.add(container);
+      }
+      continue;
+    }
+    if (isFailureGraph(current)) {
+      redactInPlace(current, credentials, visited, unrewritable);
+    }
   }
 }
 
 /**
- * Replaces an own accessor property with the redacted text the accessor
- * returned. `stack` is V8's one lazy accessor on an error, and it repeats the
- * message, so it cannot be left to re-format the unredacted value. Returns
- * `false` when the accessor refuses the change or cannot be read, which asks
- * the caller for a replacement.
+ * Redacts an own accessor's text where it can be replaced with a data
+ * property. A getter that throws, or that yields anything but a string, asks
+ * for the rebuild — an object-returning getter could re-derive the raw
+ * message, and an unreadable one must not abort the redaction.
  */
 function redactAccessor(
-  error: Error,
+  container: FailureNode,
   key: PropertyKey,
   descriptor: PropertyDescriptor,
   credentials: ReadonlyArray<string>,
@@ -73,20 +146,35 @@ function redactAccessor(
   if (descriptor.get === undefined) return true;
   let read: unknown;
   try {
-    read = descriptor.get.call(error);
+    read = descriptor.get.call(container);
   } catch {
     return false;
   }
-  if (!isString(read)) return true;
+  if (!isString(read)) return false;
   const redacted = redactedText(read, credentials);
-  if (redacted === read) return true;
+  return (
+    redacted === read ||
+    defineValue(
+      container,
+      key,
+      {
+        writable: true,
+        enumerable: descriptor.enumerable,
+        configurable: descriptor.configurable,
+      },
+      redacted,
+    )
+  );
+}
+
+function defineValue(
+  container: FailureNode,
+  key: PropertyKey,
+  descriptor: PropertyDescriptor,
+  value: string,
+): boolean {
   try {
-    Object.defineProperty(error, key, {
-      value: redacted,
-      writable: true,
-      enumerable: descriptor.enumerable,
-      configurable: descriptor.configurable,
-    });
+    Object.defineProperty(container, key, { ...descriptor, value });
     return true;
   } catch {
     return false;
@@ -94,205 +182,107 @@ function redactAccessor(
 }
 
 /**
- * Redacts a failure value — an `Error` or an abort reason string — so no
- * configured credential survives in it (`provider-api-selection`, "Provider
- * failures never carry a configured credential").
- *
- * An `Error` is rewritten in place, so its identity, prototype chain, symbol
- * marker, `name`, `code`, and any property a consumer branches on are
- * unchanged: `instanceof`, the AI SDK's `isInstance` checks, and a run's own
- * error code keep classifying the failure exactly as they would without the
- * credential. Only string own values are rewritten, except `name` and `code`,
- * and `cause`, `lastError`, and `errors[]` are walked too (cycle-safe).
- *
- * A failure that cannot be rewritten in place — a non-writable,
- * non-configurable property or a frozen error — is never forwarded: the
- * result is a copy on the same prototype carrying every own property, strings
- * redacted and nested failures substituted, so classification still holds.
- *
- * Returns `undefined` for a value that is neither an `Error` nor a string; the
- * caller forwards that value unchanged.
+ * The rebuilt graph: the same prototypes (so `instanceof` holds), every own
+ * property copied with its own attributes — symbols included, so the AI SDK's
+ * class marker survives — every string redacted except `name` and `code`, and
+ * every nested container replaced by its own rebuilt form. `copies` is filled
+ * before a container's properties are read, so a cycle, a shared child, or an
+ * alias such as `RetryError.lastError` resolves to the one redacted form.
  */
-export function redactModelFailure(
-  error: unknown,
+function rebuildRedacted(
+  original: FailureNode,
   credentials: ReadonlyArray<string>,
-): Error | string | undefined {
-  if (isString(error)) return redactedText(error, credentials);
-  if (!(error instanceof Error)) return undefined;
-  return redactedError(error, credentials, new Set());
-}
-
-function redactedError(
-  error: Error,
-  credentials: ReadonlyArray<string>,
-  seen: Set<object>,
-): Error {
-  if (seen.has(error)) return error;
-  seen.add(error);
-  return redactOwnProperties(error, credentials, seen)
-    ? error
-    : buildRedactedReplacement(error, {
-        credentials,
-        copies: new Map(),
-      });
-}
-
-/** Redacts one error's own strings in place; `false` means a replacement is required. */
-function redactOwnProperties(
-  error: Error,
-  credentials: ReadonlyArray<string>,
-  seen: Set<object>,
-): boolean {
-  for (const key of Reflect.ownKeys(error)) {
-    if (isRedactableKey(key, CLASSIFICATION_KEYS)) continue;
-    const descriptor = Object.getOwnPropertyDescriptor(error, key);
-    if (descriptor === undefined) continue;
-    if (!('value' in descriptor)) {
-      if (!redactAccessor(error, key, descriptor, credentials)) return false;
-      continue;
-    }
-    const redacted = redactedOwnValue(descriptor.value, key, credentials, seen);
-    if (redacted === undefined || redacted === descriptor.value) continue;
-    if (!defineRedacted(error, key, descriptor, redacted)) return false;
-  }
-  return true;
-}
-
-/** The redacted form of one own property value, or `undefined` when it stays as it is. */
-function redactedOwnValue(
-  current: unknown,
-  key: PropertyKey,
-  credentials: ReadonlyArray<string>,
-  seen: Set<object>,
-): Error | string | Array<unknown> | undefined {
-  if (isString(current)) {
-    const redacted = redactedText(current, credentials);
-    return redacted === current ? undefined : redacted;
-  }
-  if (!isRedactableKey(key, FAILURE_KEYS)) return undefined;
-  return key === 'errors' && Array.isArray(current)
-    ? redactedList(current, credentials, seen)
-    : redactedNestedFailure(current, credentials, seen);
-}
-
-/** The redacted form of one `cause`/`lastError` value, or `undefined` when it is not a failure. */
-function redactedNestedFailure(
-  error: unknown,
-  credentials: ReadonlyArray<string>,
-  seen: Set<object>,
-): Error | string | undefined {
-  if (isString(error)) return redactedText(error, credentials);
-  return error instanceof Error
-    ? redactedError(error, credentials, seen)
-    : undefined;
-}
-
-/** A redacted copy of an `errors[]` list, or `undefined` when no entry changed identity. */
-function redactedList(
-  values: Array<unknown>,
-  credentials: ReadonlyArray<string>,
-  seen: Set<object>,
-): Array<unknown> | undefined {
-  const next: Array<unknown> = [];
-  let changed = false;
-  for (const value of values) {
-    const redacted = redactedNestedFailure(value, credentials, seen);
-    if (redacted !== undefined && redacted !== value) changed = true;
-    next.push(redacted === undefined ? value : redacted);
-  }
-  return changed ? next : undefined;
-}
-
-/** One copied failure's credentials and the original-to-copy links built so far. */
-type ReplacementContext = {
-  readonly credentials: ReadonlyArray<string>;
-  readonly copies: Map<object, object>;
-};
-
-/**
- * The replacement for an error that cannot be rewritten in place: the same
- * prototype (so `instanceof` holds), every own property copied with its own
- * attributes — symbols included, so the AI SDK's class marker survives — every
- * string redacted except `name` and `code`, and nested failures substituted.
- * `copies` keeps the original/sibling links, so a cycle copies as a cycle.
- */
-function buildRedactedReplacement(
-  original: Error,
-  context: ReplacementContext,
-): Error {
-  const existing = context.copies.get(original);
-  if (existing instanceof Error) return existing;
-  // A typed empty error keeps the copy an `Error` without a cast from
-  // `Object.create`'s `any`; its own `stack` and `message` are then replaced
-  // by the original's own properties below, and its prototype is the
-  // original's, so `instanceof` and the SDK's class marker hold.
-  const copy: Error = new Error();
-  Object.setPrototypeOf(copy, Reflect.getPrototypeOf(original));
-  context.copies.set(original, copy);
+  copies: Map<object, FailureNode>,
+): FailureNode {
+  const existing = copies.get(original);
+  if (existing !== undefined) return existing;
+  const copy = createCopy(original);
+  copies.set(original, copy);
+  const state = { original, copy, credentials, copies };
   for (const key of Reflect.ownKeys(original)) {
-    copyRedactedProperty(original, copy, key, context);
+    const descriptor = Object.getOwnPropertyDescriptor(original, key);
+    if (descriptor !== undefined) copyProperty(state, key, descriptor);
   }
   return copy;
 }
 
-/** Copies one own property of `original` onto its replacement, redacted. */
-function copyRedactedProperty(
-  original: Error,
-  copy: Error,
+/** One rebuilt container and what its copied properties are read from. */
+type RebuildState = {
+  readonly original: FailureNode;
+  readonly copy: FailureNode;
+  readonly credentials: ReadonlyArray<string>;
+  readonly copies: Map<object, FailureNode>;
+};
+
+/**
+ * The copy of `original` on the same prototype, without capturing a stack of
+ * its own: an empty object of the same kind, then the original's prototype.
+ */
+function createCopy(original: FailureNode): FailureNode {
+  const copy: FailureNode = Array.isArray(original) ? [] : {};
+  Object.setPrototypeOf(copy, Reflect.getPrototypeOf(original));
+  return copy;
+}
+
+/** Copies one own property of `original` onto its copy, redacted. */
+function copyProperty(
+  state: RebuildState,
   key: PropertyKey,
-  context: ReplacementContext,
+  descriptor: PropertyDescriptor,
 ): void {
-  const descriptor = Object.getOwnPropertyDescriptor(original, key);
-  if (descriptor === undefined) return;
   if (!('value' in descriptor)) {
-    const read: unknown = descriptor.get?.call(original);
-    if (!isString(read)) {
-      Object.defineProperty(copy, key, descriptor);
-      return;
-    }
-    Object.defineProperty(copy, key, {
-      value: redactedText(read, context.credentials),
-      writable: true,
-      enumerable: descriptor.enumerable,
-      configurable: descriptor.configurable,
-    });
+    copyAccessor(state, key, descriptor);
     return;
   }
   const current: unknown = descriptor.value;
   let next: unknown = current;
   if (isString(current)) {
-    if (!isRedactableKey(key, CLASSIFICATION_KEYS)) {
-      next = redactedText(current, context.credentials);
+    if (!isClassificationKey(key)) {
+      next = redactedText(current, state.credentials);
     }
-  } else if (isRedactableKey(key, FAILURE_KEYS)) {
-    next =
-      key === 'errors' && Array.isArray(current)
-        ? (replacementList(current, context) ?? current)
-        : (replacementNestedFailure(current, context) ?? current);
+  } else if (isFailureGraph(current)) {
+    next = readRedactedGraph(current, state);
   }
-  Object.defineProperty(copy, key, { ...descriptor, value: next });
+  Object.defineProperty(state.copy, key, { ...descriptor, value: next });
 }
 
-function replacementNestedFailure(
-  error: unknown,
-  context: ReplacementContext,
-): Error | string | undefined {
-  if (isString(error)) return redactedText(error, context.credentials);
-  return error instanceof Error
-    ? buildRedactedReplacement(error, context)
-    : undefined;
+/**
+ * Copies one own accessor as the value it read, redacted. An accessor that
+ * throws is omitted rather than aborting the redaction; one that yields a
+ * container is rebuilt like a data property, so it cannot re-derive the raw
+ * message from the original.
+ */
+function copyAccessor(
+  state: RebuildState,
+  key: PropertyKey,
+  descriptor: PropertyDescriptor,
+): void {
+  let read: unknown;
+  try {
+    read = descriptor.get?.call(state.original);
+  } catch {
+    return;
+  }
+  const value = isString(read)
+    ? redactedText(read, state.credentials)
+    : isFailureGraph(read)
+      ? readRedactedGraph(read, state)
+      : read;
+  Object.defineProperty(state.copy, key, {
+    value,
+    writable: true,
+    enumerable: descriptor.enumerable,
+    configurable: descriptor.configurable,
+  });
 }
 
-function replacementList(
-  values: Array<unknown>,
-  context: ReplacementContext,
-): Array<unknown> | undefined {
-  const next: Array<unknown> = [];
-  let changed = false;
-  for (const value of values) {
-    const redacted = replacementNestedFailure(value, context);
-    if (redacted !== undefined && redacted !== value) changed = true;
-    next.push(redacted === undefined ? value : redacted);
-  }
-  return changed ? next : undefined;
+/** The rebuilt or already-copied form of one nested container. */
+function readRedactedGraph(
+  node: FailureNode,
+  state: RebuildState,
+): FailureNode {
+  return (
+    state.copies.get(node) ??
+    rebuildRedacted(node, state.credentials, state.copies)
+  );
 }

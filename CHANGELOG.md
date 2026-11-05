@@ -8,7 +8,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `consumeStream`, `sources`, `toolCalls`, `usage`, `finishReason`, and every
   other promise channel reject with a redacted failure, a rejected structured
   generation is redacted, and a request whose caller supplies no error handler
-  logs only the redacted failure instead of the SDK's raw error object. The
+  logs only the redacted failure instead of the SDK's raw error object; a
+  request the caller aborted logs nothing, and a caller handler still
+  receives its reason redacted like any other failure. A structured
+  failure the Responses wire forwards after output started, such as an SSE
+  `error` event or `response.failed`, is redacted as a graph, so the event
+  Sentry captures from it carries no credential. The
   failure is rewritten on the original error wherever it can be, so
   `instanceof`, the AI SDK's `isInstance` checks, `name`, `code`, and
   `statusCode` are unchanged and a run still classifies a stalled stream, a
