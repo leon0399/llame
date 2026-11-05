@@ -96,6 +96,16 @@ import {
 const DEFAULT_CONFIG_FILENAME = 'llame.config.jsonc';
 const CONFIG_EXTENSIONS = ['.jsonc', '.json', '.yaml', '.yml', '.toml'];
 
+/**
+ * What a resolver needs from the load: the environment the loader was given,
+ * and the credential set it collects as it resolves. Bundling them keeps each
+ * resolver's arity at its pre-credential-set value.
+ */
+type LoaderContext = {
+  readonly env: NodeJS.ProcessEnv;
+  readonly credentials: ConfiguredCredentialCollector;
+};
+
 /** The single `llame.config.<ext>` in the API runtime cwd, for any supported
  *  extension; `llame.config.jsonc` when none exists. More than one is
  *  ambiguous and fails. `LLAME_CONFIG_PATH` overrides (D1). */
@@ -218,8 +228,7 @@ function resolveDbConfig(
 
 function resolveToolsConfig(
   raw: RawInstanceConfig | undefined,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): LlameConfig['tools'] {
   const nativeExecutorId = resolveNullableString({
     configPath: 'tools.nativeExecutorId',
@@ -255,7 +264,7 @@ function resolveToolsConfig(
     grep: resolveGrepBounds(raw, env),
     artifacts: resolveArtifactBounds(raw, env),
     promptFiles: resolveToolPromptFiles(raw),
-    webAdapters: resolveWebAdaptersConfig(raw, env, credentials),
+    webAdapters: resolveWebAdaptersConfig(raw, { env, credentials }),
   };
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
   return tools;
@@ -354,8 +363,7 @@ function resolveArtifactBounds(
 
 function resolveWebAdaptersConfig(
   raw: RawInstanceConfig | undefined,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): ReadonlyArray<WebAdapterConfig> {
   const value = raw?.tools?.webAdapters;
   if (value === undefined) return BUILT_IN_DEFAULTS.tools.webAdapters;
@@ -363,7 +371,7 @@ function resolveWebAdaptersConfig(
   const resolved = new Array<WebAdapterConfig>();
   const seenIds = new Set<string>();
   for (const entry of value) {
-    resolved.push(resolveWebAdapterEntry(entry, seenIds, env, credentials));
+    resolved.push(resolveWebAdapterEntry(entry, seenIds, { env, credentials }));
   }
   return resolved;
 }
@@ -371,8 +379,7 @@ function resolveWebAdaptersConfig(
 function resolveWebAdapterEntry(
   value: RawWebAdapterEntry,
   seenIds: Set<string>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): WebAdapterConfig {
   const { id } = value;
   const entryPath = `tools.webAdapters[${id}]`;
@@ -384,12 +391,10 @@ function resolveWebAdapterEntry(
 
   switch (value.use) {
     case 'github': {
-      const token = resolveGithubToken(
-        value.token,
-        `${entryPath}.token`,
+      const token = resolveGithubToken(value.token, `${entryPath}.token`, {
         env,
         credentials,
-      );
+      });
       return token === undefined
         ? { id, use: 'github' }
         : { id, use: 'github', token };
@@ -428,8 +433,7 @@ function resolveRewriteEntry(
 function resolveGithubToken(
   token: string | undefined,
   configPath: string,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): string | undefined {
   if (token === undefined) return undefined;
   if (!WHOLE_VALUE_TOKEN_PATTERN.test(token)) {
@@ -547,33 +551,30 @@ export function loadInstanceConfig(
   const credentials = new ConfiguredCredentialCollector(env);
   const { providers, providersById, models } = resolveProviderCatalog(
     raw,
-    env,
+    { env, credentials },
     configPath,
-    credentials,
   );
-  const mcpServers = resolveMcpServers(raw, env, credentials);
+  const mcpServers = resolveMcpServers(raw, { env, credentials });
   const { embeddingModels, search, webSearch, tools } = resolveSearchSettings(
     raw,
-    env,
+    { env, credentials },
     providersById,
     models,
-    credentials,
   );
 
-  return recordConfiguredCredentials(
-    {
-      defaults: resolveDefaults(raw, env, new Set(models.map((m) => m.id))),
-      ...resolveOperationalSections(raw, env, configPath),
-      tools,
-      mcpServers,
-      providers,
-      models,
-      embeddingModels,
-      search,
-      ...(webSearch !== undefined && { webSearch }),
-    },
-    credentials.snapshot(),
-  );
+  const config: LlameConfig = {
+    defaults: resolveDefaults(raw, env, new Set(models.map((m) => m.id))),
+    ...resolveOperationalSections(raw, env, configPath),
+    tools,
+    mcpServers,
+    providers,
+    models,
+    embeddingModels,
+    search,
+    ...(webSearch !== undefined && { webSearch }),
+  };
+  recordConfiguredCredentials(config, credentials.snapshot());
+  return config;
 }
 
 /** The sections that name no credential: runs, http, db, knowledge, skills, remote hosts, workers. */
@@ -596,11 +597,10 @@ function resolveOperationalSections(
 /** The providers, their lookup, and the model catalog that references them. */
 function resolveProviderCatalog(
   raw: RawInstanceConfig | undefined,
-  env: NodeJS.ProcessEnv,
+  { env, credentials }: LoaderContext,
   configPath: string,
-  credentials: ConfiguredCredentialCollector,
 ) {
-  const providers = resolveProviders(raw, env, credentials);
+  const providers = resolveProviders(raw, { env, credentials });
   const providersById = new Map(
     providers.map((provider) => [provider.id, provider]),
   );
@@ -612,22 +612,20 @@ function resolveProviderCatalog(
 
 function resolveSearchSettings(
   raw: RawInstanceConfig | undefined,
-  env: NodeJS.ProcessEnv,
+  { env, credentials }: LoaderContext,
   providersById: ReadonlyMap<string, ProviderConfig>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
-  credentials: ConfiguredCredentialCollector,
 ) {
-  const tools = resolveToolsConfig(raw, env, credentials);
+  const tools = resolveToolsConfig(raw, { env, credentials });
   const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
   const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
   const search = resolveSearchConfig(raw, env, embeddingModelIds);
   const webSearch = resolveWebSearch(
     raw,
-    env,
+    { env, credentials },
     tools.allowed,
     models,
     providersById,
-    credentials,
   );
   return { embeddingModels, search, webSearch, tools };
 }
@@ -660,11 +658,10 @@ function resolveKnowledge(
 /** Resolve the configured web-search engines. */
 function resolveWebSearch(
   raw: RawInstanceConfig | undefined,
-  env: NodeJS.ProcessEnv,
+  { env, credentials }: LoaderContext,
   allowed: ReadonlyArray<string>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
   providersById: ReadonlyMap<string, ProviderConfig>,
-  credentials: ConfiguredCredentialCollector,
 ): WebSearchConfig | undefined {
   const section = raw?.webSearch;
   if (section === undefined) {
@@ -678,10 +675,9 @@ function resolveWebSearch(
   const modelsById = new Map(models.map((model) => [model.id, model]));
   const engines = resolveWebSearchEngines(
     section.engines,
-    env,
+    { env, credentials },
     modelsById,
     providersById,
-    credentials,
   );
   assertWebSearchChain(section.chain, engines);
   return {
@@ -768,29 +764,21 @@ function assertWebSearchEngineId(id: string, idPath: string): void {
   }
 }
 
-function assertUniqueWebSearchEngineId(
-  seenEngineIds: Set<string>,
-  id: string,
-): void {
-  if (seenEngineIds.has(id)) {
-    throw new InstanceConfigError(
-      `webSearch.engines: duplicate engine id "${id}"`,
-    );
-  }
-  seenEngineIds.add(id);
-}
-
 function resolveWebSearchEngines(
   entries: RawWebSearchConfig['engines'],
-  env: NodeJS.ProcessEnv,
+  { env, credentials }: LoaderContext,
   modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
   providersById: ReadonlyMap<string, ProviderConfig>,
-  credentials: ConfiguredCredentialCollector,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
   const engines = entries.map((entry, index) => {
     assertWebSearchEngineId(entry.id, `webSearch.engines[${index}].id`);
-    assertUniqueWebSearchEngineId(seenEngineIds, entry.id);
+    if (seenEngineIds.has(entry.id)) {
+      throw new InstanceConfigError(
+        `webSearch.engines: duplicate engine id "${entry.id}"`,
+      );
+    }
+    seenEngineIds.add(entry.id);
 
     const entryPath = `webSearch.engines[${entry.id}]`;
     const description = resolveWebSearchDescription(entry, entryPath);
@@ -807,10 +795,9 @@ function resolveWebSearchEngines(
         entry,
         entryPath,
         timeoutSeconds,
-        env,
+        { env, credentials },
         modelsById,
         providersById,
-        credentials,
       ),
       ...(description !== undefined && { description }),
     };
@@ -881,10 +868,9 @@ function resolveWebSearchEngine(
   entry: Exclude<RawWebSearchEngineEntry, { type: 'aggregate' }>,
   entryPath: string,
   timeoutSeconds: number,
-  env: NodeJS.ProcessEnv,
+  { env, credentials }: LoaderContext,
   modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
   providersById: ReadonlyMap<string, ProviderConfig>,
-  credentials: ConfiguredCredentialCollector,
 ): WebSearchEngineConfig {
   const base = { id: entry.id, timeoutSeconds };
   if (entry.type === 'model-hosted') {
@@ -896,7 +882,10 @@ function resolveWebSearchEngine(
       providersById,
     );
   }
-  return resolveWebSearchResultEngine(entry, entryPath, base, env, credentials);
+  return resolveWebSearchResultEngine(entry, entryPath, base, {
+    env,
+    credentials,
+  });
 }
 
 function resolveWebSearchResultEngine(
@@ -906,8 +895,7 @@ function resolveWebSearchResultEngine(
   >,
   entryPath: string,
   base: { id: string; timeoutSeconds: number },
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): WebSearchEngineConfig {
   if (entry.type === 'searxng') {
     return {
@@ -935,17 +923,16 @@ function resolveWebSearchResultEngine(
     return { ...base, type: entry.type };
   }
   if (entry.type === 'yandex') {
-    return resolveYandexEngine(entry, entryPath, base, env, credentials);
+    return resolveYandexEngine(entry, entryPath, base, { env, credentials });
   }
-  return resolveKeyedEngine(entry, entryPath, base, env, credentials);
+  return resolveKeyedEngine(entry, entryPath, base, { env, credentials });
 }
 
 function resolveYandexEngine(
   entry: Extract<RawWebSearchEngineEntry, { type: 'yandex' }>,
   entryPath: string,
   base: { id: string; timeoutSeconds: number },
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): WebSearchEngineConfig {
   const key = requireNonBlankString(
     `${entryPath}.key`,
@@ -976,8 +963,7 @@ function resolveKeyedEngine(
   >,
   entryPath: string,
   base: { id: string; timeoutSeconds: number },
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): WebSearchEngineConfig {
   const key = requireNonBlankString(
     `${entryPath}.key`,
@@ -2025,22 +2011,20 @@ function assertRemoteMcpUrl(urlPath: string, value: string): void {
 function resolveRemoteMcpServer(
   serverPath: string,
   entry: Extract<RawMcpServerEntry, { type: 'http' | 'streamable-http' }>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): McpRemoteServerConfig {
   const urlPath = `${serverPath}.url`;
   const urlResult = resolvePrivateMcpValue(entry.url, urlPath, env);
   const resolvedUrl = urlResult.value;
   assertRemoteMcpUrl(urlPath, resolvedUrl);
-  credentials.addUrlMembers(resolvedUrl, urlResult);
+  credentials.addUrlMembers(urlResult);
   const protectedValues = urlResult.substituted.map((token) => token.value);
 
   const headers = resolveMcpHeaders(
     serverPath,
     entry.headers,
-    env,
     protectedValues,
-    credentials,
+    { env, credentials },
   );
   const remoteConfig: McpRemoteServerConfig = {
     type: 'streamable-http',
@@ -2058,8 +2042,7 @@ function resolveRemoteMcpServer(
 
 function resolveMcpServers(
   raw: RawInstanceConfig | undefined,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ) {
   const entries = raw?.mcpServers ?? {};
   const resolved: Record<string, McpServerConfig> = {};
@@ -2073,8 +2056,8 @@ function resolveMcpServers(
 
     resolved[serverId] =
       entry.type === 'stdio'
-        ? resolveStdioServer(serverPath, entry, env, credentials)
-        : resolveRemoteMcpServer(serverPath, entry, env, credentials);
+        ? resolveStdioServer(serverPath, entry, { env, credentials })
+        : resolveRemoteMcpServer(serverPath, entry, { env, credentials });
   }
 
   return resolved;
@@ -2111,8 +2094,7 @@ function resolvePrivateMcpValue(
 function resolveStdioServer(
   serverPath: string,
   entry: Extract<RawMcpServerEntry, { type: 'stdio' }>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): McpStdioServerConfig {
   const protectedValues: Array<string> = [];
   const take = (raw: string, configPath: string): string => {
@@ -2188,9 +2170,8 @@ function assertMcpHeaderNames(
 function resolveMcpHeaders(
   serverPath: string,
   rawHeaders: Record<string, string> | undefined,
-  env: NodeJS.ProcessEnv,
   protectedValues: Array<string>,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): Readonly<Record<string, string>> | undefined {
   if (rawHeaders === undefined) return undefined;
   assertMcpHeaderNames(serverPath, rawHeaders);
@@ -2205,7 +2186,7 @@ function resolveMcpHeaders(
     // Trimmed as the HTTP runtime sends it; the trimmed form is a substring
     // of the untrimmed one, so redacting it covers both spellings.
     protectedValues.push(...substituted.map((secret) => secret.value.trim()));
-    credentials.addHeaderValue(name, rawValue, result);
+    credentials.addHeaderValue(name, result, !result.hadToken);
     if (value.trim() === '') {
       throw new InstanceConfigError(
         `${headerPath}: must resolve to a non-empty string`,
@@ -2317,13 +2298,20 @@ function resolveProviderHeaderValue(
   rawValue: string,
   name: string,
   configPath: string,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): ReadonlyArray<string> {
   assertKnownProviderHeaderTokens(rawValue, configPath);
-  return rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN).map((part) => {
-    const result = resolveInterpolatedWithSubstitutions(part, configPath, env);
-    credentials.addHeaderValue(name, part, result);
+  const parts = rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN);
+  const results = parts.map((part) =>
+    resolveInterpolatedWithSubstitutions(part, configPath, env),
+  );
+  // Literalness is decided once for the whole value: a value the operator
+  // wrote whole — no `{env:…}`, `{path:…}`, or `{session:id}` token — is the
+  // secret under a credential-shaped name. The parts of a session-split value
+  // contribute only their substitutions, so `Bearer ` and `sid=` never are.
+  const literal = parts.length === 1 && results[0]?.hadToken !== true;
+  return results.map((result) => {
+    credentials.addHeaderValue(name, result, literal);
     const value = result.value;
     try {
       new Headers([[name, value]]);
@@ -2340,8 +2328,7 @@ function resolveProviderHeaders(
   providerId: string,
   type: RawProviderEntry['type'],
   rawHeaders: Record<string, string | null> | undefined,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): RequestHeaderTemplates {
   const headers: Record<string, ReadonlyArray<string>> = {};
   Object.setPrototypeOf(headers, null);
@@ -2364,13 +2351,10 @@ function resolveProviderHeaders(
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
     if (rawValue === null) continue;
     const configPath = `${headersPath}.${name}`;
-    headers[name] = resolveProviderHeaderValue(
-      rawValue,
-      name,
-      configPath,
+    headers[name] = resolveProviderHeaderValue(rawValue, name, configPath, {
       env,
       credentials,
-    );
+    });
   }
 
   return headers;
@@ -2378,8 +2362,7 @@ function resolveProviderHeaders(
 
 function resolveProviders(
   raw: RawInstanceConfig | undefined,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): Array<ProviderConfig> {
   const entries = raw?.providers ?? [];
   const seenIds = new Set<string>();
@@ -2394,15 +2377,15 @@ function resolveProviders(
 
     switch (entry.type) {
       case 'openai-responses':
-        return resolveOpenAIResponsesProvider(entry, env, credentials);
+        return resolveOpenAIResponsesProvider(entry, { env, credentials });
       case 'openai-completions':
-        return resolveOpenAICompletionsProvider(entry, env, credentials);
+        return resolveOpenAICompletionsProvider(entry, { env, credentials });
       case 'anthropic-messages':
-        return resolveAnthropicMessagesProvider(entry, env, credentials);
+        return resolveAnthropicMessagesProvider(entry, { env, credentials });
       case 'openai-codex':
-        return resolveCodexProvider(entry, env, credentials);
+        return resolveCodexProvider(entry, { env, credentials });
       case 'opencode-go':
-        return resolveOpenCodeGoProvider(entry, env, credentials);
+        return resolveOpenCodeGoProvider(entry, { env, credentials });
       default: {
         // Unreachable while the JSON Schema's `providerType` enum stays in
         // sync with the cases above (assertValidRaw rejects any other `type`
@@ -2419,8 +2402,7 @@ function resolveProviders(
 
 function resolveOpenAIResponsesProvider(
   entry: Extract<RawProviderEntry, { type: 'openai-responses' }>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): OpenAIResponsesProviderConfig {
   return {
     id: entry.id,
@@ -2440,13 +2422,10 @@ function resolveOpenAIResponsesProvider(
       env,
       onResolved: credentials.onUrl,
     }),
-    headers: resolveProviderHeaders(
-      entry.id,
-      entry.type,
-      entry.headers,
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
       credentials,
-    ),
+    }),
   };
 }
 
@@ -2458,8 +2437,7 @@ function resolveOpenAIResponsesProvider(
  */
 function resolveOpenAICompletionsProvider(
   entry: Extract<RawProviderEntry, { type: 'openai-completions' }>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): OpenAICompletionsProviderConfig {
   return {
     id: entry.id,
@@ -2478,13 +2456,10 @@ function resolveOpenAICompletionsProvider(
       env,
       credentials.onUrl,
     ),
-    headers: resolveProviderHeaders(
-      entry.id,
-      entry.type,
-      entry.headers,
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
       credentials,
-    ),
+    }),
   };
 }
 
@@ -2501,8 +2476,7 @@ function resolveOpenAICompletionsProvider(
  */
 function resolveAnthropicMessagesProvider(
   entry: Extract<RawProviderEntry, { type: 'anthropic-messages' }>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): AnthropicMessagesProviderConfig {
   return {
     id: entry.id,
@@ -2521,20 +2495,16 @@ function resolveAnthropicMessagesProvider(
       env,
       onResolved: credentials.onUrl,
     }),
-    headers: resolveProviderHeaders(
-      entry.id,
-      entry.type,
-      entry.headers,
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
       credentials,
-    ),
+    }),
   };
 }
 
 function resolveCodexProvider(
   entry: Extract<RawProviderEntry, { type: 'openai-codex' }>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): OpenAICodexProviderConfig {
   return {
     id: entry.id,
@@ -2552,13 +2522,10 @@ function resolveCodexProvider(
       env,
       credentials.onSecret,
     ),
-    headers: resolveProviderHeaders(
-      entry.id,
-      entry.type,
-      entry.headers,
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
       credentials,
-    ),
+    }),
   };
 }
 
@@ -2573,8 +2540,7 @@ function resolveCodexProvider(
  */
 function resolveOpenCodeGoProvider(
   entry: Extract<RawProviderEntry, { type: 'opencode-go' }>,
-  env: NodeJS.ProcessEnv,
-  credentials: ConfiguredCredentialCollector,
+  { env, credentials }: LoaderContext,
 ): OpenCodeGoProviderConfig {
   return {
     id: entry.id,
@@ -2586,13 +2552,10 @@ function resolveOpenCodeGoProvider(
       env,
       credentials.onSecret,
     ),
-    headers: resolveProviderHeaders(
-      entry.id,
-      entry.type,
-      entry.headers,
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
       credentials,
-    ),
+    }),
   };
 }
 

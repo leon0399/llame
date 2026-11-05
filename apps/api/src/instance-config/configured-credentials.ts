@@ -1,6 +1,8 @@
 import {
   isCredentialName,
   type InterpolationResult,
+  type InterpolationSpan,
+  type InterpolationSubstitution,
 } from '@workspace/config-interpolation';
 import { normalizeProtectedValues } from '@workspace/runtime-safety';
 
@@ -14,13 +16,10 @@ import type { LlameConfig } from './llame-config';
  */
 const INFERRED_CREDENTIAL_MIN_LENGTH = 8;
 
-/** Code-unit interval in a resolved string. */
-type Span = Readonly<{ start: number; end: number }>;
-
 type UrlCredentialSpans = Readonly<{
-  username?: Span;
-  password?: Span;
-  query?: Span;
+  username?: InterpolationSpan;
+  password?: InterpolationSpan;
+  query?: InterpolationSpan;
 }>;
 
 /**
@@ -48,9 +47,8 @@ export function configuredCredentials(
 export function recordConfiguredCredentials(
   config: LlameConfig,
   members: ReadonlyArray<string>,
-): LlameConfig {
+): void {
   CONFIGURED_CREDENTIALS.set(config, members);
-  return config;
 }
 
 /**
@@ -64,7 +62,7 @@ export class ConfiguredCredentialCollector {
   /** Seeds the members read from the environment the loader was given. */
   constructor(env: NodeJS.ProcessEnv) {
     this.addPostgresUrl(env.POSTGRES_URL);
-    this.add(env.PGPASSWORD, { minimumLength: INFERRED_CREDENTIAL_MIN_LENGTH });
+    this.add(env.PGPASSWORD, INFERRED_CREDENTIAL_MIN_LENGTH);
   }
 
   /** `onResolved` hook for a credential field (a provider, engine, or adapter secret). */
@@ -73,37 +71,7 @@ export class ConfiguredCredentialCollector {
 
   /** `onResolved` hook for a configured URL (a provider `baseUrl`). */
   readonly onUrl = (result: InterpolationResult): void =>
-    this.addUrlMembers(result.value, result);
-
-  add(
-    value: string | null | undefined,
-    opts: { minimumLength?: number } = {},
-  ): void {
-    if (value === null || value === undefined) return;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return;
-    if (
-      opts.minimumLength !== undefined &&
-      trimmed.length < opts.minimumLength
-    ) {
-      return;
-    }
-    this.members.push(value);
-    if (trimmed !== value) this.members.push(trimmed);
-  }
-
-  /**
-   * Every substitution of a credential-bearing value, excluding `:-` fallback
-   * text (a default written in the file is not a secret), plus the credential
-   * leaves of a selected JSON document when the token was `{path:…|json:…}`.
-   */
-  addSubstitutions(result: InterpolationResult): void {
-    for (const substitution of result.substituted) {
-      if (substitution.fallback) continue;
-      this.add(substitution.value);
-      for (const leaf of substitution.documentLeaves) this.add(leaf);
-    }
-  }
+    this.addUrlMembers(result);
 
   /** A credential field: the whole resolved value plus its document leaves. */
   addSecret(result: InterpolationResult): void {
@@ -112,15 +80,38 @@ export class ConfiguredCredentialCollector {
   }
 
   /**
-   * One header value (or one `{session:id}`-separated part of a provider
-   * header): its substitutions, and the value itself when it is written
-   * literally under a credential-shaped header name. Literal text around a
-   * substitution, such as `Bearer `, is never a member.
+   * One header value, or one `{session:id}`-separated part of a provider
+   * header. A non-literal value contributes only its substitutions; a literal
+   * value contributes itself when its header name is credential-shaped. The
+   * caller decides literalness once for the whole value and passes `literal`.
    */
-  addHeaderValue(name: string, raw: string, result: InterpolationResult): void {
-    this.addSubstitutions(result);
-    if (isCredentialName(name) && !INTERPOLATION_TOKEN.test(raw)) {
-      this.add(result.value);
+  addHeaderValue(
+    name: string,
+    result: InterpolationResult,
+    literal: boolean,
+  ): void {
+    if (!literal) {
+      this.addSubstitutions(result);
+      return;
+    }
+    if (isCredentialName(name)) this.add(result.value);
+  }
+
+  /**
+   * Every substitution of a credential-bearing value, excluding `:-` fallback
+   * text (a default written in the file is not a secret), plus the credential
+   * leaves of a selected JSON document when the token was `{path:…|json:…}`.
+   * `keep` narrows the substitutions a caller considers credential-bearing.
+   */
+  addSubstitutions(
+    result: InterpolationResult,
+    keep?: (substitution: InterpolationSubstitution) => boolean,
+  ): void {
+    for (const substitution of result.substituted) {
+      if (substitution.fallback) continue;
+      if (keep !== undefined && !keep(substitution)) continue;
+      this.add(substitution.value);
+      for (const leaf of substitution.documentLeaves) this.add(leaf);
     }
   }
 
@@ -131,45 +122,16 @@ export class ConfiguredCredentialCollector {
    * name — each as written and percent-decoded, and never the whole URL. Spans
    * are computed on the raw resolved string, not on a re-serialized `URL`.
    */
-  addUrlMembers(rawUrl: string, result: InterpolationResult): void {
-    const spans = urlCredentialSpans(rawUrl);
-    for (const substitution of result.substituted) {
-      if (substitution.fallback) continue;
-      if (
-        !within(spans.password, substitution) &&
-        !within(spans.query, substitution)
-      ) {
-        continue;
-      }
-      this.add(substitution.value);
-      for (const leaf of substitution.documentLeaves) this.add(leaf);
-    }
-    this.addUserinfoMembers(rawUrl, spans);
-    this.addQueryCredentialValues(rawUrl, spans);
-  }
-
-  /**
-   * `POSTGRES_URL` is read outside the configuration file, so the loader never
-   * interpolates it: the whole string, plus its parsed password in both
-   * percent-encoded and decoded spellings, is the member.
-   */
-  addPostgresUrl(value: string | undefined): void {
-    if (value === undefined || value.trim().length === 0) return;
-    this.add(value);
-    let parsed: URL;
-    try {
-      parsed = new URL(value);
-    } catch {
-      return;
-    }
-    if (parsed.password.length === 0) return;
-    this.add(parsed.password, {
-      minimumLength: INFERRED_CREDENTIAL_MIN_LENGTH,
-    });
-    const decoded = percentDecoded(parsed.password);
-    if (decoded !== undefined && decoded !== parsed.password) {
-      this.add(decoded, { minimumLength: INFERRED_CREDENTIAL_MIN_LENGTH });
-    }
+  addUrlMembers(result: InterpolationResult): void {
+    const spans = urlCredentialSpans(result.value);
+    this.addSubstitutions(
+      result,
+      (substitution) =>
+        within(spans.password, substitution) ||
+        within(spans.query, substitution),
+    );
+    this.addUserinfoMembers(result.value, spans);
+    this.addQueryCredentialValues(result.value, spans);
   }
 
   /** Normalized (deduped, longest first) and deeply frozen. */
@@ -177,20 +139,53 @@ export class ConfiguredCredentialCollector {
     return Object.freeze(normalizeProtectedValues(this.members));
   }
 
+  private add(value: string | null | undefined, minimumLength?: number): void {
+    if (value === null || value === undefined) return;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return;
+    if (minimumLength !== undefined && trimmed.length < minimumLength) return;
+    this.members.push(value);
+    if (trimmed !== value) this.members.push(trimmed);
+  }
+
+  private addEncodedAndDecoded(value: string, minimumLength?: number): void {
+    if (value.length === 0) return;
+    this.add(value, minimumLength);
+    const decoded = percentDecoded(value);
+    if (decoded !== undefined && decoded !== value) {
+      this.add(decoded, minimumLength);
+    }
+  }
+
+  /**
+   * `POSTGRES_URL` is read outside the configuration file, so the loader never
+   * interpolates it: the whole string, plus its password in both
+   * percent-encoded and decoded spellings, is the member. The password comes
+   * from the raw userinfo spans, so multi-host and socket connection strings
+   * that `new URL` cannot parse still contribute it.
+   */
+  private addPostgresUrl(value: string | undefined): void {
+    if (value === undefined || value.trim().length === 0) return;
+    this.add(value);
+    const spans = urlCredentialSpans(value);
+    if (spans.password === undefined) return;
+    this.addEncodedAndDecoded(
+      value.slice(spans.password.start, spans.password.end),
+      INFERRED_CREDENTIAL_MIN_LENGTH,
+    );
+  }
+
   private addUserinfoMembers(rawUrl: string, spans: UrlCredentialSpans): void {
     if (spans.username !== undefined) {
-      const username = rawUrl.slice(spans.username.start, spans.username.end);
-      this.add(username, { minimumLength: INFERRED_CREDENTIAL_MIN_LENGTH });
-      const decoded = percentDecoded(username);
-      if (decoded !== undefined && decoded !== username) {
-        this.add(decoded, { minimumLength: INFERRED_CREDENTIAL_MIN_LENGTH });
-      }
+      this.addEncodedAndDecoded(
+        rawUrl.slice(spans.username.start, spans.username.end),
+        INFERRED_CREDENTIAL_MIN_LENGTH,
+      );
     }
     if (spans.password !== undefined) {
-      const password = rawUrl.slice(spans.password.start, spans.password.end);
-      this.add(password);
-      const decoded = percentDecoded(password);
-      if (decoded !== undefined && decoded !== password) this.add(decoded);
+      this.addEncodedAndDecoded(
+        rawUrl.slice(spans.password.start, spans.password.end),
+      );
     }
   }
 
@@ -206,16 +201,16 @@ export class ConfiguredCredentialCollector {
       const rawName = equals === -1 ? pair : pair.slice(0, equals);
       const rawValue = equals === -1 ? '' : pair.slice(equals + 1);
       const name = percentDecoded(rawName) ?? rawName;
-      if (!isCredentialName(name)) continue;
-      this.add(rawValue);
-      const decoded = percentDecoded(rawValue);
-      if (decoded !== undefined) this.add(decoded);
+      if (isCredentialName(name)) this.addEncodedAndDecoded(rawValue);
     }
   }
 }
 
 /** Whether a substitution's resolved span lies entirely inside `span`. */
-function within(span: Span | undefined, substitution: Span): boolean {
+function within(
+  span: InterpolationSpan | undefined,
+  substitution: InterpolationSpan,
+): boolean {
   return (
     span !== undefined &&
     substitution.start >= span.start &&
@@ -225,8 +220,8 @@ function within(span: Span | undefined, substitution: Span): boolean {
 
 /**
  * The userinfo and query spans of an absolute URL, computed by scanning the
- * raw string so a resolved (possibly substituted) URL is read exactly as
- * written.
+ * raw string so a resolved (possibly substituted) URL — and a `POSTGRES_URL`
+ * `new URL` cannot parse — is read exactly as written.
  */
 function urlCredentialSpans(url: string): UrlCredentialSpans {
   const schemeAt = url.indexOf('://');
@@ -257,7 +252,10 @@ function userinfoSpans(
   };
 }
 
-function querySpan(url: string, authorityEnd: number): Span | undefined {
+function querySpan(
+  url: string,
+  authorityEnd: number,
+): InterpolationSpan | undefined {
   const queryStart = url.indexOf('?', authorityEnd);
   const fragmentStart = url.indexOf('#', authorityEnd);
   if (queryStart === -1) return undefined;
@@ -290,6 +288,3 @@ function percentDecoded(value: string): string | undefined {
     return undefined;
   }
 }
-
-/** A literal header value has no token to resolve, so nothing was substituted into it. */
-const INTERPOLATION_TOKEN = /\{(?:env|path):/u;

@@ -16,12 +16,12 @@ import {
   renderSystemPromptTemplate,
   type TemporalAnchor,
 } from './prompt-loader';
+import { configuredCredentials } from './configured-credentials';
 
 const TEST_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
-import { configuredCredentials } from './configured-credentials';
 import {
   loadInstanceConfig as loadInstanceConfigFromPath,
   resolveConfigPath,
@@ -4777,11 +4777,11 @@ describe('loadInstanceConfig — configured credential set', () => {
     const config = loadInstanceConfig();
 
     expect(configuredCredentials(config)).toContain('sk-canary-set');
-    expect(Object.keys(config)).not.toContain('credentials');
-    expect(JSON.stringify(config)).toContain('sk-canary-set'); // the key itself
+    expect(config).not.toHaveProperty('credentials');
+    expect(config).not.toHaveProperty('configuredCredentials');
     expect(
-      JSON.stringify(Object.values(config).filter(Array.isArray)),
-    ).not.toContain('configuredCredentials');
+      Object.keys(config).filter((key) => /credential/iu.test(key)),
+    ).toEqual([]);
   });
 
   it('returns a fresh configuration, never the shared built-in defaults', () => {
@@ -4880,6 +4880,26 @@ describe('loadInstanceConfig — configured credential set', () => {
     expect(members).not.toContain('app');
   });
 
+  it.each([
+    [
+      'multi-host',
+      'postgres://app:pw-multi-canary@h1:5432,h2:5432/llame',
+      'pw-multi-canary',
+    ],
+    [
+      'socket',
+      'postgres://app:pw-socket-canary@/llame?host=/var/run/postgresql',
+      'pw-socket-canary',
+    ],
+  ])(
+    'takes the %s POSTGRES_URL password from the raw string',
+    (_form, url, password) => {
+      expect(credentialsOf('{}', { POSTGRES_URL: url })).toEqual(
+        expect.arrayContaining([url, password]),
+      );
+    },
+  );
+
   it('does not read POSTGRES_URL from process.env, only from the env given', () => {
     process.env.POSTGRES_URL = 'postgres://app:ambient-password@db/llame';
     try {
@@ -4921,46 +4941,81 @@ describe('loadInstanceConfig — configured credential set', () => {
     expect(members).not.toContain('--token=');
     expect(members).not.toContain('fallback-text');
     expect(members).not.toContain('Authorization');
+    expect(members.some((member) => member.includes('Bearer'))).toBe(false);
   });
 
-  it('adds only credential-shaped literal headers for a remote MCP server', () => {
-    const members = credentialsOf(
-      `{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": {
-        "X-Api-Key": "abcdefgh-canary", "X-Region": "eu-west-1"
-      } } } }`,
-    );
-
-    expect(members).toContain('abcdefgh-canary');
-    expect(members).not.toContain('eu-west-1');
-  });
-
-  it('adds only credential-shaped literal headers for a provider', () => {
+  it('never treats text around a session token as a literal header member', () => {
     const members = credentialsOf(
       `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": {
-        "X-Api-Key": "provider-header-canary", "X-Region": "eu-west-1"
+        "Authorization": "Bearer {session:id}",
+        "Cookie": "sid={session:id}"
       } }] }`,
     );
 
-    expect(members).toContain('provider-header-canary');
-    expect(members).not.toContain('eu-west-1');
+    expect(members).toEqual([]);
   });
 
-  it('adds a remote MCP URL substitution in its query and not the URL', () => {
+  it('contributes only the substitution of a session-split credential header', () => {
     const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": {
+        "Authorization": "Bearer {session:id} {env:X}"
+      } }] }`,
+      { X: 'hdr-x' },
+    );
+
+    expect(members).toEqual(['hdr-x']);
+  });
+
+  it('keeps an escaped token literal under a credential-shaped header name', () => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": {
+        "X-Api-Key": "{{env:FOO}"
+      } }] }`,
+    );
+
+    expect(members).toEqual(['{env:FOO}']);
+  });
+
+  it.each(['mcpServers', 'providers'] as const)(
+    'adds only credential-shaped literal headers for %s',
+    (section) => {
+      const headers = JSON.stringify({
+        'X-Api-Key': 'abcdefgh-canary',
+        'X-Region': 'eu-west-1',
+      });
+      const json =
+        section === 'mcpServers'
+          ? `{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": ${headers} } } }`
+          : `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": ${headers} }] }`;
+
+      const members = credentialsOf(json);
+
+      expect(members).toContain('abcdefgh-canary');
+      expect(members).not.toContain('eu-west-1');
+    },
+  );
+
+  it.each([
+    [
+      'a remote MCP URL substitution in its query',
       '{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey={env:MCP_KEY}" } } }',
       { MCP_KEY: 'mcp-key-value' },
-    );
-
-    expect(members).toEqual(['mcp-key-value']);
-  });
-
-  it('adds a query substitution whatever its name and never a host substitution', () => {
-    const members = credentialsOf(
+      ['mcp-key-value'],
+    ],
+    [
+      'a query substitution whatever its name, never a host substitution',
       '{ "mcpServers": { "r": { "type": "http", "url": "https://{env:MCP_HOST}/mcp?region={env:MCP_REGION}" } } }',
       { MCP_HOST: 'mcp.example', MCP_REGION: 'eu-west-1' },
-    );
-
-    expect(members).toEqual(['eu-west-1']);
+      ['eu-west-1'],
+    ],
+    [
+      'a query value as written and percent-decoded',
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?access_token=a%2Fb&mode=fast" }] }',
+      {},
+      ['a%2Fb', 'a/b'],
+    ],
+  ])('adds %s', (_title, json, env, expected) => {
+    expect(credentialsOf(json, env)).toEqual(expected);
   });
 
   it('adds a credential written into a URL however it was written', () => {
@@ -4996,15 +5051,6 @@ describe('loadInstanceConfig — configured credential set', () => {
       expect.arrayContaining(['abc123', 'username8', 'p%40ss', 'p@ss']),
     );
     expect(members).not.toContain('svc');
-  });
-
-  it('adds a query value as written and percent-decoded', () => {
-    const members = credentialsOf(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?access_token=a%2Fb&mode=fast" }] }',
-    );
-
-    expect(members).toEqual(expect.arrayContaining(['a%2Fb', 'a/b']));
-    expect(members).not.toContain('fast');
   });
 
   it('does not add an endpoint, whether the fallback applied or the variable was set', () => {
@@ -5054,8 +5100,9 @@ describe('loadInstanceConfig — configured credential set', () => {
     expect(members).not.toContain('eu');
   });
 
-  it('adds none of knowledge.root, a numeric setting, or a searxng baseUrl', () => {
-    const members = credentialsOf(
+  it.each([
+    [
+      'knowledge.root, a numeric setting, or a searxng baseUrl',
       `{
         "knowledge": { "root": "{env:KB_ROOT}" },
         "db": { "poolSize": "{env:POOL_SIZE}" },
@@ -5066,16 +5113,13 @@ describe('loadInstanceConfig — configured credential set', () => {
         POOL_SIZE: '12',
         SEARXNG_URL: 'https://searx.example',
       },
-    );
-
-    expect(members).toEqual([]);
-  });
-
-  it('does not add a session rendering or the keyless placeholder', () => {
-    const members = credentialsOf(
+    ],
+    [
+      'a session rendering',
       '{ "providers": [{ "id": "p", "type": "openai-responses", "headers": { "X-Trace": "{session:id}" } }] }',
-    );
-
-    expect(members).toEqual([]);
+      {},
+    ],
+  ])('adds none of %s', (_title, json, env) => {
+    expect(credentialsOf(json, env)).toEqual([]);
   });
 });
