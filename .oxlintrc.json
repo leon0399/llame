@@ -51,6 +51,7 @@
           "apps/api/src/core-infra.module.ts",
           "apps/api/src/db/db.ts",
           "apps/api/src/db/migrate.ts",
+          "apps/api/src/decisions/decision-logger.ts",
           "apps/api/src/generate-openapi.ts",
           "apps/api/src/instance-config/config-loader.ts",
           "apps/api/src/instance-config/worker-profile.service.ts",

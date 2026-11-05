@@ -346,13 +346,14 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own; \"system-one\" speaks the System One decision wire (POST {baseUrl}/systemone) for the experimental `decisions` block, from a required `key` and a required `baseUrl`, and never serves a `models[]` entry. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
       "enum": [
         "openai-responses",
         "openai-completions",
         "anthropic-messages",
         "openai-codex",
-        "opencode-go"
+        "opencode-go",
+        "system-one"
       ]
     },
     "providerEntry": {
@@ -370,11 +371,11 @@
         "billing": { "$ref": "#/$defs/billingMode" },
         "key": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error. Required (and nonblank after interpolation) for `type: \"openai-codex\"` and `type: \"opencode-go\"`, whose upstreams authenticate every request; such an entry fails startup naming the entry and the field rather than loading keyless."
+          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error. Required (and nonblank after interpolation) for `type: \"openai-codex\"`, `type: \"opencode-go\"`, and `type: \"system-one\"`, whose upstreams authenticate every request; such an entry fails startup naming the entry and the field rather than loading keyless."
         },
         "baseUrl": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"`; absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`, the Anthropic API for `type: \"anthropic-messages\"`). For `type: \"anthropic-messages\"` a present, non-null `baseUrl` must resolve nonblank: a configured endpoint that resolves empty fails startup naming the field rather than falling back to the Anthropic API. Rejected outright for `type: \"openai-codex\"` and `type: \"opencode-go\"`, whose destinations are fixed in llame's code. The client always passes an explicit base URL, so an ambient `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` never moves a request."
+          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"` and `type: \"system-one\"` (the decision wire posts to `{baseUrl}/systemone`); absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`, the Anthropic API for `type: \"anthropic-messages\"`). For `type: \"anthropic-messages\"` a present, non-null `baseUrl` must resolve nonblank: a configured endpoint that resolves empty fails startup naming the field rather than falling back to the Anthropic API. Rejected outright for `type: \"openai-codex\"` and `type: \"opencode-go\"`, whose destinations are fixed in llame's code. The client always passes an explicit base URL, so an ambient `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` never moves a request."
         },
         "accountId": {
           "$ref": "#/$defs/nullableString",
@@ -384,7 +385,7 @@
           "type": "object",
           "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": ["string", "null"] },
-          "description": "Optional operator headers. Defaults include `X-Session-Id: {session:id}` for openai-responses, openai-completions, anthropic-messages, and opencode-go (openai-codex has no default); null removes a default, and operator values take precedence without reserved names. `{env:...}` and `{path:...}` resolve at startup; `{session:id}` resolves per request."
+          "description": "Optional operator headers. Defaults include `X-Session-Id: {session:id}` for openai-responses, openai-completions, anthropic-messages, and opencode-go (openai-codex and system-one have no default); null removes a default, and operator values take precedence without reserved names. `{env:...}` and `{path:...}` resolve at startup; `{session:id}` resolves per request."
         }
       },
       "allOf": [
@@ -416,8 +417,20 @@
             "required": ["key"],
             "properties": { "baseUrl": false, "accountId": false }
           }
+        },
+        {
+          "if": { "properties": { "type": { "const": "system-one" } } },
+          "then": {
+            "required": ["key", "baseUrl"],
+            "not": { "required": ["accountId"] }
+          }
         }
       ]
+    },
+    "decisionRerankMode": {
+      "type": "string",
+      "enum": ["off", "shadow", "on"],
+      "description": "\"off\" never calls the decision model; \"shadow\" computes the order, logs it and leaves the tool output unchanged; \"on\" applies it before the inline cap and the artifact are built."
     },
     "mcpServerEntry": {
       "type": "object",
@@ -684,6 +697,46 @@
       "type": "array",
       "description": "Provider connections (providers-and-models-as-code, #167). Supersedes the OPENAI_API_KEY / OPENAI_BASE_URL bare environment variables — those names remain valid {env:...} interpolation inputs for an entry's key/baseUrl.",
       "items": { "$ref": "#/$defs/providerEntry" }
+    },
+    "decisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional System One decision lane (experimental). Absent means the lane does not exist: no decision client is built and every tool that would consult it keeps its canonical order. Present names one `providers[]` entry of `type: \"system-one\"` and the model it answers with; that reference is checked at startup, because the JSON Schema cannot express it. Decision calls are side calls: they are logged, never folded into a Run's message usage. See docs/product/operator/decisions.md.",
+      "required": ["provider", "model"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A `providers[].id` whose `type` is \"system-one\" (boot failure otherwise)."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model id sent verbatim on the wire, e.g. \"~typesafe/jev-latest\", \"typesafe/jev-1.14\", or \"jev-1.13\". The alias is not a revision: the response's `model` is logged, so a moved alias is visible."
+        },
+        "pricingUsdPer1M": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Fallback price for a wire that reports no `usage.cost` (the native TypeSafe wire). A reported cost always wins.",
+          "required": ["input"],
+          "properties": {
+            "input": {
+              "type": "number",
+              "minimum": 0,
+              "description": "US dollars per million input tokens. Output tokens are free on every Jev route today."
+            }
+          }
+        },
+        "rerank": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-tool rerank mode. Both default to \"off\".",
+          "properties": {
+            "webSearch": { "$ref": "#/$defs/decisionRerankMode" },
+            "grep": { "$ref": "#/$defs/decisionRerankMode" }
+          }
+        }
+      }
     },
     "models": {
       "type": "array",

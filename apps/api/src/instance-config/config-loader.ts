@@ -29,6 +29,8 @@ import {
   type OpenAIResponsesProviderConfig,
   type OpenCodeGoProviderConfig,
   type ProviderConfig,
+  type SystemOneProviderConfig,
+  type DecisionsConfig,
   type RawProviderEntry,
   type RawInstanceConfig,
   type RawMcpServerEntry,
@@ -519,16 +521,22 @@ function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
   return files;
 }
 
+/**
+ * Read the config document and run the closed published schema over it, or
+ * report no document when the operator configured none.
+ */
+function readValidatedConfig(env: NodeJS.ProcessEnv) {
+  const configPath = resolveConfigPath(env);
+  const raw = readRawConfig(configPath);
+  if (raw !== undefined) assertValidRaw(raw, configPath);
+  return { configPath, raw };
+}
+
 /** Load, validate, interpolate, and apply file > built-in-default precedence (the environment reaches config only via {env:...} tokens in the file). Throws InstanceConfigError on any failure — the only correct response is to abort boot (D6). */
 export function loadInstanceConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): LlameConfig {
-  const configPath = resolveConfigPath(env);
-  const raw = readRawConfig(configPath);
-  if (raw !== undefined) {
-    assertValidRaw(raw, configPath);
-  }
-
+  const { configPath, raw } = readValidatedConfig(env);
   const providers = resolveProviders(raw, env);
   const providersById = new Map(
     providers.map((provider) => [provider.id, provider]),
@@ -543,6 +551,7 @@ export function loadInstanceConfig(
     providersById,
     models,
   );
+  const decisions = resolveDecisions(raw, providersById);
 
   return {
     defaults: resolveDefaults(raw, env, new Set(models.map((m) => m.id))),
@@ -560,6 +569,7 @@ export function loadInstanceConfig(
     embeddingModels,
     search,
     ...(webSearch !== undefined && { webSearch }),
+    ...(decisions !== undefined && { decisions }),
   };
 }
 
@@ -581,6 +591,54 @@ function resolveSearchSettings(
     providersById,
   );
   return { embeddingModels, search, webSearch, tools };
+}
+
+/**
+ * Resolve the optional `decisions` block (experimental decision lane). The
+ * cross-array reference the JSON Schema cannot express is checked here: the
+ * named provider must exist AND be of `type: 'system-one'`, so a chat provider
+ * named by mistake fails at boot instead of at the first decision call. Absent
+ * means the lane does not exist — no client is built and every consumer keeps
+ * its canonical order.
+ */
+function resolveDecisions(
+  raw: RawInstanceConfig | undefined,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+): DecisionsConfig | undefined {
+  const section = raw?.decisions;
+  if (section === undefined) return undefined;
+
+  const providerId = section.provider.trim();
+  const provider = providersById.get(providerId);
+  if (provider === undefined) {
+    throw new InstanceConfigError(
+      `decisions.provider: unknown provider id "${providerId}"`,
+    );
+  }
+  if (provider.type !== 'system-one') {
+    throw new InstanceConfigError(
+      `decisions.provider: provider "${providerId}" has type "${provider.type}", not "system-one"`,
+    );
+  }
+
+  const model = section.model.trim();
+  if (model.length === 0) {
+    throw new InstanceConfigError(
+      'decisions.model: must resolve to a nonblank string',
+    );
+  }
+
+  return {
+    provider: providerId,
+    model,
+    ...(section.pricingUsdPer1M !== undefined && {
+      pricingUsdPer1M: { input: section.pricingUsdPer1M.input },
+    }),
+    rerank: {
+      webSearch: section.rerank?.webSearch ?? 'off',
+      grep: section.rerank?.grep ?? 'off',
+    },
+  };
 }
 
 function resolveKnowledge(
@@ -2166,6 +2224,9 @@ const DEFAULT_PROVIDER_HEADERS: Readonly<
   'anthropic-messages': { 'X-Session-Id': ['', ''] },
   'openai-codex': {},
   'opencode-go': { 'X-Session-Id': ['', ''] },
+  // A decision call has no Chat session: the lane sends no session header,
+  // and the operator may still add literal ones.
+  'system-one': {},
 };
 
 const PROVIDER_HEADER_TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9_-]*):([^{}]*)\}/gu;
@@ -2297,6 +2358,8 @@ function resolveProviders(
         return resolveCodexProvider(entry, env);
       case 'opencode-go':
         return resolveOpenCodeGoProvider(entry, env);
+      case 'system-one':
+        return resolveSystemOneProvider(entry, env);
       default: {
         // Unreachable while the JSON Schema's `providerType` enum stays in
         // sync with the cases above (assertValidRaw rejects any other `type`
@@ -2434,6 +2497,29 @@ function resolveOpenCodeGoProvider(
     ...(entry.billing !== undefined && { billing: entry.billing }),
     type: entry.type,
     key: requireNonBlankString(`providers[${entry.id}].key`, entry.key, env),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, env),
+  };
+}
+
+/**
+ * Decision-lane variant (experimental): both the credential and the
+ * destination are schema-required and must survive interpolation nonblank,
+ * because the wire authenticates every request and every hosted route has its
+ * own base URL. The client appends `/systemone` to the resolved base.
+ */
+function resolveSystemOneProvider(
+  entry: Extract<RawProviderEntry, { type: 'system-one' }>,
+  env: NodeJS.ProcessEnv,
+): SystemOneProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    key: requireNonBlankString(`providers[${entry.id}].key`, entry.key, env),
+    baseUrl: requireNonBlankString(
+      `providers[${entry.id}].baseUrl`,
+      entry.baseUrl,
+      env,
+    ),
     headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, env),
   };
 }
@@ -2691,7 +2777,6 @@ function buildModelCatalogEntry(
     compactionThresholdTokens,
     maxOutputTokens,
   } = resolveModelScalars(entry, env);
-  const providerOptions = resolveProviderOptions(entry);
   const prompt = promptLoader.resolve({
     id: entry.id,
     ...(entry.name !== undefined && { name: entry.name }),
@@ -2703,7 +2788,13 @@ function buildModelCatalogEntry(
   return {
     ...display,
     source: 'system' as const,
-    billing: resolveBillingMode(entry.billing, provider.billing, provider.type),
+    billing: resolveBillingMode(
+      entry.billing,
+      // A decision provider has no billing mode: it is never a `models[]`
+      // provider, so the union member without the field resolves to undefined.
+      'billing' in provider ? provider.billing : undefined,
+      provider.type,
+    ),
     contextWindowTokens,
     // The schema enforces the closed set, `text` membership, and uniqueness
     // (vision-media D9); absent resolves to text only. Never checked against
@@ -2714,10 +2805,21 @@ function buildModelCatalogEntry(
       compactionThresholdTokens,
     }),
     ...(maxOutputTokens !== undefined && { maxOutputTokens }),
-    ...(providerOptions !== undefined && { providerOptions }),
+    ...resolveProviderOptionsEntry(entry),
     ...(reasoning !== undefined && { reasoning }),
     ...resolveToolPromptFilesEntry(entry.toolPromptFiles),
   };
+}
+
+/**
+ * The provider options for one model, or nothing when the entry declares none —
+ * so the field stays absent rather than present-and-undefined.
+ */
+function resolveProviderOptionsEntry(
+  entry: RawModelEntry,
+): Pick<SystemModelCatalogEntry, 'providerOptions'> | Record<string, never> {
+  const providerOptions = resolveProviderOptions(entry);
+  return providerOptions === undefined ? {} : { providerOptions };
 }
 
 /**

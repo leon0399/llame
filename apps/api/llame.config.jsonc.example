@@ -102,6 +102,24 @@
     //   "key": "{env:OPENCODE_GO_API_KEY}"
     // },
     // --- opencode-go block: end ---
+
+    // A System One decision endpoint (experimental decision lane). It serves
+    // the `decisions` block, never a models[] entry, and both the key and the
+    // baseUrl are required. These are the routes verified on 2026-11-05; the
+    // wire is the same on each, so only the destination, credential, and model
+    // id differ.
+    // {
+    //   "id": "opencode-decisions",
+    //   "type": "system-one",
+    //   "key": "{env:OPENCODE_API_KEY}",
+    //   "baseUrl": "https://opencode.ai/zen/v1"
+    // },
+    // {
+    //   "id": "openrouter-decisions",
+    //   "type": "system-one",
+    //   "key": "{env:OPENROUTER_API_KEY}",
+    //   "baseUrl": "https://openrouter.ai/api/v1"
+    // },
   ],
 
   // Executable model catalog. Each provider must name a providers[].id.
@@ -518,6 +536,22 @@
   //   // Each vendor's own maximum still clamps it. `limit` bounds what the
   //   // model reads inline; results beyond it stay in the call's artifact.
   //   "fetchLimit": 20,
+  // },
+
+  // Optional System One decision lane (experimental). Leave this commented
+  // unless a Jev / System One endpoint is configured: without it no decision
+  // client is built and no tool changes its order. The named provider must be
+  // a `providers[]` entry of type "system-one" (see the commented entry above
+  // `models[]`); decision calls are side calls, logged with their own usage and
+  // never folded into a Run's message usage. See docs/product/operator/decisions.md.
+  // "decisions": {
+  //   "provider": "opencode-decisions",
+  //   "model": "jev-1.13",
+  //   // Fallback input price for a wire that reports no usage.cost (the native
+  //   // TypeSafe wire); a reported cost always wins.
+  //   "pricingUsdPer1M": { "input": 0.042 },
+  //   // off (default) | shadow (log only) | on (reorder before the cap).
+  //   "rerank": { "webSearch": "off", "grep": "off" },
   // },
 
   // Run limits — every one is OPT-IN. Interpolated numbers must be

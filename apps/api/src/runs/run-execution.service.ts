@@ -324,6 +324,8 @@ import {
   type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../models/models.service';
+import { DecisionsService } from '../decisions/decisions.service';
+import { type DecisionJudge } from '../decisions/decisions.service';
 import {
   KnowledgeToolCandidateResolver,
   type KnowledgeToolCandidateResolverPort,
@@ -958,6 +960,13 @@ export class RunExecutionService {
     @Optional()
     @Inject(ExecutorGit)
     private readonly executorGit?: ExecutorGit,
+    // The experimental decision lane, handed to tools as `decisions` so a
+    // rerank stage can rank its own candidates. Absent when the operator
+    // configured no `decisions` block; every consumer then keeps its
+    // canonical order.
+    @Optional()
+    @Inject(DecisionsService)
+    private readonly decisions?: DecisionJudge,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1536,6 +1545,7 @@ export class RunExecutionService {
       ...this.artifactReadContext(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       modelClients: this.models,
+      decisions: this.decisions,
       permissionMode: effectivePermissionMode,
       machines: this.machineConnector,
       machineStatus: this.machinesStatus,
@@ -3271,6 +3281,7 @@ export class RunExecutionService {
       ...this.artifactReadContext(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       modelClients: this.models,
+      decisions: this.decisions,
       permissionMode: effectivePermissionMode,
       machines: this.machineConnector,
       machineStatus: this.machinesStatus,

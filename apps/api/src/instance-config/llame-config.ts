@@ -91,6 +91,24 @@ export type OpenCodeGoProviderConfig = {
 };
 
 /**
+ * A System One decision endpoint (experimental decision lane). One codec
+ * speaks every hosted route — TypeSafe native, OpenRouter, OpenCode — because
+ * they share the wire: `POST {baseUrl}/systemone` with a `{ model, state,
+ * questions }` body and `{ model, answers, usage }` back. The operator names
+ * the destination, so both `key` and `baseUrl` are schema-required and must
+ * resolve nonblank; every route today authenticates each request. An entry of
+ * this type never serves a `models[]` entry: a decision client is not a
+ * `ModelClient` (it returns typed probabilities, not a stream).
+ */
+export type SystemOneProviderConfig = {
+  id: string;
+  type: 'system-one';
+  key: string;
+  baseUrl: string;
+  headers: RequestHeaderTemplates;
+};
+
+/**
  * Executable provider client implementations (providers-and-models-as-code,
  * #167). `type` names the wire API the entry speaks — never inferred from
  * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
@@ -103,7 +121,9 @@ export type OpenCodeGoProviderConfig = {
  * uses the personal Codex subscription backend; `opencode-go` executes the
  * Chat Completions wire against the OpenCode Go subscription gateway, at a
  * destination fixed in llame's code, from a required `key` and no endpoint
- * field of its own.
+ * field of its own; `system-one` speaks the System One decision wire for the
+ * experimental `decisions` block, from a required `key` and a required
+ * `baseUrl`, and never serves a `models[]` entry.
  * This set is strict-closed on purpose — a schema that advertised a `type`
  * it cannot execute would fail at request time instead of at the offending
  * config path.
@@ -113,7 +133,8 @@ export type ProviderConfig =
   | OpenAICompletionsProviderConfig
   | AnthropicMessagesProviderConfig
   | OpenAICodexProviderConfig
-  | OpenCodeGoProviderConfig;
+  | OpenCodeGoProviderConfig
+  | SystemOneProviderConfig;
 
 /**
  * Resolved private Streamable HTTP server configuration. `protectedValues`
@@ -258,7 +279,48 @@ export type RawProviderEntry =
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       key: string | null;
       headers?: Record<string, string | null>;
+    }
+  | {
+      id: string;
+      type: 'system-one';
+      /** Schema-required for this branch; may still be `null`/blank after interpolation. */
+      key: string | null;
+      /** Schema-required for this branch; may still be `null`/blank after interpolation. */
+      baseUrl: string | null;
+      headers?: Record<string, string | null>;
     };
+
+/**
+ * Per-tool rerank mode for the experimental decision lane. Closed on purpose:
+ * a mode the tools cannot implement fails validation, not execution.
+ */
+export const DECISION_RERANK_MODES = ['off', 'shadow', 'on'] as const;
+export type DecisionRerankMode = (typeof DECISION_RERANK_MODES)[number];
+
+/** Resolved `decisions` block; absent means the lane does not exist. */
+export type DecisionsConfig = {
+  /** A `providers[]` entry of `type: 'system-one'` (checked at boot). */
+  readonly provider: string;
+  /** Model id sent verbatim on the wire. */
+  readonly model: string;
+  /** Fallback input price for a wire that reports no `usage.cost`. */
+  readonly pricingUsdPer1M?: { readonly input: number };
+  readonly rerank: {
+    readonly webSearch: DecisionRerankMode;
+    readonly grep: DecisionRerankMode;
+  };
+};
+
+/** The still-uninterpolated `decisions` block once schema-validated. */
+export type RawDecisionsConfig = {
+  provider: string;
+  model: string;
+  pricingUsdPer1M?: { input: number };
+  rerank?: {
+    webSearch?: DecisionRerankMode;
+    grep?: DecisionRerankMode;
+  };
+};
 
 /**
  * Distance metric a declared embedding model produces (chat-search-embeddings
@@ -525,6 +587,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   embeddingModels?: Array<RawEmbeddingModelEntry>;
   search?: RawSearchConfig;
   webSearch?: RawWebSearchConfig;
+  decisions?: RawDecisionsConfig;
 }
 
 export type RewriteWebAdapterConfig = {
@@ -688,6 +751,14 @@ export type LlameConfig = {
   knowledge: KnowledgeConfig;
   /** Operator web search engines and chain; absent when not configured. */
   webSearch?: WebSearchConfig;
+  /**
+   * Optional System One decision lane (experimental). Absent means the lane
+   * does not exist: no decision client is built, no tool consults one, and
+   * every tool keeps its canonical order. Decision calls are side calls —
+   * they are logged with their own usage and never folded into a Run's
+   * message usage aggregate.
+   */
+  decisions?: DecisionsConfig;
   /**
    * Operator-managed skill source directories (system-provided-skills D1):
    * ordered collection directories whose immediate child directories are skill
