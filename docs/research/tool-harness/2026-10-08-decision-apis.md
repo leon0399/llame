@@ -34,6 +34,9 @@ sources:
   - id: permission-study
     resource: "./2026-09-24-permission-classifier-cascade/index.md"
     title: "Permission classifiers and live Jev experiments"
+  - id: landscape
+    resource: "./2026-11-05-decision-model-landscape.md"
+    title: "The decision-model landscape: hosted, open-weight, wrapper and operator-run members"
 ---
 
 # Decision APIs
@@ -162,10 +165,15 @@ disclosure policy first.
 
 ## Cautions
 
-- **R1 Data egress.** Every call ships the state to a provider. OpenAI offers
-  ZDR to eligible customers; decisionapi.net's retention is unverified and it
-  adds a second party between llame and the model. Owner opt-in and a named
-  destination are required, as with the recency digest.
+- **R1 Data egress.** Every call to a **hosted** backend ships the state to a
+  provider. OpenAI offers ZDR to eligible customers; decisionapi.net's retention
+  is unverified and it adds a second party between llame and the model. Owner
+  opt-in and a named destination are required, as with the recency digest. A
+  member that runs on the operator's own hardware behind an endpoint — Liquid's
+  open-weight `d1` models, `decido`, OpenJev, or a wrapper over a provider llame
+  already has — sends nothing to a third party, so it is the mode that needs no
+  egress declaration at all; what it needs is the provider entry that names its
+  endpoint.[^landscape]
 - **R2 Authorization.** A probability is not a permission. Decisions may order
   or label; `tools.permissions`, RLS and effect fencing decide. A refusal or
   transport failure must resolve to the safe default, never to "allow".
@@ -194,3 +202,5 @@ disclosure policy first.
 [^jev-report]: [System One and Jev report](./2026-09-23-system-one-jev/report.md)
 
 [^permission-study]: [Permission classifiers and live Jev experiments](./2026-09-24-permission-classifier-cascade/index.md)
+
+[^landscape]: [The decision-model landscape: hosted, open-weight, wrapper and operator-run members](./2026-11-05-decision-model-landscape.md)

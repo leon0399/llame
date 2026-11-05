@@ -20,6 +20,9 @@ summarizes it. Author every research document as an OKF concept.
   actor such as `omp/<model>` or `human:<id>`, and `sources` entries with
   stable `id`s cited by matching `[^id]` footnotes. Pin source URLs to a commit
   or version. Never invent an actor, source or verification.
+- A statement that a capability is vendor-specific, hosted-only or unavailable
+  needs a search of current providers and open-weight releases behind it, not
+  one vendor read.
 - Write research as direct descriptions of behavior and applicability, not
   update histories. Omit calendar-date narration, refresh notes, prior-revision
   comparisons, and retained historical references. Keep inspection dates and
