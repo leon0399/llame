@@ -658,7 +658,7 @@ describe('System One chunking', () => {
     };
   }
 
-  it('splits 50 questions into 48 + 2 and merges the answers', async () => {
+  it('splits 258 questions into 256 + 2 and merges the answers', async () => {
     const { calls, fetch } = scriptedFetch((call) => {
       const keys = Object.keys(bodyOf(call).questions);
       return jsonResponse(answersFor(keys));
@@ -667,19 +667,19 @@ describe('System One chunking', () => {
 
     const outcome = await client.decide({
       state: 's',
-      questions: questions(50),
+      questions: questions(258),
     });
 
     expect(
       calls.map((call) => Object.keys(bodyOf(call).questions).length),
-    ).toEqual([48, 2]);
+    ).toEqual([256, 2]);
     expect(outcome).toMatchObject({
       status: 'answered',
       unanswered: [],
       usage: { inputTokens: 200, costUsd: 0.0000084 },
     });
     if (outcome.status !== 'answered') throw new Error('expected answers');
-    expect(Object.keys(outcome.answers)).toHaveLength(50);
+    expect(Object.keys(outcome.answers)).toHaveLength(258);
   });
 
   it('keeps a failed chunk unjudged and still answers the other chunk', async () => {
@@ -697,12 +697,12 @@ describe('System One chunking', () => {
 
     const outcome = await client.decide({
       state: 's',
-      questions: questions(50),
+      questions: questions(258),
     });
 
     expect(outcome).toMatchObject({
       status: 'answered',
-      unanswered: ['q48', 'q49'],
+      unanswered: ['q256', 'q257'],
       usage: { inputTokens: 100 },
     });
   });
@@ -724,7 +724,7 @@ describe('System One chunking', () => {
     });
   });
 
-  it('keeps at most four requests in flight', async () => {
+  it('sends every chunk at once', async () => {
     let active = 0;
     let peak = 0;
     const { fetch } = scriptedFetch(async (call) => {
@@ -742,6 +742,6 @@ describe('System One chunking', () => {
     });
 
     await client.decide({ state: 's', questions: questions(10) });
-    expect(peak).toBe(4);
+    expect(peak).toBe(10);
   });
 });

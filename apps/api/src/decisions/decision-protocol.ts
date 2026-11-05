@@ -23,10 +23,15 @@ import { z } from 'zod';
 export const DECISION_ATTEMPT_TIMEOUT_MS = 10_000;
 /** Attempts per chunk, transient failures only. */
 export const DECISION_MAX_ATTEMPTS = 3;
-/** Questions per request: the state is billed once, so pack them. */
-export const DECISION_MAX_QUESTIONS = 48;
-/** Requests in flight, so a self-hosted endpoint is never burst. */
-export const DECISION_CHUNK_CONCURRENCY = 4;
+/**
+ * Questions per request. Measured 2026-11-06 on grep-sized cards (~100
+ * input tokens each): OpenRouter answered 800 in one request, OpenCode
+ * rejected 800 (~80k tokens) with `max_tokens_exceeded` and answered 400, and
+ * latency grew sublinearly (400 cards in 0.5 s against 1.75 s for ten chunks
+ * of 48), so a chunk is sized to stay under that token ceiling with the
+ * largest card, and every chunk is sent at once.
+ */
+export const DECISION_MAX_QUESTIONS = 256;
 /** A response body larger than this is a codec mismatch, not an answer. */
 export const DECISION_RESPONSE_MAX_CODE_UNITS = 1 << 20;
 

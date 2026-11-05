@@ -16,8 +16,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   because a decision call returns typed probabilities in one forward pass and
   has its own usage shape rather than streaming. The service builds and caches
   one client per catalogue id, so two entries on different routes never share
-  an endpoint. The client packs up to 48 yes/no questions over one shared state
-  per request, four requests in flight, retries only 408/429/5xx and transport
+  an endpoint. The client packs up to 256 yes/no questions over one shared
+  state per request, sends every chunk at once, retries only 408/429/5xx and transport
   failures three times with `retry-after` honoured up to five seconds, and never
   throws: an exhausted retry leaves those candidates unjudged so the caller
   keeps its canonical order, while a malformed envelope, a missing answer, a

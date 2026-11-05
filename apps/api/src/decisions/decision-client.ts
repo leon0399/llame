@@ -16,7 +16,6 @@ import { type RequestHeaders } from '../models/request-headers';
 import {
   chunkQuestions,
   DECISION_ATTEMPT_TIMEOUT_MS,
-  DECISION_CHUNK_CONCURRENCY,
   DECISION_MAX_ATTEMPTS,
   DECISION_MAX_QUESTIONS,
   DECISION_RESPONSE_MAX_CODE_UNITS,
@@ -53,7 +52,6 @@ export type DecisionClientDependencies = {
   readonly attemptTimeoutMs?: number;
   readonly maxAttempts?: number;
   readonly maxQuestions?: number;
-  readonly chunkConcurrency?: number;
   /**
    * Fallback input price for a wire that reports no `usage.cost` (the native
    * TypeSafe wire). A reported cost always wins.
@@ -86,7 +84,6 @@ type DecisionWire = {
   readonly attemptTimeoutMs: number;
   readonly maxAttempts: number;
   readonly maxQuestions: number;
-  readonly chunkConcurrency: number;
   readonly pricingUsdPer1M?: { readonly input: number };
 };
 
@@ -106,8 +103,6 @@ function buildWire(
       dependencies.attemptTimeoutMs ?? DECISION_ATTEMPT_TIMEOUT_MS,
     maxAttempts: dependencies.maxAttempts ?? DECISION_MAX_ATTEMPTS,
     maxQuestions: dependencies.maxQuestions ?? DECISION_MAX_QUESTIONS,
-    chunkConcurrency:
-      dependencies.chunkConcurrency ?? DECISION_CHUNK_CONCURRENCY,
     ...(dependencies.pricingUsdPer1M !== undefined && {
       pricingUsdPer1M: dependencies.pricingUsdPer1M,
     }),
@@ -134,15 +129,14 @@ async function decide(
 
   try {
     const chunks = chunkQuestions(request.questions, wire.maxQuestions);
-    const outcomes = await mapWithConcurrency(
-      chunks,
-      wire.chunkConcurrency,
-      (questions) =>
+    const outcomes = await Promise.all(
+      chunks.map((questions) =>
         judgeChunk(wire, {
           state: request.state,
           questions,
           signal: request.signal,
         }),
+      ),
     );
     return mergeOutcomes(wire, keys, outcomes, latencyMs());
   } catch {
@@ -390,28 +384,6 @@ function sleepFor(ms: number): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, ms);
   return promise;
-}
-
-async function mapWithConcurrency<Item, Result>(
-  items: ReadonlyArray<Item>,
-  limit: number,
-  run: (item: Item) => Promise<Result>,
-): Promise<Array<Result>> {
-  const results: Array<Result> = [];
-  let next = 0;
-  const workers = Array.from(
-    { length: Math.max(1, Math.min(limit, items.length)) },
-    async () => {
-      for (;;) {
-        const index = next;
-        next += 1;
-        if (index >= items.length) return;
-        results[index] = await run(items[index]);
-      }
-    },
-  );
-  await Promise.all(workers);
-  return results;
 }
 
 type ParsedAnswers = {

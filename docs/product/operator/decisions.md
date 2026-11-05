@@ -140,6 +140,8 @@ wrong type, or a probability outside `[0, 1]` — makes the whole call
 **Unavailable is not a negative judgment.** A model that could not answer says
 nothing about relevance; never read a failed call as "irrelevant".
 
-Requests carry at most 48 questions (one per candidate) with at most 4 in
-flight; a larger batch is chunked and the answers merged. A failed chunk leaves
-only its own candidates unjudged.
+Requests carry at most 256 questions (one per candidate); a larger batch is
+chunked, every chunk is sent at once, and the answers are merged. A failed
+chunk leaves only its own candidates unjudged. The chunk size keeps the
+largest cards under the smallest input ceiling measured on the hosted routes
+(OpenCode rejects about 80k input tokens); cost is linear in cards either way.
