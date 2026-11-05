@@ -13,7 +13,6 @@
  */
 
 import {
-  BASH_BOUNDS,
   BUDGET_EXHAUSTED_MESSAGE,
   isSerializableRecord,
   MachineProtocolError,
@@ -24,7 +23,6 @@ import {
   type SerializableRecord,
 } from '@workspace/machine-protocol';
 import { isBoolean, isString } from '@workspace/runtime-safety';
-import { type BashExecutorContext } from '@workspace/bash-executor';
 
 import type { MachineFailureReason } from '../machines/machines-status';
 import {
@@ -38,18 +36,6 @@ import {
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { type ToolContext, type ToolResult } from './types';
-
-/**
- * The daemon's own bash executor context, so a hub-side re-sanitize measures
- * the same code-unit bound the daemon captured under (machine-protocol
- * `BASH_BOUNDS`).
- */
-export const MACHINE_BASH_SANITIZE_CONTEXT: BashExecutorContext = {
-  workingDirectory: '/',
-  secretBoundary: true,
-  processIsolation: true,
-  ...BASH_BOUNDS,
-};
 
 /** How long a file operation may take on the Machine, absent a shorter call deadline. */
 export const MACHINE_FILE_BUDGET_MS = 60_000;

@@ -1,13 +1,12 @@
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
-import { type ProcBashResult } from '@workspace/machine-protocol';
+import { BASH_BOUNDS, type ProcBashResult } from '@workspace/machine-protocol';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   admitManagedBash,
-  sanitizeKnownResult,
-  type BashKnownResult,
+  sanitizeKnownResultAtBound,
   type BashResult,
-  type BashTimedOutResult,
+  type StreamBound,
 } from '@workspace/bash-executor';
 import { parsePathScheme } from '@workspace/native-file-tools';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -32,7 +31,6 @@ import {
 } from '../machines/machine-locator';
 import {
   MACHINE_BASH_BUDGET_MS,
-  MACHINE_BASH_SANITIZE_CONTEXT,
   machineBudgetMs,
   machineCallEnvelope,
   machineConnector,
@@ -45,6 +43,12 @@ import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 
 const bashLogger = new Logger('BashTool');
+
+/** The daemon's own perf-stream bound, in code units (machine-protocol). */
+const MACHINE_BASH_STREAM_BOUND: StreamBound = {
+  kind: 'code-units',
+  limit: BASH_BOUNDS.outputBound,
+};
 
 type AdmittedBashExecution = Extract<
   ReturnType<typeof admitManagedBash>,
@@ -231,10 +235,9 @@ function sanitizeMachineBashResult(
   if (!('stdout' in result)) return result;
   const endedByLlame =
     result.truncated || ('type' in result && result.type === 'timed_out');
-  const observed: BashKnownResult | BashTimedOutResult = result;
-  return sanitizeKnownResult(
-    observed,
-    MACHINE_BASH_SANITIZE_CONTEXT,
+  return sanitizeKnownResultAtBound(
+    result,
+    MACHINE_BASH_STREAM_BOUND,
     context.configuredCredentials,
     {
       stdout: { endedByLlame },

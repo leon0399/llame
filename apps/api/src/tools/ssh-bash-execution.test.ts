@@ -7,7 +7,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { resetManagedExecutorForTests } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
-import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -21,6 +20,7 @@ import { SSH_READ_NOISE_BYTES } from '../ssh/ssh-script';
 import { managedBashContext } from './bash-limits';
 import { executeSshBash } from './ssh-bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { expectRedacted, stubArtifactWrites } from '../testing/support';
 import { type ToolContext } from './types';
 
 const BINDING: SshBinding = {
@@ -196,20 +196,6 @@ describe('ssh bash credential redaction', () => {
   const mcp = 'MCP-HEADER-CANARY-2b9';
   const knowledge = '/srv/knowledge/root';
 
-  /** Artifact writes, captured instead of hitting the database. */
-  function stubArtifacts() {
-    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
-    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
-      {
-        id: 'artifact-1',
-        createdAt: new Date('2026-11-05T00:00:00.000Z'),
-      },
-    );
-    return vi
-      .spyOn(ArtifactsRepository.prototype, 'insertParts')
-      .mockResolvedValue(undefined);
-  }
-
   it('redacts configured credentials from the result, parts, and native.result', async () => {
     const filler = Array.from(
       { length: 4000 },
@@ -222,7 +208,7 @@ describe('ssh bash credential redaction', () => {
       ),
     );
     const { append } = stubFence();
-    const insertParts = stubArtifacts();
+    const insertParts = stubArtifactWrites();
 
     const result = await executeSshBash(
       context(remoteClient, {
@@ -234,26 +220,20 @@ describe('ssh bash credential redaction', () => {
     );
 
     const shown = JSON.stringify(result);
-    expect(shown).toContain('[REDACTED]');
-    expect(shown).not.toContain(provider);
-    expect(shown).not.toContain(mcp);
+    expectRedacted(shown, [provider, mcp]);
     expect(shown).toContain(knowledge);
 
     const parts = insertParts.mock.calls
       .flatMap(([, written]) => written)
       .map((part) => part.content.toString('utf8'))
       .join('\n');
-    expect(parts).toContain('[REDACTED]');
-    expect(parts).not.toContain(provider);
-    expect(parts).not.toContain(mcp);
+    expectRedacted(parts, [provider, mcp]);
     expect(parts).toContain(knowledge);
 
     const events = append.mock.calls
       .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
       .join('\n');
-    expect(events).toContain('[REDACTED]');
-    expect(events).not.toContain(provider);
-    expect(events).not.toContain(mcp);
+    expectRedacted(events, [provider, mcp]);
     expect(events).toContain(knowledge);
 
     const sent = JSON.stringify({

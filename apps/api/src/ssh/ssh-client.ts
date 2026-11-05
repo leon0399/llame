@@ -206,17 +206,16 @@ type BoundedSshLimits = {
   readonly input?: string | Buffer;
 };
 
-/** The decoded stderr string and the head/tail boundary inside it. */
+/** One immutable read of the collected stderr. */
 type StderrSnapshot = {
   readonly text: string;
+  readonly overflow: boolean;
+  /** The head/tail boundary in `text` when the tail dropped bytes. */
   readonly gap?: number;
 };
 
 type StderrCollector = {
-  readonly text: () => string;
-  readonly overflow: () => boolean;
-  /** The head/tail boundary in `text()` when the tail dropped bytes. */
-  readonly gap: () => number | undefined;
+  readonly snapshot: () => StderrSnapshot;
 };
 
 type BoundedWiring = {
@@ -244,7 +243,7 @@ function collectStderr(
 ): StderrCollector {
   if (tailBytes <= 0) {
     const text = collectSshDiagnostic(stderr);
-    return { text, overflow: () => false, gap: () => undefined };
+    return { snapshot: () => ({ text: text(), overflow: false }) };
   }
   const head: Array<Buffer> = [];
   let headBytes = 0;
@@ -271,19 +270,16 @@ function collectStderr(
     cached ??= stderrSnapshot(head, tail, headBytes, dropped);
     return cached;
   };
-  return {
-    text: () => snapshot().text,
-    overflow: () => dropped > 0,
-    gap: () => snapshot().gap,
-  };
+  return { snapshot };
 }
 
 /**
- * Decode the head and the tail as the one string the caller reads, and locate
- * the gap in that string: the code-unit offset where the byte at the head
- * bound starts. A streaming decode leaves an incomplete trailing sequence
- * unflushed, which is exactly the offset in the joined text where the next
- * character begins, whether the tail completes it or not.
+ * Decode a head and tail that a gap separates without inventing a character at
+ * the boundary. A contiguous stream is decoded whole. With dropped bytes, the
+ * head stops before its incomplete trailing sequence and the tail skips at
+ * most the three continuation bytes that belonged to a character the head
+ * started, so each part is decoded on its own character boundaries and the gap
+ * is the head text's length.
  */
 function stderrSnapshot(
   head: ReadonlyArray<Buffer>,
@@ -292,13 +288,27 @@ function stderrSnapshot(
   dropped: number,
 ): StderrSnapshot {
   const joined = Buffer.concat([...head, tail]);
-  const text = joined.toString('utf8');
-  if (dropped === 0) return { text };
-  const gap = new TextDecoder('utf-8', { ignoreBOM: true }).decode(
+  if (dropped === 0) {
+    return { text: joined.toString('utf8'), overflow: false };
+  }
+  const headText = new TextDecoder('utf-8', { ignoreBOM: true }).decode(
     joined.subarray(0, headBytes),
     { stream: true },
-  ).length;
-  return { text, gap };
+  );
+  let tailStart = headBytes;
+  const maxSkip = Math.min(3, joined.length - headBytes);
+  while (
+    tailStart - headBytes < maxSkip &&
+    isContinuationByte(joined[tailStart])
+  ) {
+    tailStart += 1;
+  }
+  const tailText = joined.subarray(tailStart).toString('utf8');
+  return { text: headText + tailText, overflow: true, gap: headText.length };
+}
+
+function isContinuationByte(byte: number): boolean {
+  return byte >= 0x80 && byte <= 0xbf;
 }
 
 /** Append one chunk under the caller's byte bound, flagging dropped bytes. */
@@ -335,15 +345,14 @@ function wireBoundedProcess(wiring: BoundedWiring): void {
     }),
   );
   process.onClose((code, signal) => {
-    const diagnostic = stderr.text();
-    const diagnosticGap = stderr.gap();
+    const snapshot = stderr.snapshot();
     finish({
       outcome: 'ended',
       stdout: state.stdout,
       stdoutOverflow: state.overflow,
-      diagnostic,
-      stderrOverflow: stderr.overflow(),
-      ...(diagnosticGap !== undefined && { diagnosticGap }),
+      diagnostic: snapshot.text,
+      stderrOverflow: snapshot.overflow,
+      ...(snapshot.gap !== undefined && { diagnosticGap: snapshot.gap }),
       code,
       signal,
     });
@@ -370,7 +379,11 @@ function runBoundedSsh(
     resolve(end);
   };
   const fail = (reason: 'client_missing' | 'timed_out' | 'cancelled') =>
-    finish({ outcome: 'failed', reason, diagnostic: stderr.text() });
+    finish({
+      outcome: 'failed',
+      reason,
+      diagnostic: stderr.snapshot().text,
+    });
   const onAbort = () => fail('cancelled');
   const timer = setTimeout(() => fail('timed_out'), limits.deadlineMs);
 

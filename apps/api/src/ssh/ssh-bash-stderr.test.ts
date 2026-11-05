@@ -117,6 +117,29 @@ describe('remote bash stderr tail', () => {
     expect(outcome.diagnosticGap).toBe(SSH_DIAGNOSTIC_BYTES - 1);
   });
 
+  it('decodes an incomplete head and the tail on separate boundaries', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    const headFiller = 'h'.repeat(SSH_DIAGNOSTIC_BYTES - 4);
+    process.stderr.write(`${headFiller}aaa`);
+    // The last head byte is the lead of a two-byte character the head cut.
+    process.stderr.write(Buffer.from([0xc3]));
+    // Bytes between the head and the tail are the dropped gap.
+    process.stderr.write('dropped-bytes');
+    const tail = `KEY-ABCDEF zzz${'q'.repeat(64 - 14)}`;
+    process.stderr.write(tail);
+    process.close(0);
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    // Neither part invents a replacement character at the gap.
+    expect(outcome.diagnostic).toBe(`${headFiller}aaa${tail}`);
+    expect(outcome.diagnostic).not.toContain('\uFFFD');
+    expect(outcome.diagnosticGap).toBe(headFiller.length + 3);
+  });
+
   it('keeps its own copy of the head, not a view of the chunk', async () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);

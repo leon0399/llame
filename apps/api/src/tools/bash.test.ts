@@ -34,6 +34,7 @@ import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { expectRedacted, stubArtifactWrites } from '../testing/support';
 
 function testContext(
   toolCallId = 'call-1',
@@ -554,16 +555,7 @@ describe('bash durable admission', () => {
         payload: null,
         createdAt: new Date(),
       });
-    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
-    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
-      {
-        id: 'artifact-1',
-        createdAt: new Date('2026-11-05T00:00:00.000Z'),
-      },
-    );
-    const insertParts = vi
-      .spyOn(ArtifactsRepository.prototype, 'insertParts')
-      .mockResolvedValue(undefined);
+    const insertParts = stubArtifactWrites();
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
     try {
       const result = await runTool(
@@ -577,26 +569,20 @@ describe('bash durable admission', () => {
 
       expect(result).toMatchObject({ status: 'success' });
       const shown = JSON.stringify(result);
-      expect(shown).toContain('[REDACTED]');
-      expect(shown).not.toContain(provider);
-      expect(shown).not.toContain(mcp);
+      expectRedacted(shown, [provider, mcp]);
       expect(shown).toContain(knowledge);
 
       const parts = insertParts.mock.calls
         .flatMap(([, written]) => written)
         .map((part) => part.content.toString('utf8'))
         .join('\n');
-      expect(parts).toContain('[REDACTED]');
-      expect(parts).not.toContain(provider);
-      expect(parts).not.toContain(mcp);
+      expectRedacted(parts, [provider, mcp]);
       expect(parts).toContain(knowledge);
 
       const events = append.mock.calls
         .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
         .join('\n');
-      expect(events).toContain('[REDACTED]');
-      expect(events).not.toContain(provider);
-      expect(events).not.toContain(mcp);
+      expectRedacted(events, [provider, mcp]);
       expect(events).toContain(knowledge);
     } finally {
       await rm(directory, { recursive: true, force: true });

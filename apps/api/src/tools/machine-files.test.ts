@@ -18,7 +18,6 @@ import {
   type ProtocolPeer,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
-import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { bashTool } from './bash';
 import { executeMachineNative } from './machine-files';
 import {
@@ -29,6 +28,7 @@ import {
 import { runTool } from './runner';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { expectRedacted, stubArtifactWrites } from '../testing/support';
 import { type ToolContext } from './types';
 import { type ToolMediaStore } from '../media/tool-media-store';
 import { createWorkspaceRootCell } from './workspace-path';
@@ -955,20 +955,6 @@ describe('Machine bash', () => {
     truncated: false,
   };
 
-  /** Artifact writes, captured instead of hitting the database. */
-  function stubArtifacts() {
-    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
-    vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
-      {
-        id: 'artifact-1',
-        createdAt: new Date('2026-11-05T00:00:00.000Z'),
-      },
-    );
-    return vi
-      .spyOn(ArtifactsRepository.prototype, 'insertParts')
-      .mockResolvedValue(undefined);
-  }
-
   it('redacts configured credentials from the result, parts, and native.result', async () => {
     const provider = 'PROVIDER-CANARY-7f3';
     const mcp = 'MCP-HEADER-CANARY-2b9';
@@ -991,7 +977,7 @@ describe('Machine bash', () => {
       },
     });
     const { append } = stubFence();
-    const insertParts = stubArtifacts();
+    const insertParts = stubArtifactWrites();
 
     const result = await runTool(
       bashTool,
@@ -1005,26 +991,20 @@ describe('Machine bash', () => {
     );
 
     const shown = JSON.stringify(result);
-    expect(shown).toContain('[REDACTED]');
-    expect(shown).not.toContain(provider);
-    expect(shown).not.toContain(mcp);
+    expectRedacted(shown, [provider, mcp]);
     expect(shown).toContain(knowledge);
 
     const parts = insertParts.mock.calls
       .flatMap(([, written]) => written)
       .map((part) => part.content.toString('utf8'))
       .join('\n');
-    expect(parts).toContain('[REDACTED]');
-    expect(parts).not.toContain(provider);
-    expect(parts).not.toContain(mcp);
+    expectRedacted(parts, [provider, mcp]);
     expect(parts).toContain(knowledge);
 
     const events = append.mock.calls
       .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
       .join('\n');
-    expect(events).toContain('[REDACTED]');
-    expect(events).not.toContain(provider);
-    expect(events).not.toContain(mcp);
+    expectRedacted(events, [provider, mcp]);
     expect(events).toContain(knowledge);
 
     const session = await peer.session(0);

@@ -348,7 +348,7 @@ function commandStderr(
   const trailer = stderr.lastIndexOf(`${nonce}:end:`);
   const end = trailer < start ? stderr.length : trailer;
   const gapAt =
-    diagnosticGap !== undefined && diagnosticGap > start && diagnosticGap < end
+    diagnosticGap !== undefined && diagnosticGap >= start && diagnosticGap < end
       ? diagnosticGap - start
       : undefined;
   return {
