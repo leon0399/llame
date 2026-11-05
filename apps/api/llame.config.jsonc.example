@@ -104,10 +104,10 @@
     // --- opencode-go block: end ---
 
     // A System One decision endpoint (experimental decision lane). It serves
-    // the `decisions` block, never a models[] entry, and both the key and the
-    // baseUrl are required. These are the routes verified on 2026-11-05; the
-    // wire is the same on each, so only the destination, credential, and model
-    // id differ.
+    // the `decisionModels[]` catalogue, never a models[] entry, and both the
+    // key and the baseUrl are required. These are the routes verified on
+    // 2026-11-05; the wire is the same on each, so only the destination,
+    // credential, and model id differ.
     // {
     //   "id": "opencode-decisions",
     //   "type": "system-one",
@@ -537,7 +537,7 @@
   //   // model reads inline; results beyond it stay in the call's artifact.
   //   "fetchLimit": 20,
   //   // Optional ranking of this call's results by a decision model from
-  //   // `decisions.models[]`. Absent means the tool never asks one: there is no
+  //   // `decisionModels[]`. Absent means the tool never asks one: there is no
   //   // "off" value. "shadow" logs the order and leaves the output alone; "on"
   //   // applies it before every cap and the artifact are built.
   //   "rerank": { "mode": "shadow", "model": "jev-openrouter" },
@@ -552,23 +552,21 @@
   // their own usage and never folded into a Run's message usage. A TOOL opts in
   // through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`),
   // which names one of these ids; see docs/product/operator/decisions.md.
-  // "decisions": {
-  //   "models": [
-  //     {
-  //       "id": "jev-opencode",
-  //       "provider": "opencode-decisions",
-  //       "model": "jev-1.13",
-  //     },
-  //     {
-  //       "id": "jev-openrouter",
-  //       "provider": "openrouter-decisions",
-  //       "model": "~typesafe/jev-latest",
-  //       // Fallback input price for a wire that reports no usage.cost (the
-  //       // native TypeSafe wire); a reported cost always wins.
-  //       "pricingUsdPer1M": { "input": 0.042 },
-  //     },
-  //   ],
-  // },
+  // "decisionModels": [
+  //   {
+  //     "id": "jev-opencode",
+  //     "provider": "opencode-decisions",
+  //     "model": "jev-1.13",
+  //   },
+  //   {
+  //     "id": "jev-openrouter",
+  //     "provider": "openrouter-decisions",
+  //     "model": "~typesafe/jev-latest",
+  //     // Fallback input price for a wire that reports no usage.cost (the
+  //     // native TypeSafe wire); a reported cost always wins.
+  //     "pricingUsdPer1M": { "input": 0.042 },
+  //   },
+  // ],
 
   // Run limits — every one is OPT-IN. Interpolated numbers must be
   // whole-value quoted tokens.
@@ -958,7 +956,7 @@
     //   "maxBytesRead": 33554432,
     //   "maxFileBytes": null,
     //   // Optional ranking of the walk's file runs by a decision model from
-    //   // `decisions.models[]`, with the same "shadow" | "on" modes as
+    //   // `decisionModels[]`, with the same "shadow" | "on" modes as
     //   // webSearch.rerank; absent means this tool never asks one.
     //   "rerank": { "mode": "shadow", "model": "jev-openrouter" }
     // },

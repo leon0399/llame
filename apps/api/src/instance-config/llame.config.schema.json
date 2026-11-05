@@ -477,7 +477,7 @@
         "model": {
           "type": "string",
           "minLength": 1,
-          "description": "A `decisions.models[].id` (boot failure if unknown)."
+          "description": "A `decisionModels[].id` (boot failure if unknown)."
         }
       }
     },
@@ -747,19 +747,6 @@
       "description": "Provider connections (providers-and-models-as-code, #167). Supersedes the OPENAI_API_KEY / OPENAI_BASE_URL bare environment variables — those names remain valid {env:...} interpolation inputs for an entry's key/baseUrl.",
       "items": { "$ref": "#/$defs/providerEntry" }
     },
-    "decisions": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Optional System One decision-model catalogue (experimental). Absent means no decision model exists: no client is built and every tool keeps its canonical order. It is a catalogue only — each entry names one `providers[]` entry of `type: \"system-one\"` and the model it answers with; those references and id uniqueness are checked at startup, because the JSON Schema cannot express them. A tool reranks through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names a catalogue id. Decision calls are side calls: they are logged, never folded into a Run's message usage. See docs/product/operator/decisions.md.",
-      "required": ["models"],
-      "properties": {
-        "models": {
-          "type": "array",
-          "description": "The catalogue. Ids are unique (boot failure otherwise) and are what a tool's `rerank.model` references.",
-          "items": { "$ref": "#/$defs/decisionModel" }
-        }
-      }
-    },
     "models": {
       "type": "array",
       "description": "The executable model catalog (providers-and-models-as-code, #167), superseding the formerly hardcoded server catalog. Each entry's `provider` must reference a `providers[].id`.",
@@ -769,6 +756,11 @@
       "type": "array",
       "description": "Declared embedding models (chat-search-embeddings). Optional; an instance declaring none is unchanged from today and schedules no embedding work.",
       "items": { "$ref": "#/$defs/embeddingModelEntry" }
+    },
+    "decisionModels": {
+      "type": "array",
+      "description": "Optional System One decision-model catalogue (experimental). Absent means no decision model exists: no client is built and every tool keeps its canonical order. It is a catalogue only — each entry names one `providers[]` entry of `type: \"system-one\"`, the model it answers with, and an id that is unique; those references and id uniqueness are checked at startup, because the JSON Schema cannot express them. A tool reranks through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names a catalogue id. Decision calls are side calls: they are logged, never folded into a Run's message usage. See docs/product/operator/decisions.md.",
+      "items": { "$ref": "#/$defs/decisionModel" }
     },
     "search": {
       "type": "object",
@@ -813,7 +805,7 @@
         },
         "rerank": {
           "$ref": "#/$defs/toolRerank",
-          "description": "Optional ranking of this call's results by a `decisions.models[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
+          "description": "Optional ranking of this call's results by a `decisionModels[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
         }
       }
     },
@@ -1044,7 +1036,7 @@
             },
             "rerank": {
               "$ref": "#/$defs/toolRerank",
-              "description": "Optional ranking of the walk's file runs by a `decisions.models[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
+              "description": "Optional ranking of the walk's file runs by a `decisionModels[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
             }
           }
         },

@@ -16,7 +16,7 @@ export type ToolRerankMode = (typeof TOOL_RERANK_MODES)[number];
 /** Resolved rerank settings of one tool. */
 export type ToolRerankConfig = {
   readonly mode: ToolRerankMode;
-  /** A `decisions.models[].id`; the boot loader proves it exists. */
+  /** A `decisionModels[].id`; the boot loader proves it exists. */
   readonly model: string;
 };
 

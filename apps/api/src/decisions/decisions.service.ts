@@ -39,7 +39,7 @@ export type JudgeCandidate = {
 
 export type JudgeCandidatesInput = {
   /**
-   * A `decisions.models[].id`: the catalogue entry whose client judges this
+   * A `decisionModels[].id`: the catalogue entry whose client judges this
    * call. The tool reads it from its own `rerank` block.
    */
   readonly model: string;
@@ -239,7 +239,7 @@ export class DecisionsService implements DecisionJudge {
     instanceConfig: Pick<InstanceConfigService, 'config'>,
   ) {
     const clients = new Map<string, DecisionClient>();
-    for (const entry of instanceConfig.config.decisions?.models ?? []) {
+    for (const entry of instanceConfig.config.decisionModels ?? []) {
       const provider = instanceConfig.config.providers.find(
         (candidate) => candidate.id === entry.provider,
       );

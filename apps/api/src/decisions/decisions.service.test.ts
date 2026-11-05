@@ -74,7 +74,7 @@ function throwingClient(): DecisionClient {
 }
 
 function configWith(
-  decisions: LlameConfig['decisions'],
+  decisionModels: LlameConfig['decisionModels'],
   providers: LlameConfig['providers'] = [
     {
       id: 'opencode-decisions',
@@ -89,7 +89,7 @@ function configWith(
     config: {
       ...BUILT_IN_DEFAULTS,
       providers,
-      ...(decisions !== undefined && { decisions }),
+      ...(decisionModels !== undefined && { decisionModels }),
     },
   };
 }
@@ -97,15 +97,13 @@ function configWith(
 const SILENT = { info: () => undefined };
 
 /** The one catalogue entry the service tests judge through. */
-const CATALOGUE: LlameConfig['decisions'] = {
-  models: [
-    {
-      id: 'jev',
-      provider: 'opencode-decisions',
-      model: 'jev-1.13',
-    },
-  ],
-};
+const CATALOGUE: LlameConfig['decisionModels'] = [
+  {
+    id: 'jev',
+    provider: 'opencode-decisions',
+    model: 'jev-1.13',
+  },
+];
 
 describe('buildJudgeRequest', () => {
   it('packs every card into one state with a fixed rubric and untrusted-data instruction', () => {
@@ -269,7 +267,7 @@ describe('judgeCandidatesWith', () => {
 });
 
 describe('DecisionsService', () => {
-  it('fails closed when the decisions block is absent', async () => {
+  it('fails closed when no decision model is configured', async () => {
     const service = new DecisionsService(configWith(undefined));
 
     await expect(service.judgeCandidates(input())).resolves.toMatchObject({
@@ -282,9 +280,7 @@ describe('DecisionsService', () => {
   it('fails closed when a catalogue entry names a provider that is not system-one', async () => {
     const service = new DecisionsService(
       configWith(
-        {
-          models: [{ id: 'jev', provider: 'openai', model: 'jev-1.13' }],
-        },
+        [{ id: 'jev', provider: 'openai', model: 'jev-1.13' }],
         [
           {
             id: 'openai',
@@ -381,20 +377,18 @@ describe('DecisionsService', () => {
     try {
       const service = new DecisionsService(
         configWith(
-          {
-            models: [
-              {
-                id: 'opencode',
-                provider: 'opencode-decisions',
-                model: 'jev-1.13',
-              },
-              {
-                id: 'openrouter',
-                provider: 'openrouter-decisions',
-                model: '~typesafe/jev-latest',
-              },
-            ],
-          },
+          [
+            {
+              id: 'opencode',
+              provider: 'opencode-decisions',
+              model: 'jev-1.13',
+            },
+            {
+              id: 'openrouter',
+              provider: 'openrouter-decisions',
+              model: '~typesafe/jev-latest',
+            },
+          ],
           [
             {
               id: 'opencode-decisions',

@@ -11,14 +11,14 @@ read_when:
 **Experimental.** A decision model answers typed questions over one state in a
 single forward pass and returns probabilities instead of generated text. This
 lane lets a tool rank its own candidates by asking one yes/no question per
-candidate. Nothing is enabled by default: without a `decisions` catalogue no
-client is built, no tool has a rerank setting, and every tool keeps its
-canonical order.
+candidate. Nothing is enabled by default: without a `decisionModels[]`
+catalogue no client is built, no tool has a rerank setting, and every tool
+keeps its canonical order.
 
-Two layers, and they do not overlap. `decisions` is a **catalogue** of decision
-models: it says which providers and model ids exist. Each **tool** decides for
-itself whether it reranks and which catalogue entry judges it, through its own
-`rerank` block (`webSearch.rerank`, `tools.grep.rerank`).
+Two layers, and they do not overlap. `decisionModels[]` is a **catalogue** of
+decision models: it says which providers and model ids exist. Each **tool**
+decides for itself whether it reranks and which catalogue entry judges it,
+through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`).
 
 The lane is a **side call**. Its tokens and cost are logged on one
 `decision.completed` line, never folded into a Run's message usage, exactly as
@@ -61,16 +61,14 @@ tuned.
 
 ```jsonc
 {
-  "decisions": {
-    "models": [
-      {
-        "id": "jev-openrouter",
-        "provider": "openrouter-decisions",
-        "model": "~typesafe/jev-latest",
-        "pricingUsdPer1M": { "input": 0.042 },
-      },
-    ],
-  },
+  "decisionModels": [
+    {
+      "id": "jev-openrouter",
+      "provider": "openrouter-decisions",
+      "model": "~typesafe/jev-latest",
+      "pricingUsdPer1M": { "input": 0.042 },
+    },
+  ],
 }
 ```
 
@@ -83,7 +81,7 @@ tuned.
 
 One client is built per catalogue id at boot and reused, so two entries on two
 routes never share an endpoint, and one entry can be a cheaper model for one
-tool. An absent `decisions` block — or an empty `models` list — means no client
+tool. An absent `decisionModels[]` array — or an empty one — means no client
 exists at all.
 
 ## 3. A tool opts in

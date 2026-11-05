@@ -41,21 +41,19 @@ const OPENROUTER_PROVIDER = {
   baseUrl: 'https://openrouter.ai/api/v1',
 };
 
-const CATALOGUE = {
-  models: [
-    {
-      id: 'opencode',
-      provider: 'opencode-decisions',
-      model: 'jev-1.13',
-    },
-    {
-      id: 'openrouter',
-      provider: 'openrouter-decisions',
-      model: '~typesafe/jev-latest',
-      pricingUsdPer1M: { input: 0.042 },
-    },
-  ],
-};
+const CATALOGUE = [
+  {
+    id: 'opencode',
+    provider: 'opencode-decisions',
+    model: 'jev-1.13',
+  },
+  {
+    id: 'openrouter',
+    provider: 'openrouter-decisions',
+    model: '~typesafe/jev-latest',
+    pricingUsdPer1M: { input: 0.042 },
+  },
+];
 
 const WEB_SEARCH = {
   engines: [{ id: 'duckduckgo', type: 'duckduckgo' }],
@@ -63,7 +61,7 @@ const WEB_SEARCH = {
 };
 
 function configWith(
-  decisions: UnknownRecord | undefined,
+  decisionModels: ReadonlyArray<unknown> | undefined,
   options: {
     readonly providers?: ReadonlyArray<unknown>;
     readonly webSearch?: UnknownRecord;
@@ -72,94 +70,83 @@ function configWith(
 ): void {
   writeConfig({
     providers: options.providers ?? [SYSTEM_ONE_PROVIDER, OPENROUTER_PROVIDER],
-    ...(decisions !== undefined && { decisions }),
+    ...(decisionModels !== undefined && { decisionModels }),
     ...(options.webSearch !== undefined && { webSearch: options.webSearch }),
     ...(options.grep !== undefined && { tools: { grep: options.grep } }),
   });
 }
 
-describe('decisions config', () => {
-  it('is absent when the block is not configured', () => {
+describe('decisionModels config', () => {
+  it('is absent when the array is not configured', () => {
     configWith(undefined);
-    expect(loadInstanceConfig().decisions).toBeUndefined();
+    expect(loadInstanceConfig().decisionModels).toBeUndefined();
   });
 
   it('resolves the catalogue entries with their provider, model, and price', () => {
     configWith(CATALOGUE);
 
-    expect(loadInstanceConfig().decisions).toEqual({
-      models: [
-        {
-          id: 'opencode',
-          provider: 'opencode-decisions',
-          model: 'jev-1.13',
-        },
-        {
-          id: 'openrouter',
-          provider: 'openrouter-decisions',
-          model: '~typesafe/jev-latest',
-          pricingUsdPer1M: { input: 0.042 },
-        },
-      ],
-    });
+    expect(loadInstanceConfig().decisionModels).toEqual([
+      {
+        id: 'opencode',
+        provider: 'opencode-decisions',
+        model: 'jev-1.13',
+      },
+      {
+        id: 'openrouter',
+        provider: 'openrouter-decisions',
+        model: '~typesafe/jev-latest',
+        pricingUsdPer1M: { input: 0.042 },
+      },
+    ]);
   });
 
   it('accepts an empty catalogue and builds no client for it', () => {
-    configWith({ models: [] });
+    configWith([]);
 
-    expect(loadInstanceConfig().decisions).toEqual({ models: [] });
+    expect(loadInstanceConfig().decisionModels).toEqual([]);
   });
 
   it('rejects a duplicate catalogue id', () => {
-    configWith({
-      models: [
-        { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
-        { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
-      ],
-    });
+    configWith([
+      { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+      { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+    ]);
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'decisions.models: duplicate decision model id "jev"',
+        'decisionModels: duplicate decision model id "jev"',
       ),
     );
   });
 
   it('rejects a catalogue entry naming a provider that does not exist', () => {
-    configWith({
-      models: [{ id: 'jev', provider: 'missing', model: 'jev-1.13' }],
-    });
+    configWith([{ id: 'jev', provider: 'missing', model: 'jev-1.13' }]);
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'decisions.models[jev].provider: unknown provider id "missing" (not defined in providers[])',
+        'decisionModels[jev].provider: unknown provider id "missing" (not defined in providers[])',
       ),
     );
   });
 
   it('rejects a catalogue entry naming a provider that is not a system-one entry', () => {
-    configWith(
-      { models: [{ id: 'jev', provider: 'openai', model: 'jev-1.13' }] },
-      {
-        providers: [{ id: 'openai', type: 'openai-responses', key: 'sk-test' }],
-      },
-    );
+    configWith([{ id: 'jev', provider: 'openai', model: 'jev-1.13' }], {
+      providers: [{ id: 'openai', type: 'openai-responses', key: 'sk-test' }],
+    });
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'decisions.models[jev].provider: provider "openai" has type "openai-responses", not "system-one"',
+        'decisionModels[jev].provider: provider "openai" has type "openai-responses", not "system-one"',
       ),
     );
   });
 
   it('rejects a catalogue model id that resolves blank', () => {
-    configWith({
-      models: [{ id: 'jev', provider: 'opencode-decisions', model: '   ' }],
-    });
+    configWith([{ id: 'jev', provider: 'opencode-decisions', model: '   ' }]);
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'decisions.models[jev].model: must resolve to a nonblank string',
+        'decisionModels[jev].model: must resolve to a nonblank string',
       ),
     );
   });
@@ -201,7 +188,7 @@ describe('per-tool rerank config', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'webSearch.rerank.model: unknown decision model id "missing" (not defined in decisions.models)',
+        'webSearch.rerank.model: unknown decision model id "missing" (not defined in decisionModels[])',
       ),
     );
   });
@@ -213,7 +200,7 @@ describe('per-tool rerank config', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'tools.grep.rerank.model: unknown decision model id "missing" (not defined in decisions.models)',
+        'tools.grep.rerank.model: unknown decision model id "missing" (not defined in decisionModels[])',
       ),
     );
   });

@@ -59,7 +59,7 @@ below state additional ordering where a change needs it.
 - [LiteLLM gateway](providers/litellm-gateway.md): `openai-completions`
   entries for vLLM-served models, token usage, and reasoning effort.
 - [Decisions (experimental)](decisions.md): the `system-one` provider type,
-  the `decisions` block, its routes and prices, and the rerank modes.
+  the `decisionModels[]` catalogue, its routes and prices, and the rerank modes.
 - [Horizontal scaling](scaling.md): API and worker topology, worker profiles,
   and capacity.
 - [Observability](observability.md): Sentry DSNs and environments per

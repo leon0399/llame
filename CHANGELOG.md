@@ -5,8 +5,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Experimental: a System One decision lane.** A new provider `type`,
   `system-one`, speaks the one JSON wire every verified Jev route answers —
   `POST {baseUrl}/systemone` with `{ model, state, questions }` in and
-  `{ model, answers, usage }` back — and the new optional `decisions` block is a
-  catalogue of decision models: `{ id, provider, model, pricingUsdPer1M? }`,
+  `{ model, answers, usage }` back — and the new optional `decisionModels[]`
+  array lists the decision models: `{ id, provider, model, pricingUsdPer1M? }`,
   where ids are unique and every `provider` must be a `providers[]` entry of
   `type: "system-one"`. Each TOOL owns whether it reranks: `webSearch.rerank`
   and `tools.grep.rerank` take `{ mode: "shadow" | "on", model: <catalogue id> }`,

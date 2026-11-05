@@ -30,7 +30,6 @@ import {
   type OpenCodeGoProviderConfig,
   type ProviderConfig,
   type SystemOneProviderConfig,
-  type DecisionsConfig,
   type DecisionModelConfig,
   type RawDecisionModelEntry,
   type RawProviderEntry,
@@ -303,7 +302,7 @@ function resolveToolNumbers(
  * explicit `null`, and an empty-resolving token all mean "no bound", and zero,
  * a negative number, or a fraction fails startup naming the field. An absent
  * or `null` object bounds nothing and reranks nothing. `rerank.model` must name
- * a `decisions.models[].id`, so the catalogue is resolved first.
+ * a `decisionModels[].id`, so the catalogue is resolved first.
  */
 function resolveGrepBounds(
   raw: RawInstanceConfig | undefined,
@@ -362,7 +361,7 @@ function resolveToolRerank(
   }
   if (!decisionModelIds.has(model)) {
     throw new InstanceConfigError(
-      `${configPath}.model: unknown decision model id "${model}" (not defined in decisions.models)`,
+      `${configPath}.model: unknown decision model id "${model}" (not defined in decisionModels[])`,
     );
   }
   return { mode: rerank.mode, model };
@@ -596,13 +595,13 @@ export function loadInstanceConfig(
   const mcpServers = resolveMcpServers(raw, env);
   // The catalogue resolves first: `tools.grep.rerank` and `webSearch.rerank`
   // name a catalogue id, and that reference is checked while resolving them.
-  const decisions = resolveDecisions(raw, providersById);
+  const decisionModels = resolveDecisionModels(raw, providersById);
   const { embeddingModels, search, webSearch, tools } = resolveSearchSettings(
     raw,
     env,
     providersById,
     models,
-    decisions,
+    decisionModels,
   );
 
   return {
@@ -619,9 +618,9 @@ export function loadInstanceConfig(
     providers,
     models,
     embeddingModels,
+    ...(decisionModels !== undefined && { decisionModels }),
     search,
     ...(webSearch !== undefined && { webSearch }),
-    ...(decisions !== undefined && { decisions }),
   };
 }
 
@@ -630,10 +629,10 @@ function resolveSearchSettings(
   env: NodeJS.ProcessEnv,
   providersById: ReadonlyMap<string, ProviderConfig>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
-  decisions: DecisionsConfig | undefined,
+  decisionModels: ReadonlyArray<DecisionModelConfig> | undefined,
 ) {
   const decisionModelIds = new Set(
-    decisions?.models.map((entry) => entry.id) ?? [],
+    decisionModels?.map((entry) => entry.id) ?? [],
   );
   const tools = resolveToolsConfig(raw, env, decisionModelIds);
   const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
@@ -651,40 +650,38 @@ function resolveSearchSettings(
 }
 
 /**
- * Resolve the optional `decisions` block (experimental decision lane). It is a
- * CATALOGUE only — each entry names a decision model, and a tool's own rerank
- * block references one by id. The cross-array references the JSON Schema
- * cannot express are checked here: ids are unique, and every `provider` must
- * exist AND be of `type: 'system-one'`, so a chat provider named by mistake
- * fails at boot instead of at the first decision call. Absent means no
- * decision model exists — no client is built and every tool keeps its
+ * Resolve the optional `decisionModels[]` catalogue (experimental decision
+ * lane). It is a CATALOGUE only — each entry names a decision model, and a
+ * tool's own rerank block references one by id. The cross-array references the
+ * JSON Schema cannot express are checked here: ids are unique, and every
+ * `provider` must exist AND be of `type: 'system-one'`, so a chat provider
+ * named by mistake fails at boot instead of at the first decision call. Absent
+ * means no decision model exists — no client is built and every tool keeps its
  * canonical order.
  */
-function resolveDecisions(
+function resolveDecisionModels(
   raw: RawInstanceConfig | undefined,
   providersById: ReadonlyMap<string, ProviderConfig>,
-): DecisionsConfig | undefined {
-  const section = raw?.decisions;
-  if (section === undefined) return undefined;
+): ReadonlyArray<DecisionModelConfig> | undefined {
+  const entries = raw?.decisionModels;
+  if (entries === undefined) return undefined;
 
   const seenIds = new Set<string>();
-  const models = section.models.map((entry) => {
+  return entries.map((entry) => {
     const id = entry.id.trim();
     if (id.length === 0) {
       throw new InstanceConfigError(
-        'decisions.models: every id must resolve to a nonblank string',
+        'decisionModels: every id must resolve to a nonblank string',
       );
     }
     if (seenIds.has(id)) {
       throw new InstanceConfigError(
-        `decisions.models: duplicate decision model id "${id}"`,
+        `decisionModels: duplicate decision model id "${id}"`,
       );
     }
     seenIds.add(id);
     return resolveDecisionModel(entry, id, providersById);
   });
-
-  return { models };
 }
 
 /** One catalogue entry: its id is unique, its provider is a `system-one` entry. */
@@ -697,19 +694,19 @@ function resolveDecisionModel(
   const provider = providersById.get(providerId);
   if (provider === undefined) {
     throw new InstanceConfigError(
-      `decisions.models[${id}].provider: unknown provider id "${providerId}" (not defined in providers[])`,
+      `decisionModels[${id}].provider: unknown provider id "${providerId}" (not defined in providers[])`,
     );
   }
   if (provider.type !== 'system-one') {
     throw new InstanceConfigError(
-      `decisions.models[${id}].provider: provider "${providerId}" has type "${provider.type}", not "system-one"`,
+      `decisionModels[${id}].provider: provider "${providerId}" has type "${provider.type}", not "system-one"`,
     );
   }
 
   const model = entry.model.trim();
   if (model.length === 0) {
     throw new InstanceConfigError(
-      `decisions.models[${id}].model: must resolve to a nonblank string`,
+      `decisionModels[${id}].model: must resolve to a nonblank string`,
     );
   }
 

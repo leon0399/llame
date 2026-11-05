@@ -126,8 +126,8 @@ export type SystemOneProviderConfig = {
  * Chat Completions wire against the OpenCode Go subscription gateway, at a
  * destination fixed in llame's code, from a required `key` and no endpoint
  * field of its own; `system-one` speaks the System One decision wire for the
- * experimental `decisions` block, from a required `key` and a required
- * `baseUrl`, and never serves a `models[]` entry.
+ * experimental `decisionModels[]` catalogue, from a required `key` and a
+ * required `baseUrl`, and never serves a `models[]` entry.
  * This set is strict-closed on purpose — a schema that advertised a `type`
  * it cannot execute would fail at request time instead of at the offending
  * config path.
@@ -311,25 +311,12 @@ export type DecisionModelConfig = {
   readonly pricingUsdPer1M?: { readonly input: number };
 };
 
-/**
- * Resolved `decisions` block; absent means no decision model exists. It is a
- * catalogue only: whether a tool reranks, and with which entry, is the tool's
- * own setting (`webSearch.rerank`, `tools.grep.rerank`).
- */
-export type DecisionsConfig = {
-  readonly models: ReadonlyArray<DecisionModelConfig>;
-};
-
-/** The still-uninterpolated `decisions` block once schema-validated. */
+/** The still-uninterpolated `decisionModels[]` entry once schema-validated. */
 export type RawDecisionModelEntry = {
   id: string;
   provider: string;
   model: string;
   pricingUsdPer1M?: { input: number };
-};
-
-export type RawDecisionsConfig = {
-  models: Array<RawDecisionModelEntry>;
 };
 
 /**
@@ -599,9 +586,9 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
   embeddingModels?: Array<RawEmbeddingModelEntry>;
+  decisionModels?: Array<RawDecisionModelEntry>;
   search?: RawSearchConfig;
   webSearch?: RawWebSearchConfig;
-  decisions?: RawDecisionsConfig;
 }
 
 export type RewriteWebAdapterConfig = {
@@ -766,15 +753,6 @@ export type LlameConfig = {
   /** Operator web search engines and chain; absent when not configured. */
   webSearch?: WebSearchConfig;
   /**
-   * Optional System One decision-model catalogue (experimental). Absent means
-   * no decision model exists: no client is built, no tool consults one, and
-   * every tool keeps its canonical order. A tool reranks only through its own
-   * `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names one
-   * catalogue id. Decision calls are side calls — they are logged with their
-   * own usage and never folded into a Run's message usage aggregate.
-   */
-  decisions?: DecisionsConfig;
-  /**
    * Operator-managed skill source directories (system-provided-skills D1):
    * ordered collection directories whose immediate child directories are skill
    * packages. Later sources override earlier sources by package name. These are
@@ -832,6 +810,15 @@ export type LlameConfig = {
    * today (off-by-default; part of the exit contract).
    */
   embeddingModels: Array<EmbeddingModelCatalogEntry>;
+  /**
+   * Optional System One decision-model catalogue (experimental). Absent means
+   * no decision model exists: no client is built, no tool consults one, and
+   * every tool keeps its canonical order. A tool reranks only through its own
+   * `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names one
+   * catalogue id. Decision calls are side calls — they are logged with their
+   * own usage and never folded into a Run's message usage aggregate.
+   */
+  decisionModels?: ReadonlyArray<DecisionModelConfig>;
   /**
    * Per-corpus search settings (chat-search-embeddings, design D6). `chats`
    * is the only corpus this change embeds.
