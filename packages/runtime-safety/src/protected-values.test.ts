@@ -108,6 +108,32 @@ describe("protected values", () => {
     ).toBe(`xx${PROTECTED_VALUE_REDACTION_MARKER}yy`);
   });
 
+  it("keeps a containing value that starts before a contained match", () => {
+    expect(protectedValueIntervals("abcdef", ["abcd", "bc"])).toEqual([
+      { start: 0, end: 4 },
+    ]);
+    expect(redactProtectedString("abcdef", ["abcd", "bc"])).toBe(
+      `${PROTECTED_VALUE_REDACTION_MARKER}ef`,
+    );
+  });
+
+  it("coalesces every overlapping occurrence of one member", () => {
+    expect(protectedValueIntervals("aaaa", ["aa"])).toEqual([
+      { start: 0, end: 4 },
+    ]);
+    expect(redactProtectedString("aaaa", ["aa"])).toBe(
+      PROTECTED_VALUE_REDACTION_MARKER,
+    );
+  });
+
+  it("merges a long value found after the matches it contains", () => {
+    // The longest member starts first and ends last, so the merge needs the
+    // intervals in start order rather than in end order.
+    expect(
+      protectedValueIntervals("abcdefghij", ["abcdefghij", "cd", "gh"]),
+    ).toEqual([{ start: 0, end: 10 }]);
+  });
+
   it("merges partially overlapping protected values so no tail remains", () => {
     expect(protectedValueIntervals("abcdefgh", ["abcde", "defgh"])).toEqual([
       { start: 0, end: 8 },

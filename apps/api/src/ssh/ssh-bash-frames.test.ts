@@ -111,6 +111,34 @@ describe('parseSshBashFrames stderr', () => {
     expect(frames.stderr).toBe('command err\n');
   });
 
+  it('ignores a gap that falls before the command stderr start', () => {
+    const diagnostic = `${MARKER}\ncommand err\n${NONCE}:end:0\n`;
+    // The gap sits inside the marker line, so no command text follows it.
+    const frames = parseSshBashFrames(
+      Buffer.from(`${MARKER}\n`),
+      diagnostic,
+      NONCE,
+      0,
+    );
+
+    expect('stderrGapAt' in frames).toBe(false);
+    expect(frames.stderr).toBe('command err\n');
+  });
+
+  it('ignores a gap that falls where the command stderr ends', () => {
+    const diagnostic = `${MARKER}\ncommand err\n${NONCE}:end:0\n`;
+    const end = diagnostic.indexOf(`${NONCE}:end:`);
+    const frames = parseSshBashFrames(
+      Buffer.from(`${MARKER}\n`),
+      diagnostic,
+      NONCE,
+      end,
+    );
+
+    expect('stderrGapAt' in frames).toBe(false);
+    expect(frames.stderr).toBe('command err\n');
+  });
+
   it('reports empty command stderr when the trailer follows the marker line', () => {
     const frames = parseSshBashFrames(
       Buffer.from(`${MARKER}\n`),

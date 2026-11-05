@@ -1040,6 +1040,38 @@ describe('Machine bash', () => {
     expect(JSON.stringify(result)).not.toContain('SECRET');
   });
 
+  it('keeps a member prefix a finished command wrote itself', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'proc.bash': {
+          value: {
+            status: 'success',
+            exitCode: 0,
+            stdout: 'prefix SECRET-',
+            stderr: 'warn SECRET-',
+            truncated: false,
+          },
+        },
+      },
+    });
+
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'machine://devl/srv/app' },
+      context(connector, { configuredCredentials: ['SECRET-KEY'] }),
+      5,
+    );
+
+    // The daemon neither cut the capture nor timed out, so these bytes are the
+    // command's own text, not the front of a value llame dropped.
+    expect(result).toMatchObject({
+      status: 'success',
+      stdout: 'prefix SECRET-',
+      stderr: 'warn SECRET-',
+    });
+  });
+
   it('drops a member prefix a Machine timeout cut', async () => {
     stubFence();
     const { connector } = fixture({
