@@ -143,13 +143,14 @@ stream can carry a `gapAt`; an `ssh://` stdout stream is one bounded prefix,
 and a host or Machine stream has no gap.
 
 The host watcher sets `endedByLlame` for a stream when `appendBound` truncated
-that stream. It also sets `endedByLlame` for a stream that is still open when
-the deadline's drain ends, and keeps it false for a stream that closed before
-that drain. The hub sets `endedByLlame` on both streams of a
-`BashTimedOutResult`, because the daemon's deadline ended the capture. It also
-sets both streams for a `BashKnownResult` whose `truncated` flag is set, since
-the daemon's answer carries no per-stream flag; a drop that this causes in the
-other stream is the safe direction. On the `ssh://` path, each stream's
+that stream. It also sets it for both streams when the deadline settles the
+session, because the kill can cut either stream, even when that stream ends
+within the drain. It keeps it false only when the command closes naturally and
+the bound did not cut that stream. The hub sets `endedByLlame` on both streams
+of a `BashTimedOutResult`, because the daemon's deadline ended the capture. It
+also sets both streams for a `BashKnownResult` whose `truncated` flag is set,
+since the daemon's answer carries no per-stream flag; a drop that this causes
+in the other stream is the safe direction. On the `ssh://` path, each stream's
 overflow flag sets `endedByLlame`, and a stderr overflow also supplies
 `gapAt`.
 
