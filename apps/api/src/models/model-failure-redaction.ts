@@ -43,10 +43,7 @@ function redactedText(
   text: string,
   credentials: ReadonlyArray<string>,
 ): string {
-  const carriesCredential = credentials.some((credential) =>
-    text.includes(credential),
-  );
-  return carriesCredential ? redactProtectedString(text, credentials) : text;
+  return redactProtectedString(text, credentials);
 }
 
 /**
@@ -241,7 +238,7 @@ function copyProperty(
       next = redactedText(current, state.credentials);
     }
   } else if (isFailureGraph(current)) {
-    next = readRedactedGraph(current, state);
+    next = rebuildRedacted(current, state.credentials, state.copies);
   }
   Object.defineProperty(state.copy, key, { ...descriptor, value: next });
 }
@@ -266,7 +263,7 @@ function copyAccessor(
   const value = isString(read)
     ? redactedText(read, state.credentials)
     : isFailureGraph(read)
-      ? readRedactedGraph(read, state)
+      ? rebuildRedacted(read, state.credentials, state.copies)
       : read;
   Object.defineProperty(state.copy, key, {
     value,
@@ -274,15 +271,4 @@ function copyAccessor(
     enumerable: descriptor.enumerable,
     configurable: descriptor.configurable,
   });
-}
-
-/** The rebuilt or already-copied form of one nested container. */
-function readRedactedGraph(
-  node: FailureNode,
-  state: RebuildState,
-): FailureNode {
-  return (
-    state.copies.get(node) ??
-    rebuildRedacted(node, state.credentials, state.copies)
-  );
 }
