@@ -25,6 +25,9 @@ sources:
   - id: decision-apis
     resource: "./2026-10-08-decision-apis.md"
     title: "Decision APIs"
+  - id: landscape
+    resource: "./2026-11-05-decision-model-landscape.md"
+    title: "The decision-model landscape: open members, operator-run endpoints, VISION boundary"
 ---
 
 # System One extraction models
@@ -155,12 +158,13 @@ LLM would push the work to on-demand processing.
 
 ## llame applications
 
-Proposals, not approved features. All need a provider client for the model
-class, which llame does not have: `models[]` covers generative wires only, and
-Jev, Clef, OpenAI Decisions and Clairic each use a different request shape.
+Proposals, not approved features. All need a client for the model class, which
+llame does not have: `models[]` covers generative wires only, and Jev, Clef,
+OpenAI Decisions and Clairic each use a different request shape.
 Start with one concrete client; a shared wire follows a second backend. Every
-call sends its state to the provider, with the egress caution
-[Decision APIs](./2026-10-08-decision-apis.md) records as R1.[^decision-apis]
+call to a hosted backend sends its state to the provider, with the egress
+caution [Decision APIs](./2026-10-08-decision-apis.md) records as R1; a model
+the operator serves from an endpoint sends nothing off the host.[^decision-apis][^landscape]
 
 | ID  | Application                                                                                                                                                                                    | New relative to U1-U31                                                                                                                                 | Assessment                                                                                                                                                                                                                                                                                                              |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -216,8 +220,13 @@ Prerequisites, in dependency order:
 2. **Sync engine.** IMAP IDLE and CONDSTORE or JMAP, per-account cursors, and
    delete and move semantics. Most of the build is here.
 3. **Egress decision.** Every message goes to the extraction provider and the
-   decision provider. Open weights would remove that only after the VISION
-   deferral of llame-managed local inference is lifted.
+   decision provider. A decision model the operator serves from an endpoint
+   removes the decision half of that egress now: llame calling a
+   provider-configured endpoint is not a llame-managed runtime, so the VISION
+   deferral of bundled or downloaded inference does not apply to it. The
+   extraction half still leaves the host until an operator serves a
+   Clairic-class extractor the same way; bundling weights or a runtime with
+   llame would be the deferred capability.[^landscape]
 4. **Deferral review.** VISION defers autonomous mail actions and semantic fact
    extraction; ingest-time typed facts touch the second.
 
@@ -245,3 +254,5 @@ Prerequisites, in dependency order:
 [^cookbooks]: [TypeSafe cookbook applicability and ideas](./2026-09-23-system-one-jev/cookbooks.md)
 
 [^decision-apis]: [Decision APIs](./2026-10-08-decision-apis.md)
+
+[^landscape]: [The decision-model landscape: open members, operator-run endpoints, VISION boundary](./2026-11-05-decision-model-landscape.md)

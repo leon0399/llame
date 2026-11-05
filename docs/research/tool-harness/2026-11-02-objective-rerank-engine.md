@@ -32,6 +32,9 @@ sources:
   - id: decision-apis
     resource: "./2026-10-08-decision-apis.md"
     title: "Decision APIs (A1 recall relevance, R1-R6 cautions)"
+  - id: decision-landscape
+    resource: "./2026-11-05-decision-model-landscape.md"
+    title: "The decision-model landscape: open members, self-hostable backends, VISION boundary"
   - id: permission-cascade
     resource: "./2026-09-24-permission-classifier-cascade/report.md"
     title: "Permission classifier cascade (judge latency, relevance is not support)"
@@ -208,10 +211,18 @@ One shared engine ranks, splits and renders for every tool. Cursors such as
 - **F12. llame has no transport or accounting for side model calls.** A
   model ranker needs a new accounted lane: title generation and hosted web
   search are unaccounted today
-  (`openspec/specs/run-usage-accounting/spec.md`).
-- **F13. Private corpora limit model ranking.** Chat, Knowledge and
-  host-file text may reach a ranking provider only under an explicit
-  declaration, as with `shareRecentChats`, or through a self-hosted reranker.
+  (`openspec/specs/run-usage-accounting/spec.md`). The lane's backends are not
+  limited to hosted rerankers: a decision model on an endpoint the operator
+  runs answers the same typed question without sending passages to a third
+  party, and a wrapper reads one out of a provider llame already
+  has.[^decision-landscape]
+- **F13. Private corpora limit model ranking only when the backend is
+  hosted.** Chat, Knowledge and host-file text may reach a third-party ranking
+  provider only under an explicit declaration, as with `shareRecentChats`; a
+  backend that runs on the operator's own hardware — a self-hosted reranker, or
+  a decision model served from an endpoint the operator configured — has no
+  egress, and llame already treats an operator-configured endpoint as a
+  provider rather than as a runtime it manages.[^decision-landscape]
   Scores never reach the model: chat search already withholds every rank and
   score (`openspec/specs/chat-search/spec.md`). The permission study scored a
   useful "no measurements were provided" passage at 0.27 against a relevant
@@ -290,9 +301,9 @@ randomized control before they can rank two orders. `[INFERENCE]`
 flowchart LR
   T[search tool] -->|whole admitted result,<br/>bounded by artifact cap + deadline| A[tool adapter]
   A -->|cards + objective + query| S1[stage 1: local ranking]
-  S1 -->|top band| G{data class declared<br/>for a stage-2 backend?}
+  S1 -->|top band| G{stage-2 backend serves<br/>this data class?}
   G -- no --> K[kernel: assert permutation]
-  G -- yes --> S2[stage 2: cross-encoder or judge<br/>bounded, accounted]
+  G -- yes --> S2[stage 2: cross-encoder, judge<br/>or decision model; bounded, accounted]
   S2 --> K
   K -->|order + status| L[layout: pin anchors,<br/>fill inline budget, remainder map]
   L -->|inline part + artifact://tool-N| M[model]
@@ -326,13 +337,20 @@ flowchart LR
   the data classes it declares. It is the optional cross-encoder phase the
   chat-search study scopes over a fused top-K[^cross-lingual-recall], and the
   two-stage retrieve-then-rerank shape the code-retrieval vendors recommend[^relace].
+  - The backend is a hosted cross-encoder, or a **decision model** served by
+    an endpoint the operator configures: it answers a `noul` or `score`
+    question per band passage, and the kernel sorts by the judged
+    probability.[^decision-landscape]
+  - It judges only what stage 1 passed to it, so it orders a bounded band and
+    adds no recall.
   - The top band must fit one window. A listwise LLM backend costs one call
     per window of passages and sends their text to the provider[^rankgpt], so
     a wider band costs more calls and more egress.
   - It has a per-call input bound and a per-Run cost bound on an accounted
     `rerank` lane.
   - A deadline overflow keeps the stage-1 order with status `partial`.
-  - A self-hosted reranker has no egress.
+  - A backend on the operator's own hardware has no egress; a hosted one
+    needs the class declared.
 - **Layout** is the same rule for every tool:
   1. Pin literal-anchor findings.
   2. Fill the inline budget (15,000 units today) in rank order, keeping
@@ -422,7 +440,9 @@ Tracked by #1518:
    `search_conversations` (#1522) and `knowledge_search` (#1523) are deferred
    to their own later redesign.
 6. **Stage 2.** Backends with data-class declarations and accounting
-   (#1434-#1436), enabled per class after shadow data shows a gain.
+   (#1434-#1436), enabled per class after shadow data shows a gain. A
+   decision model on an operator-run endpoint is the option that gives the
+   private classes stage 2 with no egress.[^decision-landscape]
 
 ### Artifact format
 
@@ -466,8 +486,11 @@ Artifacts hold each tool's model text shape, not JSON:
   the conservative start.
 - **Q6. Success label.** Candidates are later artifact reads (free, biased),
   the operator's fixtures (#1433), or task outcome.
-- **Q7. Bundled local reranker.** Should llame ship a TEI-class reranker so
-  the private classes get stage 2 without egress?
+- **Q7. Which local stage-2 backend?** A self-hosted TEI-class reranker, or a
+  decision model the operator serves from an endpoint llame calls? The second
+  needs no llame-managed runtime: llame already dispatches to a provider
+  entry's `type` and `baseUrl`, and VISION's deferral covers bundling or
+  managing a model, not calling one.[^decision-landscape]
 
 [^objective-spike]: [web_search objective spike: DeepSeek ori_question effect](./2026-10-26-web-search-objective-spike/report.md)
 
@@ -476,6 +499,8 @@ Artifacts hold each tool's model text shape, not JSON:
 [^jev]: [System One and Jev: U1 recall relevance](./2026-09-23-system-one-jev/report.md)
 
 [^decision-apis]: [Decision APIs: A1 recall relevance](./2026-10-08-decision-apis.md)
+
+[^decision-landscape]: [The decision-model landscape: open members, self-hostable backends, VISION boundary](./2026-11-05-decision-model-landscape.md)
 
 [^permission-cascade]: [Permission classifier cascade: relevance is not support](./2026-09-24-permission-classifier-cascade/report.md)
 
