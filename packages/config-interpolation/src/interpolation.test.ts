@@ -120,6 +120,7 @@ describe("interpolateString — {env:...}", () => {
 
     expect(result).toEqual({
       value: "before resolved middle  after",
+      hadToken: true,
       substituted: [
         {
           value: "resolved",
@@ -130,6 +131,42 @@ describe("interpolateString — {env:...}", () => {
         },
       ],
     });
+  });
+
+  it("does not report a token after an escaped brace", () => {
+    const result = interpolateStringWithSubstitutions("{{env:IC_TEST_VAR}", {
+      IC_TEST_VAR: "never-resolved",
+    });
+
+    expect(result).toEqual({
+      value: "{env:IC_TEST_VAR}",
+      hadToken: false,
+      substituted: [],
+    });
+  });
+
+  it("positions a token correctly after an empty resolution", () => {
+    const result = interpolateStringWithSubstitutions(
+      "x{env:IC_TEST_VAR}{env:IC_TEST_SECRET}",
+      { IC_TEST_VAR: "", IC_TEST_SECRET: "tail-secret" },
+    );
+
+    expect(result.value).toBe("xtail-secret");
+    expect(result.hadToken).toBe(true);
+    expect(result.substituted).toEqual([
+      {
+        value: "tail-secret",
+        start: 1,
+        end: 12,
+        fallback: false,
+        documentLeaves: [],
+      },
+    ]);
+    for (const substitution of result.substituted) {
+      expect(result.value.slice(substitution.start, substitution.end)).toBe(
+        substitution.value,
+      );
+    }
   });
 
   it("reports each substitution's span and whether its :- fallback applied", () => {
@@ -233,6 +270,7 @@ describe("interpolateString — {path:...}", () => {
 
     expect(result).toEqual({
       value: "file-secret|",
+      hadToken: true,
       substituted: [
         {
           value: "file-secret",

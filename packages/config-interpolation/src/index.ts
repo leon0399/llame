@@ -6,6 +6,7 @@ export {
   isCredentialName,
   type InterpolationResult,
   type InterpolationSource,
+  type InterpolationSpan,
   type InterpolationSubstitution,
   type WorkspaceInterpolationResult,
   type WorkspaceInterpolationSubstitution,
