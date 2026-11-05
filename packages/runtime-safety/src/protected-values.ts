@@ -91,14 +91,14 @@ export function protectedValueIntervals(
   value: string,
   protectedValues: ReadonlyArray<string>,
 ): ReadonlyArray<ProtectedValueInterval> {
+  // One member's occurrences arrive in start order, so its overlapping or
+  // adjacent runs coalesce as they are found. Only completed runs join the
+  // cross-member list; a single-character member over a long repeated capture
+  // therefore stays one interval instead of one per occurrence.
   const matches: Array<ProtectedValueInterval> = [];
   for (const protectedValue of protectedValues) {
     if (protectedValue.length === 0) continue;
-    let index = value.indexOf(protectedValue);
-    while (index !== -1) {
-      matches.push({ start: index, end: index + protectedValue.length });
-      index = value.indexOf(protectedValue, index + 1);
-    }
+    collectMemberIntervals(value, protectedValue, matches);
   }
   if (matches.length === 0) return [];
 
@@ -106,6 +106,38 @@ export function protectedValueIntervals(
     (left, right) => left.start - right.start || left.end - right.end,
   );
   return mergeIntervals(matches);
+}
+
+/**
+ * Coalesce one member's start-ordered occurrences into completed runs. Only a
+ * new run allocates; adjacent or overlapping occurrences extend the pending
+ * one, so a repeated single-character member stays one interval.
+ */
+function collectMemberIntervals(
+  value: string,
+  protectedValue: string,
+  completed: Array<ProtectedValueInterval>,
+): void {
+  let pendingStart = -1;
+  let pendingEnd = -1;
+  let index = value.indexOf(protectedValue);
+  while (index !== -1) {
+    const end = index + protectedValue.length;
+    if (pendingStart === -1) {
+      pendingStart = index;
+      pendingEnd = end;
+    } else if (index <= pendingEnd) {
+      pendingEnd = Math.max(pendingEnd, end);
+    } else {
+      completed.push({ start: pendingStart, end: pendingEnd });
+      pendingStart = index;
+      pendingEnd = end;
+    }
+    index = value.indexOf(protectedValue, index + 1);
+  }
+  if (pendingStart !== -1) {
+    completed.push({ start: pendingStart, end: pendingEnd });
+  }
 }
 
 function mergeIntervals(

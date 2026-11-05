@@ -431,10 +431,6 @@ function appendCapture(
   text: string,
   capture: StreamBound,
 ): CapturedChunk {
-  if (used >= capture.limit) {
-    const full: CapturedChunk = { text: current, used, overflow: true };
-    return full;
-  }
   const size = boundedLength(text, capture);
   if (used + size <= capture.limit) {
     const exact: CapturedChunk = {
