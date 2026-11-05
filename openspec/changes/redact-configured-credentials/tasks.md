@@ -64,8 +64,8 @@ master
 - [x] 3.3 Route title generation's failure log through the redacted error; verify a title test where a canary credential in the upstream message is absent from the log line.
 - [x] 3.4 Verify per-wire tests with a stubbed upstream echoing the entry's resolved key: `openai-responses`, `openai-completions`, and `opencode-go` report `[REDACTED]` in the run's failure, its terminal event, and its log line; `anthropic-messages` and `openai-codex` report no key; a non-retried `openai-completions` envelope `Invalid API key.` is reported unchanged; for the "Every request kind is covered" scenario, a configured header substitution echoed in a compaction failure, a hosted web search failure, and a rejected structured generation is absent from every recorded, emitted, and logged message; and an `openai-responses` stream that fails after output begins with a plain `error` or `response.failed` envelope, the canary in its `message` and `code`, reaches the run handler and the Sentry event without the canary.
 - [x] 3.5 Update the provider failure section of each provider operator runbook to state the redaction; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
-- [ ] 3.6 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/models src/titles src/runs src/tools/web-search`, the run-failure integration tests that cover provider failures, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
-- [ ] 3.7 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
+- [x] 3.6 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/models src/titles src/runs src/tools/web-search`, the run-failure integration tests that cover provider failures, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
+- [x] 3.7 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
 - [ ] 3.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1098` in the PR body.
 
 ## 4. finalize
