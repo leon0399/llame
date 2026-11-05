@@ -52,19 +52,67 @@ export function interpolateString(
   return interpolateStringWithSubstitutions(input, env).value;
 }
 
+/**
+ * One token's contribution to a resolved string.
+ *
+ * `start` and `end` are code-unit positions in the result's `value`, so a
+ * caller can tell whether a secret landed inside a part of the value it cares
+ * about (a URL's userinfo password or query, for example) without resolving
+ * the token again. Empty resolutions are never reported — an empty string
+ * matches everywhere and would redact all output.
+ */
+export type InterpolationSubstitution = Readonly<{
+  readonly value: string;
+  readonly start: number;
+  readonly end: number;
+  /** True when the token's `:-` default supplied the value. */
+  readonly fallback: boolean;
+  /**
+   * For a `{path:…|json:…}` token, the selected document's string leaves whose
+   * own property name is credential-shaped, read from the same file read that
+   * selected the value; each leaf's JSON-escaped spelling is included when it
+   * differs. Empty for every other token.
+   */
+  readonly documentLeaves: ReadonlyArray<string>;
+}>;
+
 export type InterpolationResult = {
   readonly value: string;
   /**
-   * Resolved value of each token substituted, in order.
+   * Each token substituted, in order.
    *
    * Callers that treat interpolation as a secret source need the substituted
    * segments, not the finished string: `--auth "Bearer {env:TOKEN}"` should
    * contribute the token, not the whole argument, or a server echoing the bare
-   * secret would not be recognized. Empty resolutions are omitted — an empty
-   * string matches everywhere and would redact all output.
+   * secret would not be recognized.
    */
-  readonly substituted: ReadonlyArray<string>;
+  readonly substituted: ReadonlyArray<InterpolationSubstitution>;
 };
+
+/**
+ * Fragments whose presence in a property or header name means the value is
+ * credential-shaped, case-insensitively. Shared by the loader's configured
+ * credential set and by the JSON document leaves interpolation reports, so the
+ * two can never disagree.
+ */
+const CREDENTIAL_NAME_FRAGMENTS = [
+  "authorization",
+  "cookie",
+  "credential",
+  "token",
+  "key",
+  "secret",
+  "passw",
+  "signature",
+] as const;
+
+/** A name is credential-shaped when it contains any {@link CREDENTIAL_NAME_FRAGMENTS}. */
+export function isCredentialName(name: string): boolean {
+  const folded = name.toLowerCase();
+  return CREDENTIAL_NAME_FRAGMENTS.some((fragment) =>
+    folded.includes(fragment),
+  );
+}
 
 /**
  * As {@link interpolateString}, but also reports what each token resolved to.
@@ -73,7 +121,7 @@ export function interpolateStringWithSubstitutions(
   input: string,
   env: NodeJS.ProcessEnv = process.env,
 ): InterpolationResult {
-  const substituted: Array<string> = [];
+  const substituted: Array<InterpolationSubstitution> = [];
   let out = "";
   let i = 0;
   while (i < input.length) {
@@ -91,16 +139,16 @@ export function interpolateStringWithSubstitutions(
 
     const rest = input.slice(i);
 
-    const envMatch = matchEnvToken(rest, env, substituted);
+    const envMatch = matchEnvToken(rest, env);
     if (envMatch) {
-      out += envMatch.resolved;
+      out = appendSubstitution(out, envMatch, substituted);
       i += envMatch.length;
       continue;
     }
 
-    const pathMatch = matchPathToken(rest, substituted);
+    const pathMatch = matchPathToken(rest);
     if (pathMatch) {
-      out += pathMatch.resolved;
+      out = appendSubstitution(out, pathMatch, substituted);
       i += pathMatch.length;
       continue;
     }
@@ -111,32 +159,59 @@ export function interpolateStringWithSubstitutions(
   return { value: out, substituted };
 }
 
+function appendSubstitution(
+  out: string,
+  match: TokenMatch,
+  substituted: Array<InterpolationSubstitution>,
+): string {
+  if (match.resolved.length > 0) {
+    substituted.push({
+      value: match.resolved,
+      start: out.length,
+      end: out.length + match.resolved.length,
+      fallback: match.fallback,
+      documentLeaves: match.documentLeaves,
+    });
+  }
+  return out + match.resolved;
+}
+
 /** A token match's resolved replacement text and the source length it consumed. */
-type TokenMatch = { readonly resolved: string; readonly length: number };
+type TokenMatch = {
+  readonly resolved: string;
+  readonly length: number;
+  readonly fallback: boolean;
+  readonly documentLeaves: ReadonlyArray<string>;
+};
 
 function matchEnvToken(
   rest: string,
   env: NodeJS.ProcessEnv,
-  substituted: Array<string>,
 ): TokenMatch | undefined {
   const envMatch = ENV_TOKEN.exec(rest);
   if (!envMatch) return undefined;
   const [full, name, fallback] = envMatch;
   const resolved = resolveEnvToken(name, fallback, env);
-  if (resolved.length > 0) substituted.push(resolved);
-  return { resolved, length: full.length };
+  return {
+    resolved,
+    length: full.length,
+    fallback:
+      fallback !== undefined && (env[name] === undefined || env[name] === ""),
+    documentLeaves: [],
+  };
 }
 
-function matchPathToken(
-  rest: string,
-  substituted: Array<string>,
-): TokenMatch | undefined {
+function matchPathToken(rest: string): TokenMatch | undefined {
   const pathMatch = PATH_TOKEN.exec(rest);
   if (!pathMatch) return undefined;
   const [full, location] = pathMatch;
   const resolved = resolvePathToken(location);
-  if (resolved.length > 0) substituted.push(resolved);
-  return { resolved, length: full.length };
+  return {
+    resolved: resolved.value,
+    length: full.length,
+    fallback: false,
+    documentLeaves: resolved.documentLeaves,
+  };
 }
 
 function resolveEnvToken(
@@ -160,6 +235,12 @@ function resolveEnvToken(
   );
 }
 
+/** A `{path:…}` token's value and, for `|json:`, the credential leaves of its document. */
+type PathResolution = {
+  readonly value: string;
+  readonly documentLeaves: ReadonlyArray<string>;
+};
+
 /**
  * {path:...} reads any file the process can read, by design: the config file
  * is operator-authored deploy-time input — the same trust level as the
@@ -170,7 +251,7 @@ function resolveEnvToken(
  * Optional `|json:POINTER` (RFC 6901) parses the file as JSON and selects a
  * string. A path containing the literal `|json:` substring is unsupported.
  */
-function resolvePathToken(location: string): string {
+function resolvePathToken(location: string): PathResolution {
   const separatorAt = location.indexOf(JSON_POINTER_SEPARATOR);
   const filePath =
     separatorAt === -1 ? location : location.slice(0, separatorAt);
@@ -181,7 +262,7 @@ function resolvePathToken(location: string): string {
 
   const payload = readSecretFile(filePath);
   if (pointer === undefined) {
-    return payload.trim();
+    return { value: payload.trim(), documentLeaves: [] };
   }
   return selectJsonPointerFromPayload(payload, pointer, filePath);
 }
@@ -203,7 +284,7 @@ function selectJsonPointerFromPayload(
   payload: string,
   pointer: string,
   filePath: string,
-): string {
+): PathResolution {
   let document: JsonValue;
   try {
     // SAFETY: JSON.parse returns `any`; unknown is the I/O-boundary type that
@@ -234,7 +315,67 @@ function selectJsonPointerFromPayload(
       { kind: "path", location: filePath },
     );
   }
-  return selected;
+  // Both come from the one parse above: the set can never mix two versions of
+  // the file, even if it rotates between reads.
+  return {
+    value: selected,
+    documentLeaves: credentialDocumentLeaves(document),
+  };
+}
+
+/**
+ * The string leaves of a selected document whose own property name is
+ * credential-shaped, or that sit under such a name inside an array, plus each
+ * leaf's JSON-escaped spelling when it differs (the form a serialized copy of
+ * the document carries).
+ */
+function credentialDocumentLeaves(document: JsonValue): ReadonlyArray<string> {
+  const leaves: Array<string> = [];
+  if (isJsonObject(document)) collectObjectLeaves(document, leaves);
+  else if (isJsonArray(document)) collectArrayElementsLeaves(document, leaves);
+  return leaves;
+}
+
+/** A document object: only a child's own name makes its value a leaf. */
+function collectObjectLeaves(value: JsonObject, leaves: Array<string>): void {
+  for (const [key, child] of Object.entries(value)) {
+    if (isCredentialName(key)) {
+      collectNamedLeaves(child, leaves);
+      continue;
+    }
+    if (isJsonObject(child)) collectObjectLeaves(child, leaves);
+    else if (isJsonArray(child)) collectArrayElementsLeaves(child, leaves);
+  }
+}
+
+/** A value directly under a credential-shaped name: strings, array elements, or named children. */
+function collectNamedLeaves(value: JsonValue, leaves: Array<string>): void {
+  if (isJsonString(value)) {
+    pushCredentialLeaf(value, leaves);
+    return;
+  }
+  if (isJsonArray(value)) {
+    for (const item of value) collectNamedLeaves(item, leaves);
+    return;
+  }
+  if (isJsonObject(value)) collectObjectLeaves(value, leaves);
+}
+
+/** A document array whose elements carry no name of their own. */
+function collectArrayElementsLeaves(
+  value: ReadonlyArray<JsonValue>,
+  leaves: Array<string>,
+): void {
+  for (const item of value) {
+    if (isJsonObject(item)) collectObjectLeaves(item, leaves);
+    else if (isJsonArray(item)) collectArrayElementsLeaves(item, leaves);
+  }
+}
+
+function pushCredentialLeaf(value: string, leaves: Array<string>): void {
+  leaves.push(value);
+  const escaped = JSON.stringify(value).slice(1, -1);
+  if (escaped !== value) leaves.push(escaped);
 }
 
 /** Parsed JSON tree for secret-file pointer selection. */

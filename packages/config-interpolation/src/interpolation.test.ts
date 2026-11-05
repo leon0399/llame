@@ -16,6 +16,7 @@ import {
   interpolateString,
   interpolateStringWithSubstitutions,
   interpolateWorkspaceString,
+  isCredentialName,
 } from "./interpolation";
 import { InstanceConfigError } from "./instance-config-error";
 
@@ -119,8 +120,46 @@ describe("interpolateString — {env:...}", () => {
 
     expect(result).toEqual({
       value: "before resolved middle  after",
-      substituted: ["resolved"],
+      substituted: [
+        {
+          value: "resolved",
+          start: 7,
+          end: 15,
+          fallback: false,
+          documentLeaves: [],
+        },
+      ],
     });
+  });
+
+  it("reports each substitution's span and whether its :- fallback applied", () => {
+    const result = interpolateStringWithSubstitutions(
+      "pre {env:IC_TEST_VAR:-fb} mid {env:IC_TEST_SECRET} post",
+      { IC_TEST_SECRET: "tail-secret" },
+    );
+
+    expect(result.value).toBe("pre fb mid tail-secret post");
+    expect(result.substituted).toEqual([
+      {
+        value: "fb",
+        start: 4,
+        end: 6,
+        fallback: true,
+        documentLeaves: [],
+      },
+      {
+        value: "tail-secret",
+        start: 11,
+        end: 22,
+        fallback: false,
+        documentLeaves: [],
+      },
+    ]);
+    for (const substitution of result.substituted) {
+      expect(result.value.slice(substitution.start, substitution.end)).toBe(
+        substitution.value,
+      );
+    }
   });
 
   it("embeds a token within a larger string", () => {
@@ -194,8 +233,65 @@ describe("interpolateString — {path:...}", () => {
 
     expect(result).toEqual({
       value: "file-secret|",
-      substituted: ["file-secret"],
+      substituted: [
+        {
+          value: "file-secret",
+          start: 0,
+          end: 11,
+          fallback: false,
+          documentLeaves: [],
+        },
+      ],
     });
+  });
+
+  it("reports the credential-shaped string leaves of a selected JSON document", () => {
+    const file = tempSecretFile(
+      JSON.stringify({
+        tokens: {
+          access_token: "at-123",
+          refresh_token: "rt-456",
+          id_token: "id-789",
+          note: "not-a-secret",
+        },
+        auth: { apiKey: 'k"quote' },
+        last_refresh: "2026-01-01T00:00:00Z",
+      }),
+      "auth.json",
+    );
+
+    const result = interpolateStringWithSubstitutions(
+      `{path:${file}|json:/tokens/access_token}`,
+    );
+
+    expect(result.value).toBe("at-123");
+    expect(result.substituted).toHaveLength(1);
+    const [substitution] = result.substituted;
+    expect(substitution.value).toBe("at-123");
+    expect(substitution.documentLeaves).toEqual([
+      "at-123",
+      "rt-456",
+      "id-789",
+      'k"quote',
+      String.raw`k\"quote`,
+    ]);
+  });
+
+  it("reports credential leaves from an array under a credential-shaped name", () => {
+    const file = tempSecretFile(
+      JSON.stringify({
+        api_keys: ["key-one", "key-two"],
+        name: "not-a-secret",
+      }),
+      "keys.json",
+    );
+
+    const [substitution] = interpolateStringWithSubstitutions(
+      `{path:${file}|json:/api_keys/0}`,
+    ).substituted;
+
+    expect(substitution.value).toBe("key-one");
+    expect(substitution.documentLeaves).toEqual(["key-one", "key-two"]);
   });
 
   it("selects an own JSON member named __proto__", () => {
@@ -534,4 +630,27 @@ describe("interpolateString — redaction", () => {
       expect(errorMessage(error)).not.toContain("sk-should-never-appear");
     }
   });
+});
+
+describe("isCredentialName", () => {
+  it.each([
+    "Authorization",
+    "X-Api-Key",
+    "proxy-authorization",
+    "Cookie",
+    "Client-Credential",
+    "access_token",
+    "clientSecret",
+    "DB_PASSWORD",
+    "X-Signature",
+  ])("treats %s as credential-shaped", (name) => {
+    expect(isCredentialName(name)).toBe(true);
+  });
+
+  it.each(["X-Region", "Accept", "User-Agent", "folderId", "mode"])(
+    "treats %s as not credential-shaped",
+    (name) => {
+      expect(isCredentialName(name)).toBe(false);
+    },
+  );
 });
