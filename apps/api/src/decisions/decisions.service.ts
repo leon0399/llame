@@ -89,7 +89,10 @@ export function buildJudgeRequest(input: JudgeCandidatesInput) {
       card.key,
       {
         type: 'noul' as const,
-        instructions: input.rubric,
+        // Every question shares one state, so each one must name its card:
+        // an identical instruction on every key gives the judge nothing to
+        // tell the cards apart, and every answer converges on one value.
+        instructions: `Consider only the card keyed \`${card.key}\` in \`cards\`. ${input.rubric}`,
         criteria: { true: RELEVANCE_YES, false: RELEVANCE_NO },
       },
     ]),

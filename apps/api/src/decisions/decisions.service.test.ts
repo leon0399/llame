@@ -114,12 +114,12 @@ describe('buildJudgeRequest', () => {
     expect(questions).toEqual({
       p00: {
         type: 'noul',
-        instructions: RUBRIC,
+        instructions: `Consider only the card keyed \`p00\` in \`cards\`. ${RUBRIC}`,
         criteria: { true: RELEVANCE_YES, false: RELEVANCE_NO },
       },
       p01: {
         type: 'noul',
-        instructions: RUBRIC,
+        instructions: `Consider only the card keyed \`p01\` in \`cards\`. ${RUBRIC}`,
         criteria: { true: RELEVANCE_YES, false: RELEVANCE_NO },
       },
     });
@@ -138,7 +138,10 @@ describe('buildJudgeRequest', () => {
     );
 
     expect(state).not.toHaveProperty('objective');
-    expect(questions.p00.instructions).toBe(RUBRIC);
+    expect(questions.p00.instructions).toBe(
+      `Consider only the card keyed \`p00\` in \`cards\`. ${RUBRIC}`,
+    );
+    expect(questions.p00.instructions).not.toContain('IGNORE');
   });
 });
 
