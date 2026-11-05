@@ -2,6 +2,7 @@ Search file contents for a pattern and return line-ranged locators that `read` a
 
 <instruction>
 - `patterns` is a disjunction: a line matches when at least one pattern matches it.
+- `objective` is optional: one sentence, up to 2000 code units, on what you are looking for in these files. Set it when the patterns alone do not carry the intent. A configured decision lane may rank whole files in the result by it; it never changes a match, a count, or where the walk stops.
 - Patterns use RE2 syntax and run in linear time; a backreference such as `(a)\1` is refused with `invalid_pattern`. Set `literal` to true to match the text as written, and `ignoreCase` to ignore letter case.
 - `scopes` names what to search. Without it, an entered Workspace is searched from its root.
 - A scope is one of: an absolute host path, a `machine://<name><absolute path>` locator on an operator-configured Machine{{#if tools.knowledge_search}}, a `kb://<knowledgeSpaceId>/<path>` locator, bare `kb://` for every Knowledge Space you own{{/if}}, a `skill://<name>` or `skill://<name>/<path>` locator, or bare `skill://` for every installed package.

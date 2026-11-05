@@ -70,7 +70,6 @@ export type CandidateJudgement = {
 };
 
 /**
-/**
  * The capability tools receive as `ToolContext.decisions`. Absent means no
  * decision model is configured, and a tool keeps its canonical order. A tool
  * that reranks names its own catalogue id on every call; an id with no client

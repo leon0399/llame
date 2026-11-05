@@ -193,8 +193,10 @@ export interface ToolContext {
   readonly modelClients?: Partial<ModelClientFactory>;
   /**
    * Trusted decision-lane judge for reranking a tool's own candidates
-   * (experimental). Absent — or present without `judgeCandidates` — means the
-   * lane is not configured and the tool keeps its canonical order; a failure
+   * (experimental). Absent — or present without `judgeCandidates` — means no
+   * decision model is configured and the tool keeps its canonical order. A
+   * tool that reranks reads its own `rerank` block (`webSearch.rerank`,
+   * `tools.grep.rerank`) and names that catalogue id on every call; a failure
    * is never read as a negative judgment.
    */
   readonly decisions?: Partial<DecisionJudge>;

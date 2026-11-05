@@ -37,6 +37,12 @@ import { artifactLinePieceCount } from './artifacts/lines';
 import { storeSinglePartArtifact, artifactHostFiles } from './artifacts/spill';
 import { type WrittenArtifact } from './artifacts/artifact-writer';
 import {
+  applyGrepRerank,
+  planGrepRerank,
+  type GrepRerankPlan,
+  type GrepRerankRequest,
+} from './grep-rerank';
+import {
   grepArtifactBytes,
   grepArtifactFindings,
   grepArtifactHasNotice,
@@ -52,14 +58,22 @@ import { type ToolContext, type ToolResult } from './types';
  * The call's result: the whole result when it fits the inline bound, otherwise
  * the artifact plus its inline head. A Run that cannot read an artifact keeps
  * the head and states what it left out.
+ *
+ * The experimental decision lane may rank the walk's file runs first. That
+ * happens here and only here, after the walk settled its stop, counts, and
+ * warnings, so the inline head, the stored artifact text, its findings, and
+ * the remainder map all read one order. A failed or absent lane changes
+ * nothing; an `off` mode never calls it.
  */
 export async function finishGrepCall(
   state: PageState,
   context: ToolContext,
   limit: number,
+  request: GrepRerankRequest,
 ): Promise<ToolResult> {
   const artifact = state.artifact;
   dropDanglingCut(artifact);
+  const plan = await rerankFileRuns(state, context, request);
   // UTF-16 units are at least a third of the UTF-8 bytes, so a larger
   // artifact cannot fit and needs no render.
   const withinReach =
@@ -69,19 +83,52 @@ export async function finishGrepCall(
     withinReach &&
     measureGrepRendering(pageResult(state)) <= GREP_LIMITS.pageCodeUnits
   )
-    return pageResult(state);
+    return withRerank(pageResult(state), plan);
   const trailing = trailingUnits(state);
   const findings = grepArtifactFindings(artifact);
   const written = await storeGrepArtifact(state, context, findings);
-  if (written === undefined) return leftOutResult(state, limit, trailing);
-  return artifactResult({
-    state,
-    written,
-    hostFiles: artifactHostFiles(context, 'grep', written),
-    findings,
-    limit,
-    trailing,
+  if (written === undefined)
+    return withRerank(leftOutResult(state, limit, trailing), plan);
+  return withRerank(
+    artifactResult({
+      state,
+      written,
+      hostFiles: artifactHostFiles(context, 'grep', written),
+      findings,
+      limit,
+      trailing,
+    }),
+    plan,
+  );
+}
+
+/** Rank the walk's file runs; `on` permutes them before the head is picked. */
+async function rerankFileRuns(
+  state: PageState,
+  context: ToolContext,
+  request: GrepRerankRequest,
+): Promise<GrepRerankPlan | undefined> {
+  const plan = await planGrepRerank({
+    artifact: state.artifact,
+    decisions: context.decisions,
+    rerank: context.grepBounds?.rerank,
+    runId: context.runId,
+    chatId: context.chatId,
+    request,
   });
+  if (plan?.mode === 'on')
+    applyGrepRerank(state.artifact, plan.runs, plan.order);
+  return plan;
+}
+
+/** Attach the display-only record: the owner's UI reads it, the model never does. */
+function withRerank(
+  result: ToolResult,
+  plan: GrepRerankPlan | undefined,
+): ToolResult {
+  return plan === undefined || result.status !== 'success'
+    ? result
+    : { ...result, display: { rerank: plan.record } };
 }
 
 /**

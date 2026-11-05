@@ -148,6 +148,30 @@ sees `display`; it exists for the owner's UI and for comparing a shadow run
 against the live order. One `web_search.rerank` line is logged per ranked
 call.
 
+### `grep`
+
+With the tool's own `tools.grep.rerank` block set (`{ mode: "shadow" | "on",
+model: <decisions.models id> }`), `grep` ranks its **file runs**, not single
+passages. One card carries a run's
+path and up to three of its matching lines (at most 384 code units). A
+term-overlap prefilter over the caller's `objective` and patterns keeps at
+most 48 runs for the request; every run it leaves out, and every run a failed
+request never answered, stays in canonical order after the judged ones.
+Judged runs sort by probability, strongest first. A reordered run keeps
+exactly one `## <path>` heading, so the stored artifact, its findings, the
+inline head, and the remainder map all agree; no match, count, warning, or
+walk stop changes.
+
+`grep` also accepts an optional `objective` (1–2000 code units) from the
+model. It never changes the pattern or the walk; it is the sentence the
+decision lane ranks against, and the patterns stand in for it when it is
+absent. The rerank runs after the walk, when the result holds at least three
+file runs.
+
+The `display.rerank` field on a `grep` result records the mode, the model, the
+ranked order, the probabilities, the latency, and the cost for the owner's UI.
+It is display data: the model never reads it, in `shadow` and `on` alike.
+
 ## Cost and failure
 
 A decision call never fails the tool call that asked. A timeout (10 s per
