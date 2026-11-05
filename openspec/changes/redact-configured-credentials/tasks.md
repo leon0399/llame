@@ -9,6 +9,12 @@ starting; keep live status in the Project.
 Use `$gh-stack` for every branch operation and `$openspec-apply-change` for
 each implementation layer, after proposal approval only.
 
+For this delivery Leo authorized concurrent development: each layer gets
+independent correctness and security review plus simplify and ponytail-review
+passes, then test CI is driven green. Mutation testing and external review
+continue on earlier layers while the next layer is developed; they remain
+delivery work, not prerequisites for starting that development.
+
 ```text
 master
   <- redact-configured-credentials/proposal

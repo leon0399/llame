@@ -182,29 +182,36 @@ its rejection. For every failure value:
 - An error whose redactable strings contain no member passes through as the
   same object.
 - Otherwise, in place on the original object, it redacts `message`, `stack`,
-  and every other string own property except `name` and `code`, recursing into
-  `cause`, `lastError`, and `errors[]`, through a guarded `defineProperty`
-  that never throws. The walk enumerates own property keys with
-  `Reflect.ownKeys`, so symbol-keyed properties are visited, and it rewrites
-  only values whose `typeof` is `"string"`, so the AI SDK's boolean
-  `Symbol.for("vercel.ai.error.…")` marker is never touched. `instanceof`,
-  `isInstance`, `name`, `code`, `statusCode`, and `lastError` identity are
-  untouched.
+  and every other string own property except `name` and `code`, recursing
+  through nested objects and arrays, including `cause`, `lastError`,
+  `errors[]`, response metadata, and structured failure envelopes, through a
+  guarded `defineProperty` that never throws. The walk enumerates own keys
+  with `Reflect.ownKeys`, so symbol-keyed properties are visited, and only
+  string values are rewritten, so the AI SDK's boolean class markers are
+  untouched. The prototype, `name`, `code`, and `statusCode` keep their
+  classification meaning.
 - If any of those strings cannot be redefined (a non-writable,
   non-configurable property, or a frozen error), the original object is never
   forwarded: the wrapper builds a replacement with
   `Object.create(Object.getPrototypeOf(original))` and copies every own
   property onto it, symbol keys included, redacting string values and
-  substituting the redacted `cause`, `lastError`, and `errors[]`. The
-  replacement keeps the prototype chain, so `instanceof` holds, and the copied
-  marker, so `isInstance` holds; classification is unchanged. The wrapper logs
-  that it substituted, without values. No shipped SDK produces such an error,
-  so this path is exercised only by a synthetic test double.
-- A non-`Error` value passes through unless it is a string containing a
-  member, which is redacted.
+  substituting redacted nested values. The replacement keeps the prototype
+  chain, so `instanceof` holds, and the copied marker, so `isInstance` holds.
+  One original-to-redacted map preserves shared references: a retry's
+  `lastError` and its final `errors[]` entry must refer to the same redacted
+  failure, even when frozen. Cycles never reintroduce an original that needed
+  replacement. An unreadable accessor is omitted from a replacement rather
+  than allowed to throw or retain an unsafe getter. The wrapper logs an error
+  replacement once, without values. The frozen-error path is exercised with
+  synthetic test doubles.
+- A structured non-`Error` failure receives the same object-graph redaction:
+  the Responses adapter emits plain failure envelopes after output begins,
+  and Sentry serializes them. A string failure is redacted; other primitives
+  pass through unchanged.
 - The wrapper always installs an `onError`; when the caller supplied none, it
   logs the redacted error through a Nest `Logger` instead of letting the SDK
-  log the raw object.
+  log the raw object. The client's own abort notification for the signal's
+  reason does not introduce a new default failure log.
 - Title generation logs through the redacted error.
 
 Per-wire sanitizers run first and are unchanged; the wrapper also covers
