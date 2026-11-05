@@ -141,10 +141,14 @@ that is not the gateway's envelope surfaces as the HTTP status text. Two
 failures surface as fixed texts that quote nothing from the response: a
 redirect, which is never followed, names only its status code, and a stream
 event the adapter cannot read is reported as unreadable without its content.
-The parsed message may echo request values the gateway chose to name. llame
-adds no Go-specific error type or sanitizer, keeps no quota ledger, and never
-retries against or falls back to another provider, wire, or model because a
-request failed.
+The parsed message may echo request values the gateway chose to name, except a
+configured credential: a value llame knows to be a credential, such as the
+entry's `key` or a resolved header substitution, is replaced with `[REDACTED]`
+before the failure reaches the run's stored error, its terminal event, or its
+log line, and a caller that supplies no error handler logs only the redacted
+failure. llame adds no Go-specific error type or sanitizer, keeps no quota
+ledger, and never retries against or falls back to another provider, wire, or
+model because a request failed.
 
 These shapes were observed by driving the shipped client against the live
 gateway on 2026-09-22, except where noted:

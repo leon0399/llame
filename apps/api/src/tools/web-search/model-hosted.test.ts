@@ -32,6 +32,8 @@ import {
   buildHarness,
 } from '../../testing/anthropic-model-client-fixtures';
 import { createOpenAICodexModelClient } from '../../models/openai-codex-model-client';
+import { createModelClient } from '../../models/model-client-factory';
+import { createOpenAIModelClient } from '../../models/openai-model-client';
 import {
   HOSTED_SEARCH_INSTRUCTIONS,
   createModelHostedEngine,
@@ -614,6 +616,55 @@ describe('provider failures through the real clients', () => {
       }
     },
   );
+
+  it("classifies a credential-bearing failure the factory client's wrapper reports", async () => {
+    const key = 'CONFIGURED-KEY-CANARY-8b1f';
+    const client: ModelClient = createModelClient(
+      {
+        provider: {
+          id: 'responses',
+          type: 'openai-responses',
+          key,
+          baseUrl: 'https://endpoint.example.test/v1',
+          headers: {},
+        },
+        model: {
+          id: 'system:responses:test-model',
+          source: 'system',
+          provider: 'responses',
+          providerModelId: 'test-model',
+          contextWindowTokens: 128_000,
+          input: ['text'],
+          systemPromptTemplate: 'Test prompt',
+          systemPromptSource: 'project_default',
+          referencesSkills: false,
+        },
+        userAgent: 'llame/test',
+        credentials: [key],
+      },
+      {
+        createOpenAIModelClient: (config) =>
+          createOpenAIModelClient({
+            ...config,
+            fetch: () =>
+              Promise.resolve(
+                new Response(
+                  JSON.stringify({ error: { message: `echoed ${key}` } }),
+                  {
+                    status: 401,
+                    headers: { 'content-type': 'application/json' },
+                  },
+                ),
+              ),
+          }),
+      },
+    );
+
+    const failure = await failureOf('openai-responses', client);
+
+    expect(failure).toMatchObject({ failureClass: 'auth' });
+    expect(JSON.stringify(failure)).not.toContain(key);
+  });
 
   it('forces the hosted tool on the Codex wire request body', async () => {
     const fetchMock = vi.fn<typeof globalThis.fetch>(() =>

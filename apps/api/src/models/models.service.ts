@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 
+import { configuredCredentials } from '../instance-config/configured-credentials';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -262,7 +263,17 @@ export class ModelsService {
       provider,
       model,
       userAgent: this.instanceConfig.productUserAgent,
+      credentials: this.credentialSet(),
     });
+  }
+
+  /**
+   * The instance's configured credentials, read through the loader's accessor
+   * (design D1) — never carried on `LlameConfig` itself. Every failure a
+   * client this service builds reports is redacted against them.
+   */
+  private credentialSet(): ReadonlyArray<string> {
+    return configuredCredentials(this.instanceConfig.config);
   }
 
   private resolveConfiguredModel(

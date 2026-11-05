@@ -65,6 +65,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'third-party-responses',
           type: 'openai-responses',
@@ -93,6 +94,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'openai',
           type: 'openai-completions',
@@ -120,6 +122,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'ollama',
           type: 'openai-responses',
@@ -169,6 +172,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'responses',
           type: 'openai-responses',
@@ -190,6 +194,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'local-ollama',
           type: 'openai-completions',
@@ -204,6 +209,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'openrouter',
           type: 'openai-completions',
@@ -238,6 +244,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'personal-codex',
           type: 'openai-codex',
@@ -286,11 +293,21 @@ describe('createModelClient wire dispatch', () => {
     }
 
     createModelClient(
-      { provider: responsesProvider, model, userAgent: USER_AGENT },
+      {
+        provider: responsesProvider,
+        model,
+        userAgent: USER_AGENT,
+        credentials: [],
+      },
       dependencies,
     );
     createModelClient(
-      { provider: completionsProvider, model, userAgent: USER_AGENT },
+      {
+        provider: completionsProvider,
+        model,
+        userAgent: USER_AGENT,
+        credentials: [],
+      },
       dependencies,
     );
 
@@ -336,6 +353,7 @@ describe('createModelClient wire dispatch', () => {
           provider,
           model: { ...entry, provider: provider.id },
           userAgent: USER_AGENT,
+          credentials: [],
         },
         dependencies,
       );
@@ -365,6 +383,7 @@ describe('createModelClient wire dispatch', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'completions-entry',
           type: 'openai-completions',
@@ -407,6 +426,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'third-party-anthropic',
           type: 'anthropic-messages',
@@ -439,6 +459,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
       createModelClient(
         {
           userAgent: USER_AGENT,
+          credentials: [],
           provider: {
             id: 'anthropic',
             type: 'anthropic-messages',
@@ -467,6 +488,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'anthropic',
           type: 'anthropic-messages',
@@ -496,6 +518,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'anthropic-hosted',
           type: 'anthropic-messages',
@@ -510,6 +533,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'anthropic-gateway',
           type: 'anthropic-messages',
@@ -544,6 +568,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'anthropic',
           type: 'anthropic-messages',
@@ -593,6 +618,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
     createModelClient(
       {
         userAgent: USER_AGENT,
+        credentials: [],
         provider: {
           id: 'my-go-subscription',
           type: 'opencode-go',
@@ -623,6 +649,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
     createModelClient(
       {
         userAgent: 'llame/9.9.9-canary',
+        credentials: [],
         provider: {
           id: 'go',
           type: 'opencode-go',

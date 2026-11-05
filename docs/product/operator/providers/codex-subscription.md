@@ -72,8 +72,10 @@ Stop every API and Run worker before re-login. Run `codex login`, replace the
 same credential file atomically, then start every process again. A running
 process retains its startup snapshot after logout or revocation. Authentication
 and quota failures end the affected Run; llame does not refresh credentials,
-select a paid fallback, or retry the Run. Retry manually after re-login and
-restart.
+select a paid fallback, or retry the Run. The failure names only its class: the
+response's text, headers, and body stay out of the run, its event, and the log,
+and a configured credential the endpoint echoes is replaced with `[REDACTED]`.
+Retry manually after re-login and restart.
 
 To disconnect, remove the provider and its model entries, restore any affected
 defaults, and restart API/workers. Existing Chats and Run history remain.

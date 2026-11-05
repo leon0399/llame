@@ -12,6 +12,7 @@ import {
   ANTHROPIC_DEFAULT_BASE_URL,
   createAnthropicModelClient,
 } from './anthropic-model-client';
+import { withRedactedFailures } from './model-client-failures';
 import { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 import { createOpenAICodexModelClient } from './openai-codex-model-client';
 import { createOpenAIModelClient } from './openai-model-client';
@@ -45,6 +46,13 @@ export function createModelClient(
      * into every client config, which sends it per call.
      */
     userAgent: string;
+    /**
+     * The instance's configured credentials (design D1's accessor, passed by
+     * `ModelsService`), which every failure this client reports is redacted
+     * against (`provider-api-selection`, "Provider failures never carry a
+     * configured credential"). May be empty.
+     */
+    credentials: ReadonlyArray<string>;
   },
   /**
    * Test seam (anti-slop/no-module-mocking): overrides the per-provider
@@ -59,7 +67,18 @@ export function createModelClient(
     createOpenCodeGoModelClient,
   },
 ): ModelClient {
-  const { provider, model, userAgent } = input;
+  return withRedactedFailures(
+    buildClient(input.provider, input.model, input.userAgent, dependencies),
+    input.credentials,
+  );
+}
+
+function buildClient(
+  provider: ProviderConfig,
+  model: SystemModelCatalogEntry,
+  userAgent: string,
+  dependencies: ModelClientDependencies,
+): ModelClient {
   switch (provider.type) {
     case 'openai-responses':
       return createResponsesClient(provider, model, userAgent, dependencies);

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -9,6 +10,9 @@ import {
 import { ModelsService } from '../models/models.service';
 import { createFakeModelClient } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
+import { createModelClient } from '../models/model-client-factory';
+import { createOpenAIModelClient } from '../models/openai-model-client';
+import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
 import { ChatsRepository } from '../chats/chats-repository';
 import { TitleService } from './title.service';
 
@@ -196,5 +200,62 @@ describe('TitleService', () => {
       }),
     ).resolves.toBeUndefined();
     expect(failingModels.setGeneratedTitle).not.toHaveBeenCalled();
+  });
+
+  it('logs a failure without the configured credential the provider echoed', async () => {
+    const key = 'CONFIGURED-KEY-CANARY-3d9e';
+    // The real Chat Completions client behind the factory's wrapper, with only
+    // the transport stubbed: the upstream echoes the entry's own key.
+    const client = createModelClient(
+      {
+        provider: {
+          id: 'completions',
+          type: 'openai-completions',
+          key,
+          baseUrl: 'https://endpoint.example.test/v1',
+          headers: {},
+        },
+        model: { ...titleModel, provider: 'completions' },
+        userAgent: 'llame/0.0.0-test',
+        credentials: [key],
+      },
+      {
+        createOpenAIModelClient,
+        createOpenAICompletionsModelClient: (config) =>
+          createOpenAICompletionsModelClient({
+            ...config,
+            fetch: () =>
+              Promise.resolve(
+                new Response(
+                  JSON.stringify({ error: { message: `echoed ${key}` } }),
+                  {
+                    status: 401,
+                    headers: { 'content-type': 'application/json' },
+                  },
+                ),
+              ),
+          }),
+      },
+    );
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const { service } = makeService(client);
+
+    await service.maybeGenerateTitle({
+      chatId: 'chat-1',
+      userId: 'user-1',
+      userText: 'A user request',
+    });
+
+    const printed = [...warn.mock.calls, ...error.mock.calls]
+      .flat()
+      .map(String)
+      .join('\n');
+    expect(printed).toContain('[REDACTED]');
+    expect(printed).not.toContain(key);
   });
 });

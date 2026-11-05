@@ -2,6 +2,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-05
 
+- A language-model failure can no longer carry a configured credential into
+  the run, its terminal event, or the failure log line. Every client the
+  factory builds is now wrapped at that one boundary: its `text`,
+  `consumeStream`, `sources`, `toolCalls`, `usage`, `finishReason`, and every
+  other promise channel reject with a redacted failure, a rejected structured
+  generation is redacted, and a request whose caller supplies no error handler
+  logs only the redacted failure instead of the SDK's raw error object. The
+  failure is rewritten on the original error wherever it can be, so
+  `instanceof`, the AI SDK's `isInstance` checks, `name`, `code`, and
+  `statusCode` are unchanged and a run still classifies a stalled stream, a
+  retried rate limit, or an authentication rejection exactly as before; an
+  error that refuses the rewrite (a frozen one) is reported through a copy on
+  the same prototype. Title generation's failure log goes through the same
+  redaction. The set of values is the configured credential set the loader
+  builds from provider and MCP credential fields, header substitutions, and
+  `POSTGRES_URL`; an empty set leaves every failure untouched, and the wire's
+  own per-provider sanitizers still run first. Refs
+  [#1098](https://github.com/leon0399/llame/issues/1098).
+
 - Configured credentials are redacted from every `bash` result on the llame
   host, an `ssh://` host, and a Machine. The API derives one in-memory,
   boot-snapshot set at startup: each provider `key` and web search engine `key`,

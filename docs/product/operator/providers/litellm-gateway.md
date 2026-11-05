@@ -79,3 +79,12 @@ A template's effort values rarely include one that turns thinking off. That
 switch is usually a separate chat-template argument, such as
 `chat_template_kwargs.enable_thinking: false`, set in `providerOptions` on a
 separate model entry.
+
+## Failures
+
+A failed request follows the Chat Completions failure contract: the gateway's
+parsed error message is the run's failure, the response body and headers stay
+out of every surface, and a configured credential the gateway echoes is
+replaced with `[REDACTED]` before it reaches the run's stored error, its
+terminal event, or the log line. A caller that supplies no error handler, such
+as compaction, logs only that redacted failure.
