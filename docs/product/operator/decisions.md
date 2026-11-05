@@ -111,21 +111,33 @@ A `rerank.model` the catalogue does not define fails startup naming the path
 (`webSearch.rerank.model`, `tools.grep.rerank.model`), so a typo cannot silently
 rank with nothing.
 
-What each tool ranks:
-
-- **`web_search`** ranks its merged result list before any cap: one card per
-  result, `[k] title — host — snippet`, asking whether the result helps answer
-  the call's `objective` (or, without one, its query). Only `kind: "results"`
-  output is ranked — a grounded answer is one text, not a candidate set.
-- **`grep`** ranks whole file runs after the walk: one card per run (its path
-  plus up to three matching lines), asking whether the file likely holds what
-  the call's `objective` (or its patterns) look for. A term-overlap prefilter
-  keeps at most 48 runs for the request.
-
 A rerank only reorders candidates; it never adds or drops one, so the result
 count, every warning, and the `left out` notice are unchanged. `shadow` records
 the would-be order, the model that answered, probabilities, latency, and cost
 beside the result for the owner's UI; the model never reads that field.
+
+### `web_search`
+
+One card per result, keyed by its rank: `[k] <title> — <host> — <snippet>`,
+each part on one line and the whole card cut at 400 units. One question per
+card asks whether it helps answer the call's `objective`; without an objective
+the query stands in. The order is a stable sort by probability, highest first,
+and a card the judge did not answer keeps its canonical relative order after
+the judged ones.
+
+Only a `results` output is ranked: a grounded answer is one text, not a
+candidate set. A call with fewer than three canonically addressable results
+sends nothing, and a result whose URL is not canonical is never judged because
+the output cannot show it.
+
+The order is decided once, before the inline fit, the artifact and its findings
+are built, so a `read` of the artifact continues in the same order the model
+read inline. The result carries the record either way, beside its closed output
+shape: `rerank: { mode, model, order, probabilities, latencyMs, costUsd }`,
+naming the order `on` applied or the one `shadow` would have. The model-facing
+text ignores the field; it exists for the owner's UI and for comparing a shadow
+run against the live order. One `web_search.rerank` line is logged per ranked
+call.
 
 ## Cost and failure
 

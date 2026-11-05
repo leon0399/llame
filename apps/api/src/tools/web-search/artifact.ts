@@ -25,34 +25,46 @@ import {
   normalizeOutput,
   type WebSearchSuccess,
 } from './output';
+import { rerankWebSearchResults } from './rerank';
 import {
   type RenderedWebSearchText,
   renderWebSearchOutput,
   type WebSearchTextBlock,
 } from './text';
 
-/** The inline result count and the fetched size. */
+/** The inline result count, the fetched size, and the search's goal. */
 export type WebSearchSpill = {
   readonly limit: number;
   readonly fetchSize: number;
+  /** The call's `objective`, the decision lane's ranking criterion. */
+  readonly objective?: string;
 };
 
 /**
  * The normalized result of one call: the inline output, the artifact locator
  * when the rest was stored, and the one line the text ends with.
+ *
+ * The rerank stage runs here, once, and hands both normalize calls the same
+ * source: a permutation applied before every cap, so the inline head, the
+ * stored artifact text, its findings, and the continuation line share one
+ * order.
  */
 export async function spillWebSearchResult(
   context: ToolContext,
   source: SearchChainSuccess,
-  { limit, fetchSize }: WebSearchSpill,
+  { limit, fetchSize, objective }: WebSearchSpill,
 ): Promise<ToolResult> {
-  const full = normalizeFullOutput(source, fetchSize);
-  const whole = normalizeOutput(source, limit);
-  if (JSON.stringify(full) === JSON.stringify(whole)) return whole;
+  const rerank = await rerankWebSearchResults(context, source, objective);
+  const ordered = rerank?.source ?? source;
+  const record = rerank === undefined ? {} : { rerank: rerank.record };
+  const full = normalizeFullOutput(ordered, fetchSize);
+  const whole = normalizeOutput(ordered, limit);
+  if (JSON.stringify(full) === JSON.stringify(whole))
+    return { ...whole, ...record };
 
   // The inline body shares the 15,000-unit bound with the notice this path
   // adds, so it is fitted with the notice's room kept back.
-  const inline = normalizeOutput(source, limit, INLINE_NOTICE_RESERVE);
+  const inline = normalizeOutput(ordered, limit, INLINE_NOTICE_RESERVE);
   const rendered = renderWebSearchOutput(full);
   const written =
     rendered === undefined ? undefined : await storeArtifact(context, rendered);
@@ -71,6 +83,7 @@ export async function spillWebSearchResult(
     ...inline,
     ...(written !== undefined && { artifact: written.locator }),
     truncationNotice: notice,
+    ...record,
   };
 }
 

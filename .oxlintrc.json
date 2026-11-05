@@ -61,6 +61,7 @@
           "apps/api/src/queue/queue.module.ts",
           "apps/api/src/runs/worker-harness.ts",
           "apps/api/src/search/operations/cli.ts",
+          "apps/api/src/tools/web-search/rerank.ts",
           "apps/api/src/worker.ts",
           "apps/api/vitest.integration.global-setup.mts",
           "apps/api/vitest.integration.setup.ts",

@@ -177,6 +177,7 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       : spillWebSearchResult(context, result, {
           limit: input.limit,
           fetchSize,
+          ...(input.objective !== undefined && { objective: input.objective }),
         });
   },
 };

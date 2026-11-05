@@ -44,8 +44,8 @@ export type JudgeCandidatesInput = {
    * call. The tool reads it from its own `rerank` block.
    */
   readonly model: string;
-  /** For the structured log line only; layer 1 records no RunEvent. */
-  readonly runId: string;
+  /** For the structured log line only; a tool called outside a Run has none. */
+  readonly runId?: string;
   readonly chatId: string;
   /** The tool that asked, e.g. `web_search` or `grep`. */
   readonly tool: string;
@@ -69,6 +69,7 @@ export type CandidateJudgement = {
   readonly latencyMs: number;
 };
 
+/**
 /**
  * The capability tools receive as `ToolContext.decisions`. Absent means no
  * decision model is configured, and a tool keeps its canonical order. A tool
