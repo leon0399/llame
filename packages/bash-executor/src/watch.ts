@@ -38,14 +38,15 @@ type StreamState = {
   /** Each stream's own measure against its bound, updated per chunk. */
   stdoutUsed: number;
   stderrUsed: number;
+  /** True once output was discarded: the capture limit or a drain stopped it. */
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
 };
 
-type BoundChunk = {
+type CapturedChunk = {
   readonly text: string;
   readonly used: number;
-  readonly truncated: boolean;
+  readonly overflow: boolean;
 };
 
 type WatchControls = {
@@ -197,7 +198,7 @@ async function settleDeadline(session: WatchSession): Promise<void> {
     return;
   }
   await drainOutput(session);
-  const output = knownCloseResult(1, session);
+  const output = knownCloseResult(1, session, true);
   session.finish({
     status: "error",
     type: "timed_out",
@@ -284,30 +285,33 @@ function finishOutputDrain(state: OutputDrainState, timedOut: boolean): void {
  * stream stopped mid-character still reports its output.
  */
 function flushDecoders(session: WatchSession): void {
-  const bound = streamOutputBound(session.request.context);
+  const capture = withLookahead(
+    streamOutputBound(session.request.context),
+    session.request.options.protectedValues ?? [],
+  );
   const stdout = session.streams.stdoutDecoder.end();
   if (stdout !== "") {
-    const next = appendBound(
+    const next = appendCapture(
       session.streams.stdout,
       session.streams.stdoutUsed,
       stdout,
-      bound,
+      capture,
     );
     session.streams.stdout = next.text;
     session.streams.stdoutUsed = next.used;
-    session.streams.stdoutTruncated ||= next.truncated;
+    session.streams.stdoutTruncated ||= next.overflow;
   }
   const stderr = session.streams.stderrDecoder.end();
   if (stderr !== "") {
-    const next = appendBound(
+    const next = appendCapture(
       session.streams.stderr,
       session.streams.stderrUsed,
       stderr,
-      bound,
+      capture,
     );
     session.streams.stderr = next.text;
     session.streams.stderrUsed = next.used;
-    session.streams.stderrTruncated ||= next.truncated;
+    session.streams.stderrTruncated ||= next.overflow;
   }
 }
 
@@ -365,7 +369,7 @@ async function settleExit(
     }
   }
 
-  session.finish(knownCloseResult(code, session));
+  session.finish(knownCloseResult(code, session, false));
 }
 
 function once(
@@ -382,73 +386,92 @@ function once(
 }
 
 function attachStreams(session: WatchSession): void {
-  const bound = streamOutputBound(session.request.context);
+  const capture = withLookahead(
+    streamOutputBound(session.request.context),
+    session.request.options.protectedValues ?? [],
+  );
   session.child.stdout?.on("data", (chunk: Buffer) => {
-    // Decoding a chunk a full stream will discard buys nothing.
-    if (session.streams.stdoutUsed >= bound.limit) {
+    // Decoding a chunk a full capture will discard buys nothing.
+    if (session.streams.stdoutUsed >= capture.limit) {
       session.streams.stdoutTruncated = true;
       return;
     }
-    const next = appendBound(
+    const next = appendCapture(
       session.streams.stdout,
       session.streams.stdoutUsed,
       session.streams.stdoutDecoder.write(chunk),
-      bound,
+      capture,
     );
     session.streams.stdout = next.text;
     session.streams.stdoutUsed = next.used;
-    session.streams.stdoutTruncated ||= next.truncated;
+    session.streams.stdoutTruncated ||= next.overflow;
   });
   session.child.stderr?.on("data", (chunk: Buffer) => {
-    if (session.streams.stderrUsed >= bound.limit) {
+    if (session.streams.stderrUsed >= capture.limit) {
       session.streams.stderrTruncated = true;
       return;
     }
-    const next = appendBound(
+    const next = appendCapture(
       session.streams.stderr,
       session.streams.stderrUsed,
       session.streams.stderrDecoder.write(chunk),
-      bound,
+      capture,
     );
     session.streams.stderr = next.text;
     session.streams.stderrUsed = next.used;
-    session.streams.stderrTruncated ||= next.truncated;
+    session.streams.stderrTruncated ||= next.overflow;
   });
 }
 
 /**
- * Append one chunk under the stream's bound. A stream already at its bound
- * keeps nothing more; a chunk that crosses it is cut on a code-point boundary,
- * and the stream is then marked full even when the cut lands short of the
- * bound, so no later chunk can reopen it.
+ * The capture limit: the bound plus a lookahead of the longest protected
+ * value in the bound's unit, so a member starting before the bound is captured
+ * whole. The lookahead is bounded by the configured set, never by output.
  */
-function appendBound(
+function withLookahead(
+  bound: StreamBound,
+  protectedValues: ReadonlyArray<string>,
+): StreamBound {
+  let longest = 0;
+  for (const protectedValue of protectedValues) {
+    longest = Math.max(longest, boundedLength(protectedValue, bound));
+  }
+  return { kind: bound.kind, limit: bound.limit + longest };
+}
+
+/**
+ * Append one chunk under the capture limit. A capture already at its limit
+ * keeps nothing more; a chunk that crosses it is cut on a code-point boundary,
+ * and the capture is then marked full even when the cut lands short of the
+ * limit, so no later chunk can reopen it.
+ */
+function appendCapture(
   current: string,
   used: number,
   text: string,
-  bound: StreamBound,
-): BoundChunk {
-  if (used >= bound.limit) {
-    const truncated: BoundChunk = { text: current, used, truncated: true };
-    return truncated;
+  capture: StreamBound,
+): CapturedChunk {
+  if (used >= capture.limit) {
+    const full: CapturedChunk = { text: current, used, overflow: true };
+    return full;
   }
-  const size = boundedLength(text, bound);
-  if (used + size <= bound.limit) {
-    const exact: BoundChunk = {
+  const size = boundedLength(text, capture);
+  if (used + size <= capture.limit) {
+    const exact: CapturedChunk = {
       text: current + text,
       used: used + size,
-      truncated: false,
+      overflow: false,
     };
     return exact;
   }
   const remainder: StreamBound = {
-    kind: bound.kind,
-    limit: bound.limit - used,
+    kind: capture.kind,
+    limit: capture.limit - used,
   };
-  const clipped: BoundChunk = {
+  const clipped: CapturedChunk = {
     text: current + cutToBound(text, remainder),
-    used: bound.limit,
-    truncated: true,
+    used: capture.limit,
+    overflow: true,
   };
   return clipped;
 }
@@ -456,20 +479,31 @@ function appendBound(
 function knownCloseResult(
   code: number | null,
   session: WatchSession,
+  endedByLlame: boolean,
 ): BashKnownResult {
+  const context = session.request.context;
+  const bound = streamOutputBound(context);
+  const streams = session.streams;
+  const stdoutTruncated =
+    streams.stdoutTruncated || streams.stdoutUsed > bound.limit;
+  const stderrTruncated =
+    streams.stderrTruncated || streams.stderrUsed > bound.limit;
   const exitCode = code ?? 1;
   const raw: BashKnownResult = {
     status: exitCode === 0 ? "success" : "error",
     exitCode,
-    stdout: session.streams.stdout,
-    stderr: session.streams.stderr,
-    truncated:
-      session.streams.stdoutTruncated || session.streams.stderrTruncated,
+    stdout: streams.stdout,
+    stderr: streams.stderr,
+    truncated: stdoutTruncated || stderrTruncated,
     wallTimeMs: Math.round(performance.now() - session.startedAtMs),
   };
   return sanitizeKnownResult(
     raw,
-    session.request.context,
+    context,
     session.request.options.protectedValues ?? [],
+    {
+      stdout: { endedByLlame: endedByLlame || streams.stdoutTruncated },
+      stderr: { endedByLlame: endedByLlame || streams.stderrTruncated },
+    },
   );
 }

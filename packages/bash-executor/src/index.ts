@@ -13,6 +13,7 @@ export { renderBashText } from "./model-text";
 export { boundedLength, cutToBound, streamOutputBound } from "./output-bound";
 export type { StreamBound } from "./output-bound";
 export { requireManagedBoundary, sanitizeKnownResult } from "./sanitize";
+export type { ResultCaptures, StreamCapture } from "./sanitize";
 export {
   CONFIGURED_TOOLS,
   isConfiguredTool,
