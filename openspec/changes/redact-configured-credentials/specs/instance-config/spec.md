@@ -95,12 +95,11 @@ or a `:-` fallback written in the file.
 ### Requirement: Credentials in configured URLs are members
 
 For a provider `baseUrl` and a remote MCP `url`, the set MUST contain each
-substitution that resolves within the URL's userinfo password or query. It
-MUST contain each query value under a credential-shaped name, however llame
-wrote the URL. It MUST contain the userinfo password at any nonblank length,
-and the userinfo username from 8 characters. It MUST contain each such value
-as written and percent-decoded. It MUST NOT contain the whole URL or any other
-part of it.
+substitution inside the userinfo password or query. It MUST contain each
+query value under a credential-shaped name, in a literal or a substituted URL.
+It MUST contain the userinfo password at any nonblank length and the username
+from 8 characters. It MUST contain each value as written and percent-decoded.
+It MUST NOT contain the whole URL or any other part of it.
 
 #### Scenario: A URL substitution is a member
 

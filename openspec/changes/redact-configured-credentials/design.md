@@ -187,10 +187,13 @@ replaces its kept part even when step 2 or 3 cuts through it; any occurrence
 the capture cut short lies within the step 2 drop; step 5 only removes text.
 Dropping before finding would be wrong: a drop that starts inside a complete
 occurrence would break the match and pass the rest of the value through. The
-capture never holds a partial character: an incomplete UTF-8 sequence left
-when llame stops a stream is discarded, not decoded to U+FFFD, since a
-replacement character would hide a member fragment from step 2; at a gap,
-each part is decoded on its own character boundaries.
+capture never holds a partial character: the host watcher discards what
+`StringDecoder.end()` returns when llame stops a stream and marks the stream
+truncated, rather than append a U+FFFD that would hide a member fragment from
+step 2; the `ssh://` collector decodes the stderr head and tail separately,
+stopping the head before an incomplete trailing sequence and skipping the
+tail's leading continuation bytes. These are capture changes in
+`packages/bash-executor/src/watch.ts` and `apps/api/src/ssh/ssh-client.ts`.
 
 The host capture keeps a lookahead of the longest member's length past the
 bound, so a member that starts before the bound is found whole and leaves a
@@ -217,14 +220,16 @@ its rejection. For every failure value:
 - An error whose redactable strings contain no member passes through as the
   same object.
 - Otherwise, in place on the original object, it redacts `message`, `stack`,
-  and every other string own property except `name` and `code`, recursing
-  through nested objects and arrays, including `cause`, `lastError`,
-  `errors[]`, response metadata, and structured failure envelopes, through a
-  guarded `defineProperty` that never throws. The walk enumerates own keys
+  and every other string own property, recursing through nested objects and
+  arrays, including `cause`, `lastError`, `errors[]`, response metadata, and
+  structured failure envelopes, through a guarded `defineProperty` that never
+  throws. Only an `Error` instance keeps `name` and `code` unchanged, because
+  consumers classify by them; a plain provider envelope's `code` is upstream
+  text and is redacted like any other string. The walk enumerates own keys
   with `Reflect.ownKeys`, so symbol-keyed properties are visited, and only
   string values are rewritten, so the AI SDK's boolean class markers are
-  untouched. The prototype, `name`, `code`, and `statusCode` keep their
-  classification meaning.
+  untouched. The prototype and `statusCode` keep their classification
+  meaning.
 - If any of those strings cannot be redefined (a non-writable,
   non-configurable property, or a frozen error), the original object is never
   forwarded: the wrapper builds a replacement with
