@@ -42,6 +42,7 @@ import {
 } from '../decisions/decisions.service';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { finishGrepCall } from './grep-artifact';
+import { rankGrepRuns } from './grep-rerank';
 import { addGrepPassages, createPageState, pageResult } from './grep-page';
 import { grepInputSchema, nativeGrepTool } from './grep';
 import { renderToolResultText } from './model-text';
@@ -1010,9 +1011,27 @@ describe('grep rerank', () => {
       );
 
       expect(success(result)).toHaveProperty('leftOut');
+      // The ranking line's room is kept back: the second file joins the head
+      // only when its fill leaves that room.
+      expect(resultsOf(result)).toHaveLength(filled <= edge ? 2 : 1);
       expect(measureGrepRendering(success(result))).toBeLessThanOrEqual(15_000);
       expect(renderToolResultText('grep', result)).toContain(
         '[ranking unavailable; walk order]',
+      );
+
+      // Without a rank call there is no ranking line, so its room is not kept.
+      const unranked = await finishGrepCall(
+        stateOf([
+          longPassage('/a.ts', 1),
+          longPassage('/b.ts', 1, units),
+          longPassage('/c.ts', 1),
+        ]),
+        contextOf({ artifactReadable: false }),
+        20,
+        ASK,
+      );
+      expect(resultsOf(unranked)).toHaveLength(
+        filled <= edge + GREP_RANKING_UNITS ? 2 : 1,
       );
     }
     expect(swept).toBeGreaterThanOrEqual(GREP_RANKING_UNITS);
@@ -1212,6 +1231,89 @@ describe('grep rerank', () => {
     ).rejects.toMatchObject({ name: 'TimeoutError' });
     expect(seen).toBe(controller.signal);
     expect(state.ranking).toBeUndefined();
+  });
+
+  it('makes no decision call for a state with no file runs', async () => {
+    const answers = lane({ p0: 0.9 });
+    const state = stateOf([]);
+
+    await rankGrepRuns(rankedContext(answers.decisions), state, ASK_X);
+
+    expect(answers.calls).toHaveLength(0);
+    expect(state.ranking).toBeUndefined();
+    expect(state.rerank).toBeUndefined();
+  });
+
+  it('sends an empty run id without one, and no objective or signal key unset', async () => {
+    const answers = lane({ p0: 0.1, p1: 0.9, p2: 0.5 });
+    const { runId, ...withoutRun } = contextOf({
+      decisions: answers.decisions,
+      grepBounds: BOUNDS,
+    });
+    expect(runId).toBe('run-a');
+    await finishGrepCall(
+      stateOf([
+        longPassage('/a.ts', 1),
+        longPassage('/b.ts', 1),
+        longPassage('/c.ts', 1),
+      ]),
+      withoutRun,
+      20,
+      ASK_X,
+    );
+
+    expect(answers.calls[0]?.runId).toBe('');
+    expect(answers.calls[0]).not.toHaveProperty('objective');
+    expect(answers.calls[0]).not.toHaveProperty('abortSignal');
+  });
+
+  it('treats a plain judge failure as an unavailable rank, signal or none', async () => {
+    const decisions: DecisionJudge = {
+      judgeCandidates: () => Promise.reject(new Error('judge down')),
+      protectText: (_model, text) => text,
+    };
+    const passages = [
+      longPassage('/a.ts', 1),
+      longPassage('/b.ts', 1),
+      longPassage('/c.ts', 1),
+    ];
+    const bare = stateOf(passages);
+    await finishGrepCall(bare, rankedContext(decisions), 20, ASK_X);
+    const signalled = stateOf(passages);
+    await finishGrepCall(
+      signalled,
+      rankedContext(decisions, { abortSignal: new AbortController().signal }),
+      20,
+      ASK_X,
+    );
+
+    expect(bare.ranking).toBe('unavailable');
+    expect(signalled.ranking).toBe('unavailable');
+  });
+
+  it('opens one heading for a run of two passages of one file when ranked', async () => {
+    const answers = lane({ p0: 0.2, p1: 0.9, p2: 0.5 });
+    const result = await finishGrepCall(
+      stateOf([
+        longPassage('/a.ts', 1),
+        longPassage('/a.ts', 20),
+        longPassage('/b.ts', 1),
+        longPassage('/c.ts', 1),
+      ]),
+      rankedContext(answers.decisions),
+      20,
+      ASK_X,
+    );
+
+    expect(rerankOf(result)).toMatchObject({
+      order: ['p1', 'p2', 'p0'],
+      runLengths: [1, 1, 2],
+    });
+    expect(headings(artifactText())).toEqual([
+      '## /b.ts',
+      '## /c.ts',
+      '## /a.ts',
+    ]);
   });
 
   it('builds cards only from runs the read group admitted, across host and kb://', async () => {

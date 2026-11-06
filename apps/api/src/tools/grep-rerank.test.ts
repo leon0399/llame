@@ -8,7 +8,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addGrepPassages,
+  artifactRunLengths,
   createPageState,
+  replaceArtifactPassages,
   type GrepArtifact,
 } from './grep-page';
 import {
@@ -112,5 +114,115 @@ describe('grep file runs', () => {
 
     expect(card.startsWith('/a.ts\n1: x')).toBe(true);
     expect(card).toHaveLength(GREP_RERANK_CARD_UNITS);
+  });
+  it('puts a path of exactly the card minus one unit alone, with no empty line', () => {
+    const path = `/${'p'.repeat(GREP_RERANK_CARD_UNITS - 5)}.ts`;
+    expect(path).toHaveLength(GREP_RERANK_CARD_UNITS - 1);
+    const artifact = artifactOf([
+      { locator: `${path}:1-1`, content: '1: needle', matches: [1] },
+    ]);
+
+    expect(grepRunCard(artifact, grepFileRuns(artifact)[0])).toBe(path);
+  });
+
+  it('counts every earlier line against the room of the next', () => {
+    const long = artifactOf([
+      {
+        locator: '/a.ts:1-2',
+        content: `1: ${'x'.repeat(500)}\n2: second`,
+        matches: [1, 2],
+      },
+    ]);
+    const card = grepRunCard(long, grepFileRuns(long)[0]);
+
+    // The first line takes all the room; the second finds none.
+    expect(card.split('\n')).toHaveLength(2);
+    expect(card).toHaveLength(GREP_RERANK_CARD_UNITS);
+
+    const short = artifactOf([
+      {
+        locator: '/a.ts:1-2',
+        content: `1: first\n2: ${'y'.repeat(500)}`,
+        matches: [1, 2],
+      },
+    ]);
+    const shortCard = grepRunCard(short, grepFileRuns(short)[0]);
+
+    expect(shortCard.split('\n')).toHaveLength(3);
+    expect(shortCard.split('\n')[1]).toBe('1: first');
+    expect(shortCard).toHaveLength(GREP_RERANK_CARD_UNITS);
+  });
+
+  it('reads match lines numbered with several digits, from the line start only', () => {
+    const artifact = artifactOf([
+      {
+        locator: '/a.ts:9-12',
+        content: [
+          '9: nine',
+          '10: ten',
+          'note 11: not a numbered line',
+          '12: twelve',
+        ].join('\n'),
+        matches: [10, 11, 12],
+      },
+    ]);
+
+    expect(
+      grepRunCard(artifact, grepFileRuns(artifact)[0]).split('\n'),
+    ).toEqual(['/a.ts', '10: ten', '12: twelve']);
+  });
+
+  it('keeps single-digit keys for up to ten runs', () => {
+    expect(grepFileRuns(artifactOf(files(10))).map((run) => run.key)).toEqual([
+      'p0',
+      'p1',
+      'p2',
+      'p3',
+      'p4',
+      'p5',
+      'p6',
+      'p7',
+      'p8',
+      'p9',
+    ]);
+  });
+});
+
+describe('replaced artifact passages', () => {
+  const first: GrepPassage = {
+    locator: '/a.ts:1-1',
+    content: '1: one',
+    matches: [1],
+  };
+  const second: GrepPassage = {
+    locator: '/a.ts:20-20',
+    content: '20: two',
+    matches: [20],
+  };
+
+  it('sums the block bytes of the rebuilt artifact', () => {
+    const artifact = artifactOf([first, second]);
+    const built = artifact.lineBytes;
+    replaceArtifactPassages(artifact, [first, second], [true, false]);
+
+    expect(artifact.lineBytes).toBeGreaterThan(0);
+    expect(artifact.lineBytes).toBe(
+      artifact.blocks.reduce((total, block) => total + block.bytes, 0),
+    );
+    expect(artifact.lineBytes).toBe(built);
+  });
+
+  it('counts a first block that does not open as one run', () => {
+    const artifact = artifactOf([first, second]);
+    replaceArtifactPassages(artifact, [first, second], [false, false]);
+
+    expect(artifactRunLengths(artifact)).toEqual([2]);
+  });
+
+  it('derives the boundary from the earlier passage where none is given', () => {
+    const artifact = artifactOf([first, second]);
+    replaceArtifactPassages(artifact, [first, second], [true]);
+
+    expect(artifact.blocks.map((block) => block.newRun)).toEqual([true, false]);
   });
 });
