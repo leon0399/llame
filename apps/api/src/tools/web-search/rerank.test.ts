@@ -30,10 +30,8 @@ import { type ToolContext, type ToolResult } from '../types';
 import { spillWebSearchResult } from './artifact';
 import { type RawResult, type SearchChainSuccess } from './chain';
 import { normalizeOutput } from './output';
-import {
-  WEB_SEARCH_RERANK_CARD_BOUND,
-  WEB_SEARCH_RERANK_RUBRIC,
-} from './rerank';
+import { WEB_SEARCH_RERANK_RUBRIC } from '../../ranking/rubrics';
+import { WEB_SEARCH_RERANK_CARD_BOUND } from './rerank';
 import { renderWebSearchText, webSearchOutputSchema } from './text';
 import { webSearchTool } from './tool';
 

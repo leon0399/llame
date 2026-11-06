@@ -20,6 +20,7 @@ import {
   type RankCardsInput,
   type RankCardsResult,
 } from '../../ranking/rank-cards';
+import { WEB_SEARCH_RERANK_RUBRIC } from '../../ranking/rubrics';
 import { type ToolContext } from '../types';
 import { groupingKey } from './aggregate';
 import {
@@ -32,14 +33,6 @@ import { canonicalUrl } from './output';
 
 /** One card's wire text stays under this many UTF-16 code units. */
 export const WEB_SEARCH_RERANK_CARD_BOUND = 400;
-
-/**
- * The one fixed question every card gets. Code, never card text: a result can
- * carry prompt-injection instructions, and the decision service marks the state
- * untrusted itself.
- */
-export const WEB_SEARCH_RERANK_RUBRIC =
-  'Does this result help answer the objective (or, without one, the query)?';
 
 /** What a ranked call stores under `display` beside its closed output shape. */
 export type WebSearchRerankRecord = {
