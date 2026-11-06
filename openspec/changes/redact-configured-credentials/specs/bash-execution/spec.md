@@ -28,9 +28,9 @@ command, the API redacts the output it received. llame never sends the
 configured credential set to the remote host or the Machine.
 
 The executor MUST apply the bound to the raw output's positions in the bound's
-own unit, and a stream MUST NOT exceed the bound. llame MUST replace a member
-fragment that the bound clips with `[REDACTED]` when the fragment has at least
-10 characters, and MUST remove a shorter fragment. llame can cut a stream at a
+own unit, and a stream MUST NOT exceed the bound. If the bound clips a member,
+llame MUST replace a fragment of 10 or more characters with `[REDACTED]`.
+llame MUST remove a shorter fragment. llame can cut a stream at a
 capture or transport limit, or because the command timed out. In that case
 llame MUST drop the fragment at the end that is a proper prefix of a member.
 
