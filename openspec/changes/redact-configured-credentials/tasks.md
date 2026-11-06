@@ -66,7 +66,7 @@ master
 - [x] 3.5 Update the provider failure section of each provider operator runbook to state the redaction; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
 - [x] 3.6 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/models src/titles src/runs src/tools/web-search`, the run-failure integration tests that cover provider failures, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
 - [x] 3.7 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
-- [ ] 3.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1098` in the PR body.
+- [x] 3.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1098` in the PR body.
 
 ## 4. finalize
 
