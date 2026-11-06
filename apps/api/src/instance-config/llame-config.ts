@@ -14,6 +14,10 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import type { MachinesConfig, RawMachinesConfig } from './machines-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
+import type {
+  RawToolRerankConfig,
+  ToolRerankConfig,
+} from './tool-rerank-config';
 import type { RawWebSearchConfig, WebSearchConfig } from './web-search-config';
 
 /**
@@ -91,6 +95,25 @@ export type OpenCodeGoProviderConfig = {
 };
 
 /**
+ * A System One decision endpoint (experimental decision lane). One codec
+ * speaks every hosted route — TypeSafe native, OpenRouter, OpenCode — because
+ * they share the wire: `POST {baseUrl}/systemone` with a `{ model, state,
+ * questions }` body and `{ model, answers, usage }` back. The operator names
+ * the destination, so both `key` and `baseUrl` are schema-required and must
+ * resolve nonblank; every route today authenticates each request. An entry of
+ * this type never serves a `models[]` entry: a decision client is not a
+ * `ModelClient` (it returns typed probabilities, not a stream).
+ */
+export type SystemOneProviderConfig = {
+  id: string;
+  billing?: BillingMode;
+  type: 'system-one';
+  key: string;
+  baseUrl: string;
+  headers: RequestHeaderTemplates;
+};
+
+/**
  * Executable provider client implementations (providers-and-models-as-code,
  * #167). `type` names the wire API the entry speaks — never inferred from
  * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
@@ -103,7 +126,9 @@ export type OpenCodeGoProviderConfig = {
  * uses the personal Codex subscription backend; `opencode-go` executes the
  * Chat Completions wire against the OpenCode Go subscription gateway, at a
  * destination fixed in llame's code, from a required `key` and no endpoint
- * field of its own.
+ * field of its own; `system-one` speaks the System One decision wire for the
+ * experimental `decisionModels[]` catalogue, from a required `key` and a
+ * required `baseUrl`, and never serves a `models[]` entry.
  * This set is strict-closed on purpose — a schema that advertised a `type`
  * it cannot execute would fail at request time instead of at the offending
  * config path.
@@ -113,7 +138,8 @@ export type ProviderConfig =
   | OpenAICompletionsProviderConfig
   | AnthropicMessagesProviderConfig
   | OpenAICodexProviderConfig
-  | OpenCodeGoProviderConfig;
+  | OpenCodeGoProviderConfig
+  | SystemOneProviderConfig;
 
 /**
  * Resolved private Streamable HTTP server configuration. `protectedValues`
@@ -258,7 +284,39 @@ export type RawProviderEntry =
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       key: string | null;
       headers?: Record<string, string | null>;
+    }
+  | {
+      id: string;
+      type: 'system-one';
+      billing?: BillingMode;
+      /** Schema-required for this branch; may still be `null`/blank after interpolation. */
+      key: string | null;
+      /** Schema-required for this branch; may still be `null`/blank after interpolation. */
+      baseUrl: string | null;
+      headers?: Record<string, string | null>;
     };
+
+/**
+ * One entry of the decision-model catalogue: the model a tool's rerank block
+ * names. `provider` must be a `providers[]` entry of `type: 'system-one'` and
+ * `model` is sent verbatim on the wire; both references are checked at boot,
+ * because the published JSON Schema cannot express them.
+ */
+export type DecisionModelConfig = {
+  /** Unique catalogue id, referenced by a tool's `rerank.model`. */
+  readonly id: string;
+  /** A `providers[]` entry of `type: 'system-one'` (checked at boot). */
+  readonly provider: string;
+  /** Model id sent verbatim on the wire. */
+  readonly model: string;
+};
+
+/** The still-uninterpolated `decisionModels[]` entry once schema-validated. */
+export type RawDecisionModelEntry = {
+  id: string;
+  provider: string;
+  model: string;
+};
 
 /**
  * Distance metric a declared embedding model produces (chat-search-embeddings
@@ -469,14 +527,16 @@ export type RawToolsConfig = {
     readonly maxEntriesListed?: unknown;
     readonly maxBytesRead?: unknown;
     readonly maxFileBytes?: unknown;
+    readonly rerank?: RawToolRerankConfig;
   } | null;
 };
 
 /**
- * The operator's `grep` walk bounds (grep-scan-throughput D1). Every field
- * takes the nullable numeric path `tools.maxStepsPerRun` uses: `null` leaves
- * that bound off, and only a positive integer (or a token resolving to one)
- * sets it.
+ * The operator's `grep` settings: the walk bounds (grep-scan-throughput D1) and
+ * the tool's own rerank block. Every bound field takes the nullable numeric
+ * path `tools.maxStepsPerRun` uses: `null` leaves that bound off, and only a
+ * positive integer (or a token resolving to one) sets it. An absent `rerank`
+ * means the tool never asks a decision model.
  */
 export type GrepBoundsConfig = {
   /** Files one call may take for a match, across every scope. */
@@ -487,6 +547,8 @@ export type GrepBoundsConfig = {
   readonly maxBytesRead: number | null;
   /** Largest regular file the walk searches, by announced and read size. */
   readonly maxFileBytes: number | null;
+  /** Opt-in ranking of the walk's file runs by a catalogue decision model. */
+  readonly rerank?: ToolRerankConfig;
 };
 
 /** The smallest artifact byte bound; a Machine stream always fits it. */
@@ -523,6 +585,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
   embeddingModels?: Array<RawEmbeddingModelEntry>;
+  decisionModels?: Array<RawDecisionModelEntry>;
   search?: RawSearchConfig;
   webSearch?: RawWebSearchConfig;
 }
@@ -746,6 +809,15 @@ export type LlameConfig = {
    * today (off-by-default; part of the exit contract).
    */
   embeddingModels: Array<EmbeddingModelCatalogEntry>;
+  /**
+   * Optional System One decision-model catalogue (experimental). Absent means
+   * no decision model exists: no client is built, no tool consults one, and
+   * every tool keeps its canonical order. A tool reranks only through its own
+   * `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names one
+   * catalogue id. Decision calls are side calls — they are logged with their
+   * own usage and never folded into a Run's message usage aggregate.
+   */
+  decisionModels?: ReadonlyArray<DecisionModelConfig>;
   /**
    * Per-corpus search settings (chat-search-embeddings, design D6). `chats`
    * is the only corpus this change embeds.

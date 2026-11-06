@@ -29,6 +29,9 @@ import {
   type OpenAIResponsesProviderConfig,
   type OpenCodeGoProviderConfig,
   type ProviderConfig,
+  type SystemOneProviderConfig,
+  type DecisionModelConfig,
+  type RawDecisionModelEntry,
   type RawProviderEntry,
   type RawInstanceConfig,
   type RawMcpServerEntry,
@@ -45,6 +48,10 @@ import type {
 import { WEB_SEARCH_FETCH_LIMIT_DEFAULT } from './web-search-config';
 import type { MachineHostConfig } from './machines-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
+import type {
+  RawToolRerankConfig,
+  ToolRerankConfig,
+} from './tool-rerank-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
@@ -229,6 +236,7 @@ function resolveDbConfig(
 function resolveToolsConfig(
   raw: RawInstanceConfig | undefined,
   { env, credentials }: LoaderContext,
+  decisionModelIds: ReadonlySet<string>,
 ): LlameConfig['tools'] {
   const nativeExecutorId = resolveNullableString({
     configPath: 'tools.nativeExecutorId',
@@ -261,7 +269,7 @@ function resolveToolsConfig(
       ...readLeaf(raw, 'tools', 'permissionModes'),
     }),
     ...resolveToolNumbers(raw, env),
-    grep: resolveGrepBounds(raw, env),
+    grep: resolveGrepBounds(raw, env, decisionModelIds),
     artifacts: resolveArtifactBounds(raw, env),
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, { env, credentials }),
@@ -302,19 +310,28 @@ function resolveToolNumbers(
 }
 
 /**
- * The operator `tools.grep` walk bounds (grep-scan-throughput D1). Each field
- * resolves through the same nullable numeric path as `tools.maxStepsPerRun`,
- * so an absent field, an explicit `null`, and an empty-resolving token all
- * mean "no bound", and zero, a negative number, or a fraction fails startup
- * naming the field. An absent or `null` object bounds nothing.
+ * The operator `tools.grep` block (grep-scan-throughput D1): the walk bounds
+ * and the tool's own rerank setting. Each bound resolves through the same
+ * nullable numeric path as `tools.maxStepsPerRun`, so an absent field, an
+ * explicit `null`, and an empty-resolving token all mean "no bound", and zero,
+ * a negative number, or a fraction fails startup naming the field. An absent
+ * or `null` object bounds nothing and reranks nothing. `rerank.model` must name
+ * a `decisionModels[].id`, so the catalogue is resolved first.
  */
 function resolveGrepBounds(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
+  decisionModelIds: ReadonlySet<string>,
 ): LlameConfig['tools']['grep'] {
   const bounds = raw?.tools?.grep;
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.grep;
-  const resolve = (key: keyof LlameConfig['tools']['grep']) =>
+  const resolve = (
+    key:
+      | 'maxFilesExamined'
+      | 'maxEntriesListed'
+      | 'maxBytesRead'
+      | 'maxFileBytes',
+  ) =>
     resolveNumeric({
       configPath: `tools.grep.${key}`,
       present: Object.hasOwn(bounds, key),
@@ -323,12 +340,43 @@ function resolveGrepBounds(
       nullable: true,
       env,
     });
+  const rerank = resolveToolRerank(
+    bounds.rerank,
+    'tools.grep.rerank',
+    env,
+    decisionModelIds,
+  );
   return {
     maxFilesExamined: resolve('maxFilesExamined'),
     maxEntriesListed: resolve('maxEntriesListed'),
     maxBytesRead: resolve('maxBytesRead'),
     maxFileBytes: resolve('maxFileBytes'),
+    ...(rerank !== undefined && { rerank }),
   };
+}
+
+/**
+ * One tool's opt-in rerank block (`webSearch.rerank`, `tools.grep.rerank`).
+ * Absent or `null` means no ranking — the tool never asks a decision model.
+ * Present, it names a catalogue id through `model`, which interpolates like
+ * any string, must resolve nonblank, and must exist, so a typo fails at boot
+ * instead of silently ranking with nothing. Diagnostics name the path, never
+ * the resolved value.
+ */
+function resolveToolRerank(
+  rerank: RawToolRerankConfig | null | undefined,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+  decisionModelIds: ReadonlySet<string>,
+): ToolRerankConfig | undefined {
+  if (rerank === undefined || rerank === null) return undefined;
+  const model = requireNonBlankString(`${configPath}.model`, rerank.model, env);
+  if (!decisionModelIds.has(model)) {
+    throw new InstanceConfigError(
+      `${configPath}.model: does not reference any configured decisionModels[].id`,
+    );
+  }
+  return { model };
 }
 
 /**
@@ -538,15 +586,22 @@ function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
   return files;
 }
 
+/**
+ * Read the config document and run the closed published schema over it, or
+ * report no document when the operator configured none.
+ */
+function readValidatedConfig(env: NodeJS.ProcessEnv) {
+  const configPath = resolveConfigPath(env);
+  const raw = readRawConfig(configPath);
+  if (raw !== undefined) assertValidRaw(raw, configPath);
+  return { configPath, raw };
+}
+
 /** Load, validate, interpolate, and apply file > built-in-default precedence (the environment reaches config only via {env:...} tokens in the file). Throws InstanceConfigError on any failure — the only correct response is to abort boot (D6). */
 export function loadInstanceConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): LlameConfig {
-  const configPath = resolveConfigPath(env);
-  const raw = readRawConfig(configPath);
-  if (raw !== undefined) {
-    assertValidRaw(raw, configPath);
-  }
+  const { configPath, raw } = readValidatedConfig(env);
 
   const credentials = new ConfiguredCredentialCollector(env);
   const { providers, providersById, models } = resolveProviderCatalog(
@@ -555,11 +610,15 @@ export function loadInstanceConfig(
     configPath,
   );
   const mcpServers = resolveMcpServers(raw, { env, credentials });
+  // The catalogue resolves first: `tools.grep.rerank` and `webSearch.rerank`
+  // name a catalogue id, and that reference is checked while resolving them.
+  const decisionModels = resolveDecisionModels(raw, env, providersById);
   const { embeddingModels, search, webSearch, tools } = resolveSearchSettings(
     raw,
     { env, credentials },
     providersById,
     models,
+    decisionModels,
   );
 
   const config: LlameConfig = {
@@ -570,6 +629,7 @@ export function loadInstanceConfig(
     providers,
     models,
     embeddingModels,
+    ...(decisionModels !== undefined && { decisionModels }),
     search,
     ...(webSearch !== undefined && { webSearch }),
   };
@@ -615,8 +675,12 @@ function resolveSearchSettings(
   { env, credentials }: LoaderContext,
   providersById: ReadonlyMap<string, ProviderConfig>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
+  decisionModels: ReadonlyArray<DecisionModelConfig> | undefined,
 ) {
-  const tools = resolveToolsConfig(raw, { env, credentials });
+  const decisionModelIds = new Set(
+    decisionModels?.map((entry) => entry.id) ?? [],
+  );
+  const tools = resolveToolsConfig(raw, { env, credentials }, decisionModelIds);
   const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
   const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
   const search = resolveSearchConfig(raw, env, embeddingModelIds);
@@ -626,8 +690,69 @@ function resolveSearchSettings(
     tools.allowed,
     models,
     providersById,
+    decisionModelIds,
   );
   return { embeddingModels, search, webSearch, tools };
+}
+
+/**
+ * Resolve the optional `decisionModels[]` catalogue. It is a CATALOGUE only —
+ * each entry names a decision model, and a tool's own rerank block references
+ * one by id. `id`, `provider`, and `model` interpolate like other fields. The
+ * cross-array references the JSON Schema cannot express are checked here: ids
+ * are unique, and every `provider` must exist AND be of `type: 'system-one'`.
+ * Diagnostics use array-index paths and never print a resolved value. Absent
+ * means no decision model exists.
+ */
+function resolveDecisionModels(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+): ReadonlyArray<DecisionModelConfig> | undefined {
+  const entries = raw?.decisionModels;
+  if (entries === undefined) return undefined;
+
+  const indexById = new Map<string, number>();
+  return entries.map((entry, index) => {
+    const base = `decisionModels[${index}]`;
+    const id = requireNonBlankString(`${base}.id`, entry.id, env);
+    const firstIndex = indexById.get(id);
+    if (firstIndex !== undefined) {
+      throw new InstanceConfigError(
+        `decisionModels[${firstIndex}].id and ${base}.id: duplicate decision model id`,
+      );
+    }
+    indexById.set(id, index);
+    return resolveDecisionModel(entry, id, base, env, providersById);
+  });
+}
+
+/** One catalogue entry: its provider is a `system-one` entry and its model is nonblank. */
+function resolveDecisionModel(
+  entry: RawDecisionModelEntry,
+  id: string,
+  base: string,
+  env: NodeJS.ProcessEnv,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+): DecisionModelConfig {
+  const providerId = requireNonBlankString(
+    `${base}.provider`,
+    entry.provider,
+    env,
+  );
+  const provider = providersById.get(providerId);
+  if (provider === undefined) {
+    throw new InstanceConfigError(
+      `${base}.provider: does not reference any configured providers[].id`,
+    );
+  }
+  if (provider.type !== 'system-one') {
+    throw new InstanceConfigError(
+      `${base}.provider: provider has type "${provider.type}", not "system-one"`,
+    );
+  }
+  const model = requireNonBlankString(`${base}.model`, entry.model, env);
+  return { id, provider: providerId, model };
 }
 
 function resolveKnowledge(
@@ -655,13 +780,14 @@ function resolveKnowledge(
   return { root: resolved };
 }
 
-/** Resolve the configured web-search engines. */
+/** Resolve the configured web-search engines and the tool's own rerank block. */
 function resolveWebSearch(
   raw: RawInstanceConfig | undefined,
   { env, credentials }: LoaderContext,
   allowed: ReadonlyArray<string>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
   providersById: ReadonlyMap<string, ProviderConfig>,
+  decisionModelIds: ReadonlySet<string>,
 ): WebSearchConfig | undefined {
   const section = raw?.webSearch;
   if (section === undefined) {
@@ -680,10 +806,17 @@ function resolveWebSearch(
     providersById,
   );
   assertWebSearchChain(section.chain, engines);
+  const rerank = resolveToolRerank(
+    section.rerank,
+    'webSearch.rerank',
+    env,
+    decisionModelIds,
+  );
   return {
     engines,
     chain: section.chain,
     fetchLimit: section.fetchLimit ?? WEB_SEARCH_FETCH_LIMIT_DEFAULT,
+    ...(rerank !== undefined && { rerank }),
   };
 }
 
@@ -2242,6 +2375,9 @@ const DEFAULT_PROVIDER_HEADERS: Readonly<
   'anthropic-messages': { 'X-Session-Id': ['', ''] },
   'openai-codex': {},
   'opencode-go': { 'X-Session-Id': ['', ''] },
+  // A decision call has no Chat session: the lane sends no session header,
+  // and the operator may still add literal ones.
+  'system-one': {},
 };
 
 const PROVIDER_HEADER_TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9_-]*):([^{}]*)\}/gu;
@@ -2346,6 +2482,14 @@ function resolveProviderHeaders(
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
     if (rawValue === null) continue;
     const configPath = `${headersPath}.${name}`;
+    if (
+      type === 'system-one' &&
+      rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN).length > 1
+    ) {
+      throw new InstanceConfigError(
+        `${configPath}: a system-one provider has no Chat session, so {session:id} is not allowed`,
+      );
+    }
     headers[name] = resolveProviderHeaderValue(rawValue, name, configPath, {
       env,
       credentials,
@@ -2381,6 +2525,8 @@ function resolveProviders(
         return resolveCodexProvider(entry, { env, credentials });
       case 'opencode-go':
         return resolveOpenCodeGoProvider(entry, { env, credentials });
+      case 'system-one':
+        return resolveSystemOneProvider(entry, { env, credentials });
       default: {
         // Unreachable while the JSON Schema's `providerType` enum stays in
         // sync with the cases above (assertValidRaw rejects any other `type`
@@ -2542,6 +2688,38 @@ function resolveOpenCodeGoProvider(
       entry.key,
       env,
       credentials.onSecret,
+    ),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
+      env,
+      credentials,
+    }),
+  };
+}
+
+/**
+ * Decision-lane variant (experimental): both the credential and the
+ * destination are schema-required and must survive interpolation nonblank,
+ * because the wire authenticates every request and every hosted route has its
+ * own base URL. The client appends `/systemone` to the resolved base.
+ */
+function resolveSystemOneProvider(
+  entry: Extract<RawProviderEntry, { type: 'system-one' }>,
+  { env, credentials }: LoaderContext,
+): SystemOneProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
+    key: requireNonBlankString(
+      `providers[${entry.id}].key`,
+      entry.key,
+      env,
+      credentials.onSecret,
+    ),
+    baseUrl: requireNonBlankString(
+      `providers[${entry.id}].baseUrl`,
+      entry.baseUrl,
+      env,
     ),
     headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
@@ -2724,6 +2902,11 @@ function assertValidModelEntry(
       `models[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
     );
   }
+  if (provider.type === 'system-one') {
+    throw new InstanceConfigError(
+      `models[${entry.id}].provider: provider "${entry.provider}" has type "system-one", which serves decisionModels[] only`,
+    );
+  }
   return provider;
 }
 
@@ -2806,7 +2989,6 @@ function buildModelCatalogEntry(
     compactionThresholdTokens,
     maxOutputTokens,
   } = resolveModelScalars(entry, env);
-  const providerOptions = resolveProviderOptions(entry);
   const prompt = promptLoader.resolve({
     id: entry.id,
     ...(entry.name !== undefined && { name: entry.name }),
@@ -2818,7 +3000,13 @@ function buildModelCatalogEntry(
   return {
     ...display,
     source: 'system' as const,
-    billing: resolveBillingMode(entry.billing, provider.billing, provider.type),
+    billing: resolveBillingMode(
+      entry.billing,
+      // A decision provider has no billing mode: it is never a `models[]`
+      // provider, so the union member without the field resolves to undefined.
+      'billing' in provider ? provider.billing : undefined,
+      provider.type,
+    ),
     contextWindowTokens,
     // The schema enforces the closed set, `text` membership, and uniqueness
     // (vision-media D9); absent resolves to text only. Never checked against
@@ -2829,10 +3017,21 @@ function buildModelCatalogEntry(
       compactionThresholdTokens,
     }),
     ...(maxOutputTokens !== undefined && { maxOutputTokens }),
-    ...(providerOptions !== undefined && { providerOptions }),
+    ...resolveProviderOptionsEntry(entry),
     ...(reasoning !== undefined && { reasoning }),
     ...resolveToolPromptFilesEntry(entry.toolPromptFiles),
   };
+}
+
+/**
+ * The provider options for one model, or nothing when the entry declares none —
+ * so the field stays absent rather than present-and-undefined.
+ */
+function resolveProviderOptionsEntry(
+  entry: RawModelEntry,
+): Pick<SystemModelCatalogEntry, 'providerOptions'> | Record<string, never> {
+  const providerOptions = resolveProviderOptions(entry);
+  return providerOptions === undefined ? {} : { providerOptions };
 }
 
 /**

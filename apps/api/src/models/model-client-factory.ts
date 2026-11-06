@@ -90,6 +90,15 @@ function buildClient(
       return createCodexClient(provider, model, userAgent, dependencies);
     case 'opencode-go':
       return createOpenCodeGoClient(provider, model, userAgent, dependencies);
+    case 'system-one':
+      // A decision provider is deliberately NOT a `ModelClient`: a System One
+      // call returns typed probabilities in one forward pass, with its own
+      // usage shape, and never streams. Startup already rejects a `models[]`
+      // entry that names one, so this guard only fails loudly on an
+      // impossible runtime binding.
+      throw new Error(
+        `Provider "${provider.id}" is a System One decision provider, not a model client`,
+      );
     default: {
       // Unreachable while the JSON Schema's `providerType` enum stays in
       // sync with the cases above (config-loader rejects any other `type` at

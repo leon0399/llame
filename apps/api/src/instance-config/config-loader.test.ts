@@ -4814,6 +4814,7 @@ describe('loadInstanceConfig — configured credential set', () => {
         { "id": "a", "type": "anthropic-messages", "key": "sk-anthropic-canary-9f3a2b7c" },
         { "id": "x", "type": "openai-codex", "key": "codex-key-canary-9f3a2b7c", "accountId": "account-canary-9f3a2b" },
         { "id": "g", "type": "opencode-go", "key": "sk-opencode-go-canary-9f3a2b7c" },
+        { "id": "s", "type": "system-one", "key": "sk-system-one-canary-9f3a2b7c", "baseUrl": "https://system-one.invalid/v1" },
         { "id": "keyless", "type": "openai-responses" }
       ]
     }`);
@@ -4825,6 +4826,7 @@ describe('loadInstanceConfig — configured credential set', () => {
         'sk-anthropic-canary-9f3a2b7c',
         'codex-key-canary-9f3a2b7c',
         'sk-opencode-go-canary-9f3a2b7c',
+        'sk-system-one-canary-9f3a2b7c',
       ]),
     );
     expect(members).not.toContain('account-canary-9f3a2b');
@@ -4889,6 +4891,21 @@ describe('loadInstanceConfig — configured credential set', () => {
     expect(members).not.toContain('fallback-canary-9f3a2b');
     expect(members.some((member) => member.includes('Bearer'))).toBe(false);
     expect(members.some((member) => member.includes('id='))).toBe(false);
+  });
+
+  it('takes system-one header substitutions and no baseUrl credential', () => {
+    const members = credentialsOf(
+      `{
+        "providers": [{
+          "id": "s", "type": "system-one", "key": "k",
+          "baseUrl": "https://svc:pw-canary-1065-long@system-one.invalid/v1",
+          "headers": { "X-Trace": "id={env:S1_HDR}" }
+        }]
+      }`,
+      { S1_HDR: 'system-one-header-canary-9f3a' },
+    );
+
+    expect(members).toEqual(['system-one-header-canary-9f3a']);
   });
 
   it('takes stdio environment substitutions and not command or args substitutions', () => {

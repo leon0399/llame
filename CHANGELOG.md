@@ -1,5 +1,24 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-06
+
+- **Operator config for decision-model ranking.** A new provider `type`,
+  `system-one`, takes `{ id, type, key, baseUrl, billing?, headers? }`; `key`
+  and `baseUrl` must resolve nonblank, `accountId` is rejected, the default
+  header map is empty, and an authored `{session:id}` in its headers fails
+  startup naming the provider and header. The new optional top-level
+  `decisionModels[]` array holds `{ id, provider, model }` entries whose three
+  fields accept `{env:…}` and `{path:…}` interpolation; ids are unique, every
+  `provider` must be a `system-one` entry, and a blank, duplicate, or unknown
+  value fails startup at its `decisionModels[<index>]` path without printing the
+  resolved value. `webSearch.rerank` and `tools.grep.rerank` take
+  `{ model: <decisionModels id> }` only — an unknown or blank `model` fails
+  startup, and there is no `mode`, no price, and no `off` value. A `models[]` or
+  `embeddingModels[]` entry that names a `system-one` provider fails startup,
+  `GET /api/v1/models` never lists a decision model, and the published
+  `llame.config.schema.json` and `llame.config.jsonc.example` carry the new keys.
+  This change adds configuration only; no tool ranks results yet.
+
 # 2026-11-05
 
 - A language-model failure can no longer carry a configured credential into

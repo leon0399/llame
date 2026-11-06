@@ -681,3 +681,26 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
     );
   });
 });
+
+describe('createModelClient system-one guard (decision-rerank)', () => {
+  it('refuses a decision provider and names it without its credential', () => {
+    expect(() =>
+      createModelClient(
+        {
+          userAgent: USER_AGENT,
+          provider: {
+            id: 'decisions',
+            type: 'system-one',
+            key: 'secret-decision-key',
+            baseUrl: 'https://decisions.example/v1',
+            headers: {},
+          },
+          model: { ...model, provider: 'decisions' },
+        },
+        dependencies,
+      ),
+    ).toThrow(
+      'Provider "decisions" is a System One decision provider, not a model client',
+    );
+  });
+});
