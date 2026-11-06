@@ -55,7 +55,7 @@ master
 - [x] 2.4 Document the redaction, its threat model, the boot snapshot, the entropy gate and its accepted leak (a credential under 16 characters or 64 estimated bits, no part of a provider `baseUrl` or remote MCP `url`, a literal header value, a stdio `command` or `args` substitution, or the `openai-codex` `accountId` is not a member), the encoded-form limits, and that non-secrets are written literally, in `docs/product/reference/tools/bash.md` and the bash operator page; correct `docs/product/operator/providers/codex-subscription.md`, which says llame never reads refresh or ID tokens, to say the loader reads them only to redact them; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
 - [x] 2.5 Verify the layer: `pnpm --filter @workspace/runtime-safety test`, `pnpm --filter @workspace/bash-executor test`, in `apps/api` `pnpm exec vitest run --project unit src/tools src/mcp src/machines`, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
 - [x] 2.6 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
-- [ ] 2.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1065` in the PR body.
+- [x] 2.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1065` in the PR body.
 
 ## 3. model-failures
 
