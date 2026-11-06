@@ -191,9 +191,11 @@ host and for `ssh://` and code units for a Machine:
 3. Cut the kept range at the bound.
 4. Replace each merged interval that intersects the kept range, clipped to
    it, with `[REDACTED]`. A full member is at least 16 characters, so its
-   marker is shorter. Only a fragment clipped at the bound can be shorter
-   than the 10-character marker; such a fragment is removed without a marker,
-   so a stream never grows past its bound.
+   marker is shorter. A fragment that step 2 or step 3 clips can be shorter
+   than the 10-character marker, for example the tail of an occurrence that a
+   gap drop or a trailing-prefix drop overlaps. Any clipped fragment shorter
+   than the marker is removed without a marker, so a stream never grows past
+   its bound.
 
 Any member occurrence the capture holds is a step 1 interval, so step 4
 replaces or removes its kept part even when step 2 or 3 cuts through it; any occurrence
