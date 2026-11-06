@@ -130,7 +130,7 @@ tokens fail startup, but interpolated output is never rescanned.
 The service groups cards with their questions, 256 per request, and sends all
 requests together. Each request carries only its own cards. The fixed state
 contains query, optional objective, cards, criteria, and the untrusted `task`.
-Grep's fallback query joins patterns with `|`. No chat history is needed.
+Grep's fallback query joins patterns with `" | "`. No chat history is needed.
 Each request is atomic; merge complete successful requests and leave only
 failed requests' keys unjudged. Unknown catalog ids fail closed.
 
@@ -138,7 +138,7 @@ Ten seconds per attempt, three attempts for 408/429/5xx or transport failure,
 and retry-after up to five seconds are carried bounds, not measured guarantees.
 The measured batch/parallel bounds come from the wire probes. Combine the
 trusted enclosing `ToolContext.abortSignal` with per-attempt timeout, abort
-retry waits, and start no retry after cancellation. Grep's scan deadline leaves
+retry waits, and start no retry after cancellation. Grep's call deadline leaves
 a margin; ranking consumes only the remaining enclosing budget, never a fresh one.
 A body over 1 MiB or a malformed response makes its request unavailable.
 

@@ -187,13 +187,14 @@ tool loop.
 
 ### Requirement: The grep deadline derives from the tool call timeout
 
-The walk MUST stop at its scan deadline.
-This deadline is the call start plus the tool call timeout, minus a margin.
+The walk MUST stop at its call deadline.
+The enclosing tool deadline is the call start plus the tool call timeout.
+The call deadline is the enclosing tool deadline minus a margin.
 The margin is the larger of 5 seconds and one tenth of the timeout,
 but at most half of it.
 Without a timeout in the call context, the timeout MUST be
 `tools.callTimeoutSeconds`.
-At the scan deadline, the accumulated result MUST carry the passages found
+At the call deadline, the accumulated result MUST carry the passages found
 so far, `complete: false`, and a `deadline` warning.
 A configured rank call MUST use only the time before the enclosing tool deadline.
 If that deadline elapses, the runner's timeout observation MUST apply instead
@@ -208,21 +209,21 @@ of a rank-failure line.
 #### Scenario: A longer timeout gives a longer walk
 
 - **WHEN** `tools.callTimeoutSeconds` is 300
-- **THEN** the scan deadline is 270 seconds after the call starts
+- **THEN** the call deadline is 270 seconds after the call starts
 
 #### Scenario: A short timeout keeps half of it for the walk
 
 - **WHEN** `tools.callTimeoutSeconds` is 6
-- **THEN** the scan deadline is 3 seconds after the call starts
+- **THEN** the call deadline is 3 seconds after the call starts
 
 #### Scenario: A call without a timeout in its context uses the configured timeout
 
 - **WHEN** a grep call has no timeout in its context and `tools.callTimeoutSeconds` is 120
-- **THEN** the scan deadline is 108 seconds after the call starts
+- **THEN** the call deadline is 108 seconds after the call starts
 
 #### Scenario: A deadline with no match stays incomplete
 
-- **WHEN** the scan deadline stops the walk before any line matches
+- **WHEN** the call deadline stops the walk before any line matches
 - **THEN** the result is `results: []` with `complete: false` and a `deadline` warning
 
 #### Scenario: A rank call cannot consume a fresh tool timeout
@@ -256,7 +257,7 @@ model about every card, with the call's `objective` when the call sets one.
 ### Requirement: The patterns are the criterion when no objective exists
 
 The judge MUST use the call's `objective` when present.
-Without `objective`, the tool MUST send its `patterns`, joined by `|`,
+Without `objective`, the tool MUST send its `patterns`, joined by `" | "`,
 as the query criterion.
 
 #### Scenario: A grep without an objective uses its patterns
