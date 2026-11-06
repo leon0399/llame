@@ -85,9 +85,9 @@ MUST destroy it.
 
 #### Scenario: A printed provider key is redacted
 
-- **WHEN** a provider `key` resolves to `sk-canary-1065` and a file holds that key. A bash command on the llame host prints that file
+- **WHEN** a provider `key` resolves to `sk-canary-7Qx2Lm9Vb4Rt8Wn3` and a file holds that key. A bash command on the llame host prints that file
 - **THEN** the result's stdout contains `[REDACTED]` where the key was
-- **AND** the recorded result, its artifact, and its replay contain no `sk-canary-1065`
+- **AND** the recorded result, its artifact, and its replay contain no `sk-canary-7Qx2Lm9Vb4Rt8Wn3`
 
 #### Scenario: Remote output is redacted by the API
 

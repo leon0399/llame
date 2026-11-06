@@ -24,15 +24,14 @@ nothing builds one for the instance.
 ## What Changes
 
 - The API process derives one in-memory set of configured credentials at
-  startup. Membership is listed in the `instance-config` requirements:
-  credential fields whole; the credential-shaped leaves of a JSON document a
-  member substitution selects from; `POSTGRES_URL`, its password, and
-  `PGPASSWORD`; interpolated substitutions in provider and MCP headers and
-  stdio MCP `command`, `args`, and `env` values; the userinfo and
-  credential-shaped query values of provider and remote MCP URLs, however
-  written; and literal header values under a credential-shaped name. An
-  8-character floor applies only to the database password, `PGPASSWORD`, and
-  a URL userinfo username; every other member counts at any nonblank length.
+  startup. Membership is listed in the `instance-config` requirements: each
+  provider `key` (every type; a keyless provider gives nothing), each web
+  search engine `key`, the `github` web adapter `token`, the credential-shaped
+  leaves of a document that a member `{path:…|json:…}` substitution selects,
+  the `POSTGRES_URL` password and `PGPASSWORD`, and each resolved `{env:}`
+  or `{path:}` substitution in provider and remote MCP `headers` values and in
+  stdio MCP `env` values. A member must have at least 16 characters and an
+  estimated entropy of at least 64 bits.
 - Every host `bash` result replaces each member with `[REDACTED]`, and so does
   every `ssh://` and Machine result, redacted in the API so the set never
   leaves it. The output bound is applied on raw positions, and a value llame
@@ -65,10 +64,11 @@ None.
 
 ## Impact
 
-- `apps/api/src/instance-config` and `packages/config-interpolation` (building
-  the set from one read of each selected document), `packages/bash-executor`
-  (cutting on raw positions), `apps/api/src/tools/bash.ts`, `ssh-bash.ts`, and
-  the Machine bash path (passing the set), the run's tool context,
+- `apps/api/src/instance-config` and `packages/config-interpolation` (reporting
+  each substitution's value, whether its `:-` fallback applied, and the
+  selected document's leaves from one read), `packages/bash-executor` (cutting
+  on raw positions), `apps/api/src/tools/bash.ts`, `ssh-bash.ts`, and the
+  Machine bash path (passing the set), the run's tool context,
   `packages/runtime-safety` (one redaction routine),
   `apps/api/src/models/model-client-factory.ts` and `models.service.ts`
   (wrapping every client's failures), and the title path's logging.
@@ -78,22 +78,30 @@ None.
 
 ## Acceptance
 
-- A canary credential of each member kind appears as `[REDACTED]` in a bash
-  result that prints it, including one that crosses the output bound.
+- A canary credential of each member kind (a provider key, an engine key, the
+  adapter token, a document leaf, the database password, and a header or stdio
+  `env` substitution) appears as `[REDACTED]` in a bash result that prints it,
+  including one that crosses the output bound.
 - A stubbed upstream that echoes a canary credential produces no failure
   message, run event, or log line containing it on any provider type, with
   `[REDACTED]` where the wire forwards upstream text, and the title-path log
   is likewise clean.
 - A non-credential interpolation (for example `knowledge.root` or
   `{env:PORT}`) is never redacted, and failure classification is unchanged.
+- A credential under 16 characters, or under 64 estimated bits, is not a
+  member; the operator pages state that leak.
 
 ## Threat model
 
 Redaction stops accidental verbatim echo of a credential into model context,
 owner output, and logs. It does not stop a model that intends to exfiltrate:
 bash can print an encoded or split form (`base64`, `cut`), and other tools
-that read files are not covered (Non-goals). The controls for that are the
-permission policy and a future Sandbox.
+that read files are not covered (Non-goals). It does not detect a secret that
+llame was not configured with. It does not redact a credential in a position
+that the named list leaves out: URL userinfo or query values, a literal header
+value, a stdio `command` or `args` substitution, or the `openai-codex`
+`accountId`. It does not redact a value that fails the entropy gate. The
+controls for that are the permission policy and a future Sandbox.
 
 ## Assumptions
 
@@ -103,46 +111,36 @@ permission policy and a future Sandbox.
 
 ## Decisions for approval
 
-- **A1 Membership by field.** Redacting every interpolation would corrupt
-  ordinary output (`knowledge.root`, ports, home paths). Membership is an
-  explicit list of credential fields, the documents they select from,
-  `POSTGRES_URL`, substitutions in credential-bearing values, and URL
-  credentials. Stdio MCP `command` and `args` substitutions are members:
-  `mcp-tools` already treats every such interpolation as a declared secret,
-  and bash can read a live child's argv from `/proc/<pid>/cmdline`. The cost
-  is that an interpolated path such as `{env:HOME}` is redacted from bash
-  output too; writing it literally is the remedy `mcp-tools` already
-  documents. URL credentials are taken from the resolved userinfo and
-  credential-shaped query values, not only from substitutions inside them, so
-  a whole-URL substitution or a literal URL credential is covered; other query
-  values and the endpoint stay unredacted.
+- **A1 Membership by an explicit short field list.** Redacting every
+  interpolation would corrupt ordinary output (`knowledge.root`, ports, home
+  paths). Membership is a short, explicit list: each provider `key`, each web
+  search engine `key`, the `github` web adapter `token`, the credential-shaped
+  leaves of a selected document, the `POSTGRES_URL` password and `PGPASSWORD`,
+  and each resolved substitution in provider and remote MCP `headers` and in
+  stdio MCP `env`. Every other position stays out: provider and remote MCP
+  URLs and their parts, stdio MCP `command` and `args`, literal header values,
+  the `openai-codex` `accountId`, and a resolved session value. The cost is an
+  accepted leak: such a credential is not redacted (A4 and Non-goals).
 - **A2 Bash covers instance credentials only.** A bound Workspace's own
   `.mcp.json` secrets are not added.
 - **A3 Selected JSON documents contribute their credential-shaped leaves.** A
   Codex auth file's refresh token is more valuable than the access token it
-  sits beside; its timestamps and modes are not added.
-- **A4 An 8-character floor for inferred values only, and one
-  credential-shaped name rule.** _Revised after review:_ the floor now
-  follows how a value became a member, not which field holds it. A value is
-  a credential by construction when it sits in a credential field, is an
-  interpolation in a credential-bearing value (a provider or MCP header, a
-  stdio `command`, `args`, or `env` value, a URL's userinfo password or
-  query), is a URL userinfo password, or sits under a credential-shaped name
-  (a literal header, a query value, a document leaf); such a value counts at
-  any nonblank length, because a valid short token would otherwise be printed
-  verbatim. The floor stays only where membership is inferred and short
-  non-secret values are common: the database password and `PGPASSWORD`
-  (the shipped development password `app` would otherwise turn `apps/api`
-  into `[REDACTED]s/api`) and a URL userinfo username (`svc`). Accepted
-  leak: such a value under 8 characters printed on its own is not redacted;
-  the database password is redacted only inside the whole `POSTGRES_URL`.
-  Accepted cost: a short or common value in any other position, including a
-  non-secret interpolated into stdio `command` or `args`, over-redacts; as
-  `mcp-tools` already says, the remedy is to write a non-secret literally,
-  and a keyless provider omits its key. The name rule (`authorization`,
-  `cookie`, `credential`, `token`, `key`, `secret`, `passw`, `signature`)
-  decides which literal header values, URL query values, and document leaves
-  are members, so `X-Region: eu-west-1` stays out.
+  sits beside; its timestamps and modes are not added. Only a name that
+  contains `authorization`, `cookie`, `credential`, `token`, `key`, `secret`,
+  `passw`, or `signature` contributes a leaf. The loader reads the leaves in
+  the same file read that selects the value.
+- **A4 An entropy gate, not a length floor.** _Revised on Leo's decision,
+  2026-11-06; this narrows the membership that the earlier review approved._
+  A member must have at least 16 characters and at least 64 bits of estimated
+  entropy, where the estimate is the length times the Shannon entropy per
+  character of the value's own character distribution. Every generated key and
+  passphrase passes (`9f2c7b1e4d8a6350c9e2b7f4a1d8635e`, `correct horse
+  battery staple`). A short or simple value (`app`, `postgres`, a timestamp)
+  fails. False positives come only from a low-entropy member that matches
+  unrelated text, so the gate removes them without a format rule.
+  Accepted leak: a credential that fails the gate is never redacted, so an
+  operator must use a generated value. A long passphrase that matches ordinary
+  prose can over-redact; the remedy is a generated credential.
 
 ## Non-goals
 
@@ -150,6 +148,15 @@ permission policy and a future Sandbox.
   set, or web reads with this set.
 - Redacting a Workspace's own `.mcp.json` secrets.
 - Picking up a credential file rotated after startup; the set is built at boot.
-- Redacting encoded forms of a credential, or a partial value a command
-  printed itself before exiting.
+- Redacting encoded forms of a credential, a JSON-escaped spelling, or a
+  partial value a command printed itself before exiting.
 - Preventing bash from reading credential files.
+- Redacting a credential that llame is not configured with. This rule covers a
+  credential in a provider `baseUrl` or a remote MCP `url`, or in its userinfo
+  or query; a literal header value; a substitution in a stdio `command` or
+  `args`; and the `openai-codex` `accountId`.
+- Redacting a value that fails the entropy gate, including the whole
+  `POSTGRES_URL`, a value under 16 characters, and a value under 64 estimated
+  bits.
+- Detecting a credential by its format, such as an `sk-` prefix or a JWT
+  shape.

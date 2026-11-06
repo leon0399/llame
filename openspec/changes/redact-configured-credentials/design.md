@@ -34,8 +34,8 @@
   part resolved through `resolveInterpolatedString`, which does not report
   substitutions; nothing protects them.
 - `interpolateStringWithSubstitutions` reports substituted values only, with
-  no position or fallback flag, and a `{path:…|json:…}` read returns only the
-  selected string.
+  no fallback flag, and a `{path:…|json:…}` read returns only the selected
+  string.
 - `POSTGRES_URL` is read from the environment outside the loader, and
   `PGPASSWORD` by no application code. The loaded configuration is
   `LlameConfig`, compared by deep equality in many tests.
@@ -73,50 +73,63 @@
 
 ### D1. The loader collects members while resolving
 
-`loadInstanceConfig` collects members as it resolves each field, rather than
-re-deriving them afterwards: whole values for provider, engine, and adapter
-credential fields at any nonblank length; the substitutions
-`interpolateStringWithSubstitutions`
-reports, extended to give each substitution's start and end in the raw
-resolved string and whether its `:-` fallback applied, for provider and
-remote MCP headers (each `{session:id}`-separated part of a provider header
-is its own resolved string) and stdio `command`, `args`, and `env`,
-excluding `:-` fallback text; for provider base URLs and the remote MCP
-`url`, substitutions whose resolved span lies in the userinfo password or
-query spans computed on that raw string, not on a re-serialized `URL`, and,
-from the same raw spans, the userinfo password and username and each query
-value under a credential-shaped name, as written, percent-decoded, and as
-WHATWG URL parsing serializes it (tab, LF, and CR removed, spaces and other
-characters percent-encoded), taken from a throwaway `new URL` per component, so
-a credential written literally or inside a whole-URL substitution is still a
-member; literal header values under a credential-shaped name; and, from the
-`env` the loader was given, `POSTGRES_URL`, its parsed password in both
-percent-encoded and decoded spellings, and `PGPASSWORD`. A
-`{path:…|json:…}` substitution that is a member also contributes the
-credential-shaped string leaves of its document, together with each leaf's
-JSON-escaped spelling when that differs. `@workspace/config-interpolation`
-reports those leaves from the same single read that selects the value, so
-the set never mixes two versions of a file. The result is normalized, drops
-blank values, and applies the 8-character floor only to the database
-password, `PGPASSWORD`, and a URL userinfo username (proposal A4).
+`loadInstanceConfig` collects members while it resolves the fields that the
+`instance-config` requirements name. It reads these positions only:
+
+- each provider `key`, each web search engine `key`, and the `github` web
+  adapter `token`, as resolved.
+- each resolved `{env:…}` or `{path:…}` substitution in a provider entry's
+  `headers`, in a remote MCP server's `headers`, and in a stdio MCP server's
+  `env` value. `@workspace/config-interpolation` reports each substitution's
+  value and whether its `:-` fallback applied. The collector drops a fallback
+  value and never adds the literal text around a substitution.
+- the credential-shaped string leaves of each document that a member
+  `{path:…|json:…}` substitution selects. `@workspace/config-interpolation`
+  reports those leaves from the same single read that selects the value, so
+  the set never mixes two versions of a file. An element of an array under a
+  credential-shaped name is a leaf. A name is credential-shaped when it
+  contains, without regard to case, `authorization`, `cookie`, `credential`,
+  `token`, `key`, `secret`, `passw`, or `signature`.
+- the `POSTGRES_URL` password and `PGPASSWORD`, from the `env` the loader was
+  given.
+
+The collector keeps a value only when it has at least 16 characters and at
+least 64 bits of estimated entropy. The estimate is the value's length times
+the Shannon entropy per character of its own character distribution. The gate
+admits generated keys and passphrases, and excludes `app`, `postgres`,
+timestamps, and content types. A value that fails the gate is not a member
+(proposal A4).
 
 The loader records the frozen set in a module-level `WeakMap` keyed by the
-configuration object it returns, read through one exported accessor. The set
-is therefore no property of `LlameConfig`: no serializer, spread, or
-deep-equality comparison sees it, and a configuration the loader did not
-build has an empty set. `ModelsService` and the run's tool context read it
-through that accessor.
+configuration object it returns, read through one exported accessor,
+`configuredCredentials(config)`. The set is therefore no property of
+`LlameConfig`: no serializer, spread, or deep-equality comparison sees it, and
+a configuration the loader did not build has an empty set. `ModelsService` and
+the run's tool context read it through that accessor.
 
 - Alternative: every interpolation. Rejected: see proposal A1.
 - Alternative: whole provider header values. Rejected: their literal parts
   (the `Bearer` prefix) are not secret. Remote MCP keeps its own per-server
-  set, as `mcp-tools` requires; only this instance set uses substitutions and
-  credential-shaped literals.
+  set, as `mcp-tools` requires; only this instance set uses substitutions.
 - Alternative: every leaf of a selected document. Rejected: a Codex auth file
   holds timestamps and modes that would be redacted everywhere.
+- Alternative: URL scanning, stdio `command` and `args`, and literal header
+  values. Rejected: those positions add encoding, parser, and name-shape rules
+  for a larger false-positive risk, and the accepted leak covers them
+  (proposal A4 and Non-goals).
+- Alternative: detect a credential by its format, such as an `sk-` prefix.
+  Rejected: a format guess is not a configured value, and it can redact text
+  that fails the gate.
 - Alternative: a field on `LlameConfig` or the config service. Rejected: the
   configuration is serialized and deep-compared, and a field invites a
   projection to carry it.
+
+_Revision record:_ Leo's decision on 2026-11-06 narrowed the approved
+membership. This revision removes URL scanning and its spellings, stdio
+`command` and `args` substitutions, literal header values and the header
+name-shape rule, the `openai-codex` `accountId`, the whole `POSTGRES_URL`,
+JSON-escaped leaf spellings, and the 8-character floor. The entropy gate
+replaces the floor.
 
 ### D2. One bash routine redacts on raw positions, at the API
 
@@ -278,16 +291,20 @@ intervals directly (D2 step 4); MCP inherits the fix through
 
 ## Risks / Trade-offs
 
-- [A common member matches unrelated text] → The 8-character floor on the
-  database password, `PGPASSWORD`, and a URL username, and the
-  credential-shaped name rule, keep values like `app`, `svc`, content types,
-  and timestamps out; a short or common value in any other member position,
-  such as a credential field or a non-secret interpolated into stdio
-  `command` or `args`, still over-redacts. Documented in the operator pages.
-- [A short inferred credential is not redacted] → A database password,
-  `PGPASSWORD`, or URL username under 8 characters printed on its own reaches
-  the bash result; the database password is redacted only inside the whole
-  `POSTGRES_URL` (proposal A4). Documented in the operator pages.
+- [A member matches unrelated text] → False positives come only from a
+  low-entropy member, and the gate excludes those: a member has at least 16
+  characters and 64 estimated bits. A generated key rarely occurs in unrelated
+  text. A long passphrase that matches ordinary prose can still over-redact;
+  the remedy is a generated credential. Documented in the operator pages.
+- [A short or simple credential is not redacted] → A credential that fails the
+  gate is not a member, so a database password `app`, a 13-character token, or
+  a low-entropy value reaches the bash result verbatim (proposal A4).
+  Documented in the operator pages.
+- [A credential outside the named positions is not redacted] → URL userinfo
+  and query values, a literal header value, a stdio `command` or `args`
+  substitution, and the `openai-codex` `accountId` are not members. This is
+  an accepted leak (proposal A1, A4, and Non-goals). Documented in the
+  operator pages.
 - [Encoded forms and other tools] → See the proposal's threat model.
 - [A consumer reads an error property the wrapper did not consider] → D3
   mutates only string values in place; task 2.1 lists every consumer that
