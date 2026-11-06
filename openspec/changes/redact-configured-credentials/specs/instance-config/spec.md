@@ -99,7 +99,7 @@ substitution inside the userinfo password or query. It MUST contain each
 query value under a credential-shaped name, in a literal or a substituted URL.
 It MUST contain the userinfo password at any nonblank length and the username
 from 8 characters. It MUST contain each value as written, percent-decoded, and
-without ASCII tab, LF, or CR, as URL parsing sends it.
+without ASCII tab, LF, or CR, as the URL parser sends it.
 It MUST NOT contain the whole URL or any other part of it.
 
 #### Scenario: A URL substitution is a member
