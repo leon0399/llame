@@ -15,8 +15,11 @@
 
 import { oneLine } from '@workspace/native-file-tools';
 
-import { type DecisionJudge } from '../../decisions/decisions.service';
-import { rankCards, type RankCardsResult } from '../../ranking/rank-cards';
+import {
+  rankCards,
+  type RankCardsInput,
+  type RankCardsResult,
+} from '../../ranking/rank-cards';
 import { type ToolContext } from '../types';
 import { groupingKey } from './aggregate';
 import {
@@ -59,7 +62,7 @@ export type WebSearchRanking =
       readonly source: ResultsSource;
       readonly record: WebSearchRerankRecord;
     }
-  | { readonly status: 'unavailable'; readonly source: ResultsSource };
+  | { readonly status: 'unavailable' };
 
 /** The source with the call's results deduplicated and the key replaced. */
 export function prepareSource(
@@ -139,8 +142,8 @@ function deduplicate(results: ReadonlyArray<RawResult>): Array<RawResult> {
 }
 
 /**
- * Rank the results of one call. Ordinary failure returns `unavailable` with the
- * source untouched; an abort of the enclosing call propagates so the runner
+ * Rank the results of one call. Ordinary failure returns `unavailable`; an
+ * abort of the enclosing call propagates so the runner
  * reports its own timeout or cancellation. Returns `undefined` when no judge is
  * available, in which case the call keeps its engine order without a note.
  */
@@ -153,26 +156,30 @@ export async function rankWebSearchResults(
   const judge = context.decisions;
   if (model === undefined || judge === undefined) return undefined;
 
-  const width = String(source.results.length - 1).length;
-  const cards = source.results.map((result, index) => {
-    const key = `p${String(index).padStart(width, '0')}`;
-    return { key, text: cardText(key, result) };
-  });
-  const ranked = await rankSafely(context, judge, {
+  const ranked = await rankSafely(context, {
+    judge,
     model,
-    objective,
+    runId: context.runId ?? '',
+    chatId: context.chatId,
+    tool: 'web_search',
+    ...(objective !== undefined && { objective }),
     query: source.query,
-    cards,
+    cards: cardsOf(source.results),
+    cardBound: WEB_SEARCH_RERANK_CARD_BOUND,
+    rubric: WEB_SEARCH_RERANK_RUBRIC,
+    ...(context.abortSignal !== undefined && {
+      abortSignal: context.abortSignal,
+    }),
   });
   if (ranked === undefined || ranked.status === 'unavailable')
-    return { status: 'unavailable', source };
+    return { status: 'unavailable' };
 
-  const indexByKey = new Map(cards.map((card, index) => [card.key, index]));
   return {
     status: 'ranked',
+    // Every key is `p<canonical position>`, so the position is the key's digits.
     source: {
       ...source,
-      results: ranked.order.map((key) => source.results[indexByKey.get(key)!]),
+      results: ranked.order.map((key) => source.results[Number(key.slice(1))]),
     },
     record: {
       model: ranked.model,
@@ -184,35 +191,21 @@ export async function rankWebSearchResults(
   };
 }
 
+/** One card per result, keyed `p<canonical position>` zero-padded to one width. */
+function cardsOf(results: ReadonlyArray<RawResult>) {
+  const width = String(results.length - 1).length;
+  return results.map((result, index) => {
+    const key = `p${String(index).padStart(width, '0')}`;
+    return { key, text: cardText(key, result) };
+  });
+}
+
 async function rankSafely(
   context: ToolContext,
-  judge: DecisionJudge,
-  request: {
-    readonly model: string;
-    readonly objective: string | undefined;
-    readonly query: string;
-    readonly cards: ReadonlyArray<{
-      readonly key: string;
-      readonly text: string;
-    }>;
-  },
+  input: RankCardsInput,
 ): Promise<RankCardsResult | undefined> {
   try {
-    return await rankCards({
-      judge,
-      model: request.model,
-      runId: context.runId ?? '',
-      chatId: context.chatId,
-      tool: 'web_search',
-      ...(request.objective !== undefined && { objective: request.objective }),
-      query: request.query,
-      cards: request.cards,
-      cardBound: WEB_SEARCH_RERANK_CARD_BOUND,
-      rubric: WEB_SEARCH_RERANK_RUBRIC,
-      ...(context.abortSignal !== undefined && {
-        abortSignal: context.abortSignal,
-      }),
-    });
+    return await rankCards(input);
   } catch (error) {
     // An enclosing timeout or cancellation belongs to the runner; any other
     // throw from a judge is a failed call, never a negative judgment.

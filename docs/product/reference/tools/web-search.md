@@ -175,31 +175,33 @@ usual. With a rank model set, the decision key is also replaced in every
 received title, snippet and URL before any cut or artifact, even when nothing is
 ranked.
 
-A ranked result carries one extra field beside the closed shape above, which the
-model-facing text never shows:
+A ranked result carries one extra record beside the closed shape above, stored
+at `display.rerank`, which the model-facing text never shows:
 
 ```json
 {
-  "rerank": {
-    "model": "jev-1.14",
-    "order": ["p2", "p5", "p3", "p1", "p4", "p0"],
-    "scores": {
-      "p0": 0.05,
-      "p1": 0.1,
-      "p2": 0.9,
-      "p3": 0.5,
-      "p4": 0.05,
-      "p5": 0.7
-    },
-    "latencyMs": 180,
-    "costUsd": 0.0000042
+  "display": {
+    "rerank": {
+      "model": "jev-1.14",
+      "order": ["p2", "p5", "p3", "p1", "p4", "p0"],
+      "scores": {
+        "p0": 0.05,
+        "p1": 0.1,
+        "p2": 0.9,
+        "p3": 0.5,
+        "p4": 0.05,
+        "p5": 0.7
+      },
+      "latencyMs": 180,
+      "costUsd": 0.0000042
+    }
   }
 }
 ```
 
 `order` lists every card key in the applied order and `scores` maps each judged
 key to the model's score. A call that sent no question, or whose ranking failed,
-has no `rerank` field.
+has no `display.rerank` record.
 
 ## Behavior
 

@@ -462,13 +462,19 @@ function classifyOutcome(
   id: string,
   outcome: RunOne,
   notes: Notes,
+  limit: number | undefined,
 ): OutcomeDecision {
   if (isFailureClass(outcome)) {
     notes.push(`${id}: ${outcome}`);
     return { kind: 'continue' };
   }
-  const success =
+  const canonical =
     outcome.kind === 'empty' ? outcome : canonicalizeOutcome(outcome);
+  // An engine holds its own fetch bound; an aggregate keeps its merged set.
+  const success =
+    canonical.kind === 'results' && limit !== undefined
+      ? { ...canonical, results: canonical.results.slice(0, limit) }
+      : canonical;
   if (
     success.kind === 'empty' ||
     (success.kind === 'results' && success.results.length === 0)
@@ -491,6 +497,27 @@ function classifyOutcome(
     return { kind: 'continue' };
   }
   return { kind: 'success', success };
+}
+
+/** Run one chain entry and classify its outcome. */
+async function runEntry(
+  entry: WebSearchEngineConfig,
+  engine: Engine,
+  request: EngineRequest,
+  notes: Notes,
+): Promise<OutcomeDecision> {
+  const aggregate = entry.type === 'aggregate';
+  const outcome = await runOne(
+    engine,
+    aggregate ? undefined : entry.timeoutSeconds,
+    request,
+  );
+  return classifyOutcome(
+    entry.id,
+    outcome,
+    notes,
+    aggregate ? undefined : request.limit,
+  );
 }
 
 /**
@@ -533,15 +560,7 @@ export async function executeSearchChain(
       notes.push(`${id}: unsupported`);
       continue;
     }
-    const decision = classifyOutcome(
-      id,
-      await runOne(
-        lookup(id),
-        entry.type === 'aggregate' ? undefined : entry.timeoutSeconds,
-        request,
-      ),
-      notes,
-    );
+    const decision = await runEntry(entry, lookup(id), request, notes);
     if (decision.kind === 'success')
       return withRemoved(
         withChainNotes(

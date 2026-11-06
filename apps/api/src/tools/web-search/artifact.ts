@@ -60,13 +60,11 @@ export async function spillWebSearchResult(
   received: SearchChainSuccess,
   { limit, fetchSize, objective }: WebSearchSpill,
 ): Promise<ToolResult> {
-  const { source, count, record } = await preparedSpillSource(
+  const { source, record, full, whole } = await rankedSpillSource(
     context,
     received,
     { limit, fetchSize, objective },
   );
-  const full = normalizeFullOutput(source, count);
-  const whole = normalizeOutput(source, limit);
   if (JSON.stringify(full) === JSON.stringify(whole))
     return { ...whole, ...record };
 
@@ -95,39 +93,61 @@ export async function spillWebSearchResult(
   };
 }
 
-/**
- * The source both normalize calls read, the result count the artifact keeps,
- * and the `display` field a ranked call stores: the received source
- * deduplicated and key-protected, then ranked unless the whole of it fits.
- */
-async function preparedSpillSource(
-  context: ToolContext,
-  received: SearchChainSuccess,
-  { limit, fetchSize, objective }: WebSearchSpill,
-): Promise<{
+type SpillSource = {
   readonly source: SearchChainSuccess;
-  readonly count: number;
   readonly record: {
     readonly display?: { readonly rerank: WebSearchRerankRecord };
   };
-}> {
+  readonly full: WebSearchSuccess;
+  readonly whole: WebSearchSuccess;
+};
+
+/**
+ * The deduplicated, key-protected source, ranked unless the whole of it fits
+ * inline, with the full and inline-cut outputs both normalize calls produce
+ * from it and the `display` field a ranked call stores.
+ */
+async function rankedSpillSource(
+  context: ToolContext,
+  received: SearchChainSuccess,
+  { limit, fetchSize, objective }: WebSearchSpill,
+): Promise<SpillSource> {
   const prepared = prepareSource(context, received);
   const count = retainsMergedSet(context, prepared)
     ? Number.POSITIVE_INFINITY
     : fetchSize;
-  const ranking = await rankUnlessWhole(context, prepared, {
-    limit,
-    count,
-    objective,
-  });
+  const full = normalizeFullOutput(prepared, count);
+  const whole = normalizeOutput(prepared, limit);
+  const fits = JSON.stringify(full) === JSON.stringify(whole);
+  const ranking =
+    prepared.kind === 'results' && !fits
+      ? await rankWebSearchResults(context, prepared, objective)
+      : undefined;
+  if (prepared.kind !== 'results' || ranking === undefined)
+    return { source: prepared, record: {}, full, whole };
+  const source = rankedSource(prepared, ranking);
   return {
-    source: rankedSource(prepared, ranking),
-    count,
+    source,
     record:
-      ranking?.status === 'ranked'
+      ranking.status === 'ranked'
         ? { display: { rerank: ranking.record } }
         : {},
+    full: normalizeFullOutput(source, count),
+    whole: normalizeOutput(source, limit),
   };
+}
+
+/** The ranked source, or the prepared one with the failure note appended. */
+function rankedSource(
+  prepared: Extract<SearchChainSuccess, { kind: 'results' }>,
+  ranking: WebSearchRanking,
+): SearchChainSuccess {
+  return ranking.status === 'ranked'
+    ? ranking.source
+    : {
+        ...prepared,
+        notes: [...(prepared.notes ?? []), WEB_SEARCH_RANK_FAILURE_NOTE],
+      };
 }
 
 /** Whether the winning engine is an aggregate that keeps every merged result. */
@@ -141,45 +161,6 @@ function retainsMergedSet(
       (entry) => entry.id === source.engine && entry.type === 'aggregate',
     )
   );
-}
-
-/**
- * Rank a results source unless the whole of it already fits inline: every
- * deduplicated result within `limit` and the rendered text within the inline
- * bound. `undefined` means no rank call ran.
- */
-async function rankUnlessWhole(
-  context: ToolContext,
-  source: SearchChainSuccess,
-  {
-    limit,
-    count,
-    objective,
-  }: {
-    readonly limit: number;
-    readonly count: number;
-    readonly objective: string | undefined;
-  },
-): Promise<WebSearchRanking | undefined> {
-  if (source.kind !== 'results') return undefined;
-  const fitsWhole =
-    JSON.stringify(normalizeFullOutput(source, count)) ===
-    JSON.stringify(normalizeOutput(source, limit));
-  if (fitsWhole) return undefined;
-  return rankWebSearchResults(context, source, objective);
-}
-
-/** The ranked source, or the prepared one with the failure note appended. */
-function rankedSource(
-  prepared: SearchChainSuccess,
-  ranking: WebSearchRanking | undefined,
-): SearchChainSuccess {
-  if (ranking === undefined) return prepared;
-  if (ranking.status === 'ranked') return ranking.source;
-  return {
-    ...ranking.source,
-    notes: [...(ranking.source.notes ?? []), WEB_SEARCH_RANK_FAILURE_NOTE],
-  };
 }
 
 /** Store the whole rendered output with one finding for each block. */

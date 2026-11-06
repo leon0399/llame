@@ -59,6 +59,7 @@ type ResultGroup = {
 function classifyOutcome(
   child: AggregateChild,
   outcome: EngineOutcome,
+  limit: number,
 ): ChildRun {
   if (outcome.kind === 'empty')
     return { child, kind: 'empty', notes: outcome.notes };
@@ -76,7 +77,8 @@ function classifyOutcome(
       notes: outcome.notes,
     };
   }
-  const results = canonicalizeResults(outcome.results);
+  // Each child holds its own fetch bound, whatever it returned.
+  const results = canonicalizeResults(outcome.results).slice(0, limit);
   return results.length === 0
     ? { child, kind: 'empty', notes: outcome.notes }
     : { child, kind: 'results', results, notes: outcome.notes };
@@ -89,7 +91,7 @@ async function runChild(
   const outcome = await runOne(child.engine, child.timeoutSeconds, request);
   return isFailureClass(outcome)
     ? { child, kind: 'failure', failureClass: outcome }
-    : classifyOutcome(child, outcome);
+    : classifyOutcome(child, outcome, request.limit);
 }
 
 /**
@@ -154,7 +156,11 @@ function runResults(run: ChildRun): ReadonlyArray<RawResult> {
   }));
 }
 
-function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
+/** The merged groups in rank-fusion order, cut to `limit` unless it is undefined. */
+function mergeResultGroups(
+  runs: ReadonlyArray<ChildRun>,
+  limit?: number,
+): Array<RawResult> {
   const groups = new Map<string, ResultGroup>();
   runs.forEach((run, childIndex) => {
     runResults(run).forEach((result, resultIndex) => {
@@ -184,7 +190,8 @@ function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
         left.bestRank - right.bestRank ||
         left.bestChild - right.bestChild,
     )
-    .map(groupResult);
+    .map(groupResult)
+    .slice(0, limit);
 }
 
 /** The grounded answers one aggregate attaches, in child order. */
@@ -218,13 +225,19 @@ function childNotes(runs: ReadonlyArray<ChildRun>): Array<string> {
   );
 }
 
-/** The merged list, cut to `limit` unless the caller retains every candidate. */
-function mergedResults(
+/** The merged results of the runs that answered, with the answers and notes. */
+function mergedOutcome(
   runs: ReadonlyArray<ChildRun>,
   limit: number | undefined,
-): Array<RawResult> {
-  const merged = mergeResultGroups(runs);
-  return limit === undefined ? merged : merged.slice(0, limit);
+  notes: ReadonlyArray<string>,
+): EngineOutcome {
+  const answers = attachedAnswers(runs);
+  const result = {
+    kind: 'results' as const,
+    results: mergeResultGroups(runs, limit),
+    ...(answers.length > 0 && { answers }),
+  };
+  return notes.length === 0 ? result : { ...result, notes };
 }
 
 /**
@@ -255,13 +268,11 @@ export function createAggregateEngine(
     if (request.signal.aborted) throwAbort(request.signal);
     const notes = [...outcomeNotes(runs), ...childNotes(runs)];
     if (runs.some((run) => run.kind === 'results' || run.kind === 'answer')) {
-      const answers = attachedAnswers(runs);
-      const result = {
-        kind: 'results' as const,
-        results: mergedResults(runs, retainMerged ? undefined : request.limit),
-        ...(answers.length > 0 && { answers }),
-      };
-      return notes.length === 0 ? result : { ...result, notes };
+      return mergedOutcome(
+        runs,
+        retainMerged ? undefined : request.limit,
+        notes,
+      );
     }
     if (runs.some((run) => run.kind === 'empty')) {
       return { kind: 'empty' as const, notes };

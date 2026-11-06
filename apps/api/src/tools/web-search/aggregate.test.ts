@@ -489,10 +489,13 @@ it('uses a later child spelling when it has the better rank', async () => {
   ]);
 
   await expect(
-    engine(request(new AbortController().signal, 1)),
+    engine(request(new AbortController().signal, 2)),
   ).resolves.toStrictEqual({
     kind: 'results',
-    results: [result('https://www.example.test/docs/')],
+    results: [
+      result('https://www.example.test/docs/'),
+      result('https://example.test/filler'),
+    ],
   });
 });
 
@@ -506,7 +509,7 @@ it('breaks equal scores by a better best rank than insertion order', async () =>
     child('d', () => rankedResults('d', 24, 24, first)),
   ]);
 
-  const output = await engine(request());
+  const output = await engine(request(undefined, 30));
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.results.slice(0, 2).map(({ url }) => url)).toStrictEqual([
     first,
@@ -749,12 +752,35 @@ describe('merged candidate retention', () => {
   });
 
   it('retains the sum of the children results, each child holding its own bound', async () => {
+    const received: Array<number> = [];
     const engine = createAggregateEngine(
-      ['a', 'b', 'c'].map((id) => child(id, () => distinct(id, 100))),
+      ['a', 'b', 'c'].map((id) =>
+        child(id, (engineRequest) => {
+          received.push(engineRequest.limit);
+          return distinct(id, 100);
+        }),
+      ),
       { retainMerged: true },
     );
     const output = await engine(request(undefined, 100));
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results).toHaveLength(300);
+    expect(received).toStrictEqual([100, 100, 100]);
+  });
+
+  it('cuts a child that returns more than the fetch size, even when retaining', async () => {
+    const engine = createAggregateEngine(
+      [
+        child('a', () => distinct('a', 25)),
+        child('b', () => distinct('b', 20)),
+      ],
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 20));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(40);
+    expect(output.results.some((entry) => entry.url.endsWith('/a/20'))).toBe(
+      false,
+    );
   });
 });

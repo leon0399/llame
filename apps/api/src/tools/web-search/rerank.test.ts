@@ -35,6 +35,7 @@ import {
   WEB_SEARCH_RERANK_RUBRIC,
 } from './rerank';
 import { renderWebSearchText, webSearchOutputSchema } from './text';
+import { webSearchTool } from './tool';
 
 const SEQ = 5;
 const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
@@ -566,6 +567,56 @@ describe('aggregate candidate retention', () => {
     expect(outputOf(result).notes).toEqual(['rerank: unavailable']);
     expect(writtenTitles()).toHaveLength(40);
     expect(writtenTitles()[0]).toBe('Title 00');
+  });
+
+  it('retains both 20-result children through the tool: 40 cards, 40 artifact results', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        const offset =
+          new Headers(init?.headers).get('X-Subscription-Token') === 'a-key'
+            ? 0
+            : 20;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              web: {
+                results: Array.from({ length: 20 }, (_unused, index) => ({
+                  title: `Title ${String(offset + index).padStart(2, '0')}`,
+                  url: `https://example.test/r/${offset + index}`,
+                })),
+              },
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        );
+      }),
+    );
+    try {
+      const spy = vi.fn<JudgeFn>(byKeyNumber((n) => n));
+      const context = testContext({
+        decisions: { judgeCandidates: spy, protectText: (_m, t) => t },
+        webSearch: {
+          engines: [
+            { id: 'a', type: 'brave', key: 'a-key', timeoutSeconds: 60 },
+            { id: 'b', type: 'brave', key: 'b-key', timeoutSeconds: 60 },
+            { id: 'agg', type: 'aggregate', engines: ['a', 'b'] },
+          ],
+          chain: ['agg'],
+          fetchLimit: 20,
+          rerank: { model: 'jev' },
+        },
+      });
+      const result = await webSearchTool.execute(context, {
+        query: 'query text',
+        limit: 10,
+      });
+      expect(spy.mock.calls[0][0].cards).toHaveLength(40);
+      expect(titles(result)).toHaveLength(10);
+      expect(writtenTitles()).toHaveLength(40);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('sends 300 cards in two parallel requests and stores all 300', async () => {
