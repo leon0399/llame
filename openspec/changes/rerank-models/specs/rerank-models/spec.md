@@ -14,8 +14,9 @@ scores like decision-model scores.
 A `providers[]` entry of `type: "cohere-rerank"` MUST serve the Cohere v2
 rerank wire. Each request MUST go to `POST {baseUrl}/rerank`. The request body
 MUST hold `model`, `query`, and `documents`. When the entry has a `key`, each
-request MUST carry it as a bearer token. The `baseUrl` default MUST be
-`https://api.cohere.com/v2`.
+request MUST carry it as a bearer token. A keyless entry MUST send no
+`Authorization` header. The client MUST NOT read a credential from the process
+environment.
 
 #### Scenario: A rerank provider is configured
 
@@ -28,6 +29,7 @@ request MUST carry it as a bearer token. The `baseUrl` default MUST be
 - **WHEN** a `cohere-rerank` entry has no `key` and the `baseUrl` `http://infinity:7997`
 - **THEN** startup succeeds
 - **AND** each request goes to `http://infinity:7997/rerank` without an `Authorization` header
+- **AND** a `COHERE_API_KEY` in the process environment is not sent
 
 #### Scenario: The default endpoint needs a key
 
@@ -116,13 +118,19 @@ retry, and `retry-after` rules of the decision lane.
 A response MUST hold `results`, an array with one `{ index, relevance_score }`
 for each document of its request. Each `relevance_score` MUST be a finite
 number. A missing, duplicate, or out-of-range index MUST make that request
-unavailable. A response without a `meta` field MUST be accepted.
+unavailable. A response without a `meta` field MUST be accepted. The client
+MUST stop reading a body at 1,048,576 bytes, and that request is unavailable.
 
 #### Scenario: A response from OpenRouter has no meta field
 
 - **WHEN** the response holds `id`, `model`, `results`, and `usage` and no `meta`
 - **THEN** the request is accepted
 - **AND** each card gets the score of its index
+
+#### Scenario: A response body is too large
+
+- **WHEN** a response streams more than 1,048,576 bytes
+- **THEN** the client cancels the read and that request is unavailable
 
 #### Scenario: A response skips a document
 
@@ -132,29 +140,50 @@ unavailable. A response without a `meta` field MUST be accepted.
 
 ### Requirement: A rerank call reports scores, usage, and cost
 
-The judge result MUST map each judged card key to its `relevance_score`.
-`model` MUST be the served model id when a response names one, else the
-catalog `model`. Input tokens MUST come from `usage.total_tokens`, else
-`usage.prompt_tokens`, else be `null`. Output tokens MUST be 0. Cost MUST be
-`usage.cost` when it is a finite nonnegative number, else `null`.
+The judge result MUST map each judged card key to its `relevance_score`. The
+representative model MUST be the first accepted response's served `model` in
+request order, else the catalog `model`. It MUST be `null` when no response is
+accepted.
+
+#### Scenario: Two requests report different served models
+
+- **WHEN** request zero answers as `rerank-v5.0-fast` and request one answers as `rerank-v5.0-pro`
+- **THEN** the representative model is `rerank-v5.0-fast`
+
+### Requirement: Rerank usage and cost sum the accepted responses
+
+A response count MUST come from `usage.total_tokens`, else
+`usage.prompt_tokens`. A count MUST be an integer from 0 through
+9,007,199,254,740,991, else it is absent. `inputTokens` MUST be the sum of the
+accepted counts, or `null` when any accepted response has no count.
+`outputTokens` MUST be 0. Cost MUST follow the same rule with `usage.cost`,
+a finite nonnegative number.
 
 #### Scenario: OpenRouter reports usage and cost
 
 - **WHEN** the response holds `usage: { total_tokens: 2139, cost: 0.00004278 }`
 - **THEN** the log line holds `inputTokens: 2139`, `outputTokens: 0`, and `costUsd: 0.00004278`
 
+#### Scenario: One of two requests reports no count
+
+- **WHEN** a call has two accepted requests and only the first reports `usage.total_tokens`
+- **THEN** the log line holds `inputTokens: null` and `costUsd: null`
+
 #### Scenario: Cohere reports no cost
 
 - **WHEN** the response holds no `usage.cost`
 - **THEN** the log line and `display.rerank` hold `costUsd: null`
 
-### Requirement: A rerank rank call follows the decision-lane rules
+### Requirement: A rerank rank call follows the decision-lane failure rules
 
 A rank call served by a rerank model MUST follow these `decision-models`
-requirements, with the rerank provider's key as the protected key: failed
-requests, the log line, secrecy, key protection in presentation, protected
-locators, and enclosing cancellation and deadline. Tool rules that name a
-decision call MUST apply to it.
+requirements:
+
+- `A failed request leaves only its cards unjudged`
+- `Every decision call writes one log line`
+- `Rank requests share the enclosing cancellation and deadline`
+
+Tool rules that name a decision call MUST apply to a rerank rank call.
 
 #### Scenario: A rerank request fails
 
@@ -173,3 +202,24 @@ decision call MUST apply to it.
 - **WHEN** `webSearch.rerank.model` names a `rerankModels` id and a call fetches 20 results with `limit` 10
 - **THEN** the results sort by score before the inline cut
 - **AND** the result carries `display.rerank` with the served model and 20 scores
+
+### Requirement: A rerank rank call follows the decision-lane secrecy rules
+
+A rank call served by a rerank model MUST follow these `decision-models`
+requirements. The rerank provider's key MUST be the protected key.
+
+- `Served model identities cannot contain the credential`
+- `Decision calls never expose a secret`
+- `Ranked tools protect the decision key in returned presentation`
+- `Protected locators need not round-trip to read`
+
+#### Scenario: A rerank response echoes the key in its model id
+
+- **WHEN** a rerank response names a served model that contains the rerank provider's resolved key
+- **THEN** that request is unavailable
+- **AND** neither the id nor the key reaches logs, results, or `display.rerank`
+
+#### Scenario: A grep excerpt contains the rerank key
+
+- **WHEN** a ranked grep result holds a source line that contains the rerank provider's resolved key
+- **THEN** the card, the inline text, the artifact, and the replay hold the protected replacement

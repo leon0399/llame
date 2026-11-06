@@ -36,6 +36,15 @@ successful JSON body that lacks it. The SDK reads nothing from `meta`, so the
 fill changes no result. Remove the fill when vercel/ai#24699 ships in the
 pinned line.
 
+The SDK is used for one attempt only (`maxRetries: 0`). Its own retry loop
+honours `retry-after` up to 60 seconds, retries 409, and never retries an
+attempt timeout, so the attempt loop, backoff, and `retry-after` cap reuse the
+decision client's helpers. The same fetch wrapper caps the body at 1 MiB and
+removes `Authorization` for a keyless entry; the client always passes an
+explicit `apiKey`, so `@ai-sdk/cohere` never reads `COHERE_API_KEY`. The SDK
+checks only that `index` and `relevance_score` are numbers, so index
+validation is llame's.
+
 ### D4. Requests: 1,000 cards, sent together, all-or-nothing
 
 Cohere caps a request at 1,000 documents; OpenRouter accepted 1,001 in a live
@@ -63,9 +72,10 @@ key protection applies to it (cards, query, presentation).
 ### D7. Usage and cost
 
 The wire may report `usage.total_tokens`, `usage.prompt_tokens`, and
-`usage.cost`. The log line takes `inputTokens` from `total_tokens`, else
-`prompt_tokens`, else `null`; `outputTokens` is `0`. Cost is `usage.cost`,
-else `null`. There is no price fallback and no Run-usage record (#1592).
+`usage.cost`. A response count is `total_tokens`, else `prompt_tokens`. The
+call's `inputTokens` and cost are sums over accepted responses, or `null`
+when any accepted response lacks one, the decision lane's cost rule;
+`outputTokens` is `0`. There is no price fallback and no Run-usage record (#1592).
 
 ## Risks / Trade-offs
 

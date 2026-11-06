@@ -54,6 +54,8 @@ backend. Measurements are recorded on the experiment branch
   rank provider.
 - `provider-request-headers`: `cohere-rerank` has an empty default header map
   and refuses `{session:id}`, as `system-one` does.
+- `run-usage-accounting`: rerank requests join decision requests outside
+  message usage.
 
 ## Impact
 

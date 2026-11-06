@@ -42,8 +42,10 @@ MUST NOT load as keyless.
 
 The `cohere-rerank` variant MUST accept `{ id, type, key?, baseUrl?, billing?,
 headers? }`, and `baseUrl` MUST default to `https://api.cohere.com/v2`. It MUST
-reject `accountId`. A `key` that resolves to empty MUST mark it keyless. A
-keyless entry MUST set `baseUrl`.
+reject `accountId`. Its `key` and `baseUrl` MUST accept `{env:…}` and
+`{path:…}`. A `key` that resolves to empty MUST mark it keyless. A keyless
+entry MUST set `baseUrl`. A present `baseUrl` that resolves blank MUST fail
+startup and name the field.
 
 For `openai-responses`, `openai-completions`, and `anthropic-messages`, `key`
 and `baseUrl` MUST be strings with `{env:…}` or `{path:…}` interpolation. A
@@ -176,6 +178,17 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 - **THEN** startup fails and names the offending configuration path
 - **AND** the entry does not load
 
+#### Scenario: A rerank provider with an account id fails startup
+
+- **WHEN** the file defines a `type: "cohere-rerank"` provider that also sets `accountId`
+- **THEN** startup fails and names the entry and `accountId`
+
+#### Scenario: A rerank provider base URL resolves blank
+
+- **WHEN** a `cohere-rerank` entry sets `baseUrl` to `{env:RERANK_URL:-}` and the variable is unset
+- **THEN** startup fails and names the entry and `baseUrl`
+- **AND** no request goes to the default Cohere URL
+
 ### Requirement: Web search rerank configuration
 
 The optional `webSearch.rerank` object MUST accept one field, `model`. `model`
@@ -296,3 +309,8 @@ A `models[]` entry or an `embeddingModels[]` entry MUST NOT name a provider of
 
 - **WHEN** a `models[]` entry sets `provider` to a `cohere-rerank` provider
 - **THEN** startup fails and names `models[<id>].provider` and the type `cohere-rerank`
+
+#### Scenario: An embedding model names a rerank provider
+
+- **WHEN** an `embeddingModels[]` entry sets `provider` to a `cohere-rerank` provider
+- **THEN** startup fails and names `embeddingModels[<id>].provider` and the type `cohere-rerank`
