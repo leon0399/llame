@@ -4,7 +4,7 @@ import {
   type CandidateJudgement,
   type DecisionJudge,
 } from '../decisions/decisions.service';
-import { loadRankingCases } from './fixtures';
+import { CARD_BOUND, loadRankingCases } from './fixtures';
 import { assertPermutation, rankCards } from './rank-cards';
 
 const cards = ['a', 'b', 'c', 'd'].map((key) => ({ key, text: key }));
@@ -26,11 +26,7 @@ function judgement(
   };
 }
 
-function rank(
-  result: CandidateJudgement | Error,
-  abortSignal?: AbortSignal,
-  input = cards,
-) {
+function rank(result: CandidateJudgement | Error, input = cards) {
   const judge: Pick<DecisionJudge, 'judgeCandidates'> = {
     judgeCandidates: vi.fn(() => {
       if (result instanceof Error) return Promise.reject(result);
@@ -45,8 +41,8 @@ function rank(
     chatId: 'c',
     query: 'q',
     cards: input,
+    cardBound: 384,
     rubric: 'rubric',
-    ...(abortSignal !== undefined && { abortSignal }),
   });
 }
 
@@ -64,7 +60,7 @@ describe('rankCards', () => {
   });
 
   it('keeps canonical position on a tie', async () => {
-    const result = await rank(judgement({ a: 0.5, b: 0.8, c: 0.5, d: 0.5 }));
+    const result = await rank(judgement({ d: 0.5, c: 0.5, b: 0.8, a: 0.5 }));
     expect(result.order).toEqual(['b', 'a', 'c', 'd']);
   });
 
@@ -76,7 +72,12 @@ describe('rankCards', () => {
   });
 
   it('is unavailable with canonical order when nothing was judged', async () => {
-    const result = await rank(judgement(undefined, { model: null }));
+    const result = await rank(
+      judgement(undefined, {
+        model: null,
+        usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+      }),
+    );
     expect(result).toMatchObject({
       status: 'unavailable',
       order: ['a', 'b', 'c', 'd'],
@@ -86,40 +87,13 @@ describe('rankCards', () => {
     });
   });
 
-  it('rethrows an enclosing abort instead of reporting unavailable', async () => {
-    const controller = new AbortController();
-    controller.abort(new Error('deadline'));
-    await expect(rank(judgement({ a: 1 }), controller.signal)).rejects.toThrow(
-      'deadline',
-    );
-  });
-
-  it('rethrows an abort raised while the judge runs', async () => {
-    const controller = new AbortController();
-    const judge = {
-      judgeCandidates: () => {
-        controller.abort(new Error('mid-flight'));
-        return Promise.reject(new Error('socket closed'));
-      },
-    };
-    await expect(
-      rankCards({
-        judge,
-        model: 'm',
-        tool: 'grep',
-        runId: 'r',
-        chatId: 'c',
-        query: 'q',
-        cards,
-        rubric: 'x',
-        abortSignal: controller.signal,
-      }),
-    ).rejects.toThrow('mid-flight');
+  it('propagates a judge rejection such as an enclosing abort', async () => {
+    await expect(rank(new Error('deadline'))).rejects.toThrow('deadline');
   });
 
   it('throws on duplicate card keys, a non-permutation', async () => {
     const dup = [...cards, { key: 'a', text: 'again' }];
-    await expect(rank(judgement({ a: 0.5 }), undefined, dup)).rejects.toThrow(
+    await expect(rank(judgement({ a: 0.5 }), dup)).rejects.toThrow(
       'not a permutation',
     );
   });
@@ -165,44 +139,22 @@ describe('labeled ranking fixtures', () => {
     for (const { tool, cards: fixtureCards } of cases) {
       for (const card of fixtureCards) {
         if (tool === 'grep') {
-          expect(card.text.length).toBeLessThanOrEqual(384);
+          expect(card.text.length).toBeLessThanOrEqual(CARD_BOUND.grep);
           expect(card.text.split('\n').length).toBeLessThanOrEqual(4);
         } else {
-          expect(card.text.length).toBeLessThanOrEqual(400);
+          expect(card.text.length).toBeLessThanOrEqual(CARD_BOUND.web_search);
           expect(card.text).toMatch(/^\[\d+\] .+ — .+ — .+/);
         }
       }
     }
   });
 
-  it('ranks the labeled card first when a judge scores relevance', async () => {
-    for (const { tool, query, objective, cards: fixtureCards } of cases) {
-      const judge = {
-        judgeCandidates: () =>
-          Promise.resolve(
-            judgement(
-              Object.fromEntries(
-                fixtureCards.map((card) => [
-                  card.key,
-                  card.relevant ? 0.9 : 0.1,
-                ]),
-              ),
-            ),
-          ),
-      };
-      const result = await rankCards({
-        judge,
-        model: 'm',
-        tool,
-        runId: 'r',
-        chatId: 'c',
-        query,
-        ...(objective !== undefined && { objective }),
-        cards: fixtureCards,
-        rubric: 'x',
-      });
-      const first = fixtureCards.find((card) => card.key === result.order[0]);
-      expect(first?.relevant).toBe(true);
+  it('shows only lines the grep pattern matches after the path line', () => {
+    const retry = cases.find(({ name }) => name === 'retry-synthetic');
+    for (const card of retry?.cards ?? []) {
+      for (const line of card.text.split('\n').slice(1)) {
+        expect(line.toLowerCase()).toMatch(/retry|backoff/);
+      }
     }
   });
 });

@@ -1,6 +1,6 @@
-import { ndcgAtK, reciprocalRank } from './metrics';
-import { orderByScores } from './rank-cards';
+import { ndcgAtK, reciprocalRank } from '../search/core/eval';
 import { type RankingCase, type RecordedAnswer } from './fixtures';
+import { orderByScores } from './rank-cards';
 
 export type EvalRow = {
   readonly caseName: string;
@@ -47,22 +47,4 @@ export function evaluateCase(
       ),
     ),
   ];
-}
-
-export function formatTable(rows: ReadonlyArray<EvalRow>): string {
-  const header = ['case', 'ranker', 'nDCG@5', 'MRR', 'latency ms', 'cost USD'];
-  const body = rows.map((r) => [
-    r.caseName,
-    r.ranker,
-    r.ndcg5.toFixed(3),
-    r.mrr.toFixed(3),
-    r.latencyMs === null ? '-' : String(Math.round(r.latencyMs)),
-    r.costUsd === null ? '-' : r.costUsd.toFixed(5),
-  ]);
-  const widths = header.map((title, column) =>
-    Math.max(title.length, ...body.map((cells) => cells[column]?.length ?? 0)),
-  );
-  const line = (cells: ReadonlyArray<string>) =>
-    cells.map((cell, column) => cell.padEnd(widths[column] ?? 0)).join('  ');
-  return [line(header), ...body.map(line)].join('\n');
 }

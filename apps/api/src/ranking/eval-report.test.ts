@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { evaluateCase, formatTable } from './eval-report';
+import { evaluateCase } from './eval-report';
 import { type RankingCase } from './fixtures';
-import { ndcgAtK, reciprocalRank } from './metrics';
 
 const rankingCase: RankingCase = {
   name: 'demo',
@@ -14,20 +13,6 @@ const rankingCase: RankingCase = {
     { key: 'c', text: 'c', relevant: true },
   ],
 };
-
-describe('metrics', () => {
-  const relevant = new Set(['c']);
-  it('nDCG@k is 1 for an ideal order and discounts by position', () => {
-    expect(ndcgAtK(['c', 'a', 'b'], relevant, 5)).toBe(1);
-    expect(ndcgAtK(['a', 'b', 'c'], relevant, 5)).toBeCloseTo(0.5, 5);
-    expect(ndcgAtK(['a', 'b', 'c'], relevant, 2)).toBe(0);
-    expect(ndcgAtK(['a'], new Set(), 5)).toBe(0);
-  });
-  it('MRR is the reciprocal first relevant rank, 0 when absent', () => {
-    expect(reciprocalRank(['a', 'b', 'c'], relevant)).toBeCloseTo(1 / 3, 5);
-    expect(reciprocalRank(['a'], relevant)).toBe(0);
-  });
-});
 
 describe('evaluateCase', () => {
   it('prints the canonical baseline alone without recorded answers', () => {
@@ -61,7 +46,5 @@ describe('evaluateCase', () => {
       latencyMs: 40,
       costUsd: 0.001,
     });
-    expect(formatTable(rows)).toContain('jev');
-    expect(formatTable(rows)).toContain('0.00100');
   });
 });

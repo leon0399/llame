@@ -13,6 +13,7 @@ import { config } from 'dotenv';
 import { DecisionsService } from '../decisions/decisions.service';
 import { loadInstanceConfig } from '../instance-config/config-loader';
 import {
+  CARD_BOUND,
   loadRankingCases,
   RANKING_ANSWERS_DIR,
   type RankingCase,
@@ -32,7 +33,7 @@ async function recordCase(
   judge: DecisionsService,
   rankingCase: RankingCase,
   model: string,
-): Promise<void> {
+): Promise<boolean> {
   const result = await rankCards({
     judge,
     model,
@@ -41,11 +42,14 @@ async function recordCase(
     chatId: 'ranking-record',
     query: rankingCase.query,
     cards: rankingCase.cards,
+    cardBound: CARD_BOUND[rankingCase.tool],
     rubric: RUBRICS[rankingCase.tool],
     ...(rankingCase.objective !== undefined && {
       objective: rankingCase.objective,
     }),
   });
+  process.stdout.write(`${rankingCase.name} ${model}: ${result.status}\n`);
+  if (result.status === 'unavailable') return false;
   const answer: RecordedAnswer = {
     model,
     status: result.status,
@@ -57,7 +61,7 @@ async function recordCase(
     path.join(RANKING_ANSWERS_DIR, `${rankingCase.name}.${model}.json`),
     `${JSON.stringify(answer, null, 2)}\n`,
   );
-  process.stdout.write(`${rankingCase.name} ${model}: ${result.status}\n`);
+  return true;
 }
 
 async function main(): Promise<void> {
@@ -66,14 +70,26 @@ async function main(): Promise<void> {
     (entry) => entry.id,
   );
   const requested = process.argv.slice(2);
+  const unknown = requested.filter((id) => !catalogue.includes(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Not in decisionModels[]: ${unknown.join(', ')}. Catalogue: ${catalogue.join(', ') || '(empty)'}.`,
+    );
+  }
   const models = requested.length > 0 ? requested : catalogue;
   if (models.length === 0) {
     throw new Error('No decisionModels[] in the operator config to record.');
   }
   const judge = new DecisionsService(instanceConfig);
   fs.mkdirSync(RANKING_ANSWERS_DIR, { recursive: true });
+  let unavailable = 0;
   for (const rankingCase of loadRankingCases()) {
-    for (const model of models) await recordCase(judge, rankingCase, model);
+    for (const model of models) {
+      if (!(await recordCase(judge, rankingCase, model))) unavailable += 1;
+    }
+  }
+  if (unavailable > 0) {
+    throw new Error(`${unavailable} judgement(s) unavailable and not written.`);
   }
 }
 

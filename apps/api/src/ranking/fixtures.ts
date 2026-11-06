@@ -20,6 +20,9 @@ const recordedAnswerSchema = z.object({
   costUsd: z.number().nullable(),
 });
 
+/** The fixed card bound each tool passes the judge, in UTF-16 code units. */
+export const CARD_BOUND = { grep: 384, web_search: 400 } as const;
+
 export type RankingCase = z.infer<typeof rankingCaseSchema> & {
   readonly name: string;
 };
@@ -37,28 +40,25 @@ function readJson<T>(file: string, schema: z.ZodType<T>): T {
   return schema.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
 }
 
-export function loadRankingCases(
-  dir: string = RANKING_FIXTURES_DIR,
-): Array<RankingCase> {
+export function loadRankingCases(): Array<RankingCase> {
   return fs
-    .readdirSync(dir)
+    .readdirSync(RANKING_FIXTURES_DIR)
     .filter((file) => file.endsWith('.json'))
     .sort()
     .map((file) => ({
       name: file.slice(0, -'.json'.length),
-      ...readJson(path.join(dir, file), rankingCaseSchema),
+      ...readJson(path.join(RANKING_FIXTURES_DIR, file), rankingCaseSchema),
     }));
 }
 
 /** Recorded answers as `<case>.<model>.json`; the model id may contain dots. */
-export function loadRecordedAnswers(
-  caseName: string,
-  dir: string = RANKING_ANSWERS_DIR,
-): Array<RecordedAnswer> {
-  if (!fs.existsSync(dir)) return [];
+export function loadRecordedAnswers(caseName: string): Array<RecordedAnswer> {
+  if (!fs.existsSync(RANKING_ANSWERS_DIR)) return [];
   return fs
-    .readdirSync(dir)
+    .readdirSync(RANKING_ANSWERS_DIR)
     .filter((file) => file.startsWith(`${caseName}.`) && file.endsWith('.json'))
     .sort()
-    .map((file) => readJson(path.join(dir, file), recordedAnswerSchema));
+    .map((file) =>
+      readJson(path.join(RANKING_ANSWERS_DIR, file), recordedAnswerSchema),
+    );
 }

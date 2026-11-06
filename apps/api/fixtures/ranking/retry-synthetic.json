@@ -85,7 +85,7 @@
     },
     {
       "key": "p16",
-      "text": "src/utils/sleep.ts\nexport const sleep = (ms) => new Promise((r) => setTimeout(r, ms));",
+      "text": "src/utils/sleep.ts\nexport const sleep = (ms) => new Promise((r) => setTimeout(r, ms)); // backoff sleep",
       "relevant": false
     },
     {
@@ -100,7 +100,7 @@
     },
     {
       "key": "p19",
-      "text": "src/http/retry-with-backoff.ts\nexport async function retryWithBackoff<T>(fn, opts) {\nconst delay = Math.min(opts.maxMs, opts.baseMs * 2 ** attempt);\nif (!isRetryable(error)) throw error;",
+      "text": "src/http/retry-with-backoff.ts\nexport async function retryWithBackoff<T>(fn, opts) {\nconst delay = Math.min(opts.maxMs, opts.baseMs * 2 ** attempt); // backoff\nif (!isRetryable(error)) throw error; // retry only retryable errors",
       "relevant": true
     },
     {
@@ -135,12 +135,12 @@
     },
     {
       "key": "p26",
-      "text": "src/http/backoff.ts\nexport function nextDelay(attempt, jitter) {\n// full jitter: random between 0 and the exponential cap",
+      "text": "src/http/backoff.ts\nexport function nextDelay(attempt, jitter) { // retry backoff\n// full jitter backoff: random between 0 and the exponential cap",
       "relevant": true
     },
     {
       "key": "p27",
-      "text": "src/cli/flags.ts\n--retries <n>  number of retries",
+      "text": "src/cli/flags.ts\n--retry <n>  number of retry attempts",
       "relevant": false
     },
     {

@@ -1,25 +1,11 @@
 import {
-  type CandidateJudgement,
   type DecisionJudge,
-  type JudgeCandidate,
+  type JudgeCandidatesInput,
 } from '../decisions/decisions.service';
 
-export type RankCardsInput = {
+/** The judge request, plus the judge; card keys must be unique. */
+export type RankCardsInput = JudgeCandidatesInput & {
   readonly judge: Pick<DecisionJudge, 'judgeCandidates'>;
-  /** A `decisionModels[].id`. */
-  readonly model: string;
-  /** For the decision log line only. */
-  readonly tool: string;
-  readonly runId: string;
-  readonly chatId: string;
-  readonly objective?: string;
-  readonly query: string;
-  /** Cards in canonical order; keys must be unique. */
-  readonly cards: ReadonlyArray<JudgeCandidate>;
-  /** The tool's fixed relevance question. */
-  readonly rubric: string;
-  /** The enclosing call's deadline and cancellation; an abort is rethrown. */
-  readonly abortSignal?: AbortSignal;
 };
 
 export type RankCardsResult = {
@@ -75,31 +61,6 @@ export function assertPermutation(
   }
 }
 
-/** The judge call; an enclosing abort propagates, never becomes unavailable. */
-async function judge(input: RankCardsInput): Promise<CandidateJudgement> {
-  input.abortSignal?.throwIfAborted();
-  try {
-    const judgement = await input.judge.judgeCandidates({
-      model: input.model,
-      tool: input.tool,
-      runId: input.runId,
-      chatId: input.chatId,
-      query: input.query,
-      cards: input.cards,
-      rubric: input.rubric,
-      ...(input.objective !== undefined && { objective: input.objective }),
-      ...(input.abortSignal !== undefined && {
-        abortSignal: input.abortSignal,
-      }),
-    });
-    input.abortSignal?.throwIfAborted();
-    return judgement;
-  } catch (error) {
-    input.abortSignal?.throwIfAborted();
-    throw error;
-  }
-}
-
 /**
  * Rank cards by a decision model's relevance score. Ordinary judge failure
  * leaves the canonical order (`unavailable`) or ranks the judged cards first
@@ -109,11 +70,9 @@ export async function rankCards(
   input: RankCardsInput,
 ): Promise<RankCardsResult> {
   const canonical = input.cards.map(({ key }) => key);
-  const judgement = await judge(input);
-  const judged =
-    judgement.status === 'answered' && judgement.probabilities !== undefined
-      ? judgement.probabilities
-      : new Map<string, number>();
+  const { judge, ...request } = input;
+  const judgement = await judge.judgeCandidates(request);
+  const judged = judgement.probabilities ?? new Map<string, number>();
   const order = orderByScores(canonical, judged);
   assertPermutation(canonical, order);
   let status: RankCardsResult['status'] = 'partial';
@@ -125,6 +84,6 @@ export async function rankCards(
     scores: Object.fromEntries(judged),
     model: judgement.model ?? input.model,
     latencyMs: judgement.latencyMs,
-    costUsd: judged.size === 0 ? null : judgement.usage.costUsd,
+    costUsd: judgement.usage.costUsd,
   };
 }
