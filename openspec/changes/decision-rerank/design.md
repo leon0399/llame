@@ -20,7 +20,7 @@ Current state that shapes the approach:
 - `openspec/specs/tool-result-rendering/spec.md:43-50`: a `display` object
   is stored as the tool wrote it and never rendered to the model.
 - `openspec/specs/instance-config/spec.md:196` closes the provider `type`
-  set; `:1093` is the `embeddingModels[]` precedent for a per-kind catalogue
+  set; `:1093` is the `embeddingModels[]` precedent for a per-kind catalog
   that references `providers[]`.
 - `openspec/specs/run-usage-accounting/spec.md:11,414`: the aggregate covers
   only the Run's own model requests. Decision calls are side calls.
@@ -30,12 +30,15 @@ Current state that shapes the approach:
   no decision API; `experimental_decide` and `provider.decisionModel()` exist
   on `ai` 7.x only (`@ai-sdk/typesafe-ai` 3.0.34 posts to
   `${baseURL}/systemone`).
-- Live probes (2026-11-05/06, recorded in
-  `docs/research/tool-harness/2026-11-05-decision-model-landscape.md` F11
-  and F12): OpenRouter (`/api/v1`), OpenCode (`/zen/v1`), and TypeSafe speak
-  one request shape; OpenRouter answers 800 questions in one request,
-  OpenCode rejects about 80k input tokens; 12 parallel requests draw no 429;
-  latency grows sublinearly with cards (400 cards in 0.5 s).
+- Live probes: F11 and F12 of
+  `docs/research/tool-harness/2026-11-05-decision-model-landscape.md` show
+  that OpenRouter (`/api/v1`), OpenCode (`/zen/v1`), and TypeSafe speak one
+  request shape and report `usage.cost`. The wire-limit probe and the
+  real-repo runs are recorded in
+  [#1590's measurement comment](https://github.com/leon0399/llame/pull/1590#issuecomment-6685284326):
+  OpenRouter answers 800 questions in one request, OpenCode rejects about
+  80k input tokens with `max_tokens_exceeded`; 12 parallel requests of 48
+  draw no 429; 400 cards answer in 0.5 s.
 - Prior art: oh-my-pi's judgment lane (`packages/ai/src/judgment/`, HEAD
   `88a69582c7`): one state, keyed questions, chunking under a per-endpoint
   question cap, bounded `retry-after` backoff, a `judge` model role, and a
@@ -66,29 +69,40 @@ Current state that shapes the approach:
 
 Settled with Leo on 2026-11-06. Each row names the alternative rejected.
 
-### D1. Delivery: proposal first, the experimental branches become the layers
+### D1. Delivery: proposal first, the experimental PRs become the layers
 
-The three experimental branches are rebased onto `decision-rerank/proposal`
-after approval and keep their commits. Alternative: close them and
-re-implement; rejected as duplicated review for no change in outcome.
+PRs #1584, #1588, and #1590 stay open and follow their branches, which are
+renamed on GitHub to the layer names. Each layer is rebuilt from the
+proposal branch by importing the experiment's files (the client branch is
+split into `config`, `client`, and `service`), so the imported history is
+one commit per layer and the renamed remote branches are force-pushed.
+Alternative: close the PRs and re-implement; rejected as duplicated review
+for no change in outcome.
 
 ### D2. Issue map
 
 `Closes #1521` on the grep layer, `Closes #1433` and `Closes #1435` on the
 web search layer. #1520 is closed as not planned with the rationale in the
-proposal. #1518 and #1430 stay open and are reworded (constraint 3, step 3).
+proposal. #1518 is reworded (constraint 3, step 3; done). The proposal layer
+amends #1521, #1433, and #1430 with the acceptance criteria this change
+drops (proposal, "Not in this change") so that `Closes` is honest.
 
 ### D3. Shared engine in `apps/api/src/ranking/`
 
 `rankCards({ judge, model, objective?, query, cards, rubric }) →
-{ status: 'ranked' | 'partial' | 'unavailable', order, scores }`. `order` is
-asserted to be a permutation of the card keys; judged cards sort by score
-descending with a stable tie on canonical position; unjudged cards follow in
-canonical order. `partial` means at least one card was not judged. Tools own
-card construction and layout. The experimental `web-search/rerank.ts:rankCards`
-and `grep-rerank.ts:permutationOf` collapse into it. Alternative: keep two
-tool-local modules until a third caller; rejected because the duplicate
-exists today and #1521 names the kernel.
+{ status: 'ranked' | 'partial' | 'unavailable', order, scores, model,
+latencyMs, costUsd }`. Cards are `{ key, text }` with keys `p<index>`,
+zero-padded to the width of the last index. `order` lists every key and is
+asserted to be a permutation; judged keys sort by score descending with a
+stable tie on canonical position; unjudged keys follow in canonical order.
+`scores` holds judged keys only. `partial` means at least one card was not
+judged; `unavailable` means none was. `model`, `latencyMs`, and `costUsd`
+come from the lane and feed `display.rerank`. Tools own card construction
+and layout. The experimental `web-search/rerank.ts:rankCards` and
+`grep-rerank.ts:permutationOf` collapse into it. This extracts at the
+second caller, one occurrence before CODING_STANDARDS' rule of three: the
+exception is deliberate, because #1521's first bullet names the shared
+kernel as the deliverable and `glob` (#1510) is the planned third caller.
 
 ### D4. Consent by configuration, no data-class declaration
 
@@ -102,25 +116,31 @@ and #1522/#1523 are reworded to "configuring the model is the declaration".
 
 ### D5. No accounting in this change
 
-The lane logs one structured line per call (`decision.completed`: tool,
-model, cards, requests, judged, tokens, cost, latency). `display.rerank`
-carries the served model and cost per tool call and is the owner-visible
-provenance. A new issue, "side-call usage ledger", absorbs #1439 and notes
+The lane logs one structured line per call (`decision.completed`: `tool`,
+`model`, `cards`, `requests`, `judged`, `inputTokens`, `outputTokens`,
+`costUsd`, `latencyMs`). `display.rerank` carries the served model and cost
+per tool call and is the owner-visible provenance. A new issue, "side-call usage ledger", absorbs #1439 and notes
 that sub-call provenance is due for a redesign with subagents. Alternatives:
 fold into attempt usage (breaks the aggregate invariant at
 `run-usage-accounting:414`) or a RunEvent now (scope).
 
 ### D6. `display.rerank` is the provenance; receipts untouched
 
-Fields: `model` (served id as the provider reports it), `order`, `scores`,
-`latencyMs`, `costUsd`. Receipts stay system-prompt-only.
+Fields: `model` (served id as the provider reports it), `order` (every
+card key in applied order), `scores` (judged keys only), `latencyMs`,
+`costUsd` (the wire's `usage.cost`, else `null`; no catalog price exists,
+because every probed route reports a cost and a self-hosted endpoint that
+reports none has no price to apply). A failed call stores no record.
+Receipts stay system-prompt-only.
 
 ### D7. Guard: rank only when the model cannot see everything
 
-`grep`: no call when the whole result fits the inline part. `web_search`: no
-call when the fetched set is within `limit`. A result the model sees whole
-needs no ordering and pays nothing. Alternative: rank from three candidates
-up (experiment); rejected as cost without benefit.
+`grep`: no call when the whole result text fits the inline part.
+`web_search`: no call when the fetched results are at most `limit` and the
+inline text fits the inline bound. A result the model sees whole needs no
+ordering and pays nothing. There is no minimum-candidate floor: the
+experiment's "at least three" is deleted on both tools. Alternative: rank
+from three candidates up (experiment); rejected as cost without benefit.
 
 ### D8. `rerank: { model }`, no mode
 
@@ -129,9 +149,12 @@ order for later comparison; the fixture set (D11) replaces that purpose.
 
 ### D9. Visible failure
 
-`web_search` appends `rerank: unavailable` to its `notes`; `grep` adds one
-framing line, `ranking unavailable; walk order`. Both keep canonical order.
-Rendered through the existing notes and framing grammars.
+`web_search` appends `rerank: unavailable` to its `notes`; `grep` stores
+`ranking: "unavailable"` on its result and the renderer emits
+`[ranking unavailable; walk order]` after `[warnings: …]`, with room
+reserved in the inline part like the other framing lines. Both keep
+canonical order. A partial answer ranks the judged cards and stores no
+failure.
 
 ### D10. Every `results` outcome is ranked
 
@@ -142,12 +165,17 @@ skip objective-aware winners; rejected by Leo; the fixtures can revisit it.
 ### D11. Fixtures and evaluation
 
 `apps/api/fixtures/ranking/<case>.json`: `{ tool, query, objective?, cards:
-[{ key, text, relevant }] }`. `pnpm --filter api ranking:eval` sends each
-case to each catalogue model with live keys and prints nDCG@5 and MRR for
-canonical order and each model. Recorded answers for the fixture cases pin
-the unit tests of the engine and the tools, so CI needs no key. The first
-cases are the two real-repo grep cases from the experiment and the two
-web search cases, labeled by hand.
+[{ key, text, relevant }] }`, at most 40 cards per case, hand-labeled.
+`pnpm --filter api ranking:eval` sends each case to each catalog model with
+live keys and prints nDCG@5, MRR, latency, and cost for canonical order and
+each model. `pnpm --filter api ranking:record` regenerates
+`fixtures/ranking/answers/<case>.<model>.json`; those answers pin the unit
+tests of the engine and the tools, so CI needs no key, and they count as
+generated output whose churn is reported separately. The first cases: the
+synthetic 30-file retry fixture (F12), a 40-card subset of the 162-run
+`tenant-db.service.ts` walk, a 40-card subset of the 469-run permission
+evaluator walk (both in #1590's measurement comment), and the RLS /
+SECURITY DEFINER web search case (F12).
 
 ### D12. Transport: hand-rolled `system-one` client
 
@@ -158,7 +186,12 @@ for the swap. Bounds carried from the experiment, measured: 256 cards per
 request with their questions (under OpenCode's ~80k input ceiling with the
 largest card), every request of a call in parallel, 10 s per attempt, 3
 attempts on 408/429/5xx and transport failures, `retry-after` honoured up
-to 5 s, response bodies over 1 MiB rejected as a codec mismatch.
+to 5 s, response bodies over 1 MiB rejected as a codec mismatch. The 256 and
+the parallel send are measured; the attempt timeout, the retry count, and
+the `retry-after` cap are carried from the experiment, not measured: no
+probe drew a 429 or a 5xx. They stay because a hosted gateway can answer
+either, the cost of a retry is one bounded request, and the alternative is
+walk order for the whole call.
 
 ### D13. Rubrics fixed in code
 
@@ -179,12 +212,17 @@ absent.
   the chat wires; a key shared with a chat gateway needs two entries. The
   alternative (OMP's `api` on the model, provider as credential only) is a
   refactor of model-client selection and is not needed.
-- **Decision client is not a `ModelClient`.** `model-client-factory` fails
-  with an explicit error for a `system-one` provider named by `models[]`.
-  Tools receive the judge through `ToolContext.decisions`, optional and
-  fail-closed like `modelClients`.
-- **One client per catalogue id**, built at boot from the catalogue, so two
+- **Decision client is not a `ModelClient`.** The config loader fails
+  startup when a `models[]` or `embeddingModels[]` entry names a
+  `system-one` provider, naming `models[<id>].provider`; the lazy factory
+  error of the experiment is replaced by that boot check. Tools receive the
+  judge through `ToolContext.decisions`, optional and fail-closed like
+  `modelClients`.
+- **One client per catalog id**, built at boot from the catalog, so two
   entries on different routes never share an endpoint.
+- **Headers.** `system-one` has an empty default header map; a decision
+  call has no Chat lane, so `{session:id}` in its headers fails startup.
+  Other templates resolve as for every provider.
 - **Cards.** `web_search`: `[k] <title> — <host> — <snippet>`, 400 units.
   `grep`: path plus up to three matching lines, 384 units, one card per file
   run. Keys are `p<index>` in canonical order.
@@ -192,8 +230,9 @@ absent.
   objective?, query, cards: { key: text } }`; one `noul` question per card
   with `criteria: { true, false }`.
 - **Within-engine dedupe** uses the aggregate's grouping key (canonical URL
-  without `www.` and a trailing `/`), first occurrence wins, applied in the
-  output layer before cards are built.
+  without `www.` and a trailing `/`), first occurrence wins, applied where
+  results are canonicalized after the chain or aggregate returns, before the
+  guard, the cards, and the output.
 - **Model-facing prompts.** `grep.md` documents `objective` and that a
   configured model may order whole files; `web_search.md` already documents
   `objective`.
@@ -224,9 +263,9 @@ absent.
 
 No database change. Configuration is additive: no `decisionModels[]` and no
 `rerank` block means no behavior change. Rollback is removing the blocks.
-The experimental branches carry `mode: shadow | on`; the implementation
-layers delete `mode` before publication, so no shipped configuration ever
-contained it.
+The experimental branches carry `mode: shadow | on` and
+`pricingUsdPer1M`; the implementation layers delete both before
+publication, so no shipped configuration ever contained them.
 
 ## Open Questions
 

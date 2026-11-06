@@ -100,14 +100,101 @@ text, and the artifact findings MUST use that one ranked order.
 - **WHEN** `tools.grep.rerank` is absent and 30 files match
 - **THEN** the passages follow the scope ordinal, the canonical order of the walk, and the passage start line
 
+### Requirement: Reads run concurrently and keep canonical order
+
+The walk MUST NOT have more than 8 files open for a match at the same time, or
+more than a configured file bound leaves. When more candidates wait in
+canonical order, the walk MUST have 8 files open, or as many as that bound
+leaves. The walk, each bound, each skip count, and each excluded directory
+MUST take effect in canonical order. The inline part and the artifact MUST
+follow the result order that `Passages follow scope order and walk order`
+defines. That order is canonical unless a ranked order applies. A file opened
+ahead of a stop MUST NOT count as reached.
+
+#### Scenario: Eight reads are in flight
+
+- **WHEN** a scope holds 20 candidates and each read waits until the test releases it
+- **THEN** 8 reads are in flight at the same time, and no more
+
+#### Scenario: A later file that ends first keeps its place
+
+- **WHEN** `b.ts` ends before `a.ts` and both files match
+- **THEN** the passages of `a.ts` come before the passages of `b.ts`
+
+#### Scenario: A stop discards files opened ahead
+
+- **WHEN** the call deadline stops the walk after `c.ts` and the walk has opened `d.ts` to `h.ts` ahead
+- **THEN** the result holds no passage of `d.ts` to `h.ts`
+- **AND** the result does not count `d.ts` to `h.ts` as examined
+
+#### Scenario: Read-ahead does not exceed the file bound
+
+- **WHEN** `tools.grep.maxFilesExamined` is 3
+- **THEN** the walk opens no more than 3 files for a match in the call
+
+#### Scenario: Files before an entry bound are still searched
+
+- **WHEN** the entry bound trips while three earlier candidates are open
+- **THEN** the walk takes those three files before it stops
+- **AND** the result holds the passages of those three files, if any
+
+#### Scenario: A read refusal counts only for a taken file
+
+- **WHEN** the `read` group refuses a file that the walk admitted ahead, and the call deadline stops the walk before it takes that file
+- **THEN** the completion audit does not count that refusal
+
+#### Scenario: A ranked order leaves the walk effects in canonical order
+
+- **WHEN** a rank puts the last of 30 runs first and a bound stops the walk after the 30th run
+- **THEN** the bound, the skip counts, and the excluded directories match the same walk without a rank
+- **AND** the inline part and the artifact follow the ranked order
+
+### Requirement: The excluded-directory report is filtered and bounded
+
+The `read` group MUST admit a directory locator both as written and with a
+final separator before the result counts or names it. The walk MUST record at
+most 1,000 excluded directories for one call, across every scope. When it
+excludes more, `ignored.atLeast` MUST be `true`. The inline part MUST reserve
+room for the `ignored`, `unfinishedFile`, remainder, and artifact notice
+lines, and for the `[ranking unavailable; walk order]` line, so the tool loop
+never cuts the result.
+
+#### Scenario: A refused directory is not named
+
+- **WHEN** an ignore rule excluded `/home/u/repo/secrets` and the `read` group refuses that locator
+- **THEN** `ignored` neither counts nor names `/home/u/repo/secrets`
+
+#### Scenario: A reject with a final separator hides the directory
+
+- **WHEN** an ignore rule excluded `/home/u/.ssh` and the `read` group rejects the literal `/home/u/.ssh/`
+- **THEN** `ignored` neither counts nor names `/home/u/.ssh`
+
+#### Scenario: Only refused exclusions leave no report
+
+- **WHEN** the only excluded directory is one that the `read` group refuses
+- **THEN** the result carries no `ignored` field
+
+#### Scenario: A large exclusion count is a lower bound
+
+- **WHEN** ignore rules exclude 1,500 directories in one call and the `read` group admits each of them
+- **THEN** `ignored.count` is 1,000 and `ignored.atLeast` is `true`
+
+#### Scenario: The ranking line has reserved room
+
+- **WHEN** a call stores `ranking: "unavailable"` and its inline part is otherwise full
+- **THEN** the inline part holds the `[ranking unavailable; walk order]` line
+- **AND** the tool loop does not cut the result
+
 ## ADDED Requirements
 
 ### Requirement: The rank makes one card for each file run
 
 The tool MUST make one card for each file run. A card MUST hold the file path
-and up to three lines that match, inside 384 UTF-16 code units. The tool MUST
-ask the decision model about every card, with the call's `objective` when the
-call sets one.
+and up to three lines that match, inside 384 UTF-16 code units. The key of a
+card is `p<index>`: the zero-based canonical position of the run, zero-padded
+to the width of the last index, such as `p00` to `p29`. The tool MUST ask the
+decision model about every card, with the call's `objective` when the call
+sets one.
 
 #### Scenario: A refused file supplies no card
 
@@ -117,7 +204,7 @@ call sets one.
 
 #### Scenario: A card holds the path and three matching lines
 
-- **WHEN** a file run holds six matching lines and its path is 40 code units long
+- **WHEN** a file run holds six matching lines of under 100 units each and its path is 40 code units long
 - **THEN** its card holds the path and the first three matching lines
 - **AND** the card stays at or below 384 UTF-16 code units
 
@@ -147,7 +234,7 @@ exactly one `## <path>` line.
 
 #### Scenario: One heading for one run
 
-- **WHEN** a run of `c.ts` holds three passages and the rank moves it first
+- **WHEN** a run of `c.ts` holds three passages in one scope and the rank moves it first
 - **THEN** its three passages follow one `## c.ts` line
 - **AND** no other `## c.ts` line appears in the text
 
@@ -155,48 +242,51 @@ exactly one `## <path>` line.
 
 A result fits the inline part when it holds at most `limit` files and its
 text stays at or below 15,000 UTF-16 code units. The tool MUST NOT call the
-decision model when the whole result fits the inline part. The tool MUST NOT
-call the decision model when the result holds fewer than three file runs.
+decision model when the whole result fits the inline part. No other condition
+stops the call: the tool sets no minimum number of file runs.
 
 #### Scenario: A small result costs nothing
 
-- **WHEN** 30 files match in three file runs and the whole result fits the inline part
+- **WHEN** three files match, one run each, and the text stays under 15,000 units
 - **THEN** the text follows the canonical order
 - **AND** the tool makes no decision call and the result carries no `display.rerank`
 
-#### Scenario: Two runs are not ranked
+#### Scenario: Two long runs are ranked
 
 - **WHEN** two file runs overfill the inline part and `tools.grep.rerank.model` names a model
-- **THEN** the text follows the canonical order
-- **AND** the tool makes no decision call
+- **THEN** the tool makes one decision call for the two cards
+- **AND** the text follows the ranked order
 
 ### Requirement: A ranking failure keeps walk order and says so
 
 When the decision model answers for no card, the tool MUST keep the canonical
-order. The result text MUST then carry one line: `ranking unavailable; walk order`.
+order. The tool MUST then store the output field `ranking` with the value
+`"unavailable"`. The text of the field is specified by `tool-result-rendering`.
 When the model answers for some cards only, the tool MUST rank the judged runs
-and keep each unjudged run in the canonical order. The tool MUST NOT add that
-line then.
+and keep each unjudged run in the canonical order. The tool MUST NOT store the
+`ranking` field then. A call that stores `ranking` MUST store no
+`display.rerank` record.
 
 #### Scenario: An unreachable endpoint keeps the walk order
 
 - **WHEN** the decision endpoint refuses every request of a 30-run call
-- **THEN** the text follows the canonical order and carries the line `ranking unavailable; walk order`
+- **THEN** the text follows the canonical order
+- **AND** the output carries `ranking: "unavailable"` and no `display.rerank`
 - **AND** `complete`, `warnings`, and the counts are unchanged
 
 #### Scenario: A partial answer ranks the judged runs
 
 - **WHEN** one request of a 300-card call fails and the other cards carry scores
 - **THEN** the judged runs sort by score and the unjudged runs follow in the canonical order
-- **AND** the text carries no `ranking unavailable; walk order` line
+- **AND** the output carries no `ranking` field
 
 ### Requirement: The rank record is display data
 
 The tool MUST store a `display.rerank` record on a ranked result. The record
-MUST hold the served model identifier, the run order, the scores, the latency
-in milliseconds, and the cost in USD. The record MUST NOT change the
-model-facing text. The rule "Display data is stored and never rendered" of
-`tool-result-rendering` governs the record.
+MUST hold the served model, `order`, `scores`, `latencyMs`, and `costUsd`.
+`order` MUST list every run key in the applied order. `scores` MUST hold the
+judged keys only. The record MUST NOT change the model-facing text. A call
+that answers no card MUST store no record.
 
 #### Scenario: The owner reads the served model and the order
 

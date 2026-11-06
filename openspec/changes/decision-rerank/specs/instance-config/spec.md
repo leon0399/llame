@@ -35,7 +35,7 @@ boot. Its `key` MUST be a string with `{env:…}` or `{path:…}` interpolation
 that resolves nonblank.
 
 The `system-one` variant MUST accept `{ id, type, key, baseUrl, headers? }`.
-It MUST reject `accountId`. Its `key` and `baseUrl` MUST be strings with
+It MUST reject `accountId` and `billing`. Its `key` and `baseUrl` MUST be strings with
 `{env:…}` or `{path:…}` interpolation that resolve nonblank. The variant
 MUST NOT load as keyless.
 
@@ -48,8 +48,8 @@ A duplicate `id` MUST fail startup and name the entry. A `type` outside the
 schema set MUST fail startup and name the entry. The set MUST exclude the
 retired `"openai"` and a bare `"anthropic"`.
 
-The optional `billing` key on every variant is defined by the billing-mode
-requirement below. The optional `headers` key on every variant is defined by
+The optional `billing` key on every variant except `system-one` is defined by
+the billing-mode requirement below. The optional `headers` key on every variant is defined by
 the `provider-request-headers` capability.
 
 Resolved `key` values MUST NOT appear in logs, errors, or diagnostics. A
@@ -169,6 +169,12 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 - **THEN** startup fails and names the offending configuration path
 - **AND** the entry does not load
 
+#### Scenario: System One provider rejects a billing mode
+
+- **WHEN** the file defines a `type: "system-one"` provider that also sets `billing`
+- **THEN** startup fails and names the entry and the `billing` field
+- **AND** the entry does not load
+
 ### Requirement: Operator configuration can bound grep walks
 
 The configuration MUST accept an optional `tools.grep` object with the fields
@@ -182,7 +188,7 @@ negative number, a fraction, or an unknown field MUST fail startup and name the
 configuration path.
 
 The optional `rerank` object MUST accept one field, `model`. `model` MUST name
-a `decisionModels[].id` and MUST resolve nonblank. An absent or `null` `rerank`
+a `decisionModels[].id` and MUST resolve nonblank. An absent `rerank`
 object MUST mean no ranking. An unknown id or a blank `model` MUST fail startup
 and name `tools.grep.rerank.model`.
 
@@ -217,9 +223,15 @@ and name `tools.grep.rerank.model`.
 - **THEN** startup fails and names `tools.grep.rerank.model`
 - **AND** no walk ranks its results
 
+#### Scenario: A blank grep rerank model fails startup
+
+- **WHEN** the file sets `tools.grep.rerank.model` to a blank string or a value that resolves to blank
+- **THEN** startup fails and names `tools.grep.rerank.model`
+- **AND** no walk ranks its results
+
 #### Scenario: An absent grep rerank block keeps walk order
 
-- **WHEN** the file sets no `tools.grep.rerank` object, or sets it to `null`
+- **WHEN** the file sets no `tools.grep.rerank` object
 - **THEN** startup succeeds and every `grep` call keeps walk order
 
 ### Requirement: Operator configuration declares web search engines and a chain
@@ -246,13 +258,48 @@ engine ids with no duplicate. The built-in default MUST be absent.
 - **WHEN** two `webSearch.engines` entries share the id `brave`
 - **THEN** startup fails and names `webSearch.engines` and the duplicate id
 
+### Requirement: Providers and models may declare their billing mode
+
+A `providers[]` entry and a `models[]` entry MUST each be able to declare an
+optional `billing` key. Its value MUST be exactly `"usage"` (billed per token)
+or `"subscription"` (a flat plan under which any declared price is notional).
+Any other value MUST fail startup and name the entry and field. A non-string
+value or an interpolation token is another value.
+
+A provider of every `type` except `system-one` MUST accept the key. A
+`system-one` provider MUST reject it. The key is server-only, and
+`GET /api/v1/models` MUST NOT return it. A configuration that omits it
+everywhere MUST start as before. The `run-usage-accounting` capability owns the
+billing-mode resolution order.
+
+#### Scenario: Declared billing modes boot
+
+- **WHEN** a provider entry declares `"billing": "subscription"` and one of its models declares `"billing": "usage"`
+- **THEN** startup succeeds
+
+#### Scenario: An unknown billing value fails startup
+
+- **WHEN** a provider or model entry declares `"billing": "free"`
+- **THEN** startup fails naming that entry and its `billing` field
+- **AND** no partial configuration is applied
+
+#### Scenario: A non-string or interpolated billing value fails startup
+
+- **WHEN** a provider or model entry declares `"billing": true` or `"billing": "{env:BILLING}"`
+- **THEN** startup fails naming that entry and its `billing` field, before any interpolation resolves
+
+#### Scenario: Billing mode is not exposed in the model catalog
+
+- **WHEN** an authenticated caller reads `GET /api/v1/models` for a model whose provider declares `billing`
+- **THEN** the response contains no billing field
+
 ## ADDED Requirements
 
 ### Requirement: Decision model catalog configuration
 
 The config file MUST accept an optional top-level `decisionModels` array
 beside `embeddingModels`. An absent array MUST mean that no decision model
-exists. Each entry MUST be `{ id, provider, model, pricingUsdPer1M? }`.
+exists. Each entry MUST be `{ id, provider, model }`.
 
 #### Scenario: A decision model catalog loads
 
@@ -299,17 +346,16 @@ fail startup and name `decisionModels[<id>].provider`.
 - **THEN** startup fails and names `decisionModels[<id>].provider`
 - **AND** no decision client is built
 
-### Requirement: Decision model catalog entries carry a model and a price
+### Requirement: Decision model catalog entries carry a model
 
 Each `decisionModels[].model` MUST be a nonblank string. A blank `model` MUST
-fail startup and name `decisionModels[<id>].model`. An optional
-`pricingUsdPer1M` MUST be `{ input }`, and `input` MUST be zero or more.
+fail startup and name `decisionModels[<id>].model`.
 
 #### Scenario: A catalog entry carries a model id
 
-- **WHEN** a `decisionModels` entry sets `model` to `jev-1.13` and `pricingUsdPer1M` to `{ "input": 0.042 }`
+- **WHEN** a `decisionModels` entry sets `model` to `jev-1.13`
 - **THEN** startup succeeds and the provider receives that model id on every call
-- **AND** a reported cost replaces the declared price
+- **AND** the entry has no field for a price
 
 #### Scenario: A blank decision model name fails startup
 
@@ -335,7 +381,7 @@ configuration path.
 ### Requirement: Decision models stay server-only
 
 `decisionModels` MUST be server-only. `GET /api/v1/models` MUST NOT return a
-catalog entry, its id, its `provider`, its `model`, or its price.
+catalog entry, its id, its `provider`, or its `model`.
 
 #### Scenario: Decision models are absent from the model list
 
@@ -345,9 +391,9 @@ catalog entry, its id, its `provider`, its `model`, or its price.
 ### Requirement: Web search rerank configuration
 
 The optional `webSearch.rerank` object MUST accept one field, `model`. `model`
-MUST name a `decisionModels[].id` and MUST resolve nonblank. An absent or
-`null` object MUST mean no ranking. An unknown id MUST fail startup and name
-`webSearch.rerank.model`.
+MUST name a `decisionModels[].id` and MUST resolve nonblank. An absent
+`rerank` object MUST mean no ranking. An unknown id or a blank `model` MUST
+fail startup and name `webSearch.rerank.model`.
 
 #### Scenario: The web search rerank block names a catalog entry
 
@@ -360,7 +406,31 @@ MUST name a `decisionModels[].id` and MUST resolve nonblank. An absent or
 - **THEN** startup fails and names `webSearch.rerank.model`
 - **AND** no call ranks its results
 
+#### Scenario: A blank web search rerank model fails startup
+
+- **WHEN** the file sets `webSearch.rerank.model` to a blank string or a value that resolves to blank
+- **THEN** startup fails and names `webSearch.rerank.model`
+- **AND** no call ranks its results
+
 #### Scenario: An absent web search rerank block keeps engine order
 
-- **WHEN** the file sets no `webSearch.rerank` object, or sets it to `null`
+- **WHEN** the file sets no `webSearch.rerank` object
 - **THEN** startup succeeds and every `web_search` result keeps engine order
+
+### Requirement: A model entry cannot name a decision provider
+
+A `models[]` entry or an `embeddingModels[]` entry MUST NOT name a provider of
+`type: "system-one"`. Startup MUST fail and name `models[<id>].provider` or
+`embeddingModels[<id>].provider` and the provider type.
+
+#### Scenario: A chat model names a decision provider
+
+- **WHEN** a `models[]` entry sets `provider` to a `system-one` provider
+- **THEN** startup fails and names `models[<id>].provider` and the type `system-one`
+- **AND** no chat client is built for that entry
+
+#### Scenario: An embedding model names a decision provider
+
+- **WHEN** an `embeddingModels[]` entry sets `provider` to a `system-one` provider
+- **THEN** startup fails and names `embeddingModels[<id>].provider` and the type `system-one`
+- **AND** no partial catalog applies

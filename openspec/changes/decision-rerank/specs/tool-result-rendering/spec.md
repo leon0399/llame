@@ -15,7 +15,8 @@ After the passages, the text MUST render the lines below in this order. Each
 line renders only when it applies:
 
 - Non-empty warnings MUST render as one `[warnings: …]` line.
-- A failed rank call MUST render one `[ranking unavailable; walk order]` line.
+- A `ranking` field of `unavailable` MUST render one
+  `[ranking unavailable; walk order]` line.
 - An `ignored` field MUST render as one line of at most 2,000 code units. That
   line reads `[ignored <count> <noun>: <locators>; a scope that names one
   searches it]`. `<noun>` is `directory` for a count of one and `directories`
@@ -48,7 +49,7 @@ line renders only when it applies:
 
 #### Scenario: A failed rank call follows the warnings
 
-- **WHEN** the walk skips 3 binary files, excludes 2 directories, and the rank call fails
+- **WHEN** the walk skips 3 binary files, excludes 2 directories, and the result carries `ranking: "unavailable"`
 - **THEN** the text carries `[warnings: 3 binary]`, then `[ranking unavailable; walk order]`, then the `[ignored …]` line
 - **AND** the file blocks keep walk order
 
@@ -85,9 +86,8 @@ line renders only when it applies:
 
 A `grep` or `web_search` result that a rank call ordered MUST carry
 `display.rerank`. The record MUST hold `model`, `order`, `scores`,
-`latencyMs`, and `costUsd`. `order` MUST list every judged key in the order
-that the result applies. `scores` MUST map each judged key to the score that
-the model answered.
+`latencyMs`, and `costUsd`. `order` MUST list every card key in the applied
+order. `scores` MUST map each judged key to its answered score.
 
 #### Scenario: A ranked grep result stores its record
 
@@ -101,29 +101,37 @@ the model answered.
 - **THEN** the stored part carries `display.rerank` with five keys in `order`
 - **AND** `scores` holds one score for each judged key
 
+#### Scenario: A partial answer lists unjudged keys last
+
+- **WHEN** a rank call judges three of four cards
+- **THEN** `order` holds four keys, with the three judged keys first by score
+- **AND** `scores` holds three keys
+
 ### Requirement: A rank record names the served model and the call cost
 
-In `display.rerank`, `model` MUST name the served model id, or `null` when
-the endpoint reports none. `latencyMs` MUST give the call latency. `costUsd`
-MUST give the call cost, or `null` when the endpoint reports none.
+In `display.rerank`, `model` MUST name the served model id that the provider
+returns. `latencyMs` MUST give the latency of the whole decision call.
+`costUsd` MUST give the wire cost of the call, or `null` when the endpoint
+reports none.
 
-#### Scenario: The served model id is stored, not the catalogue id
+#### Scenario: The served model id is stored, not the catalog id
 
-- **WHEN** the catalogue entry `jev` reaches an endpoint that answers as `jev-1.14`
+- **WHEN** the catalog entry `jev` reaches an endpoint that answers as `jev-1.14`
 - **THEN** `model` reads `jev-1.14`
-- **AND** the record does not carry the catalogue id
+- **AND** the record does not carry the catalog id
 
 #### Scenario: An endpoint without cost stores a null cost
 
 - **WHEN** the decision endpoint reports no cost for a rank call
 - **THEN** `costUsd` is `null`
-- **AND** the record still holds `latencyMs` and `scores`
+- **AND** the record still holds `model`, `latencyMs`, and `scores`
 
 ### Requirement: A rank record is display data only
 
 The stored part MUST keep `display.rerank` as the tool wrote it. The live text
 and the replayed text MUST NOT contain `rerank`, the served model id, or a
-score. A result without a rank call MUST NOT carry `display.rerank`.
+score. A result without a rank call, or with a failed rank call, MUST NOT
+carry `display.rerank`.
 
 #### Scenario: Rank data never reaches the model
 
@@ -137,25 +145,30 @@ score. A result without a rank call MUST NOT carry `display.rerank`.
 - **THEN** the stored part carries no `display.rerank`
 - **AND** the live and replayed texts are unchanged
 
+#### Scenario: A failed rank call carries no record
+
+- **WHEN** a `grep` call ranks 40 file runs and no card receives an answer
+- **THEN** the stored part carries `ranking: "unavailable"` and no `display.rerank`
+
 ### Requirement: A grep ranking failure renders one framing line
 
-When the rank call of a `grep` result fails, the text MUST keep walk order.
-The text MUST carry one framing line that reads
+When a `grep` result carries `ranking: "unavailable"`, the text MUST keep walk
+order. The text MUST carry one framing line that reads
 `[ranking unavailable; walk order]`. That line MUST render after the last file
 block. That line MUST follow the `[warnings: …]` line when the result carries
 one. That line MUST come before the `[ignored …]` line and before the
 `[not searched to the end: …]` line. That line MUST NOT name a model or a
-score.
+score. A result without the field MUST NOT carry the line.
 
 #### Scenario: A failed rank call keeps walk order
 
-- **WHEN** a walk finds 40 files and the rank call fails
+- **WHEN** a walk finds 40 files and the result carries `ranking: "unavailable"`
 - **THEN** the file blocks keep walk order
 - **AND** the text carries `[ranking unavailable; walk order]` after the last file block
 
 #### Scenario: The framing line follows the warnings
 
-- **WHEN** a `grep` result carries a warnings line and its rank call fails
+- **WHEN** a `grep` result carries a warnings line and `ranking: "unavailable"`
 - **THEN** `[ranking unavailable; walk order]` follows the `[warnings: …]` line
 - **AND** the line comes before the `[ignored …]` line and the artifact notice line
 
@@ -194,7 +207,7 @@ That line MUST NOT name a model or a score.
 
 The chat MUST show one rank badge on each ranked `grep` part and each ranked
 `web_search` part. The badge MUST name the served model, the latency, and the
-cost. When `model` is `null`, the badge MUST omit the model name. The chat
+cost. The chat
 MUST show the score of each judged item beside the row of that item. A part
 without `display.rerank` MUST NOT show a badge or a score. A failed rank call
 MUST show the note line or the framing line of that failure.
