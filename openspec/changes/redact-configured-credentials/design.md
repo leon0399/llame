@@ -95,10 +95,8 @@
 
 The collector keeps a value only when it has at least 16 characters and at
 least 64 bits of estimated entropy. The estimate is the value's length times
-the Shannon entropy per character of its own character distribution. The gate
-admits generated keys and passphrases, and excludes `app`, `postgres`,
-timestamps, and content types. A value that fails the gate is not a member
-(proposal A4).
+the Shannon entropy per character of its own character distribution. A value
+that fails the gate is not a member (proposal A4).
 
 The loader records the frozen set in a module-level `WeakMap` keyed by the
 configuration object it returns, read through one exported accessor,
@@ -190,16 +188,12 @@ host and for `ssh://` and code units for a Machine:
    one. This only shortens the kept range; the step 1 intervals are kept. A
    command that exits on its own within its capture keeps its tail, since a
    partial value it printed itself is out of scope (proposal Non-goals).
-3. Cut the kept range at the bound.
-4. Replace each merged interval that intersects the kept range, clipped to
+3. Replace each merged interval that intersects the kept range, clipped to
    it, with `[REDACTED]`.
-5. If markers made the stream longer than the bound, cut it at the bound,
-   before any marker the cut would split, so an artifact part never exceeds
-   `tools.artifacts.maxBytes`.
 
-Any member occurrence the capture holds is a step 1 interval, so step 4
-replaces its kept part even when step 2 or 3 cuts through it; any occurrence
-the capture cut short lies within the step 2 drop; step 5 only removes text.
+Any member occurrence the capture holds is a step 1 interval, so step 3
+replaces its kept part even when step 2 cuts through it; any occurrence the
+capture cut short lies within the step 2 drop.
 Dropping before finding would be wrong: a drop that starts inside a complete
 occurrence would break the match and pass the rest of the value through. The
 capture never holds a partial character: the host watcher discards what
@@ -214,12 +208,11 @@ The host capture keeps a lookahead of the longest member's length past the
 bound, so a member that starts before the bound is found whole and leaves a
 marker; `ssh://` stdout already has 64 KiB of lookahead. A Machine capture
 has none, so a member its bound cuts is dropped without a marker. A
-throwaway fuzz of steps 1-4 (100k trials of 1-3 members of 2-6 characters
+throwaway fuzz of steps 1-3 (100k trials of 1-3 members of 2-6 characters
 over a two-letter alphabet, bounds 1-20, with and without lookahead, natural
 exit and timeout with continued output) emitted no character of any member
 occurrence the command printed. D2 replaces `sanitizeStream`'s split/join
-redaction and its second clip of unredacted text; step 5 clips only redacted
-text.
+redaction and its second clip of unredacted text.
 
 ### D3. Model failures keep their identity
 
@@ -286,7 +279,7 @@ empty set makes the wrapper pass every value through untouched.
 the merged union of every member's raw match intervals, overlapping or
 adjacent intervals joined, and `redactProtectedString` is rebuilt on it, so
 two members that overlap without containment leave no tail. Bash uses the
-intervals directly (D2 step 4); MCP inherits the fix through
+intervals directly (D2 step 3); MCP inherits the fix through
 `redactProtectedString`.
 
 ## Risks / Trade-offs

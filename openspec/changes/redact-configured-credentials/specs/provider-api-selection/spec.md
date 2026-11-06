@@ -22,7 +22,8 @@ handler. Where a wire forwards upstream text, the member MUST become
 
 #### Scenario: Every request kind is covered
 
-- **WHEN** compaction, title generation, a hosted web search, or a structured generation fails with an upstream message that holds a configured header substitution
+- **WHEN** compaction, title generation, hosted web search, or structured generation fails
+- **AND** upstream text contains a header substitution that is a member of the configured credential set
 - **THEN** no recorded, emitted, or logged message contains the substitution. This rule also covers the log line for a request that supplies no error handler
 
 #### Scenario: Classification survives redaction

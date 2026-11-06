@@ -17,20 +17,20 @@ known, and the bounded streams in the bash text shape of
 the producer measured. It MUST omit that time when no command started.
 
 The executor MUST return output as the command produced it, cut at the bound.
-The executor MUST NOT rewrite, reorder, or delete lines. llame MUST replace
+The executor MUST NOT rewrite, reorder, or delete lines, except to replace a
+member and to drop a required fragment. llame MUST replace
 every member of the instance's configured credential set (`instance-config`)
 with `[REDACTED]`. The replacement MUST occur before llame records the result,
 stores it as an artifact, or sends it to the model.
 
 On the llame host the executor redacts. For an `ssh://` command and a Machine
-command, the API redacts the output it received. No member is sent to the
-remote host or the Machine.
+command, the API redacts the output it received. llame never sends the
+configured credential set to the remote host or the Machine.
 
 The executor MUST apply the bound to the raw output's positions in the bound's
-own unit. A marker MUST NOT make a stream exceed the bound. llame can cut a
-stream at a capture or transport limit, or because the command timed out. In
-that case llame MUST drop the fragment at the end that is a proper prefix of a
-member.
+own unit. llame can cut a stream at a capture or transport limit, or because
+the command timed out. In that case llame MUST drop the fragment at the end
+that is a proper prefix of a member.
 
 When a transport dropped output between two kept parts of a stream, a member
 fragment can match on both sides of that gap. llame MUST drop both fragments.
@@ -121,12 +121,6 @@ MUST destroy it.
 - **WHEN** a Machine command's stdout reaches the 32,000-unit bound in the middle of a configured credential
 - **THEN** the hub result contains no prefix of the credential
 - **AND** the result is marked truncated
-
-#### Scenario: Redaction keeps a stream within its bound
-
-- **WHEN** a command prints, up to the stdout bound, many configured credentials shorter than `[REDACTED]`
-- **THEN** the result's stdout is no longer than the bound and is marked truncated
-- **AND** no `[REDACTED]` marker in it is cut short
 
 #### Scenario: Non-credential configuration survives
 

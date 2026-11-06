@@ -133,11 +133,12 @@ controls for that are the permission policy and a future Sandbox.
   2026-11-06; this narrows the membership that the earlier review approved._
   A member must have at least 16 characters and at least 64 bits of estimated
   entropy, where the estimate is the length times the Shannon entropy per
-  character of the value's own character distribution. Every generated key and
-  passphrase passes (`9f2c7b1e4d8a6350c9e2b7f4a1d8635e`, `correct horse
-  battery staple`). A short or simple value (`app`, `postgres`, a timestamp)
-  fails. False positives come only from a low-entropy member that matches
-  unrelated text, so the gate removes them without a format rule.
+  character distribution. Generated 32-character keys and long passphrases
+  pass (`9f2c7b1e4d8a6350c9e2b7f4a1d8635e`, `correct horse battery staple`).
+  A short or simple value (`app`, `postgres`, a timestamp) fails. A random
+  16-character hex key, estimated at about 62 bits, also fails. False positives
+  come only from a low-entropy member that matches unrelated text, so the gate
+  removes them without a format rule.
   Accepted leak: a credential that fails the gate is never redacted, so an
   operator must use a generated value. A long passphrase that matches ordinary
   prose can over-redact; the remedy is a generated credential.
