@@ -10,6 +10,8 @@ range. `<locator>:<start>-<end>` from a rendered line number MUST be a valid
 `read` argument. One blank line MUST separate the passages under one line. A
 capped twentieth passage MUST end with `[more passages in this file; read it
 to see them]`. A Knowledge notice MUST render first.
+For ranked output, explicit run boundaries MUST determine the headings.
+Adjacent ranked runs of the same file MUST NOT merge.
 
 After the passages, the text MUST render the lines below in this order. Each
 line renders only when it applies:
@@ -107,12 +109,28 @@ order. `scores` MUST map each judged key to its answered score.
 - **THEN** `order` holds all 300 keys, with the 256 judged keys first by score
 - **AND** `scores` holds 256 keys
 
+### Requirement: Ranked grep records preserve run boundaries
+
+A ranked `grep` record MUST also hold `runLengths`, aligned with `order`.
+Each length MUST count the full run's passages before the inline cut.
+The text renderer, artifact blocks, and owner UI MUST preserve those boundaries.
+For a truncated inline prefix, they MUST consume the lengths only through that prefix.
+
+#### Scenario: Reordered same-file runs stay separate
+
+- **WHEN** canonical runs `x:10`, `y:5`, and `x:20` reorder to `x:10`, `x:20`, and `y:5`
+- **THEN** the record has three run lengths and the live text, artifact, and UI keep three runs with their original scores
+
+#### Scenario: The last visible run is truncated
+
+- **WHEN** the inline cut retains only the first passage of a three-passage run
+- **THEN** the UI shows that passage with its run's score and creates no missing passages
+
 ### Requirement: A rank record names the served model and the call cost
 
-In `display.rerank`, `model` MUST name the served model id that the provider
-returns. `latencyMs` MUST give the latency of the whole decision call.
-`costUsd` MUST give the wire cost of the call, or `null` when the endpoint
-reports none.
+In `display.rerank`, `model` MUST use the decision call's representative served id.
+`latencyMs` MUST give whole-call latency.
+`costUsd` MUST use the decision call's aggregate wire cost, including its unknown-cost rule.
 
 #### Scenario: The served model id is stored, not the catalog id
 
@@ -128,16 +146,21 @@ reports none.
 
 ### Requirement: A rank record is display data only
 
-The stored part MUST keep `display.rerank` as the tool wrote it. The live text
-and the replayed text MUST NOT contain `rerank`, the served model id, or a
-score. A result without a rank call, or with a failed rank call, MUST NOT
-carry `display.rerank`.
+The stored part MUST keep `display.rerank` as the tool wrote it.
+Live and replayed text MUST NOT render that record or its fields as rank metadata.
+This rule MUST NOT remove matching source text.
+A result without a rank call, or with a failed rank call, MUST NOT carry `display.rerank`.
 
 #### Scenario: Rank data never reaches the model
 
 - **WHEN** a ranked `grep` part renders live and replays in a later turn
-- **THEN** neither text contains `rerank`, the model id, or a score
-- **AND** the stored part keeps the record unchanged
+- **THEN** neither text renders the record or its fields as rank metadata
+- **AND** both texts keep the ranked inline passages in their applied order and the stored record stays unchanged
+
+#### Scenario: Source text resembles rank metadata
+
+- **WHEN** an uncut selected line contains the served model id, `rerank`, or a score
+- **THEN** the live and replayed texts preserve that source line
 
 #### Scenario: An unranked result carries no record
 
@@ -207,10 +230,10 @@ That line MUST NOT name a model or a score.
 
 The chat MUST show one rank badge on each ranked `grep` part and each ranked
 `web_search` part. The badge MUST name the served model, the latency, and the
-cost. The chat
-MUST show the score of each judged item beside the row of that item. A part
-without `display.rerank` MUST NOT show a badge or a score. A failed rank call
-MUST show the note line or the framing line of that failure.
+cost. The chat MUST show a judged item's score beside its row when that row is present.
+It MUST NOT create rows for omitted results merely to show their scores.
+A part without `display.rerank` MUST NOT show a badge or a score.
+A failed rank call MUST show the note line or the framing line of that failure.
 
 #### Scenario: A ranked grep part shows the badge and the scores
 
@@ -223,6 +246,11 @@ MUST show the note line or the framing line of that failure.
 - **WHEN** a completed `web_search` part carries `display.rerank` with five keys
 - **THEN** the part shows one badge with the model, the latency, and the cost
 - **AND** each judged result row shows its score
+
+#### Scenario: Omitted results need no score rows
+
+- **WHEN** the record has 300 judged keys but the stored output holds only five result rows
+- **THEN** the part shows those five rows with their scores and creates no rows for the omitted results
 
 #### Scenario: A part without a record shows no badge
 

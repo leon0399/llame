@@ -236,11 +236,11 @@ of a rank-failure line.
 
 ### Requirement: The rank makes one card for each file run
 
-The tool MUST make one card for each file run. A card MUST hold the file path
-and up to three lines that match, inside 384 UTF-16 code units. Each key
-MUST use the `p<index>` format. Its zero-based canonical index uses the width
-of the last index, such as `p00` to `p29`. The tool MUST ask the decision
-model about every card, with the call's `objective` when the call sets one.
+The tool MUST make one card for each file run and judge every card.
+A card MUST use a path excerpt and up to three matching-line excerpts within
+384 UTF-16 code units. Keys MUST use `p<index>` with canonical zero-based indices,
+padded to the last index's width. Path and line text MUST be cut to fit,
+without changing stored passages.
 
 #### Scenario: A refused file supplies no card
 
@@ -253,6 +253,11 @@ model about every card, with the call's `objective` when the call sets one.
 - **WHEN** a file run holds six matching lines of under 100 units each and its path is 40 code units long
 - **THEN** its card holds the path and the first three matching lines
 - **AND** the card stays at or below 384 UTF-16 code units
+
+#### Scenario: A path exceeds the card bound
+
+- **WHEN** an admitted path exceeds 384 UTF-16 units
+- **THEN** its card uses a bounded path excerpt and the original result keeps the full path
 
 ### Requirement: The patterns are the criterion when no objective exists
 
@@ -300,14 +305,19 @@ exactly one `## <path>` line.
 
 A result fits the inline part when it holds at most `limit` files and its
 text stays at or below 15,000 UTF-16 code units. The tool MUST NOT call the
-decision model when the whole result fits the inline part. No other condition
-stops the call: the tool sets no minimum number of file runs.
+decision model when the whole result fits the inline part or there are no file runs.
+The tool MUST NOT impose any other minimum number of file runs.
 
 #### Scenario: A small result costs nothing
 
 - **WHEN** three files match, one run each, and the text stays under 15,000 units
 - **THEN** the text follows the canonical order
 - **AND** the tool makes no decision call and the result carries no `display.rerank`
+
+#### Scenario: An empty result needs no judgment
+
+- **WHEN** a walk returns no file runs
+- **THEN** it makes no decision call and stores neither `ranking` nor `display.rerank`
 
 #### Scenario: Two long runs are ranked
 

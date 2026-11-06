@@ -276,13 +276,13 @@ exists. Each entry MUST be `{ id, provider, model }`.
 ### Requirement: Decision model catalog ids are unique
 
 Each `decisionModels[].id` MUST be a nonblank string, and an id MUST be unique
-in the array. A blank id MUST fail startup and name `decisionModels`. A
-duplicated id MUST fail startup and name `decisionModels` and that id.
+in the array. A blank or duplicate id MUST fail startup and name the
+affected array-index paths, never an interpolated value.
 
 #### Scenario: A duplicate decision model id fails startup
 
 - **WHEN** two `decisionModels` entries share the id `jev`
-- **THEN** startup fails and names `decisionModels` and the id `jev`
+- **THEN** startup fails and names the two `decisionModels` array indices
 
 #### Scenario: A blank decision model id fails startup
 
@@ -293,23 +293,23 @@ duplicated id MUST fail startup and name `decisionModels` and that id.
 
 Each `decisionModels[].provider` MUST name a `providers[].id` of
 `type: "system-one"`. An unknown provider, or a provider of another type, MUST
-fail startup and name `decisionModels[<id>].provider`.
+fail startup and name the array-index path, such as `decisionModels[0].provider`.
 
 #### Scenario: An unknown decision model provider fails startup
 
 - **WHEN** a `decisionModels` entry names a `provider` that `providers[]` does not define
-- **THEN** startup fails and names `decisionModels[<id>].provider`
+- **THEN** startup fails and names `decisionModels[0].provider` for the first entry
 
 #### Scenario: A decision model provider of another type fails startup
 
 - **WHEN** a `decisionModels` entry names a provider of `type: "openai-completions"`
-- **THEN** startup fails and names `decisionModels[<id>].provider`
+- **THEN** startup fails and names `decisionModels[0].provider` for the first entry
 - **AND** no decision client is built
 
 ### Requirement: Decision model catalog entries carry a model
 
 Each `decisionModels[].model` MUST be a nonblank string. A blank `model` MUST
-fail startup and name `decisionModels[<id>].model`.
+fail startup and name the array-index path, such as `decisionModels[0].model`.
 
 #### Scenario: A catalog entry carries a model id
 
@@ -320,13 +320,13 @@ fail startup and name `decisionModels[<id>].model`.
 #### Scenario: A blank decision model name fails startup
 
 - **WHEN** a `decisionModels` entry has a `model` that is blank or resolves to blank
-- **THEN** startup fails and names `decisionModels[<id>].model`
+- **THEN** startup fails and names `decisionModels[0].model` for the first entry
 
 ### Requirement: Decision model catalog fields accept interpolation
 
 `id`, `provider`, and `model` MUST accept `{env:…}` and `{path:…}`
 interpolation. A field that resolves blank MUST fail startup and name its
-configuration path.
+array-index path. Diagnostics MUST NOT print interpolated catalog values.
 
 #### Scenario: An interpolated provider id resolves at startup
 
@@ -336,17 +336,28 @@ configuration path.
 #### Scenario: An empty interpolation fails startup
 
 - **WHEN** a `decisionModels` entry sets `model` to `{env:DECISION_MODEL:-}` and the variable is unset
-- **THEN** startup fails and names `decisionModels[<id>].model`
+- **THEN** startup fails and names `decisionModels[0].model` for the first entry
 
 ### Requirement: Decision models stay server-only
 
-`decisionModels` MUST be server-only. `GET /api/v1/models` MUST NOT return a
-catalog entry, its id, its `provider`, or its `model`.
+`decisionModels` MUST be server-only. `GET /api/v1/models` MUST NOT return
+decision-catalog entries or their fields. A chat-catalog entry with the same
+opaque id MUST remain eligible for that endpoint.
 
 #### Scenario: Decision models are absent from the model list
 
 - **WHEN** the file declares a `decisionModels` entry and an authenticated caller reads `GET /api/v1/models`
 - **THEN** the response lists the chat models and no decision model
+
+#### Scenario: A catalog id resembles a secret
+
+- **WHEN** the first decision entry's id resolves from an environment variable and its provider is invalid
+- **THEN** the diagnostic names `decisionModels[0].provider` and contains no resolved catalog value
+
+#### Scenario: Catalogs share an opaque id
+
+- **WHEN** chat and decision catalogs both have an entry with id `shared`
+- **THEN** the endpoint returns only the chat entry, without decision fields
 
 ### Requirement: Web search rerank configuration
 

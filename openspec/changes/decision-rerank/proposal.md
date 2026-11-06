@@ -49,9 +49,9 @@ Tracking: [#1518](https://github.com/leon0399/llame/issues/1518) and
 - Skip judgment when the whole result fits inline. On ordinary backend failure,
   keep canonical order and show one failure line or note. Preserve note caps
   and the runner's timeout/cancellation observations.
-- Store `display.rerank` as owner-only provenance: served model, every key in
-  applied order, judged scores, latency, and reported cost or `null`.
-  Show a badge and per-run/result scores in the owner UI, never model text.
+- Store `display.rerank` as owner-only provenance: representative served model,
+  applied order, judged scores, latency, aggregate reported cost or `null`,
+  and grep run lengths. Show badges/scores for visible rows, never rank metadata in model text.
 - Add labeled fixtures and `ranking:eval` / `ranking:record`. Report nDCG@5,
   MRR, latency, and cost against canonical order. Keep rubrics fixed in code.
 - Keep decision calls outside message usage through an explicit exclusion.

@@ -18,12 +18,18 @@ optional `headers` field MUST accept the same interpolation as every other
 provider. A `key` or a `baseUrl` that resolves blank MUST fail startup. The
 message MUST name the entry and the field. Each request MUST go to
 `POST {baseUrl}/systemone` with a bearer `key`.
+The client MUST strip trailing `/` characters before it appends `/systemone`.
 
 #### Scenario: A decision provider is configured
 
 - **WHEN** `providers[]` holds an entry with `type: "system-one"`, a `key`, and a `baseUrl`
 - **THEN** the entry serves the decision wire at `POST {baseUrl}/systemone`
 - **AND** each request to that entry carries a bearer `key`
+
+#### Scenario: A trailing slash does not duplicate the route separator
+
+- **WHEN** `baseUrl` is `https://judge.example/v1/`
+- **THEN** the request goes to `https://judge.example/v1/systemone`
 
 #### Scenario: The key or the base URL resolves blank
 
@@ -65,13 +71,19 @@ Each decision request MUST have the body `{ model, state, questions }`. Every
 question of one request MUST share one state. Each question MUST be a `noul`
 question with `instructions` and `criteria { true, false }`. Each question id
 MUST be a card key. The answer envelope MUST be `{ model, answers, usage }`.
-The result MUST report the served model id that the provider returns.
+The result MUST report the first accepted response's served model id, in request order.
+This representative id MUST be `null` when no response is accepted.
 
 #### Scenario: The request body carries the wire shape
 
 - **WHEN** a judge call sends one request
 - **THEN** the body has the fields `model`, `state`, and `questions`
 - **AND** every question of that request shares the one state
+
+#### Scenario: Responses report different served models
+
+- **WHEN** request zero answers as `model-a` after request one answers as `model-b`
+- **THEN** the representative id is `model-a`, based on request order rather than completion order
 
 #### Scenario: A question is a noul question
 
@@ -91,6 +103,8 @@ The state MUST carry `query`, `cards`, and `criteria`.
 `criteria` MUST hold the fixed yes and no descriptions from the questions.
 When the caller supplies `objective`, the state MUST carry that exact value.
 The judge MUST use `objective` when present, or `query` when absent.
+Exact-value and verbatim-text rules MUST apply after the required credential replacement.
+That replacement MUST NOT mutate tool source passages or results.
 
 #### Scenario: An objective reaches the judge
 
@@ -127,7 +141,7 @@ the rubric from card text.
 #### Scenario: A card holds instruction-like text
 
 - **WHEN** a card contains text that looks like an instruction
-- **THEN** the state holds the card text verbatim
+- **THEN** the state holds the card text verbatim except for the required decision-credential replacement
 - **AND** the questions stay unchanged
 - **AND** the answer is a probability for each question
 
@@ -188,9 +202,10 @@ result MUST list every key that no answer covers.
 One request MUST carry at most 256 cards with their questions. A larger batch
 MUST become several requests. The system MUST send all requests of one call at
 the same time. Each request MUST carry only its own cards and questions. Each
-attempt MUST time out after 10 seconds. A request MUST have at most 3 attempts
-on status 408, 429, or 5xx, and on a transport failure. The system MUST honour
-`retry-after` up to 5 seconds.
+attempt MUST time out after 10 seconds. A request MUST have at most 3 attempts.
+After status 408, 429, 5xx, or a transport failure, the system MUST retry
+unless three attempts ran or the enclosing call aborted.
+The system MUST honour `retry-after` up to 5 seconds.
 
 #### Scenario: A batch is larger than the bound
 
@@ -206,9 +221,9 @@ on status 408, 429, or 5xx, and on a transport failure. The system MUST honour
 
 #### Scenario: A transient failure is retried
 
-- **WHEN** an attempt fails with 408, 429, 5xx, or a transport failure
-- **THEN** the system sends at most 3 attempts for that request
-- **AND** the system waits for `retry-after` up to 5 seconds
+- **WHEN** the first attempt returns 503 and the second succeeds before the enclosing deadline
+- **THEN** the system sends two attempts and accepts the second response
+- **AND** retries wait for `retry-after` up to 5 seconds
 
 #### Scenario: An attempt takes longer than 10 seconds
 
@@ -218,16 +233,21 @@ on status 408, 429, or 5xx, and on a transport failure. The system MUST honour
 
 ### Requirement: A malformed answer makes its request unavailable
 
-A response body larger than 1 MiB MUST make that request unavailable. A body
-that does not match the envelope MUST make that request unavailable. An absent
-answer or an answer of a wrong type MUST make that request unavailable. A
-probability outside 0 to 1 MUST make that request unavailable.
+The client MUST cap response bodies at 1,048,576 bytes as it reads them.
+It MUST cancel the body and mark the request unavailable when the bound is exceeded.
+A malformed envelope, absent answer, wrong answer type, or probability outside
+0 to 1 MUST make that request unavailable.
 
 #### Scenario: The body is larger than 1 MiB
 
 - **WHEN** a response body has more than 1 MiB
 - **THEN** that request is `unavailable`
 - **AND** its tokens and its cost are not counted
+
+#### Scenario: An oversized stream has no content length
+
+- **WHEN** a response streams more than 1,048,576 bytes without `Content-Length`
+- **THEN** the client cancels the read at the bound and marks that request unavailable
 
 #### Scenario: The envelope is malformed
 
@@ -279,11 +299,12 @@ judgment. The caller MUST keep canonical order for every unjudged card.
 
 ### Requirement: Every decision call writes one log line
 
-A decision call MUST write one structured log line. The line MUST hold the
-fields `tool`, `model`, `cards`, `requests`, `judged`, `inputTokens`,
-`outputTokens`, `costUsd`, and `latencyMs`. The `model` field MUST hold the
-served model id. The `costUsd` field MUST hold the wire `usage.cost` when
-present. Otherwise `costUsd` MUST be `null`.
+A decision call MUST write one structured log line with `tool`, `model`,
+`cards`, `requests`, `judged`, `inputTokens`, `outputTokens`, `costUsd`, and `latencyMs`.
+The model MUST follow the call's representative-id rule.
+Token counts MUST sum accepted response usage.
+Cost MUST sum accepted responses' wire costs, or be `null` if any cost is absent or no response is accepted.
+Failed or malformed requests MUST contribute no usage.
 
 #### Scenario: A call judges cards
 
@@ -293,19 +314,30 @@ present. Otherwise `costUsd` MUST be `null`.
 
 #### Scenario: The wire reports a cost
 
-- **WHEN** the wire usage holds a `cost`
-- **THEN** the log line holds that cost in `costUsd`
+- **WHEN** two accepted responses report costs of 0.10 and 0.20
+- **THEN** the log line holds 0.30 in `costUsd`
 
 #### Scenario: The wire reports no cost
 
 - **WHEN** the wire usage holds no `cost`
 - **THEN** the log line holds `null` in `costUsd`
 
+#### Scenario: One accepted response has no cost
+
+- **WHEN** one accepted response reports cost and another omits it
+- **THEN** `costUsd` is `null`, not a partial sum
+
+#### Scenario: No request returns a model
+
+- **WHEN** every request fails before an accepted response
+- **THEN** the log has `model: null` and `costUsd: null`
+
 ### Requirement: Decision calls never expose a secret
 
-The resolved key MUST NOT appear in a log, an error, a result, or model
-context. A decision call MUST NOT fall back to a chat model. An unavailable
-lane MUST leave the tool output in its canonical order.
+The provider's resolved key MUST NOT appear in logs, errors, results, or model context.
+Before excerpt limits or dispatch, the lane MUST redact that key from query,
+objective, and card source text with the existing protected-value sanitizer.
+It MUST NOT add heuristic credential detection, another consent gate, or chat-model fallback.
 
 #### Scenario: A decision request fails
 
@@ -316,6 +348,11 @@ lane MUST leave the tool output in its canonical order.
 
 - **WHEN** the tool returns its result to the model
 - **THEN** the resolved key is absent from the model context
+
+#### Scenario: Candidate text contains the decision credential
+
+- **WHEN** query, objective, or candidate source text contains the decision provider's resolved key
+- **THEN** the decision request contains the protected-value replacement, not the full key or a truncated key fragment
 
 #### Scenario: No decision model answers
 

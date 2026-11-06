@@ -217,8 +217,8 @@ of results applies. Such a call MUST keep engine order and MUST NOT store
 The system MUST sort the judged results by score, highest first. A tie MUST
 keep the engine order of the results. A result that the system did not judge
 MUST follow the judged results in engine order. The type of the engine that
-answers MUST NOT stop the rank call. The rank call MUST NOT change the counts,
-the `left out` notice, or the removal rules.
+answers MUST NOT stop the rank call. Ranking MUST NOT change admission, retained
+counts, or removal rules. The `left out` count MUST reflect the ranked inline cut.
 
 #### Scenario: A tie keeps engine order
 
@@ -232,9 +232,14 @@ the `left out` notice, or the removal rules.
 
 #### Scenario: Counts and removal do not change
 
-- **WHEN** a ranked call fetches 20 results, `limit` is 10, and removal drops two entries
+- **WHEN** a ranked call fetches 20 results, `limit` is 10, removal drops two entries, and ten results fit inline
 - **THEN** the first note states that the call removed two entries
 - **AND** the `left out` count is 8
+
+#### Scenario: Ranked text changes the number of visible results
+
+- **WHEN** ranking moves long results first and only seven of eighteen retained results fit inline
+- **THEN** the `left out` notice reports eleven omitted results
 
 ### Requirement: A failed rank call keeps engine order and adds one note
 
