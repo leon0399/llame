@@ -129,7 +129,6 @@ MUST destroy it.
 - **WHEN** a configured credential starts 4 characters before the stdout bound
 - **THEN** the result's stdout ends before the credential and is no longer than the bound
 - **AND** it contains no character of the credential
-
 #### Scenario: Non-credential configuration survives
 
 - **WHEN** `knowledge.root` resolves to `/srv/kb` and a command prints `/srv/kb/notes.md`

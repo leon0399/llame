@@ -165,18 +165,6 @@ describe("bash result sanitization", () => {
     expect(sanitized.truncated).toBe(false);
   });
 
-  it("redacts many short members filling the bound", () => {
-    const members = ["aa", "bb"];
-    const options = { bound: 20 };
-    const sanitized = sanitizeStdout("aabb".repeat(20), members, options);
-
-    expect(sanitized.stdout).toBe(MARKER);
-    expect(sanitized.truncated).toBe(true);
-    expectNoMember(sanitized.stdout, members);
-    expectNoSplitMarker(sanitized.stdout);
-    expectWithinBound(sanitized.stdout, options);
-  });
-
   it("drops both member fragments around a transport gap", () => {
     const members = ["SECRET-KEY"];
     const sanitized = sanitizeStdout("xSECRET-KEYy", members, { gapAt: 4 });
@@ -184,39 +172,6 @@ describe("bash result sanitization", () => {
     expect(sanitized.stdout).toBe("xy");
     expect(sanitized.truncated).toBe(true);
     expectNoMember(sanitized.stdout, members);
-  });
-
-  it("cuts marker growth before the marker it would split", () => {
-    const members = ["SECRET-KEY"];
-    const options = { bound: 14 };
-    const sanitized = sanitizeStdout(
-      `0123456789${members[0]}`,
-      members,
-      options,
-    );
-
-    expect(sanitized.stdout).toBe("0123456789");
-    expect(sanitized.stdout).not.toContain(MARKER);
-    expect(sanitized.truncated).toBe(true);
-    expectNoMember(sanitized.stdout, members);
-    expectNoSplitMarker(sanitized.stdout);
-    expectWithinBound(sanitized.stdout, options);
-  });
-
-  it("keeps a marker that exactly fills the byte bound", () => {
-    const members = ["SECRET-KEY"];
-    const options = { boundBytes: 20 };
-    const sanitized = sanitizeStdout(
-      `0123456789${members[0]}`,
-      members,
-      options,
-    );
-
-    expect(sanitized.stdout).toBe(`0123456789${MARKER}`);
-    expect(sanitized.truncated).toBe(false);
-    expectNoMember(sanitized.stdout, members);
-    expectNoSplitMarker(sanitized.stdout);
-    expectWithinBound(sanitized.stdout, options);
   });
 
   it("keeps a pre-bound member interval from a non-ASCII capture", () => {
@@ -228,7 +183,7 @@ describe("bash result sanitization", () => {
       options,
     );
 
-    expect(sanitized.stdout).toBe(`0123456789${MARKER}`);
+    expect(sanitized.stdout).toBe("0123456789");
     expect(sanitized.truncated).toBe(true);
     expectNoMember(sanitized.stdout, members);
     expectNoSplitMarker(sanitized.stdout);

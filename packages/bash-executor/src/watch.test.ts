@@ -200,7 +200,7 @@ describe("process-group settlement", () => {
     const result = await pending;
     expect(result).toMatchObject({ status: "success", truncated: true });
     if (!("stdout" in result)) throw new Error("Expected known output");
-    expect(result.stdout).toBe("0123456789[REDACTED]");
+    expect(result.stdout).toBe("0123456789");
     expect(result.stdout).not.toContain(member);
     expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThanOrEqual(20);
   });

@@ -371,7 +371,8 @@ file only to redact it.
 
 These placements and forms are not members:
 
-- URL userinfo or query values in a provider `baseUrl` or a remote MCP `url`.
+- Any part of a provider `baseUrl` or a remote MCP `url`, including URL userinfo
+  and query values.
   To protect a key there, put it in a `headers` value through `{env:}` or
   `{path:}` instead.
 - A stdio MCP `command` or `args` substitution.

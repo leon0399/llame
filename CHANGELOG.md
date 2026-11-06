@@ -10,7 +10,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   provider and remote MCP headers and stdio MCP `env`, the `POSTGRES_URL`
   password, and `PGPASSWORD`. A member needs at least 16 characters and 64 bits
   of estimated entropy, so a shorter or low-entropy value leaks by design. URL
-  userinfo and query values, stdio `command`/`args`, literal header values, and
+  userinfo and query values, any part of a provider `baseUrl` or a remote MCP
+  `url`, stdio `command`/`args`, literal header values, and
   `openai-codex` `accountId` are not members. To protect a key in a header, use
   `{env:}` or `{path:}` rather than a URL. llame matches the configured values
   only, with no key-format scanning, and keeps the set out of every remote

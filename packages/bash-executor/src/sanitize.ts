@@ -44,11 +44,6 @@ type KeptCapture = {
   readonly dropped: boolean;
 };
 
-type BoundedText = {
-  readonly text: string;
-  readonly clipped: boolean;
-};
-
 /** The members and the longest member length both streams share. */
 type Redaction = {
   readonly values: ReadonlyArray<string>;
@@ -79,9 +74,9 @@ export function requireManagedBoundary(
  * The one bash redaction routine (design D2). A stream may hold the bound plus
  * a capture lookahead, so a member starting before the bound is found whole.
  * Steps: find merged member intervals on the raw capture, trim a cut capture
- * by shortening the kept range only, cut that range at the bound, replace
- * intersecting intervals clipped to it, then cut marker growth without
- * splitting a marker.
+ * by shortening the kept range only, cut that range at the bound, then replace
+ * intersecting intervals clipped to it. A member is longer than the marker, so
+ * replacement never grows the stream past the bound.
  */
 export function sanitizeKnownResult<
   T extends BashKnownResult | BashTimedOutResult,
@@ -144,12 +139,8 @@ function sanitizeStream(
 ): SanitizedStream {
   const kept = keptCapture(value, capture, redaction);
   const cut = cutLength(kept.text, bound);
-  const replaced = replaceIntervals(kept.text, kept.intervals, cut);
-  const bounded = clampMarkerGrowth(replaced, bound);
-  return {
-    text: bounded.text,
-    truncated: kept.dropped || cut < kept.text.length || bounded.clipped,
-  };
+  const text = replaceIntervals(kept.text, kept.intervals, cut);
+  return { text, truncated: kept.dropped || cut < kept.text.length };
 }
 
 /**
@@ -304,23 +295,11 @@ function replaceIntervals(
   let cursor = 0;
   for (const interval of intervals) {
     if (interval.start >= end) break;
-    output.push(value.slice(cursor, interval.start), MARKER);
-    cursor = Math.min(interval.end, end);
+    const clippedEnd = Math.min(interval.end, end);
+    output.push(value.slice(cursor, interval.start));
+    if (clippedEnd - interval.start >= MARKER.length) output.push(MARKER);
+    cursor = clippedEnd;
   }
   output.push(value.slice(cursor, end));
   return output.join("");
-}
-
-/**
- * Step 5: markers may make the stream longer than the bound. Cut it at the
- * bound, before any marker the cut would split, so an artifact part never
- * exceeds `tools.artifacts.maxBytes`.
- */
-function clampMarkerGrowth(text: string, bound: StreamBound): BoundedText {
-  const cut = cutLength(text, bound);
-  if (cut === text.length) return { text, clipped: false };
-  const markerStart = text.lastIndexOf(MARKER, cut - 1);
-  const safeCut =
-    markerStart !== -1 && markerStart + MARKER.length > cut ? markerStart : cut;
-  return { text: text.slice(0, safeCut), clipped: true };
 }
