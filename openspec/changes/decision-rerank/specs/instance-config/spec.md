@@ -346,7 +346,7 @@ catalog entry, its id, its `provider`, or its `model`.
 #### Scenario: Decision models are absent from the model list
 
 - **WHEN** the file declares a `decisionModels` entry and an authenticated caller reads `GET /api/v1/models`
-- **THEN** the response lists the chat and embedding models and no decision model
+- **THEN** the response lists the chat models and no decision model
 
 ### Requirement: Web search rerank configuration
 

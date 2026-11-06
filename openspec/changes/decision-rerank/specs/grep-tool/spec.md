@@ -185,6 +185,52 @@ tool loop.
 - **THEN** the inline part holds the `[ranking unavailable; walk order]` line
 - **AND** the tool loop does not cut the result
 
+### Requirement: The grep deadline derives from the tool call timeout
+
+The walk MUST stop at its scan deadline.
+This deadline is the call start plus the tool call timeout, minus a margin.
+The margin is the larger of 5 seconds and one tenth of the timeout,
+but at most half of it.
+Without a timeout in the call context, the timeout MUST be
+`tools.callTimeoutSeconds`.
+At the scan deadline, the accumulated result MUST carry the passages found
+so far, `complete: false`, and a `deadline` warning.
+A configured rank call MUST use only the time before the enclosing tool deadline.
+If that deadline elapses, the runner's timeout observation MUST apply instead
+of a rank-failure line.
+
+#### Scenario: The default timeout leaves a margin
+
+- **WHEN** `tools.callTimeoutSeconds` is 120, the walk does not end, and no rank model is configured
+- **THEN** the walk stops 108 seconds after the call starts
+- **AND** the tool returns its passages and a `deadline` warning, not a `timeout` error
+
+#### Scenario: A longer timeout gives a longer walk
+
+- **WHEN** `tools.callTimeoutSeconds` is 300
+- **THEN** the scan deadline is 270 seconds after the call starts
+
+#### Scenario: A short timeout keeps half of it for the walk
+
+- **WHEN** `tools.callTimeoutSeconds` is 6
+- **THEN** the scan deadline is 3 seconds after the call starts
+
+#### Scenario: A call without a timeout in its context uses the configured timeout
+
+- **WHEN** a grep call has no timeout in its context and `tools.callTimeoutSeconds` is 120
+- **THEN** the scan deadline is 108 seconds after the call starts
+
+#### Scenario: A deadline with no match stays incomplete
+
+- **WHEN** the scan deadline stops the walk before any line matches
+- **THEN** the result is `results: []` with `complete: false` and a `deadline` warning
+
+#### Scenario: A rank call cannot consume a fresh tool timeout
+
+- **WHEN** the walk stops at 108 seconds and its rank request outlives the 120-second enclosing deadline
+- **THEN** the request aborts and the tool returns the runner's timeout observation
+- **AND** the result does not report ordinary rank unavailability
+
 ## ADDED Requirements
 
 ### Requirement: The rank makes one card for each file run
@@ -206,6 +252,18 @@ model about every card, with the call's `objective` when the call sets one.
 - **WHEN** a file run holds six matching lines of under 100 units each and its path is 40 code units long
 - **THEN** its card holds the path and the first three matching lines
 - **AND** the card stays at or below 384 UTF-16 code units
+
+### Requirement: The patterns are the criterion when no objective exists
+
+The judge MUST use the call's `objective` when present.
+Without `objective`, the tool MUST send its `patterns`, joined by `|`,
+as the query criterion.
+
+#### Scenario: A grep without an objective uses its patterns
+
+- **WHEN** a call supplies `patterns: ["set_config", "current_setting"]` and no objective
+- **THEN** the judge state carries `query: "set_config | current_setting"`
+- **AND** the judge uses that query as its criterion
 
 ### Requirement: A ranked order sorts the judged runs and changes nothing else
 
@@ -258,13 +316,12 @@ stops the call: the tool sets no minimum number of file runs.
 
 ### Requirement: A ranking failure keeps walk order and says so
 
-When the decision model answers for no card, the tool MUST keep the canonical
-order. The tool MUST then store the output field `ranking` with the value
-`"unavailable"`. The text of the field is specified by `tool-result-rendering`.
-When the model answers for some cards only, the tool MUST rank the judged runs
-and keep each unjudged run in the canonical order. The tool MUST NOT store the
-`ranking` field then. A call that stores `ranking` MUST store no
-`display.rerank` record.
+If no card receives an answer, the tool MUST keep canonical order and store
+`ranking: "unavailable"` without `display.rerank`.
+Enclosing timeout and cancellation MUST take precedence.
+For partial success, judged runs MUST precede unjudged runs in canonical
+order, without the `ranking` field.
+`tool-result-rendering` specifies the failure line.
 
 #### Scenario: An unreachable endpoint keeps the walk order
 

@@ -84,6 +84,26 @@ The result MUST report the served model id that the provider returns.
 - **WHEN** the provider answers with a model id that differs from the requested alias
 - **THEN** the result reports the model id from the response
 
+### Requirement: Each request carries the criterion and its cards
+
+The state MUST carry `query`, `cards`, and `criteria`.
+`cards` MUST map each key to its text for that request only.
+`criteria` MUST hold the fixed yes and no descriptions from the questions.
+When the caller supplies `objective`, the state MUST carry that exact value.
+The judge MUST use `objective` when present, or `query` when absent.
+
+#### Scenario: An objective reaches the judge
+
+- **WHEN** the caller supplies `query: "retry"` and `objective: "find the retry budget"`
+- **THEN** the state carries both exact strings and the cards of that request
+- **AND** the criterion is the supplied objective
+
+#### Scenario: A query is the fallback criterion
+
+- **WHEN** the caller supplies `query: "retry"` and no objective
+- **THEN** the state carries `query: "retry"` and no `objective`
+- **AND** the criterion is that query
+
 ### Requirement: Cards are judged by a fixed rubric
 
 A judge call MUST take cards, and each card MUST have a `key` and a `text`.
@@ -226,10 +246,11 @@ probability outside 0 to 1 MUST make that request unavailable.
 
 ### Requirement: A failed request leaves only its cards unjudged
 
-A failed request MUST leave only its own cards unjudged. A call MUST be
-`unavailable` only when every request failed. The lane MUST NOT throw into the
-tool call that asked. An `unavailable` result MUST NOT count as a negative
-judgment. The caller MUST keep its canonical order for every unjudged card.
+An ordinary backend failure MUST leave only its request's cards unjudged.
+A call MUST be `unavailable` only when every request failed.
+Except for enclosing cancellation or timeout, the lane MUST NOT throw into
+the tool call that asked. Unavailability MUST NOT count as a negative
+judgment. The caller MUST keep canonical order for every unjudged card.
 
 #### Scenario: One request of several fails
 
@@ -301,3 +322,23 @@ lane MUST leave the tool output in its canonical order.
 - **WHEN** the lane is unavailable
 - **THEN** the system sends no request to a chat model
 - **AND** the tool output stays in canonical order
+
+### Requirement: Rank requests share the enclosing cancellation and deadline
+
+A rank call MUST share the enclosing tool call's deadline and cancellation.
+These signals MUST abort all requests and retry waits.
+The system MUST NOT start a request or retry after an abort.
+The tool MUST settle with the runner's timeout or cancellation observation.
+It MUST NOT convert an enclosing abort into ordinary rank unavailability.
+
+#### Scenario: The tool deadline expires during a rank request
+
+- **WHEN** the enclosing deadline expires with rank requests in flight
+- **THEN** every request aborts and no retry starts
+- **AND** the tool settles with the runner's timeout observation, not a rank-failure note
+
+#### Scenario: The owner cancels during a retry wait
+
+- **WHEN** the owner cancels the Run while a rank request waits to retry
+- **THEN** the wait stops, every request aborts, and no retry starts
+- **AND** the tool settles as cancelled without a rank-failure note

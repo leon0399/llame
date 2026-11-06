@@ -36,11 +36,44 @@ Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{
 - **WHEN** a `system-one` entry declares no `headers`
 - **THEN** its requests carry no header from a default map
 
+### Requirement: Header values are templates resolved at startup
+
+A header string MUST resolve `{env:…}` and `{path:…}` once at startup under
+the existing interpolation rules.
+For providers other than `system-one`, it MUST render `{session:id}` per request.
+For `system-one`, an authored `{session:id}` token MUST fail startup and
+name the provider id and header.
+Any other `{name:…}` token MUST fail startup and name the path.
+An empty render MUST send no operator or default value for that header.
+The system MUST NOT rescan interpolated output for `{session:id}`.
+
+#### Scenario: Interpolation and the variable combine
+
+- **WHEN** a value is `"{env:DEPLOY}:{session:id}"` on a chat provider and `DEPLOY` is `prod`
+- **THEN** a main-lane request for Chat `c1` carries the value `prod:c1`
+
+#### Scenario: Interpolated text is not rescanned
+
+- **WHEN** a value is `"{env:TAG}"` and `TAG` resolves to `{session:id}`
+- **THEN** requests carry that literal text
+
+#### Scenario: An unknown variable fails startup
+
+- **WHEN** a value contains `{sesion:id}`
+- **THEN** startup fails and names the header path
+- **AND** the token is never sent verbatim
+
+#### Scenario: An empty value omits the header
+
+- **WHEN** `TAG` is unset and `"{env:TAG:-}"` defines a header that the client does not set
+- **THEN** requests carry no header of that name
+
 ## ADDED Requirements
 
 ### Requirement: A decision provider header cannot name the session
 
-A header value of a `system-one` entry MUST NOT contain `{session:id}`. A decision call has no Chat lane. Startup MUST fail and name the provider id and the header name.
+An authored header value of a `system-one` entry MUST NOT contain
+`{session:id}`. Startup MUST fail and name the provider id and header name.
 
 #### Scenario: A decision provider header names the session
 

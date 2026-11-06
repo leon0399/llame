@@ -12,7 +12,10 @@ An aggregate with `webSearch.rerank.model` set MUST retain its whole merged
 result set instead of the fetch-size count cap.
 The inline and artifact bounds still apply.
 `notes` MUST hold at most 10 notes of at most 200 units each.
-When more notes are due, the tenth MUST record the rest as `<n> more engines`.
+Without a rank failure, the tenth note MUST summarize any excess as `<n> more engines`.
+With a rank failure, the system MUST reserve the last note for `rerank: unavailable`.
+The removal note MUST stay first.
+The last available engine-note slot MUST summarize any excess engine notes as `<n> more engines`.
 
 #### Scenario: Long snippet is cut
 
@@ -23,6 +26,13 @@ When more notes are due, the tenth MUST record the rest as `<n> more engines`.
 
 - **WHEN** a hosted engine answers with 12,000 units of text and three citations
 - **THEN** the answer is cut to 8,000 units with a note and all three citations remain
+
+#### Scenario: A failure note stays visible at the note cap
+
+- **WHEN** a ranked call has a removal note, eleven engine notes, and a failed rank call
+- **THEN** `notes` holds ten entries
+- **AND** the removal note is first, seven engine notes follow, the ninth note is `4 more engines`
+- **AND** the last note is `rerank: unavailable`
 
 ### Requirement: Aggregate engines fan out and merge by rank fusion
 
@@ -95,6 +105,21 @@ In other cases it MUST fail.
 - **AND** the artifact holds all 40 when the Run can read artifacts and the output fits the artifact bound
 
 ## ADDED Requirements
+
+### Requirement: The aggregate candidate bound follows its children
+
+A retained aggregate result set MUST hold at most the sum of its children's
+admitted result counts.
+Each child MUST keep its existing per-engine result bound and configured
+fetch-size bound.
+The rank stage MUST NOT add a separate candidate cut.
+
+#### Scenario: A larger aggregate uses parallel requests
+
+- **WHEN** three children each return 100 distinct admitted results and the fetch size is 100
+- **AND** a rank model is configured
+- **THEN** the rank call receives all 300 cards in two parallel requests
+- **AND** the artifact holds all 300 when the Run can read artifacts and the output fits the artifact bound
 
 ### Requirement: One engine's results are deduplicated by URL
 
@@ -213,8 +238,10 @@ the `left out` notice, or the removal rules.
 
 ### Requirement: A failed rank call keeps engine order and adds one note
 
-A rank call that fails MUST NOT fail the tool call. A call fails when no card
-receives an answer. The system MUST keep the engine order and MUST add one note
+An ordinary backend failure MUST NOT fail the tool call.
+This rule MUST NOT override enclosing cancellation or timeout.
+A rank call fails when no card receives an answer.
+The system MUST keep the engine order and MUST add one note
 with the text `rerank: unavailable`. The system MUST NOT store
 `display.rerank` for that call. When the rank call judges only some results,
 the system MUST use the rank order and MUST NOT add the note.
