@@ -26,15 +26,27 @@ import {
   type MockInstance,
 } from 'vitest';
 
+import { z } from 'zod';
+
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
+import {
+  type CandidateJudgement,
+  type DecisionJudge,
+  type JudgeCandidatesInput,
+} from '../decisions/decisions.service';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { finishGrepCall } from './grep-artifact';
 import { addGrepPassages, createPageState, pageResult } from './grep-page';
 import { grepInputSchema, nativeGrepTool } from './grep';
 import { renderToolResultText } from './model-text';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
-import { type ToolContext, type ToolResult } from './types';
+import {
+  type KnowledgeToolResolver,
+  type ToolContext,
+  type ToolResult,
+} from './types';
 import { createWorkspaceRootCell } from './workspace-path';
 
 /** The Chat counter every write in this suite takes: seq 1. */
@@ -536,6 +548,9 @@ describe('grep artifacts', () => {
   });
 });
 
+/** What a rank would be asked; these suites configure no rank model. */
+const ASK = { patterns: ['needle'] };
+
 describe('grep inline boundaries', () => {
   function stateOf(passages: ReadonlyArray<GrepPassage>, maxBytes = 1_000_000) {
     const state = createPageState({ maxBytes, mayCarryKnowledge: false });
@@ -554,7 +569,7 @@ describe('grep inline boundaries', () => {
     ]);
     // The fixture renders the whole result in exactly the inline bound.
     expect(measureGrepRendering(pageResult(two))).toBe(15_000);
-    const exact = await finishGrepCall(two, unreadable(), 20);
+    const exact = await finishGrepCall(two, unreadable(), 20, ASK);
     expect(exact).not.toHaveProperty('leftOut');
     expect(success(exact).results).toHaveLength(2);
 
@@ -563,7 +578,7 @@ describe('grep inline boundaries', () => {
       { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
       { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7489)}`, matches: [1] },
     ]);
-    const capped = await finishGrepCall(over, unreadable(), 20);
+    const capped = await finishGrepCall(over, unreadable(), 20, ASK);
     expect(leftOutOf(capped)).toMatchObject({ of: 'files', count: 1 });
   });
 
@@ -583,6 +598,7 @@ describe('grep inline boundaries', () => {
       ]),
       unreadable(),
       1,
+      ASK,
     );
 
     // The first file fits to the unit, so only the second file is left out.
@@ -600,6 +616,7 @@ describe('grep inline boundaries', () => {
       stateOf([{ locator: 'a.md:1-40', content, matches: [1] }]),
       unreadable(),
       20,
+      ASK,
     );
 
     const cut = resultsOf(result)[0];
@@ -613,7 +630,7 @@ describe('grep inline boundaries', () => {
     const state = stateOf([
       { locator: 'a.md:1-2', content: '1: a\n2: b', matches: [1], cut: true },
     ]);
-    const result = await finishGrepCall(state, unreadable(), 20);
+    const result = await finishGrepCall(state, unreadable(), 20, ASK);
     const plain = resultsOf(result)[0];
     expect(plain?.cut).toBe(false);
     expect(plain?.truncated).toBe(false);
@@ -630,10 +647,531 @@ describe('grep inline boundaries', () => {
         truncated: true,
       },
     ]);
-    const cappedResult = await finishGrepCall(capped, unreadable(), 20);
+    const cappedResult = await finishGrepCall(capped, unreadable(), 20, ASK);
     expect(resultsOf(cappedResult)[0]?.truncated).toBe(true);
     expect(renderToolResultText('grep', cappedResult)).toContain(
       '[more passages in this file; read it to see them]',
     );
+  });
+});
+
+describe('grep rerank', () => {
+  const MODEL = 'jev';
+  const KEY = 'decision-key-fixture';
+  const BOUNDS = {
+    maxFilesExamined: null,
+    maxEntriesListed: null,
+    maxBytesRead: null,
+    maxFileBytes: null,
+    rerank: { model: MODEL },
+  } as const;
+
+  type Answer = Record<string, number> | 'unavailable';
+
+  /** A lane double that answers `answers`, records each call, and protects KEY. */
+  function lane(answers: Answer) {
+    const calls: Array<JudgeCandidatesInput> = [];
+    const decisions: DecisionJudge = {
+      judgeCandidates: (input) => {
+        calls.push(input);
+        const unavailable =
+          answers === 'unavailable' || Object.keys(answers).length === 0;
+        const judgement: CandidateJudgement = unavailable
+          ? {
+              status: 'unavailable',
+              probabilities: undefined,
+              unanswered: input.cards.map((card) => card.key),
+              usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+              model: null,
+              latencyMs: 1,
+            }
+          : {
+              status: 'answered',
+              probabilities: new Map(Object.entries(answers)),
+              unanswered: [],
+              usage: { inputTokens: 500, outputTokens: 0, costUsd: 0.001 },
+              model: 'jev-test',
+              latencyMs: 30,
+            };
+        return Promise.resolve(judgement);
+      },
+      protectText: (_model, text) => text.replaceAll(KEY, '[protected]'),
+    };
+    return { calls, decisions };
+  }
+
+  const rankedContext = (
+    decisions: DecisionJudge,
+    extra?: Partial<ToolContext>,
+  ) => contextOf({ decisions, grepBounds: BOUNDS, ...extra });
+
+  /** One long single-line passage, so three of them overfill the inline part. */
+  function longPassage(file: string, line: number, units = 6000): GrepPassage {
+    return {
+      locator: `${file}:${String(line)}-${String(line)}`,
+      content: `${String(line)}: ${'x'.repeat(units)}`,
+      matches: [line],
+    };
+  }
+
+  function stateOf(passages: ReadonlyArray<GrepPassage>) {
+    const state = createPageState({
+      maxBytes: 1_000_000,
+      mayCarryKnowledge: false,
+    });
+    addGrepPassages(state.artifact, passages);
+    return state;
+  }
+
+  function rerankOf(result: ToolResult) {
+    const display = success(result).display;
+    const parsed = RERANK_RECORD.safeParse(
+      isRecord(display) ? display['rerank'] : undefined,
+    );
+    return parsed.success ? parsed.data : undefined;
+  }
+
+  const RERANK_RECORD = z.object({
+    model: z.string(),
+    order: z.array(z.string()),
+    scores: z.record(z.string(), z.number()),
+    latencyMs: z.number(),
+    costUsd: z.number().nullable(),
+    runLengths: z.array(z.number()),
+  });
+
+  const ASK_X = { patterns: ['set_config', 'current_setting'] };
+
+  it('keeps the same passages with and without an objective', async () => {
+    await writePassageFiles(3);
+    const args = { patterns: ['needle'], scopes: [`${root}/d/**`] };
+    const plain = await run(contextOf(), args);
+    const asked = await run(contextOf(), {
+      ...args,
+      objective: 'where the needle lives',
+    });
+
+    expect(success(asked).results).toEqual(success(plain).results);
+    expect(success(asked).warnings).toEqual(success(plain).warnings);
+    expect(success(asked).complete).toBe(success(plain).complete);
+  });
+
+  it('accepts 2,000 units of objective and refuses 2,001', () => {
+    const patterns = ['x'];
+    expect(
+      grepInputSchema.safeParse({ patterns, objective: 'o'.repeat(2000) })
+        .success,
+    ).toBe(true);
+    expect(
+      grepInputSchema.safeParse({ patterns, objective: 'o'.repeat(2001) })
+        .success,
+    ).toBe(false);
+  });
+
+  it('sends the objective, or the joined patterns, as the criterion', async () => {
+    const answers = lane({ p0: 0.1, p1: 0.9, p2: 0.5 });
+    const passages = [
+      longPassage('/a.ts', 1),
+      longPassage('/b.ts', 1),
+      longPassage('/c.ts', 1),
+    ];
+    await finishGrepCall(
+      stateOf(passages),
+      rankedContext(answers.decisions),
+      20,
+      { ...ASK_X, objective: 'the retry loop' },
+    );
+    await finishGrepCall(
+      stateOf(passages),
+      rankedContext(answers.decisions),
+      20,
+      ASK_X,
+    );
+
+    expect(answers.calls[0]).toMatchObject({
+      tool: 'grep',
+      model: MODEL,
+      objective: 'the retry loop',
+      query: 'set_config | current_setting',
+      cardBound: 384,
+    });
+    expect(answers.calls[1]?.objective).toBeUndefined();
+    expect(answers.calls[1]?.query).toBe('set_config | current_setting');
+  });
+
+  it('makes no decision call for a result that fits inline or is empty', async () => {
+    const answers = lane({ p0: 0.9 });
+    const small = await finishGrepCall(
+      stateOf([
+        { locator: '/a.ts:1-1', content: '1: needle', matches: [1] },
+        { locator: '/b.ts:1-1', content: '1: needle', matches: [1] },
+        { locator: '/c.ts:1-1', content: '1: needle', matches: [1] },
+      ]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+    const empty = await finishGrepCall(
+      stateOf([]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(answers.calls).toHaveLength(0);
+    expect(small).not.toHaveProperty('display');
+    expect(small).not.toHaveProperty('ranking');
+    expect(empty).not.toHaveProperty('display');
+    expect(empty).not.toHaveProperty('ranking');
+  });
+
+  it('ranks two long runs, which overfill the inline part', async () => {
+    const answers = lane({ p0: 0.2, p1: 0.8 });
+    const result = await finishGrepCall(
+      stateOf([longPassage('/a.ts', 1, 9000), longPassage('/b.ts', 1, 9000)]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(answers.calls).toHaveLength(1);
+    expect(answers.calls[0]?.cards).toHaveLength(2);
+    expect(headings(renderToolResultText('grep', result))[0]).toBe('## /b.ts');
+  });
+
+  it('ranks by whole runs and states the order in the record only', async () => {
+    const answers = lane({ p0: 0.1, p2: 0.9 });
+    const result = await finishGrepCall(
+      stateOf([
+        longPassage('/a.ts', 1),
+        longPassage('/b.ts', 1),
+        longPassage('/c.ts', 1),
+      ]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(rerankOf(result)).toEqual({
+      model: 'jev-test',
+      order: ['p2', 'p0', 'p1'],
+      scores: { p0: 0.1, p2: 0.9 },
+      latencyMs: 30,
+      costUsd: 0.001,
+      runLengths: [1, 1, 1],
+    });
+    expect(result).not.toHaveProperty('ranking');
+    expect(headings(artifactText())).toEqual([
+      '## /c.ts',
+      '## /a.ts',
+      '## /b.ts',
+    ]);
+    const text = renderToolResultText('grep', result);
+    expect(text).not.toContain('jev-test');
+    expect(text).not.toContain('runLengths');
+  });
+
+  it('keeps three runs when a reorder puts one file beside itself', async () => {
+    const answers = lane({ p0: 0.9, p1: 0.1, p2: 0.8 });
+    const result = await finishGrepCall(
+      stateOf([
+        longPassage('/x.ts', 10),
+        longPassage('/y.ts', 5),
+        longPassage('/x.ts', 20),
+      ]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(rerankOf(result)).toMatchObject({
+      order: ['p0', 'p2', 'p1'],
+      runLengths: [1, 1, 1],
+    });
+    expect(headings(artifactText())).toEqual([
+      '## /x.ts',
+      '## /x.ts',
+      '## /y.ts',
+    ]);
+    const live = renderToolResultText('grep', result);
+    // The inline part holds the two x runs, each under its own heading.
+    expect(headings(live)).toEqual(['## /x.ts', '## /x.ts']);
+    // A replayed part renders the same text from the stored record.
+    const replayed: ToolResult = structuredClone(result);
+    expect(renderToolResultText('grep', replayed)).toBe(live);
+    // Every finding starts on its heading line.
+    const lines = artifactText().split('\n');
+    const stored = writtenParts()[0]?.findings;
+    if (!isRecord(stored) || !Array.isArray(stored['findings'])) {
+      throw new Error('the artifact stores findings');
+    }
+    const starts = stored['findings']
+      .filter(isRecord)
+      .map((finding) => Number(finding['start']));
+    expect(starts).toHaveLength(3);
+    for (const start of starts)
+      expect(lines[start - 1]?.startsWith('## ')).toBe(true);
+  });
+
+  it('consumes the lengths only through a truncated final inline run', async () => {
+    const answers = lane({ p0: 0.1, p1: 0.9 });
+    const result = await finishGrepCall(
+      stateOf([
+        longPassage('/a.ts', 1),
+        longPassage('/a.ts', 10),
+        longPassage('/a.ts', 20),
+        longPassage('/b.ts', 1, 100),
+      ]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(rerankOf(result)).toMatchObject({
+      order: ['p1', 'p0'],
+      runLengths: [1, 3],
+    });
+    const live = renderToolResultText('grep', result);
+    expect(headings(live)).toEqual(['## /b.ts', '## /a.ts']);
+    expect(resultsOf(result).length).toBeLessThan(4);
+  });
+
+  it('keeps walk order and says so after a failed rank call', async () => {
+    const answers = lane('unavailable');
+    const state = stateOf([
+      longPassage('/a.ts', 1),
+      longPassage('/b.ts', 1),
+      longPassage('/c.ts', 1),
+    ]);
+    state.warnings.set('deadline', 1);
+    state.ignored.count = 1;
+    state.ignored.paths.push('/d/dist');
+    const result = await finishGrepCall(
+      state,
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(success(result).ranking).toBe('unavailable');
+    expect(result).not.toHaveProperty('display');
+    expect(headings(artifactText())).toEqual([
+      '## /a.ts',
+      '## /b.ts',
+      '## /c.ts',
+    ]);
+    const text = renderToolResultText('grep', result);
+    const warnings = text.indexOf('[warnings:');
+    const ranking = text.indexOf('[ranking unavailable; walk order]');
+    const ignored = text.indexOf('[ignored');
+    expect(warnings).toBeGreaterThan(-1);
+    expect(ranking).toBeGreaterThan(warnings);
+    expect(ignored).toBeGreaterThan(ranking);
+    expect(text).not.toContain('jev');
+  });
+
+  it('reserves room for the ranking line whatever the inline fill', async () => {
+    for (let units = 8000; units < 8100; units += 1) {
+      const answers = lane('unavailable');
+      const result = await finishGrepCall(
+        stateOf([
+          longPassage('/a.ts', 1, 6000),
+          longPassage('/b.ts', 1, units),
+          longPassage('/c.ts', 1, 6000),
+        ]),
+        rankedContext(answers.decisions),
+        20,
+        ASK,
+      );
+
+      expect(measureGrepRendering(success(result))).toBeLessThanOrEqual(15_000);
+      expect(renderToolResultText('grep', result)).toContain(
+        '[ranking unavailable; walk order]',
+      );
+    }
+  });
+
+  it('ranks the judged runs first when only some are answered', async () => {
+    const answers = lane({ p2: 0.7 });
+    const result = await finishGrepCall(
+      stateOf([
+        longPassage('/a.ts', 1),
+        longPassage('/b.ts', 1),
+        longPassage('/c.ts', 1),
+      ]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(result).not.toHaveProperty('ranking');
+    expect(rerankOf(result)).toMatchObject({
+      order: ['p2', 'p0', 'p1'],
+      scores: { p2: 0.7 },
+    });
+  });
+
+  it('lets the 120-second enclosing deadline end rank work as a timeout', async () => {
+    await writePassageFiles(3);
+    // Rank work starts after the 108-second walk deadline; the enclosing
+    // 120-second deadline then aborts it, and the tool keeps no failure line.
+    const controller = new AbortController();
+    const timeout = new DOMException('tool timeout', 'TimeoutError');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(0);
+    const decisions: DecisionJudge = {
+      judgeCandidates: () => {
+        vi.setSystemTime(120_001);
+        controller.abort(timeout);
+        return Promise.reject(timeout);
+      },
+      protectText: (_model, text) => text,
+    };
+    try {
+      await expect(
+        run(
+          rankedContext(decisions, {
+            timeoutMs: 120_000,
+            abortSignal: controller.signal,
+          }),
+          { patterns: ['needle'], scopes: [`${root}/d/**`], limit: 1 },
+        ),
+      ).rejects.toMatchObject({ name: 'TimeoutError' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives the judge the enclosing signal and lets its abort through', async () => {
+    const controller = new AbortController();
+    const timeout = new DOMException('tool timeout', 'TimeoutError');
+    let seen: AbortSignal | undefined;
+    const decisions: DecisionJudge = {
+      judgeCandidates: (input) => {
+        seen = input.abortSignal;
+        controller.abort(timeout);
+        return Promise.reject(timeout);
+      },
+      protectText: (_model, text) => text,
+    };
+    const state = stateOf([
+      longPassage('/a.ts', 1),
+      longPassage('/b.ts', 1),
+      longPassage('/c.ts', 1),
+    ]);
+
+    await expect(
+      finishGrepCall(
+        state,
+        rankedContext(decisions, { abortSignal: controller.signal }),
+        20,
+        ASK,
+      ),
+    ).rejects.toMatchObject({ name: 'TimeoutError' });
+    expect(seen).toBe(controller.signal);
+    expect(state.ranking).toBeUndefined();
+  });
+
+  it('builds cards only from runs the read group admitted, across host and kb://', async () => {
+    const space = '33333333-3333-4333-8333-333333333333';
+    const directory = path.join(root, 'kb', space);
+    const body = `${'x'.repeat(6000)} needle`;
+    await writeAt('d/a.ts', body);
+    await writeAt('d/secret.ts', body);
+    await writeAt(`kb/${space}/notes/a.md`, body);
+    await writeAt(`kb/${space}/notes/secret.md`, body);
+    const binding = {
+      id: space,
+      name: space,
+      root: path.join(root, 'kb'),
+      directory,
+    };
+    const knowledgeResolver: KnowledgeToolResolver = {
+      listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+      resolveBindingForOwnerById: () => Promise.resolve(binding),
+      createAdapter: (resolved) => new KnowledgeFilesystemAdapter(resolved),
+    };
+    const answers = lane({ p0: 0.4, p1: 0.6 });
+    const result = await run(
+      rankedContext(answers.decisions, {
+        knowledgeResolver,
+        permissionPolicy: compileToolPermissionMap(
+          {
+            grep: { allow: true },
+            read: { allow: true, reject: [{ field: 'path', regex: 'secret' }] },
+          },
+          'test',
+        ),
+      }),
+      {
+        patterns: ['needle'],
+        scopes: [`${root}/d/**`, `kb://${space}/`],
+        limit: 1,
+      },
+    );
+
+    expect(answers.calls).toHaveLength(1);
+    const cards = answers.calls[0]?.cards ?? [];
+    expect(cards.map((card) => card.key)).toEqual(['p0', 'p1']);
+    expect(cards.map((card) => card.text.split('\n')[0])).toEqual([
+      `${root}/d/a.ts`,
+      `kb://${space}/notes/a.md`,
+    ]);
+    expect(JSON.stringify(cards)).not.toContain('secret');
+    expect(renderToolResultText('grep', result)).not.toContain('secret');
+    expect(artifactText()).not.toContain('secret');
+    // The rank put the second admitted run first.
+    expect(headings(artifactText())[0]).toBe(`## kb://${space}/notes/a.md`);
+  });
+
+  it('replaces the decision key in locators and text before any cut', async () => {
+    const answers = lane({ p0: 0.5, p1: 0.9 });
+    const keyed: GrepPassage = {
+      locator: `/${KEY}/a.ts:3-3`,
+      content: `3: token ${KEY} ${'x'.repeat(6000)}`,
+      matches: [3],
+    };
+    const state = stateOf([
+      keyed,
+      longPassage('/b.ts', 1),
+      longPassage('/c.ts', 1),
+    ]);
+    const result = await finishGrepCall(
+      state,
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    const text = renderToolResultText('grep', result);
+    expect(text).toContain('[protected]');
+    expect(text).not.toContain(KEY);
+    expect(artifactText()).not.toContain(KEY);
+    expect(JSON.stringify(answers.calls)).not.toContain(KEY);
+    const first = resultsOf(result).find((entry) =>
+      entry.locator.includes('[protected]'),
+    );
+    expect(first?.matches).toEqual([3]);
+    expect(first?.locator.endsWith(':3-3')).toBe(true);
+  });
+
+  it('preserves source text that resembles rank metadata', async () => {
+    const answers = lane({ p0: 0.9, p1: 0.5, p2: 0.1 });
+    const resembling: GrepPassage = {
+      locator: '/a.ts:1-1',
+      content: `1: jev-test rerank 0.9 runLengths ${'x'.repeat(6000)}`,
+      matches: [1],
+    };
+    const result = await finishGrepCall(
+      stateOf([resembling, longPassage('/b.ts', 1), longPassage('/c.ts', 1)]),
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    expect(renderToolResultText('grep', result)).toContain(
+      '*1: jev-test rerank 0.9 runLengths',
+    );
+    expect(artifactText()).toContain('1: jev-test rerank 0.9 runLengths');
   });
 });

@@ -2,6 +2,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-06
 
+- **Ranked `grep` file runs.** `grep` takes an optional `objective` (1 to 2,000
+  UTF-16 code units) that changes no match. With `tools.grep.rerank.model` set
+  and a result that does not fit inline (more than `limit` files or over 15,000
+  units), the tool makes one card for each file run — its path and up to three
+  matching lines within 384 units — and judges every run against the objective,
+  or the patterns joined by `|` without one. Judged runs sort by score and
+  move whole, before the inline cut and the artifact, so the head, artifact,
+  findings, and remainder share one order; matches, counts, warnings, bounds,
+  the walk stop, and admissions stay unchanged. A run keeps exactly one
+  `## <path>` line even when a reorder places two runs of one file side by side:
+  `display.rerank` stores `model`, `order`, `scores`, `latencyMs`, `costUsd`,
+  and `runLengths`, and the artifact blocks and the native live and replay
+  renderer use those explicit boundaries. An ordinary total failure keeps walk
+  order, stores `ranking: "unavailable"`, and renders
+  `[ranking unavailable; walk order]` after the warnings line in reserved room;
+  rank work uses only the time left before the enclosing tool deadline, and
+  crossing it ends the call as the runner's timeout. The decision key is
+  replaced in received passage text and locators before any card or cut.
+
 - **Ranked `web_search` results.** A call now deduplicates one engine's
   results by canonical URL (without `www.` and a trailing `/`, first spelling
   wins) before it counts or caps anything. With `webSearch.rerank.model` set,

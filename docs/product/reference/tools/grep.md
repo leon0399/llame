@@ -20,13 +20,14 @@ locator that `read` accepts, so you can open the exact window it names.
 
 ## Arguments
 
-| Argument     | Meaning                                                                                  |
-| ------------ | ---------------------------------------------------------------------------------------- |
-| `patterns`   | one to eight RE2 patterns. One line matches when any pattern matches it.                 |
-| `scopes`     | one to sixteen scopes. The section below defines the grammar.                            |
-| `literal`    | `true` matches each pattern as written text. Default `false`.                            |
-| `ignoreCase` | `true` ignores letter case. Default `false`.                                             |
-| `limit`      | the most files the inline part holds, from 1 to 20. Default 20. It never stops the walk. |
+| Argument     | Meaning                                                                                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `patterns`   | one to eight RE2 patterns. One line matches when any pattern matches it.                                                                                             |
+| `scopes`     | one to sixteen scopes. The section below defines the grammar.                                                                                                        |
+| `literal`    | `true` matches each pattern as written text. Default `false`.                                                                                                        |
+| `ignoreCase` | `true` ignores letter case. Default `false`.                                                                                                                         |
+| `limit`      | the most files the inline part holds, from 1 to 20. Default 20. It never stops the walk.                                                                             |
+| `objective`  | one optional string, 1–2000 UTF-16 code units, saying what the caller looks for. A configured rank model orders file runs by it; it never changes a match or a stop. |
 
 The engine compiles every pattern with RE2 and runs in linear time. A refused
 pattern fails the call as `invalid_pattern` and names its index. The tool never
@@ -158,6 +159,69 @@ heading and lines as `[withheld]` with unchanged line numbers and leaves it
 out of the `:outline`. The host files hold the content as it was admitted; only
 `read` on `artifact://` withholds.
 
+### Ranked file runs
+
+The operator enables ranking for `grep` with the tool's own
+`tools.grep.rerank.model` (a `decisionModels[]` id); see
+[decisions](../../operator/decisions.md). The block has no other field: naming
+a model is the operator's consent to send it card text.
+
+The call ranks only when the model cannot see the whole result: more than
+`limit` files, or text over 15,000 code units. There is no minimum number of
+file runs, and a result with no run needs no judgment. Otherwise the walk's
+order stands and the tool makes no decision call.
+
+When it ranks, the tool makes one card for each file run. A card holds the
+path and up to three matching lines, at most 384 code units, and the tool judges
+every card against the `objective`, or against the patterns joined by `" | "`
+without one. Judged runs sort by score, strongest first; a tie and a run the
+model did not judge keep the canonical order after them.
+
+Ranking moves whole file runs and never a single passage. Every run stays
+contiguous and opens exactly one `## <file locator>` line, even when a reorder
+puts two runs of one file side by side. The artifact, its findings, the inline
+head, and the remainder map all read the ranked order. It changes no match,
+count, warning, bound, admission, or walk stop. Admission uses each file's
+original canonical identity.
+
+A call whose rank request failed for an ordinary reason keeps the canonical
+order, stores `ranking: "unavailable"` with no `display.rerank`, and renders
+one `[ranking unavailable; walk order]` line after the warnings line and before
+the `[ignored …]` line. If only some requests failed, the judged runs sort first
+and the call stores no `ranking` field. The rank request shares the call's
+enclosing deadline: the walk stops at the call deadline, and rank work uses only
+the time left before the enclosing tool deadline. If that deadline passes, the
+runner's timeout applies, not the framing line.
+
+The result carries `display.rerank` for the owner's UI only; the model never
+reads it:
+
+```json
+{
+  "display": {
+    "rerank": {
+      "model": "jev-1.14",
+      "order": ["p2", "p0", "p1"],
+      "scores": { "p0": 0.1, "p1": 0.05, "p2": 0.9 },
+      "latencyMs": 180,
+      "costUsd": 0.0000042,
+      "runLengths": [2, 1, 1]
+    }
+  }
+}
+```
+
+`order` lists every run key in the applied order, `scores` maps each judged key
+to its score, and `runLengths` gives each run's full passage count, aligned
+with `order`. The text, the artifact, and the UI consume these lengths as the
+run boundaries, through the inline cut; a path or start line never rebuilds
+them.
+
+With a ranking model configured, the tool replaces complete occurrences of the
+decision provider's key in received passage text and locators before any card,
+inline cut, or artifact. A locator that holds the key is replaced too and need
+not round-trip to `read`.
+
 `ignored` reports the directories the walk declined to enter, in walk order,
 so the model knows which directory to scope when a search comes back empty or
 partial. It holds the admitted count and the first five locators. A count of
@@ -199,7 +263,9 @@ from a reject.
 The order is the submitted scope order, then the walk order, then the start
 line. The walk order is depth-first with names in byte order. A bare
 `kb://` visits Spaces in byte order of the Space identifier. A bare `skill://`
-visits packages in byte order of the package name.
+visits packages in byte order of the package name. A configured
+`tools.grep.rerank.model` reorders whole file runs after the walk when the
+result does not fit inline; see [Ranked file runs](#ranked-file-runs).
 
 ## Behavior
 

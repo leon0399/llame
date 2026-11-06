@@ -140,33 +140,76 @@ export function grepPassageContinues(
  * The block one passage adds after `previous`: the blank line that continues
  * a run, or the `## <file locator>` line that opens one, then the passage's own
  * lines. `markCut` renders the inline cut marker, which an artifact never
- * holds: the artifact is the rest the marker names.
+ * holds: the artifact is the rest the marker names. `opens` states the run
+ * boundary explicitly; without it, the boundary is derived from the pair.
  */
 function passageBlock(
   previous: PassageView | undefined,
   passage: PassageView,
   markCut: boolean,
+  opens: boolean = !sharesRun(previous, passage),
 ): Array<string> {
-  const head = sharesRun(previous, passage)
-    ? ""
-    : `## ${oneLine(passage.file)}`;
+  const head = opens ? `## ${oneLine(passage.file)}` : "";
   return [head, ...passageLines(passage, markCut)];
 }
 
 /**
  * The lines one passage adds to a `grep` text after `previous`. The stored
  * shape is accepted, so a producer can render the same block the result will
- * render before it stores the text.
+ * render before it stores the text. `opens` is the explicit run boundary of a
+ * ranked result, whose runs a reorder can place side by side.
  */
 export function grepPassageBlockLines(
   previous: GrepPassage | undefined,
   passage: GrepPassage,
   markCut = true,
+  opens?: boolean,
 ): Array<string> {
   const view = passageOf(passage);
   if (view === undefined) return [];
   const before = previous === undefined ? undefined : passageOf(previous);
-  return passageBlock(before, view, markCut);
+  return passageBlock(before, view, markCut, opens);
+}
+
+/**
+ * Which passages open a run. Explicit `runLengths` (a ranked result's
+ * `display.rerank.runLengths`) mark every boundary through the passages they
+ * cover, so same-file runs a reorder placed side by side stay separate. A
+ * passage past the lengths, or a result without them, derives its boundary
+ * from the pair.
+ */
+function runOpeners(
+  passages: ReadonlyArray<PassageView>,
+  runLengths: ReadonlyArray<number>,
+): Array<boolean> {
+  const explicit = new Set<number>();
+  let covered = 0;
+  for (const length of runLengths) {
+    explicit.add(covered);
+    covered += length;
+  }
+  return passages.map((passage, index) =>
+    index < covered
+      ? explicit.has(index)
+      : !sharesRun(passages[index - 1], passage),
+  );
+}
+
+/**
+ * The explicit run lengths a result's `display.rerank` stores. Anything but a
+ * list of positive integers is no boundary information at all.
+ */
+function storedRunLengths(result: UnknownRecord): ReadonlyArray<number> {
+  const { display } = result;
+  if (!isRecord(display)) return [];
+  const { rerank } = display;
+  if (!isRecord(rerank) || !Array.isArray(rerank.runLengths)) return [];
+  const lengths: Array<number> = [];
+  for (const length of rerank.runLengths) {
+    if (!isNumber(length) || !Number.isInteger(length) || length < 1) return [];
+    lengths.push(length);
+  }
+  return lengths;
 }
 
 /** One `[warnings: <count> <kind>, …]` line, in the order the page gives. */
@@ -406,9 +449,11 @@ function passageLinesOf(
   const lines: Array<string> = [];
   const { notice } = result;
   if (isNonEmptyString(notice)) lines.push(`notice: ${notice}`);
+  const passages = passagesOf(result.results);
+  const opens = runOpeners(passages, storedRunLengths(result));
   let previous: PassageView | undefined;
-  for (const passage of passagesOf(result.results)) {
-    lines.push(...passageBlock(previous, passage, markCut));
+  for (const [index, passage] of passages.entries()) {
+    lines.push(...passageBlock(previous, passage, markCut, opens[index]));
     previous = passage;
   }
   return lines;
@@ -437,6 +482,8 @@ export function renderGrepText(result: UnknownRecord): string {
   const lines = passageLinesOf(result, true);
   const warnings = warningsLine(result.warnings);
   if (warnings !== undefined) lines.push(warnings);
+  if (result.ranking === "unavailable")
+    lines.push(GREP_RANKING_UNAVAILABLE_LINE);
   const ignored = ignoredOf(result.ignored);
   if (ignored !== undefined) lines.push(grepIgnoredLine(ignored));
   const { unfinishedFile } = result;
@@ -478,12 +525,28 @@ export function measureGrepRendering(result: UnknownRecord): number {
 export function grepPassageUnits(
   previous: GrepPassage | undefined,
   passage: GrepPassage,
+  opens?: boolean,
 ): number {
   const page = previous === undefined ? [passage] : [previous, passage];
+  const bounds = (runLengths: ReadonlyArray<number>) =>
+    opens === undefined ? {} : { display: { rerank: { runLengths } } };
   return (
-    measureGrepRendering({ results: page, complete: true }) -
+    measureGrepRendering({
+      results: page,
+      complete: true,
+      ...bounds(opens === false ? [2] : [1, 1]),
+    }) -
     (previous === undefined
       ? 0
       : measureGrepRendering({ results: [previous], complete: true }))
   );
+}
+
+/** The framing line of a result whose rank call failed; walk order stands. */
+export const GREP_RANKING_UNAVAILABLE_LINE =
+  "[ranking unavailable; walk order]";
+
+/** Rendered width of the ranking-unavailable line and its newline. */
+export function grepRankingUnits(): number {
+  return GREP_RANKING_UNAVAILABLE_LINE.length + 1;
 }
