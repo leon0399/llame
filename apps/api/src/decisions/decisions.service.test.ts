@@ -1,4 +1,7 @@
-import { type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  normalizeProtectedValues,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 import {
   BUILT_IN_DEFAULTS,
@@ -25,6 +28,7 @@ import {
 const RUBRIC = 'Does this result help answer the objective or query?';
 const SILENT = { info: () => undefined };
 const KEY = 'sk-decision-secret';
+const PROTECTED = normalizeProtectedValues([KEY]);
 
 function cards(count: number) {
   return Array.from({ length: count }, (_, index) => ({
@@ -43,6 +47,7 @@ function input(
     tool: 'web_search',
     query: 'postgres row level security',
     cards: cards(2),
+    cardBound: 10_000,
     rubric: RUBRIC,
     ...overrides,
   };
@@ -120,10 +125,35 @@ describe('buildJudgeRequest', () => {
     expect(questions).toStrictEqual({
       p0: {
         type: 'noul',
-        instructions: `Consider only the card keyed \`p0\` in \`cards\`. ${RUBRIC}`,
+        instructions: `Consider only the card keyed \`p0\` in \`cards\`, judged against the \`objective\` field of the state. ${RUBRIC}`,
         criteria: { true: RELEVANCE_YES, false: RELEVANCE_NO },
       },
     });
+  });
+
+  it('names the objective as the criterion when present, else the query', () => {
+    const card = [{ key: 'p0', text: 'x' }];
+    const withObjective = buildJudgeRequest({
+      objective: 'the real goal',
+      query: 'how it was searched',
+      rubric: RUBRIC,
+      cards: card,
+    });
+    const queryOnly = buildJudgeRequest({
+      query: 'how it was searched',
+      rubric: RUBRIC,
+      cards: card,
+    });
+
+    expect(withObjective.questions['p0']?.instructions).toContain(
+      'the `objective` field',
+    );
+    expect(withObjective.questions['p0']?.instructions).not.toContain(
+      'the `query` field',
+    );
+    expect(queryOnly.questions['p0']?.instructions).toContain(
+      'the `query` field',
+    );
   });
 
   it('carries no objective field when the caller supplies none', () => {
@@ -297,6 +327,24 @@ describe('judgeCandidatesWith', () => {
     expect(client.requests).toHaveLength(0);
   });
 
+  it('writes the one log line for zero cards too', async () => {
+    const lines: Array<UnknownRecord> = [];
+
+    await judgeCandidatesWith(clientOf(answering('m')), input({ cards: [] }), {
+      logger: { info: (payload) => lines.push(payload) },
+    });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      status: 'unavailable',
+      reason: 'no_candidates',
+      requests: 0,
+      judged: 0,
+      model: null,
+      costUsd: null,
+    });
+  });
+
   describe('representative model and usage', () => {
     it('reports the first accepted served id in request order, not completion order', async () => {
       const gate = Promise.withResolvers<void>();
@@ -441,7 +489,7 @@ describe('judgeCandidatesWith', () => {
           objective: `about ${KEY} and ${KEY}`,
           cards: [{ key: 'a', text: `token=${KEY}; tail` }],
         }),
-        { logger: SILENT, protectedValues: [KEY] },
+        { logger: SILENT, protectedValues: PROTECTED },
       );
 
       const wire = JSON.stringify(client.requests[0]?.state);
@@ -453,13 +501,50 @@ describe('judgeCandidatesWith', () => {
       });
     });
 
+    it('replaces the key before the card bound cuts, so no prefix of it leaks', async () => {
+      const client = clientOf(answering('m'));
+      // The bound lands inside the key: a cut-then-protect order would keep
+      // `sk-decis` unreplaced.
+      const text = `abc ${KEY} tail`;
+
+      await judgeCandidatesWith(
+        client,
+        input({
+          cards: [{ key: 'a', text }],
+          cardBound: 'abc sk-decis'.length,
+        }),
+        { logger: SILENT, protectedValues: PROTECTED },
+      );
+
+      const wire = JSON.stringify(client.requests[0]?.state);
+      expect(wire).not.toContain('sk-');
+      expect(client.requests[0]?.state).toMatchObject({
+        cards: { p0: 'abc [REDACTED]'.slice(0, 'abc sk-decis'.length) },
+      });
+    });
+
+    it('cuts a card at a code-point boundary', async () => {
+      const client = clientOf(answering('m'));
+      const grin = '\u{1F600}';
+
+      await judgeCandidatesWith(
+        client,
+        input({ cards: [{ key: 'a', text: `${grin}${grin}` }], cardBound: 3 }),
+        { logger: SILENT },
+      );
+
+      expect(client.requests[0]?.state).toMatchObject({
+        cards: { p0: grin },
+      });
+    });
+
     it('keeps text without the key verbatim', async () => {
       const client = clientOf(answering('m'));
 
       await judgeCandidatesWith(
         client,
         input({ cards: [{ key: 'a', text: 'sk-decision is a prefix only' }] }),
-        { logger: SILENT, protectedValues: [KEY] },
+        { logger: SILENT, protectedValues: PROTECTED },
       );
 
       expect(client.requests[0]?.state).toMatchObject({

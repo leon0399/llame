@@ -200,12 +200,12 @@ export interface ToolContext {
   /**
    * Trusted decision-lane judge for ranking a tool's own candidates, plus
    * `protectText`, the exact-key replacement of the decision credential a
-   * ranked tool applies to source text before excerpts. Absent — or present
-   * without `judgeCandidates` — means the lane is not configured and the tool
-   * keeps its canonical order; a failure is never read as a negative judgment.
+   * ranked tool applies to source text before excerpts. Absent means the lane
+   * is not configured and the tool keeps its canonical order; a failure is
+   * never read as a negative judgment.
    * A call shares this context's `abortSignal`.
    */
-  readonly decisions?: Partial<DecisionJudge>;
+  readonly decisions?: DecisionJudge;
   /**
    * Trusted effective per-attempt permission mode. Absent means default policy
    * evaluation.

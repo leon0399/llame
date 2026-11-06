@@ -967,7 +967,6 @@ export class RunExecutionService {
     // rank its own candidates. Its calls are side calls: never part of the
     // Run's message usage. Absent or empty catalogue: every consumer keeps
     // its canonical order.
-    @Optional()
     @Inject(DecisionsService)
     private readonly decisions?: DecisionJudge,
   ) {

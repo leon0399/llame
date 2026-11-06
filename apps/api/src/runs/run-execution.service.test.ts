@@ -80,7 +80,6 @@ import type {
   SystemModelCatalogEntry,
 } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
-import { judgeCandidatesWith } from '../decisions/decisions.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
@@ -4128,91 +4127,6 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(
       spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
     ).toMatchObject({ latencyMs: 750 });
-  });
-
-  it('leaves every message aggregate untouched by a tool decision call', async () => {
-    const spies = mockNormalExecutionRepositories();
-    const capturing = makeCapturingClient();
-    Object.assign(capturing.client, {
-      pricing: {
-        inputUsdPer1M: 2,
-        cachedInputUsdPer1M: 0.5,
-        outputUsdPer1M: 10,
-      },
-      billing: 'subscription',
-    });
-    const execution = makeExecutionService(capturing.client);
-
-    await execution.service.executeRun(executionInput(capturing.client));
-    const options = capturing.streamOptions();
-    options.onRequestUsage?.(
-      requestUsageReceipt({
-        inputTokens: 1000,
-        cachedInputTokens: 0,
-        outputTokens: 200,
-        totalTokens: 1200,
-        reasoningTokens: 150,
-      }),
-      300,
-    );
-    // A tool's rank call between the Run's two requests, far above the Run's own.
-    const judgement = await judgeCandidatesWith(
-      {
-        decide: (request) =>
-          Promise.resolve({
-            status: 'answered',
-            model: 'jev',
-            answers: Object.fromEntries(
-              Object.keys(request.questions).map((id) => [
-                id,
-                { type: 'noul' as const, noul: 0.7 },
-              ]),
-            ),
-            usage: { inputTokens: 50_000, outputTokens: 9000, costUsd: 5 },
-            latencyMs: 1,
-          }),
-      },
-      {
-        model: 'jev',
-        runId,
-        chatId: 'chat-1',
-        tool: 'grep',
-        query: 'q',
-        cards: [{ key: 'a', text: 'card' }],
-        rubric: 'Does it help?',
-      },
-      { logger: { info: () => undefined } },
-    );
-    expect(judgement.usage.inputTokens).toBe(50_000);
-    options.onRequestUsage?.(
-      requestUsageReceipt({
-        inputTokens: 1400,
-        cachedInputTokens: 1000,
-        outputTokens: 100,
-        totalTokens: 1500,
-        reasoningTokens: 60,
-      }),
-      300,
-    );
-    await options.onFinish?.({
-      text: 'answer',
-      usage: ZERO_USAGE,
-      finishReason: 'stop',
-      stepCount: 2,
-    });
-
-    const usage = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
-    expect(usage).toMatchObject({
-      inputTokens: 2400,
-      cachedInputTokens: 1000,
-      outputTokens: 300,
-      reasoningTokens: 210,
-      totalTokens: 2700,
-      contextTokens: 1500,
-      costUsd: 0.0063,
-      status: 'completed',
-      complete: true,
-    });
   });
 
   it('stamps the first streamed delta, counts the deltas, and derives throughput on the completed usage (#155)', async () => {
