@@ -16,6 +16,7 @@ import {
   renderSystemPromptTemplate,
   type TemporalAnchor,
 } from './prompt-loader';
+import { configuredCredentials } from './configured-credentials';
 
 const TEST_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
@@ -1059,7 +1060,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
   });
 
   it('resolves a GitHub token from an environment interpolation', () => {
-    process.env.GITHUB_READ_TOKEN = 'github-env-token';
+    process.env.GITHUB_READ_TOKEN = '  github-env-token  ';
     const entry = {
       id: 'github',
       use: 'github' as const,
@@ -4756,5 +4757,339 @@ describe('resolveConfigPath override hygiene', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: '   ' })).toBe(
       path.join(process.cwd(), 'llame.config.jsonc'),
     );
+  });
+});
+
+describe('loadInstanceConfig — configured credential set', () => {
+  function credentialsOf(json: string, env: NodeJS.ProcessEnv = {}) {
+    writeConfig(json);
+    return configuredCredentials(loadInstanceConfig(env));
+  }
+
+  it('is empty for a configuration the loader did not build', () => {
+    expect(configuredCredentials({ ...BUILT_IN_DEFAULTS })).toEqual([]);
+  });
+
+  it('is not a property of the returned configuration', () => {
+    writeConfig(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "sk-live-canary-9f3a2b7c" }] }',
+    );
+    const config = loadInstanceConfig();
+
+    expect(configuredCredentials(config)).toContain('sk-live-canary-9f3a2b7c');
+    expect(config).not.toHaveProperty('credentials');
+    expect(config).not.toHaveProperty('configuredCredentials');
+    expect(
+      Object.keys(config).filter((key) => /credential/iu.test(key)),
+    ).toEqual([]);
+  });
+
+  it('returns a fresh configuration, never the shared built-in defaults', () => {
+    const first = loadInstanceConfig();
+    const second = loadInstanceConfig();
+
+    expect(first).not.toBe(BUILT_IN_DEFAULTS);
+    expect(first).not.toBe(second);
+    expect(configuredCredentials(BUILT_IN_DEFAULTS)).toEqual([]);
+  });
+
+  it('freezes the set and sorts longest first without duplicates', () => {
+    const members = credentialsOf(
+      `{ "providers": [
+        { "id": "a", "type": "openai-responses", "key": "0123456789abcdef" },
+        { "id": "b", "type": "openai-responses", "key": "0123456789abcdefX" },
+        { "id": "c", "type": "openai-responses", "key": "0123456789abcdef" }
+      ] }`,
+    );
+
+    expect(members).toEqual(['0123456789abcdefX', '0123456789abcdef']);
+    expect(Object.isFrozen(members)).toBe(true);
+  });
+
+  it('takes the key of every provider type and nothing from a keyless provider', () => {
+    const members = credentialsOf(`{
+      "providers": [
+        { "id": "r", "type": "openai-responses", "key": "sk-responses-canary-9f3a2b7c" },
+        { "id": "c", "type": "openai-completions", "key": "sk-completions-canary-9f3a2b7c", "baseUrl": "https://endpoint.invalid/v1" },
+        { "id": "a", "type": "anthropic-messages", "key": "sk-anthropic-canary-9f3a2b7c" },
+        { "id": "x", "type": "openai-codex", "key": "codex-key-canary-9f3a2b7c", "accountId": "account-canary-9f3a2b" },
+        { "id": "g", "type": "opencode-go", "key": "sk-opencode-go-canary-9f3a2b7c" },
+        { "id": "keyless", "type": "openai-responses" }
+      ]
+    }`);
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'sk-responses-canary-9f3a2b7c',
+        'sk-completions-canary-9f3a2b7c',
+        'sk-anthropic-canary-9f3a2b7c',
+        'codex-key-canary-9f3a2b7c',
+        'sk-opencode-go-canary-9f3a2b7c',
+      ]),
+    );
+    expect(members).not.toContain('account-canary-9f3a2b');
+  });
+
+  it('takes web search engine keys and not a yandex folderId', () => {
+    const members = credentialsOf(
+      `{
+        "webSearch": {
+          "engines": [
+            { "id": "brave", "type": "brave", "key": "brave-canary-9f3a2b7c" },
+            { "id": "yandex", "type": "yandex", "key": "yandex-canary-9f3a2b7c", "searchType": "com", "folderId": "b1g-folder-id" },
+            { "id": "exa", "type": "exa-mcp", "key": "exa-canary-9f3a2b7c" }
+          ],
+          "chain": ["brave"]
+        }
+      }`,
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'brave-canary-9f3a2b7c',
+        'yandex-canary-9f3a2b7c',
+        'exa-canary-9f3a2b7c',
+      ]),
+    );
+    expect(members).not.toContain('b1g-folder-id');
+  });
+
+  it('takes a github web adapter token', () => {
+    const members = credentialsOf(
+      `{ "tools": { "webAdapters": [{ "id": "gh", "use": "github", "token": "{env:GH_TOKEN}" }] } }`,
+      { GH_TOKEN: 'ghp-canary-9f3a2b7c4d8e' },
+    );
+
+    expect(members).toEqual(['ghp-canary-9f3a2b7c4d8e']);
+  });
+
+  it('takes header substitutions without fallback text or literal text', () => {
+    const members = credentialsOf(
+      `{
+        "providers": [{ "id": "p", "type": "openai-responses", "headers": {
+          "Authorization": "Bearer {env:PROVIDER_HDR}",
+          "X-Fallback": "{env:NOPE:-fallback-canary-9f3a2b}"
+        } }],
+        "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": {
+          "X-Trace": "id={env:MCP_HDR}"
+        } } }
+      }`,
+      {
+        PROVIDER_HDR: 'provider-header-canary-9f3a',
+        MCP_HDR: 'mcp-header-canary-9f3a',
+      },
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'provider-header-canary-9f3a',
+        'mcp-header-canary-9f3a',
+      ]),
+    );
+    expect(members).not.toContain('fallback-canary-9f3a2b');
+    expect(members.some((member) => member.includes('Bearer'))).toBe(false);
+    expect(members.some((member) => member.includes('id='))).toBe(false);
+  });
+
+  it('takes stdio environment substitutions and not command or args substitutions', () => {
+    const members = credentialsOf(
+      `{
+        "mcpServers": { "local": {
+          "type": "stdio",
+          "command": "run-{env:COMMAND_TOKEN}",
+          "args": ["--token={env:ARG_TOKEN}"],
+          "env": { "A": "{env:MCP_ENV}" }
+        } }
+      }`,
+      {
+        COMMAND_TOKEN: 'command-canary-9f3a2b7c',
+        ARG_TOKEN: 'arg-canary-9f3a2b7c',
+        MCP_ENV: 'mcp-env-canary-9f3a2b',
+      },
+    );
+
+    expect(members).toEqual(['mcp-env-canary-9f3a2b']);
+  });
+
+  it.each(['providers', 'mcpServers'] as const)(
+    'takes no literal credential-shaped header from %s',
+    (section) => {
+      const headers = JSON.stringify({
+        'X-Api-Key': 'literal-header-canary-9f3a',
+        'X-Region': 'eu-west-1',
+      });
+      const json =
+        section === 'mcpServers'
+          ? `{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": ${headers} } } }`
+          : `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": ${headers} }] }`;
+
+      expect(credentialsOf(json)).toEqual([]);
+    },
+  );
+
+  it('takes no credential from a provider baseUrl or a remote MCP url', () => {
+    const members = credentialsOf(
+      `{
+        "providers": [
+          { "id": "a", "type": "openai-responses", "baseUrl": "https://svc:pw-canary-1065-long@gateway.example/v1?token=qs-canary-1065-long" },
+          { "id": "b", "type": "openai-responses", "baseUrl": "{env:GATEWAY_URL}" }
+        ],
+        "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey=qs-canary-1065-long" } }
+      }`,
+      {
+        GATEWAY_URL:
+          'https://svc:sub-pw-canary-1065-long@gateway.example/v1?token=sub-qs-canary-1065-long',
+      },
+    );
+
+    expect(members).toEqual([]);
+  });
+
+  it.each(['https:mcp.example/mcp', 'https:/mcp.example/mcp'])(
+    'takes no query credential from a remote MCP url in an absolute form: %s',
+    (url) => {
+      const queried = `${url}?apiKey=qs-canary-1065-long`;
+
+      expect(
+        credentialsOf(
+          `{ "mcpServers": { "r": { "type": "http", "url": ${JSON.stringify(queried)} } } }`,
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it('takes no Codex accountId', () => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "c", "type": "openai-codex", "key": "codex-key-canary-9f3a2b7c", "accountId": "account-canary-9f3a2b" }] }`,
+    );
+
+    expect(members).toEqual(['codex-key-canary-9f3a2b7c']);
+  });
+
+  it('takes Codex document leaves and no timestamp or JSON-escaped spelling', () => {
+    const authFile = path.join(tmpDir, 'codex-auth.json');
+    writeFileSync(
+      authFile,
+      JSON.stringify({
+        tokens: {
+          access_token: 'at-1234567890abcdef',
+          refresh_token: 'rt-1234567890abcdef',
+          id_token: 'id-1234567890abcdef',
+          note: 'note-canary-9f3a2b7c',
+        },
+        auth: { apiKey: 'quote"canary-9f3a2b' },
+        last_refresh: '2026-01-01T00:00:00Z',
+      }),
+    );
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "c", "type": "openai-codex", "accountId": "account-canary-9f3a2b", "key": "{path:${authFile}|json:/tokens/access_token}" }] }`,
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'at-1234567890abcdef',
+        'rt-1234567890abcdef',
+        'id-1234567890abcdef',
+        'quote"canary-9f3a2b',
+      ]),
+    );
+    expect(members).not.toContain('note-canary-9f3a2b7c');
+    expect(members).not.toContain('2026-01-01T00:00:00Z');
+    expect(members).not.toContain(String.raw`quote\"canary-9f3a2b`);
+  });
+
+  it('takes the POSTGRES_URL password and PGPASSWORD, never the whole URL', () => {
+    const url = 'postgres://app:pw%2Fcanary-1065-long@db.example:5432/llame';
+    const members = credentialsOf('{}', {
+      POSTGRES_URL: url,
+      PGPASSWORD: 'pgpass-canary-9f3a2b7c',
+    });
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'pw%2Fcanary-1065-long',
+        'pw/canary-1065-long',
+        'pgpass-canary-9f3a2b7c',
+      ]),
+    );
+    expect(members).not.toContain(url);
+    expect(members).not.toContain('app');
+  });
+
+  it.each([
+    ['multi-host', 'postgres://app:pw-canary-1065-long@h1:5432,h2:5432/llame'],
+    [
+      'socket',
+      'postgres://app:pw-canary-1065-long@/llame?host=/var/run/postgresql',
+    ],
+  ])('takes the %s POSTGRES_URL password from the raw string', (_form, url) => {
+    const members = credentialsOf('{}', { POSTGRES_URL: url });
+
+    expect(members).toEqual(['pw-canary-1065-long']);
+  });
+
+  it('does not read POSTGRES_URL from process.env, only from the env given', () => {
+    process.env.POSTGRES_URL = 'postgres://app:ambient-password@db/llame';
+    try {
+      expect(credentialsOf('{}', {})).toEqual([]);
+    } finally {
+      delete process.env.POSTGRES_URL;
+    }
+  });
+
+  it.each([
+    ['a 15-character provider key', '0123456789abcde', false],
+    [
+      'a 16-character provider key with 16 distinct characters',
+      '0123456789abcdef',
+      true,
+    ],
+    [
+      'a 16-character provider key just below 64 bits',
+      '0123456789abcdea',
+      false,
+    ],
+    ['a 17-character provider key above 64 bits', '0123456789abcdefX', true],
+  ])('applies the G3 gate to %s', (_title, key, kept) => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "key": ${JSON.stringify(key)} }] }`,
+    );
+
+    expect(members).toEqual(kept ? [key] : []);
+  });
+
+  it.each([
+    [
+      'a whitespace-only provider key',
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "{env:BLANK}" }] }',
+      { BLANK: '   ' },
+    ],
+    ['a whitespace-only PGPASSWORD', '{}', { PGPASSWORD: '   ' }],
+    ['a whitespace-only POSTGRES_URL', '{}', { POSTGRES_URL: '   ' }],
+  ])('takes nothing for %s', (_title, json, env) => {
+    expect(credentialsOf(json, env)).toEqual([]);
+  });
+
+  it.each([
+    [
+      'knowledge.root, a numeric setting, or a searxng baseUrl',
+      `{
+        "knowledge": { "root": "{env:KB_ROOT}" },
+        "db": { "poolSize": "{env:POOL_SIZE}" },
+        "webSearch": { "engines": [{ "id": "s", "type": "searxng", "baseUrl": "{env:SEARXNG_URL}" }], "chain": ["s"] }
+      }`,
+      {
+        KB_ROOT: '/srv/kb',
+        POOL_SIZE: '12',
+        SEARXNG_URL: 'https://searx.example',
+      },
+    ],
+    [
+      'a session rendering',
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "headers": { "X-Trace": "{session:id}" } }] }',
+      {},
+    ],
+  ])('takes none of %s', (_title, json, env) => {
+    expect(credentialsOf(json, env)).toEqual([]);
   });
 });
