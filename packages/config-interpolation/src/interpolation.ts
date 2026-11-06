@@ -58,42 +58,26 @@ export function interpolateString(
   return interpolateStringWithSubstitutions(input, env).value;
 }
 
-/** A code-unit interval in a resolved string. */
-export type InterpolationSpan = Readonly<{ start: number; end: number }>;
-
 /**
  * One token's contribution to a resolved string.
  *
- * `start` and `end` are code-unit positions in the result's `value`, so a
- * caller can tell whether a secret landed inside a part of the value it cares
- * about (a URL's userinfo password or query, for example) without resolving
- * the token again. Empty resolutions are never reported — an empty string
- * matches everywhere and would redact all output.
+ * Empty resolutions are never reported — an empty string matches everywhere
+ * and would redact all output.
  */
-export type InterpolationSubstitution = Readonly<
-  InterpolationSpan & {
-    readonly value: string;
-    /** True when the token's `:-` default supplied the value. */
-    readonly fallback: boolean;
-    /**
-     * For a `{path:…|json:…}` token, the selected document's string leaves
-     * whose own property name is credential-shaped, read from the same file
-     * read that selected the value; each leaf's JSON-escaped spelling is
-     * included when it differs. Empty for every other token.
-     */
-    readonly documentLeaves: ReadonlyArray<string>;
-  }
->;
+export type InterpolationSubstitution = Readonly<{
+  readonly value: string;
+  /** True when the token's `:-` default supplied the value. */
+  readonly fallback: boolean;
+  /**
+   * For a `{path:…|json:…}` token, the selected document's string leaves
+   * whose own property name is credential-shaped, read from the same file
+   * read that selected the value. Empty for every other token.
+   */
+  readonly documentLeaves: ReadonlyArray<string>;
+}>;
 
 export type InterpolationResult = {
   readonly value: string;
-  /**
-   * Whether the input contained at least one recognized, non-escaped token,
-   * whether or not it resolved to an empty string. A caller that treats the
-   * whole string as literal (a header value, say) uses this instead of
-   * scanning for braces, so `{{env:FOO}}` stays literal.
-   */
-  readonly hadToken: boolean;
   /**
    * Each token substituted, in order.
    *
@@ -106,10 +90,9 @@ export type InterpolationResult = {
 };
 
 /**
- * Fragments whose presence in a property or header name means the value is
- * credential-shaped, case-insensitively. Shared by the loader's configured
- * credential set and by the JSON document leaves interpolation reports, so the
- * two can never disagree.
+ * Fragments whose presence in a property name means the value is
+ * credential-shaped, case-insensitively. Used to decide which JSON document
+ * leaves interpolation reports.
  */
 const CREDENTIAL_NAME_FRAGMENTS = [
   "authorization",
@@ -139,7 +122,6 @@ export function interpolateStringWithSubstitutions(
 ): InterpolationResult {
   const substituted: Array<InterpolationSubstitution> = [];
   let out = "";
-  let hadToken = false;
   let i = 0;
   while (i < input.length) {
     if (input[i] !== "{") {
@@ -160,7 +142,6 @@ export function interpolateStringWithSubstitutions(
     if (envMatch) {
       out = appendSubstitution(out, envMatch, substituted);
       i += envMatch.length;
-      hadToken = true;
       continue;
     }
 
@@ -168,14 +149,13 @@ export function interpolateStringWithSubstitutions(
     if (pathMatch) {
       out = appendSubstitution(out, pathMatch, substituted);
       i += pathMatch.length;
-      hadToken = true;
       continue;
     }
 
     out += input[i];
     i += 1;
   }
-  return { value: out, hadToken, substituted };
+  return { value: out, substituted };
 }
 
 function appendSubstitution(
@@ -186,8 +166,6 @@ function appendSubstitution(
   if (match.resolved.length > 0) {
     substituted.push({
       value: match.resolved,
-      start: out.length,
-      end: out.length + match.resolved.length,
       fallback: match.fallback,
       documentLeaves: match.documentLeaves,
     });
@@ -347,9 +325,7 @@ function selectJsonPointerFromPayload(
 
 /**
  * The string leaves of a selected document whose own property name is
- * credential-shaped, or that sit in an array under such a name, plus each
- * leaf's JSON-escaped spelling when it differs (the form a serialized copy of
- * the document carries).
+ * credential-shaped, or that sit in an array under such a name.
  */
 function credentialDocumentLeaves(document: JsonValue): ReadonlyArray<string> {
   const leaves: Array<string> = [];
@@ -386,12 +362,10 @@ function collectLeaves(
 }
 
 function pushCredentialLeaf(value: string, leaves: Array<string>): void {
-  // A blank original leaf carries no secret, and its JSON-escaped spelling
-  // (`\n`, `\t`) would become a nonblank member that redacts unrelated text.
+  // A blank leaf carries no secret, and trimming it would turn whitespace
+  // into a member that redacts unrelated text.
   if (value.trim().length === 0) return;
   leaves.push(value);
-  const escaped = JSON.stringify(value).slice(1, -1);
-  if (escaped !== value) leaves.push(escaped);
 }
 
 /** Parsed JSON tree for secret-file pointer selection. */

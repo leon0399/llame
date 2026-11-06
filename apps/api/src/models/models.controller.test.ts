@@ -258,10 +258,10 @@ describe('ModelsController', () => {
 
 /** Distinct values each placed in a different membership position. */
 const canaries = {
-  urlPassword: ['pw', 'canary', '1065'].join('-'),
-  urlQuery: ['qs', 'canary', '1065'].join('-'),
-  header: ['hd', 'canary', '1065'].join('-'),
-  database: ['db', 'canary', '1065'].join('-'),
+  key: ['sk', 'live', 'canary', '9f3a2b7c'].join('-'),
+  header: ['mcp', 'header', 'canary', '9f3a2b'].join('-'),
+  database: ['db', 'canary', '9f3a2b7c'].join('-'),
+  password: ['pgpass', 'canary', '9f3a2b7c'].join('-'),
 };
 
 describe('GET /api/v1/models with a configured credential set', () => {
@@ -276,8 +276,7 @@ describe('GET /api/v1/models with a configured credential set', () => {
             id: 'p',
             type: 'openai-responses',
             key: '{env:CANARY_KEY}',
-            baseUrl: `https://svc:${canaries.urlPassword}@gateway.example/v1?token=${canaries.urlQuery}`,
-            headers: { 'X-Api-Key': canaries.header },
+            headers: { 'X-Api-Key': '{env:CANARY_HEADER}' },
           },
         ],
         models: [
@@ -293,17 +292,18 @@ describe('GET /api/v1/models with a configured credential set', () => {
     );
     const config = loadInstanceConfig({
       LLAME_CONFIG_PATH: configFile,
-      CANARY_KEY: 'sk-canary-set',
+      CANARY_KEY: canaries.key,
+      CANARY_HEADER: canaries.header,
       POSTGRES_URL: `postgres://app:${canaries.database}@db:5432/llame`,
+      PGPASSWORD: canaries.password,
     });
     const members = configuredCredentials(config);
     expect(members).toEqual(
       expect.arrayContaining([
-        'sk-canary-set',
-        canaries.urlPassword,
-        canaries.urlQuery,
+        canaries.key,
         canaries.header,
         canaries.database,
+        canaries.password,
       ]),
     );
 

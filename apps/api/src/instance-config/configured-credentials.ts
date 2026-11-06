@@ -1,25 +1,16 @@
-import {
-  isCredentialName,
-  type InterpolationResult,
-  type InterpolationSpan,
-} from '@workspace/config-interpolation';
+import type { InterpolationResult } from '@workspace/config-interpolation';
 import { normalizeProtectedValues } from '@workspace/runtime-safety';
 
 import type { LlameConfig } from './llame-config';
 
 /**
- * The 8-character floor applies ONLY to inferred credentials — a database
- * password, `PGPASSWORD`, and a URL userinfo username — because those can be
- * common words such as `app`. A configured credential field is a member at any
- * nonblank length (proposal A4).
+ * The gate every member must pass. A value shorter than 16 characters, or
+ * with a low estimated entropy, is accepted as a leak: redacting short or
+ * common text would corrupt unrelated output, and llame cannot tell a weak
+ * configured secret from an ordinary word.
  */
-const INFERRED_CREDENTIAL_MIN_LENGTH = 8;
-
-type UrlCredentialSpans = Readonly<{
-  username?: InterpolationSpan;
-  password?: InterpolationSpan;
-  query?: InterpolationSpan;
-}>;
+const MINIMUM_MEMBER_LENGTH = 16;
+const MINIMUM_MEMBER_BITS = 64;
 
 /**
  * The set is deliberately off `LlameConfig`: no serializer, spread, or deep
@@ -52,32 +43,34 @@ export function recordConfiguredCredentials(
 
 /**
  * Collects configured credentials while the loader resolves each field that
- * names one (design D1). Blank values never count; the trimmed spelling is
- * kept alongside a padded one because a printed value may carry either.
+ * names one. Only the positions the proposal promises contribute: a provider,
+ * web search engine, or web adapter secret; the document leaves of a
+ * `{path:…|json:…}` substitution those fields select; the substitutions of
+ * provider and remote MCP headers and stdio MCP environment values; and the
+ * `POSTGRES_URL` password and `PGPASSWORD` from the loader's environment.
  */
 export class ConfiguredCredentialCollector {
   private readonly members: Array<string> = [];
 
   /** Seeds the members read from the environment the loader was given. */
   constructor(env: NodeJS.ProcessEnv) {
-    this.addPostgresUrl(env.POSTGRES_URL);
-    this.add(env.PGPASSWORD, INFERRED_CREDENTIAL_MIN_LENGTH);
+    const databasePassword = postgresPassword(env.POSTGRES_URL);
+    this.add(databasePassword);
+    if (databasePassword !== undefined) {
+      this.add(percentDecoded(databasePassword));
+    }
+    this.add(env.PGPASSWORD);
   }
 
   /** `onResolved` hook for a credential field (a provider, engine, or adapter secret). */
   readonly onSecret = (result: InterpolationResult): void =>
     this.addSecret(result);
 
-  /** `onResolved` hook for a configured URL (a provider `baseUrl`). */
-  readonly onUrl = (result: InterpolationResult): void =>
-    this.addUrlMembers(result);
-
   /**
    * A credential field: the whole resolved value, and the credential leaves of
    * any selected JSON document. A substitution inside the field is deliberately
-   * NOT a member on its own — design D1 takes whole values for credential
-   * fields, so `secret-prefix-{env:VERSION}-suffix` does not make `1` a
-   * member.
+   * NOT a member on its own, so `secret-prefix-{env:VERSION}-suffix` does not
+   * make `1` a member.
    */
   addSecret(result: InterpolationResult): void {
     this.add(result.value);
@@ -87,28 +80,10 @@ export class ConfiguredCredentialCollector {
   }
 
   /**
-   * One header value, or one `{session:id}`-separated part of a provider
-   * header. A non-literal value contributes only its substitutions; a literal
-   * value contributes itself when its header name is credential-shaped. The
-   * caller decides literalness once for the whole value and passes `literal`.
-   */
-  addHeaderValue(
-    name: string,
-    result: InterpolationResult,
-    literal: boolean,
-  ): void {
-    if (!literal) {
-      this.addSubstitutions(result);
-      return;
-    }
-    if (isCredentialName(name)) this.add(result.value);
-  }
-
-  /**
-   * Every substitution of a credential-bearing value, excluding `:-` fallback
-   * text (a default written in the file is not a secret), plus the credential
-   * leaves of a selected JSON document when the token was `{path:…|json:…}`.
-   * The spelling is the one written: header and stdio values are not URLs.
+   * Every substitution of a header or stdio environment value, excluding `:-`
+   * fallback text (a default written in the file is not a secret), plus the
+   * credential leaves of a selected JSON document. Literal text around a
+   * substitution is never a member.
    */
   addSubstitutions(result: InterpolationResult): void {
     for (const substitution of result.substituted) {
@@ -118,285 +93,68 @@ export class ConfiguredCredentialCollector {
     }
   }
 
-  /**
-   * A URL's credentials: substitutions resolved inside its userinfo password
-   * or query, its userinfo password at any nonblank length, its userinfo
-   * username from 8 characters, and each query value under a credential-shaped
-   * name — each as written, percent-decoded, and in the spelling WHATWG URL
-   * parsing serializes (percent-encoding, and dropping ASCII tab, LF, and CR)
-   * — and never the whole URL. Spans are computed on the raw resolved string,
-   * not on a re-serialized `URL`; the serialized spellings are added last.
-   */
-  addUrlMembers(result: InterpolationResult): void {
-    const spans = urlCredentialSpans(result.value);
-    this.addUrlSubstitutions(result, spans);
-    this.addUserinfoMembers(result.value, spans);
-    this.addQueryCredentialValues(result.value, spans);
-    this.addSerializedUrlMembers(result.value, spans);
-  }
-
-  /**
-   * A substitution resolved inside the userinfo password or the query, in the
-   * spelling written, its percent-decoded form, and the spelling WHATWG URL
-   * parsing transmits: the URL may carry any of them (`secret%2Fcanary`
-   * travels as-is, `secret/canary` once a consumer decodes it, and an ASCII
-   * tab, LF, or CR is dropped by the parser). `:-` fallback text is not a
-   * secret.
-   */
-  private addUrlSubstitutions(
-    result: InterpolationResult,
-    spans: UrlCredentialSpans,
-  ): void {
-    for (const substitution of result.substituted) {
-      if (substitution.fallback) continue;
-      if (
-        !within(spans.password, substitution) &&
-        !within(spans.query, substitution)
-      ) {
-        continue;
-      }
-      this.addUrlMember(substitution.value);
-      for (const leaf of substitution.documentLeaves) {
-        this.addUrlMember(leaf);
-      }
-    }
-  }
-
   /** Normalized (deduped, longest first) and deeply frozen. */
   snapshot(): ReadonlyArray<string> {
     return Object.freeze(normalizeProtectedValues(this.members));
   }
 
-  private add(value: string | undefined, minimumLength?: number): void {
-    if (value === undefined) return;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return;
-    if (minimumLength !== undefined && trimmed.length < minimumLength) return;
+  private add(value: string | undefined): void {
+    if (value === undefined || !passesGate(value)) return;
     this.members.push(value);
-    if (trimmed !== value) this.members.push(trimmed);
   }
-
-  private addEncodedAndDecoded(value: string, minimumLength?: number): void {
-    if (value.length === 0) return;
-    this.add(value, minimumLength);
-    const decoded = percentDecoded(value);
-    if (decoded !== undefined && decoded !== value) {
-      this.add(decoded, minimumLength);
-    }
-  }
-
-  /**
-   * A URL member in the spellings a consumer sees: as written, percent-decoded,
-   * and — when it carries an ASCII tab, LF, or CR — the spelling WHATWG URL
-   * parsing transmits, which removes those characters anywhere in its input.
-   * Members that no URL parser reads keep their written spelling.
-   */
-  private addUrlMember(value: string, minimumLength?: number): void {
-    this.addEncodedAndDecoded(value, minimumLength);
-    const transmitted = value.replaceAll(/[\t\n\r]/gu, '');
-    if (transmitted !== value) {
-      this.addEncodedAndDecoded(transmitted, minimumLength);
-    }
-  }
-
-  /**
-   * `POSTGRES_URL` is read outside the configuration file, so the loader never
-   * interpolates it: the whole string, plus its password in both
-   * percent-encoded and decoded spellings, is the member. The password comes
-   * from the raw userinfo spans, so multi-host and socket connection strings
-   * that `new URL` cannot parse still contribute it.
-   */
-  private addPostgresUrl(value: string | undefined): void {
-    if (value === undefined || value.trim().length === 0) return;
-    this.add(value);
-    const spans = urlCredentialSpans(value);
-    if (spans.password === undefined) return;
-    this.addUrlMember(
-      value.slice(spans.password.start, spans.password.end),
-      INFERRED_CREDENTIAL_MIN_LENGTH,
-    );
-  }
-
-  private addUserinfoMembers(rawUrl: string, spans: UrlCredentialSpans): void {
-    if (spans.username !== undefined) {
-      this.addUrlMember(
-        rawUrl.slice(spans.username.start, spans.username.end),
-        INFERRED_CREDENTIAL_MIN_LENGTH,
-      );
-    }
-    if (spans.password !== undefined) {
-      this.addUrlMember(rawUrl.slice(spans.password.start, spans.password.end));
-    }
-  }
-
-  private addQueryCredentialValues(
-    rawUrl: string,
-    spans: UrlCredentialSpans,
-  ): void {
-    if (spans.query === undefined) return;
-    const query = rawUrl.slice(spans.query.start, spans.query.end);
-    for (const pair of query.split('&')) {
-      const equals = pair.indexOf('=');
-      const rawName = equals === -1 ? pair : pair.slice(0, equals);
-      const name = percentDecoded(rawName) ?? rawName;
-      if (isCredentialName(name)) this.addUrlMember(queryPairValue(pair));
-    }
-  }
-
-  /**
-   * The serialized spelling of each member collected from the raw string: the
-   * query percent-encodes characters such as a space, so a consumer that
-   * echoes the request URL prints a spelling the raw string does not contain.
-   * Serialization keeps the query pairs' order, so a raw pair index maps to
-   * the serialized pair at the same index; a pair adds its serialized value
-   * only when its raw value was already a member, so a non-credential value
-   * never joins the set. The userinfo is serialized as a whole. A URL that
-   * `new URL` cannot parse adds no serialized spelling.
-   */
-  private addSerializedUrlMembers(
-    rawUrl: string,
-    spans: UrlCredentialSpans,
-  ): void {
-    const url = parsedUrl(rawUrl);
-    if (url === undefined) return;
-    if (spans.password !== undefined) this.addUrlMember(url.password);
-    if (spans.username !== undefined) {
-      this.addUrlMember(url.username, INFERRED_CREDENTIAL_MIN_LENGTH);
-    }
-    if (spans.query === undefined) return;
-    const rawPairs = rawUrl
-      .slice(spans.query.start, spans.query.end)
-      .split('&');
-    const serializedPairs = url.search.slice(1).split('&');
-    for (const [index, serializedPair] of serializedPairs.entries()) {
-      const rawPair = rawPairs[index];
-      if (rawPair === undefined) break;
-      if (!this.members.includes(queryPairValue(rawPair))) continue;
-      this.addUrlMember(queryPairValue(serializedPair));
-    }
-  }
-}
-
-/** Whether a substitution's resolved span lies entirely inside `span`. */
-function within(
-  span: InterpolationSpan | undefined,
-  substitution: InterpolationSpan,
-): boolean {
-  return (
-    span !== undefined &&
-    substitution.start >= span.start &&
-    substitution.end <= span.end
-  );
 }
 
 /**
- * The userinfo and query spans of an absolute URL, computed by scanning the
- * raw string so a resolved (possibly substituted) URL — and a `POSTGRES_URL`
- * `new URL` cannot parse — is read exactly as written. A provider URL is
- * trimmed when the loader stores it, but a remote MCP `url` is stored
- * untrimmed, so leading whitespace is skipped here on the raw resolved string
- * and spans stay in raw-string coordinates that match substitution spans.
- * WHATWG, the loader's validator, treats `https://host/`, `https:/host/`, and
- * `https:host/` alike for HTTP(S) (and `\` as `/`), so the authority starts
- * after the scheme colon plus any slash run rather than after a literal `://`.
+ * Whether `value` is long enough and varied enough to redact. The estimate is
+ * the value's length times the Shannon entropy of its own character
+ * distribution; it is not a measure of how the value was generated.
  */
-function urlCredentialSpans(url: string): UrlCredentialSpans {
-  const start = url.length - url.trimStart().length;
-  const colon = schemeColon(url, start);
-  if (colon === undefined) return {};
-  const query = querySpan(url, colon + 1);
-  const scheme = url.slice(start, colon).toLowerCase();
-  const hasAuthority =
-    scheme === 'http' || scheme === 'https' || url.startsWith('//', colon + 1);
-  if (!hasAuthority) return query === undefined ? {} : { query };
-
-  const authorityStart = skipAuthoritySlashes(url, colon + 1);
-  const authorityEnd = indexOfFirstOf(
-    url,
-    ['/', '\\', '?', '#'],
-    authorityStart,
-  );
-  return {
-    ...userinfoSpans(url, authorityStart, authorityEnd),
-    ...(query !== undefined && { query }),
-  };
+function passesGate(value: string): boolean {
+  const characters = Array.from(value);
+  if (characters.length < MINIMUM_MEMBER_LENGTH) return false;
+  return estimatedEntropyBits(characters) >= MINIMUM_MEMBER_BITS;
 }
 
-/**
- * The index of the scheme's `:`, when the substring from `from` starts with a
- * valid scheme. `from` is the first non-whitespace character; spans stay in
- * raw-string coordinates so they still match substitution spans.
- */
-function schemeColon(url: string, from: number): number | undefined {
-  const colon = url.indexOf(':', from);
-  if (colon <= from) return undefined;
-  return /^[A-Za-z][A-Za-z0-9+.-]*$/u.test(url.slice(from, colon))
-    ? colon
-    : undefined;
-}
-
-/** The authority's first non-slash character; WHATWG accepts `//`, `/`, and none. */
-function skipAuthoritySlashes(url: string, from: number): number {
-  let index = from;
-  while (url[index] === '/' || url[index] === '\\') index += 1;
-  return index;
-}
-
-function userinfoSpans(
-  url: string,
-  authorityStart: number,
-  authorityEnd: number,
-): UrlCredentialSpans {
-  const userinfoEnd = url.lastIndexOf('@', authorityEnd - 1);
-  if (userinfoEnd < authorityStart) return {};
-  const colon = url.indexOf(':', authorityStart);
-  if (colon === -1 || colon > userinfoEnd) {
-    return { username: { start: authorityStart, end: userinfoEnd } };
-  }
-  return {
-    username: { start: authorityStart, end: colon },
-    password: { start: colon + 1, end: userinfoEnd },
-  };
-}
-
-function querySpan(url: string, from: number): InterpolationSpan | undefined {
-  const queryStart = url.indexOf('?', from);
-  const fragmentStart = url.indexOf('#', from);
-  if (queryStart === -1) return undefined;
-  if (fragmentStart !== -1 && fragmentStart < queryStart) return undefined;
-  return {
-    start: queryStart + 1,
-    end: fragmentStart === -1 ? url.length : fragmentStart,
-  };
-}
-
-/** The nearest occurrence of any character at or after `from`, or `value.length`. */
-function indexOfFirstOf(
-  value: string,
-  characters: ReadonlyArray<string>,
-  from: number,
-): number {
-  let nearest = value.length;
+function estimatedEntropyBits(characters: ReadonlyArray<string>): number {
+  const counts = new Map<string, number>();
   for (const character of characters) {
-    const at = value.indexOf(character, from);
-    if (at !== -1 && at < nearest) nearest = at;
+    counts.set(character, (counts.get(character) ?? 0) + 1);
   }
-  return nearest;
+  let bitsPerCharacter = 0;
+  for (const count of counts.values()) {
+    const frequency = count / characters.length;
+    bitsPerCharacter -= frequency * Math.log2(frequency);
+  }
+  return characters.length * bitsPerCharacter;
 }
 
-/** The value after a query pair's first `=`, or `''` when it carries none. */
-function queryPairValue(pair: string): string {
-  const equals = pair.indexOf('=');
-  return equals === -1 ? '' : pair.slice(equals + 1);
+/**
+ * The password of a `POSTGRES_URL`, read from the raw string so multi-host and
+ * socket connection strings that `new URL` rejects still yield it: after
+ * `scheme://`, the userinfo ends at the last `@` before the first `/`, `?`, or
+ * the end of the string, and the password follows the first `:` in that
+ * userinfo.
+ */
+function postgresPassword(databaseUrl: string | undefined): string | undefined {
+  if (databaseUrl === undefined) return undefined;
+  const schemeEnd = databaseUrl.indexOf('://');
+  if (schemeEnd === -1) return undefined;
+  const authorityStart = schemeEnd + '://'.length;
+  const authorityEnd = firstDelimiter(databaseUrl, authorityStart);
+  const userinfoEnd = databaseUrl.lastIndexOf('@', authorityEnd - 1);
+  if (userinfoEnd < authorityStart) return undefined;
+  const colon = databaseUrl.indexOf(':', authorityStart);
+  if (colon === -1 || colon > userinfoEnd) return undefined;
+  return databaseUrl.slice(colon + 1, userinfoEnd);
 }
 
-/** WHATWG's parse of `value`, or `undefined` when it is not a valid URL. */
-function parsedUrl(value: string): URL | undefined {
-  try {
-    return new URL(value);
-  } catch {
-    return undefined;
-  }
+/** The index of the first `/`, `?`, or the end of the string at or after `from`. */
+function firstDelimiter(value: string, from: number): number {
+  const slash = value.indexOf('/', from);
+  const query = value.indexOf('?', from);
+  if (slash === -1) return query === -1 ? value.length : query;
+  if (query === -1) return slash;
+  return Math.min(slash, query);
 }
 
 function percentDecoded(value: string): string | undefined {

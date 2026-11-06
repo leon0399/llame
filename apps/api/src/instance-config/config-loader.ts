@@ -1537,7 +1537,7 @@ function resolveNullableString(opts: {
   present: boolean;
   raw: unknown;
   env: NodeJS.ProcessEnv;
-  /** Receives the resolved tokens of a field that names a credential or URL. */
+  /** Receives the resolved tokens of a field that names a credential. */
   onResolved?: (result: InterpolationResult) => void;
 }): string | null {
   const { configPath, present, raw, env, onResolved } = opts;
@@ -2017,7 +2017,6 @@ function resolveRemoteMcpServer(
   const urlResult = resolvePrivateMcpValue(entry.url, urlPath, env);
   const resolvedUrl = urlResult.value;
   assertRemoteMcpUrl(urlPath, resolvedUrl);
-  credentials.addUrlMembers(urlResult);
   const protectedValues = urlResult.substituted.map((token) => token.value);
 
   const headers = resolveMcpHeaders(
@@ -2090,6 +2089,7 @@ function resolvePrivateMcpValue(
  *
  * Every `{env:…}` / `{path:…}` token across `command`, `args`, and `env`
  * contributes its resolved value to `protectedValues`; literal text never does.
+ * Only the `env` values also contribute to the configured credential set.
  */
 function resolveStdioServer(
   serverPath: string,
@@ -2097,10 +2097,10 @@ function resolveStdioServer(
   { env, credentials }: LoaderContext,
 ): McpStdioServerConfig {
   const protectedValues: Array<string> = [];
-  const take = (raw: string, configPath: string): string => {
+  const read = (raw: string, configPath: string, collect: boolean) => {
     const result = resolvePrivateMcpValue(raw, configPath, env);
     protectedValues.push(...result.substituted.map((token) => token.value));
-    credentials.addSubstitutions(result);
+    if (collect) credentials.addSubstitutions(result);
     return result.value;
   };
 
@@ -2109,13 +2109,13 @@ function resolveStdioServer(
   // Only what the schema cannot see is re-checked below — a token resolving to
   // empty, which it never gets to observe.
   const commandPath = `${serverPath}.command`;
-  const command = take(entry.command, commandPath);
+  const command = read(entry.command, commandPath, false);
   if (command.length === 0) {
     throw new InstanceConfigError(`${commandPath}: must be a non-empty string`);
   }
 
   const args = entry.args?.map((argument, index) =>
-    take(argument, `${serverPath}.args[${index}]`),
+    read(argument, `${serverPath}.args[${index}]`, false),
   );
 
   let childEnv: Record<string, string> | undefined;
@@ -2130,7 +2130,7 @@ function resolveStdioServer(
     childEnv = {};
     Object.setPrototypeOf(childEnv, null);
     for (const [name, raw] of Object.entries(entry.env)) {
-      childEnv[name] = take(raw, `${serverPath}.env.${name}`);
+      childEnv[name] = read(raw, `${serverPath}.env.${name}`, true);
     }
   }
 
@@ -2186,7 +2186,7 @@ function resolveMcpHeaders(
     // Trimmed as the HTTP runtime sends it; the trimmed form is a substring
     // of the untrimmed one, so redacting it covers both spellings.
     protectedValues.push(...substituted.map((secret) => secret.value.trim()));
-    credentials.addHeaderValue(name, result, !result.hadToken);
+    credentials.addSubstitutions(result);
     if (value.trim() === '') {
       throw new InstanceConfigError(
         `${headerPath}: must resolve to a non-empty string`,
@@ -2305,13 +2305,8 @@ function resolveProviderHeaderValue(
   const results = parts.map((part) =>
     resolveInterpolatedWithSubstitutions(part, configPath, env),
   );
-  // Literalness is decided once for the whole value: a value the operator
-  // wrote whole — no `{env:…}`, `{path:…}`, or `{session:id}` token — is the
-  // secret under a credential-shaped name. The parts of a session-split value
-  // contribute only their substitutions, so `Bearer ` and `sid=` never are.
-  const literal = parts.length === 1 && results[0]?.hadToken !== true;
   return results.map((result) => {
-    credentials.addHeaderValue(name, result, literal);
+    credentials.addSubstitutions(result);
     const value = result.value;
     try {
       new Headers([[name, value]]);
@@ -2420,7 +2415,6 @@ function resolveOpenAIResponsesProvider(
       present: entry.baseUrl !== undefined,
       raw: entry.baseUrl,
       env,
-      onResolved: credentials.onUrl,
     }),
     headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
@@ -2454,7 +2448,6 @@ function resolveOpenAICompletionsProvider(
       `providers[${entry.id}].baseUrl`,
       entry.baseUrl,
       env,
-      credentials.onUrl,
     ),
     headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
@@ -2493,7 +2486,6 @@ function resolveAnthropicMessagesProvider(
       configPath: `providers[${entry.id}].baseUrl`,
       raw: entry.baseUrl,
       env,
-      onResolved: credentials.onUrl,
     }),
     headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,
@@ -2520,7 +2512,6 @@ function resolveCodexProvider(
       `providers[${entry.id}].accountId`,
       entry.accountId,
       env,
-      credentials.onSecret,
     ),
     headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
       env,

@@ -120,12 +120,9 @@ describe("interpolateString — {env:...}", () => {
 
     expect(result).toEqual({
       value: "before resolved middle  after",
-      hadToken: true,
       substituted: [
         {
           value: "resolved",
-          start: 7,
-          end: 15,
           fallback: false,
           documentLeaves: [],
         },
@@ -140,36 +137,27 @@ describe("interpolateString — {env:...}", () => {
 
     expect(result).toEqual({
       value: "{env:IC_TEST_VAR}",
-      hadToken: false,
       substituted: [],
     });
   });
 
-  it("positions a token correctly after an empty resolution", () => {
+  it("omits an empty resolution but keeps later substitutions in order", () => {
     const result = interpolateStringWithSubstitutions(
       "x{env:IC_TEST_VAR}{env:IC_TEST_SECRET}",
       { IC_TEST_VAR: "", IC_TEST_SECRET: "tail-secret" },
     );
 
     expect(result.value).toBe("xtail-secret");
-    expect(result.hadToken).toBe(true);
     expect(result.substituted).toEqual([
       {
         value: "tail-secret",
-        start: 1,
-        end: 12,
         fallback: false,
         documentLeaves: [],
       },
     ]);
-    for (const substitution of result.substituted) {
-      expect(result.value.slice(substitution.start, substitution.end)).toBe(
-        substitution.value,
-      );
-    }
   });
 
-  it("reports each substitution's span and whether its :- fallback applied", () => {
+  it("reports each substitution in order and whether its :- fallback applied", () => {
     const result = interpolateStringWithSubstitutions(
       "pre {env:IC_TEST_VAR:-fb} mid {env:IC_TEST_SECRET} post",
       { IC_TEST_SECRET: "tail-secret" },
@@ -179,24 +167,15 @@ describe("interpolateString — {env:...}", () => {
     expect(result.substituted).toEqual([
       {
         value: "fb",
-        start: 4,
-        end: 6,
         fallback: true,
         documentLeaves: [],
       },
       {
         value: "tail-secret",
-        start: 11,
-        end: 22,
         fallback: false,
         documentLeaves: [],
       },
     ]);
-    for (const substitution of result.substituted) {
-      expect(result.value.slice(substitution.start, substitution.end)).toBe(
-        substitution.value,
-      );
-    }
   });
 
   it("embeds a token within a larger string", () => {
@@ -270,12 +249,9 @@ describe("interpolateString — {path:...}", () => {
 
     expect(result).toEqual({
       value: "file-secret|",
-      hadToken: true,
       substituted: [
         {
           value: "file-secret",
-          start: 0,
-          end: 11,
           fallback: false,
           documentLeaves: [],
         },
@@ -311,11 +287,10 @@ describe("interpolateString — {path:...}", () => {
       "rt-456",
       "id-789",
       'k"quote',
-      String.raw`k\"quote`,
     ]);
   });
 
-  it("rejects a blank document leaf before escaping it", () => {
+  it("rejects a blank document leaf", () => {
     const file = tempSecretFile(
       JSON.stringify({
         tokens: {

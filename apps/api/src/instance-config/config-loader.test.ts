@@ -4772,11 +4772,11 @@ describe('loadInstanceConfig — configured credential set', () => {
 
   it('is not a property of the returned configuration', () => {
     writeConfig(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "sk-canary-set" }] }',
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "sk-live-canary-9f3a2b7c" }] }',
     );
     const config = loadInstanceConfig();
 
-    expect(configuredCredentials(config)).toContain('sk-canary-set');
+    expect(configuredCredentials(config)).toContain('sk-live-canary-9f3a2b7c');
     expect(config).not.toHaveProperty('credentials');
     expect(config).not.toHaveProperty('configuredCredentials');
     expect(
@@ -4796,109 +4796,237 @@ describe('loadInstanceConfig — configured credential set', () => {
   it('freezes the set and sorts longest first without duplicates', () => {
     const members = credentialsOf(
       `{ "providers": [
-        { "id": "a", "type": "openai-responses", "key": "short" },
-        { "id": "b", "type": "openai-responses", "key": "a-much-longer-key" },
-        { "id": "c", "type": "openai-responses", "key": "short" }
+        { "id": "a", "type": "openai-responses", "key": "0123456789abcdef" },
+        { "id": "b", "type": "openai-responses", "key": "0123456789abcdefX" },
+        { "id": "c", "type": "openai-responses", "key": "0123456789abcdef" }
       ] }`,
     );
 
-    expect(members).toEqual(['a-much-longer-key', 'short']);
+    expect(members).toEqual(['0123456789abcdefX', '0123456789abcdef']);
     expect(Object.isFrozen(members)).toBe(true);
   });
 
-  it('contains credential fields however written and not the yandex folderId', () => {
+  it('takes the key of every provider type and nothing from a keyless provider', () => {
+    const members = credentialsOf(`{
+      "providers": [
+        { "id": "r", "type": "openai-responses", "key": "sk-responses-canary-9f3a2b7c" },
+        { "id": "c", "type": "openai-completions", "key": "sk-completions-canary-9f3a2b7c", "baseUrl": "https://endpoint.invalid/v1" },
+        { "id": "a", "type": "anthropic-messages", "key": "sk-anthropic-canary-9f3a2b7c" },
+        { "id": "x", "type": "openai-codex", "key": "codex-key-canary-9f3a2b7c", "accountId": "account-canary-9f3a2b" },
+        { "id": "g", "type": "opencode-go", "key": "sk-opencode-go-canary-9f3a2b7c" },
+        { "id": "keyless", "type": "openai-responses" }
+      ]
+    }`);
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'sk-responses-canary-9f3a2b7c',
+        'sk-completions-canary-9f3a2b7c',
+        'sk-anthropic-canary-9f3a2b7c',
+        'codex-key-canary-9f3a2b7c',
+        'sk-opencode-go-canary-9f3a2b7c',
+      ]),
+    );
+    expect(members).not.toContain('account-canary-9f3a2b');
+  });
+
+  it('takes web search engine keys and not a yandex folderId', () => {
     const members = credentialsOf(
       `{
-        "providers": [{ "id": "p", "type": "openai-responses", "key": "{env:OPENAI_KEY}" }],
-        "tools": { "webAdapters": [{ "id": "gh", "use": "github", "token": "{env:GH_TOKEN}" }] },
         "webSearch": {
           "engines": [
-            { "id": "brave", "type": "brave", "key": "brave-literal" },
-            { "id": "yandex", "type": "yandex", "key": "{env:YANDEX_KEY}", "searchType": "com", "folderId": "{env:YANDEX_FOLDER}" },
-            { "id": "exa", "type": "exa-mcp", "key": "exa-mcp-key" }
+            { "id": "brave", "type": "brave", "key": "brave-canary-9f3a2b7c" },
+            { "id": "yandex", "type": "yandex", "key": "yandex-canary-9f3a2b7c", "searchType": "com", "folderId": "b1g-folder-id" },
+            { "id": "exa", "type": "exa-mcp", "key": "exa-canary-9f3a2b7c" }
           ],
           "chain": ["brave"]
         }
       }`,
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'brave-canary-9f3a2b7c',
+        'yandex-canary-9f3a2b7c',
+        'exa-canary-9f3a2b7c',
+      ]),
+    );
+    expect(members).not.toContain('b1g-folder-id');
+  });
+
+  it('takes a github web adapter token', () => {
+    const members = credentialsOf(
+      `{ "tools": { "webAdapters": [{ "id": "gh", "use": "github", "token": "{env:GH_TOKEN}" }] } }`,
+      { GH_TOKEN: 'ghp-canary-9f3a2b7c4d8e' },
+    );
+
+    expect(members).toEqual(['ghp-canary-9f3a2b7c4d8e']);
+  });
+
+  it('takes header substitutions without fallback text or literal text', () => {
+    const members = credentialsOf(
+      `{
+        "providers": [{ "id": "p", "type": "openai-responses", "headers": {
+          "Authorization": "Bearer {env:PROVIDER_HDR}",
+          "X-Fallback": "{env:NOPE:-fallback-canary-9f3a2b}"
+        } }],
+        "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": {
+          "X-Trace": "id={env:MCP_HDR}"
+        } } }
+      }`,
       {
-        OPENAI_KEY: 'sk-openai',
-        GH_TOKEN: 'ghp_token',
-        YANDEX_KEY: 'yandex-key',
-        YANDEX_FOLDER: 'b1g-folder',
+        PROVIDER_HDR: 'provider-header-canary-9f3a',
+        MCP_HDR: 'mcp-header-canary-9f3a',
       },
     );
 
     expect(members).toEqual(
       expect.arrayContaining([
-        'sk-openai',
-        'ghp_token',
-        'brave-literal',
-        'yandex-key',
-        'exa-mcp-key',
+        'provider-header-canary-9f3a',
+        'mcp-header-canary-9f3a',
       ]),
     );
-    expect(members).not.toContain('b1g-folder');
+    expect(members).not.toContain('fallback-canary-9f3a2b');
+    expect(members.some((member) => member.includes('Bearer'))).toBe(false);
+    expect(members.some((member) => member.includes('id='))).toBe(false);
   });
 
-  it('keeps a short credential field and a Codex accountId', () => {
+  it('takes stdio environment substitutions and not command or args substitutions', () => {
     const members = credentialsOf(
-      `{ "providers": [
-        { "id": "p", "type": "openai-responses", "key": "secret7" },
-        { "id": "c", "type": "openai-codex", "key": "a-token", "accountId": "acct-1" }
-      ] }`,
+      `{
+        "mcpServers": { "local": {
+          "type": "stdio",
+          "command": "run-{env:COMMAND_TOKEN}",
+          "args": ["--token={env:ARG_TOKEN}"],
+          "env": { "A": "{env:MCP_ENV}" }
+        } }
+      }`,
+      {
+        COMMAND_TOKEN: 'command-canary-9f3a2b7c',
+        ARG_TOKEN: 'arg-canary-9f3a2b7c',
+        MCP_ENV: 'mcp-env-canary-9f3a2b',
+      },
     );
 
-    expect(members).toEqual(expect.arrayContaining(['secret7', 'acct-1']));
+    expect(members).toEqual(['mcp-env-canary-9f3a2b']);
   });
 
-  it('contributes nothing for a keyless provider', () => {
-    expect(
-      credentialsOf(
-        `{ "providers": [
-          { "id": "a", "type": "openai-responses" },
-          { "id": "b", "type": "openai-responses", "key": "{env:BLANK}" }
-        ] }`,
-        { BLANK: '  ' },
-      ),
-    ).toEqual([]);
+  it.each(['providers', 'mcpServers'] as const)(
+    'takes no literal credential-shaped header from %s',
+    (section) => {
+      const headers = JSON.stringify({
+        'X-Api-Key': 'literal-header-canary-9f3a',
+        'X-Region': 'eu-west-1',
+      });
+      const json =
+        section === 'mcpServers'
+          ? `{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": ${headers} } } }`
+          : `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": ${headers} }] }`;
+
+      expect(credentialsOf(json)).toEqual([]);
+    },
+  );
+
+  it('takes no credential from a provider baseUrl or a remote MCP url', () => {
+    const members = credentialsOf(
+      `{
+        "providers": [
+          { "id": "a", "type": "openai-responses", "baseUrl": "https://svc:pw-canary-1065-long@gateway.example/v1?token=qs-canary-1065-long" },
+          { "id": "b", "type": "openai-responses", "baseUrl": "{env:GATEWAY_URL}" }
+        ],
+        "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey=qs-canary-1065-long" } }
+      }`,
+      {
+        GATEWAY_URL:
+          'https://svc:sub-pw-canary-1065-long@gateway.example/v1?token=sub-qs-canary-1065-long',
+      },
+    );
+
+    expect(members).toEqual([]);
   });
 
-  it('adds the whole POSTGRES_URL, its password in both spellings, and PGPASSWORD from the given env', () => {
+  it.each(['https:mcp.example/mcp', 'https:/mcp.example/mcp'])(
+    'takes no query credential from a remote MCP url in an absolute form: %s',
+    (url) => {
+      const queried = `${url}?apiKey=qs-canary-1065-long`;
+
+      expect(
+        credentialsOf(
+          `{ "mcpServers": { "r": { "type": "http", "url": ${JSON.stringify(queried)} } } }`,
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it('takes no Codex accountId', () => {
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "c", "type": "openai-codex", "key": "codex-key-canary-9f3a2b7c", "accountId": "account-canary-9f3a2b" }] }`,
+    );
+
+    expect(members).toEqual(['codex-key-canary-9f3a2b7c']);
+  });
+
+  it('takes Codex document leaves and no timestamp or JSON-escaped spelling', () => {
+    const authFile = path.join(tmpDir, 'codex-auth.json');
+    writeFileSync(
+      authFile,
+      JSON.stringify({
+        tokens: {
+          access_token: 'at-1234567890abcdef',
+          refresh_token: 'rt-1234567890abcdef',
+          id_token: 'id-1234567890abcdef',
+          note: 'note-canary-9f3a2b7c',
+        },
+        auth: { apiKey: 'quote"canary-9f3a2b' },
+        last_refresh: '2026-01-01T00:00:00Z',
+      }),
+    );
+    const members = credentialsOf(
+      `{ "providers": [{ "id": "c", "type": "openai-codex", "accountId": "account-canary-9f3a2b", "key": "{path:${authFile}|json:/tokens/access_token}" }] }`,
+    );
+
+    expect(members).toEqual(
+      expect.arrayContaining([
+        'at-1234567890abcdef',
+        'rt-1234567890abcdef',
+        'id-1234567890abcdef',
+        'quote"canary-9f3a2b',
+      ]),
+    );
+    expect(members).not.toContain('note-canary-9f3a2b7c');
+    expect(members).not.toContain('2026-01-01T00:00:00Z');
+    expect(members).not.toContain(String.raw`quote\"canary-9f3a2b`);
+  });
+
+  it('takes the POSTGRES_URL password and PGPASSWORD, never the whole URL', () => {
+    const url = 'postgres://app:pw%2Fcanary-1065-long@db.example:5432/llame';
     const members = credentialsOf('{}', {
-      POSTGRES_URL: 'postgres://app:pw%2Fcanary-1065@db:5432/llame',
-      PGPASSWORD: 'pgpass-canary',
+      POSTGRES_URL: url,
+      PGPASSWORD: 'pgpass-canary-9f3a2b7c',
     });
 
     expect(members).toEqual(
       expect.arrayContaining([
-        'postgres://app:pw%2Fcanary-1065@db:5432/llame',
-        'pw%2Fcanary-1065',
-        'pw/canary-1065',
-        'pgpass-canary',
+        'pw%2Fcanary-1065-long',
+        'pw/canary-1065-long',
+        'pgpass-canary-9f3a2b7c',
       ]),
     );
+    expect(members).not.toContain(url);
     expect(members).not.toContain('app');
   });
 
   it.each([
-    [
-      'multi-host',
-      'postgres://app:pw-multi-canary@h1:5432,h2:5432/llame',
-      'pw-multi-canary',
-    ],
+    ['multi-host', 'postgres://app:pw-canary-1065-long@h1:5432,h2:5432/llame'],
     [
       'socket',
-      'postgres://app:pw-socket-canary@/llame?host=/var/run/postgresql',
-      'pw-socket-canary',
+      'postgres://app:pw-canary-1065-long@/llame?host=/var/run/postgresql',
     ],
-  ])(
-    'takes the %s POSTGRES_URL password from the raw string',
-    (_form, url, password) => {
-      expect(credentialsOf('{}', { POSTGRES_URL: url })).toEqual(
-        expect.arrayContaining([url, password]),
-      );
-    },
-  );
+  ])('takes the %s POSTGRES_URL password from the raw string', (_form, url) => {
+    const members = credentialsOf('{}', { POSTGRES_URL: url });
+
+    expect(members).toEqual(['pw-canary-1065-long']);
+  });
 
   it('does not read POSTGRES_URL from process.env, only from the env given', () => {
     process.env.POSTGRES_URL = 'postgres://app:ambient-password@db/llame';
@@ -4909,361 +5037,37 @@ describe('loadInstanceConfig — configured credential set', () => {
     }
   });
 
-  it('applies the 8-character floor to a database password and PGPASSWORD only', () => {
-    const members = credentialsOf('{}', {
-      POSTGRES_URL: 'postgres://app:app@db:5432/llame',
-      PGPASSWORD: 'short',
-    });
-
-    expect(members).toEqual(['postgres://app:app@db:5432/llame']);
-  });
-
-  it('adds substitutions in headers and stdio fields without literal text or fallbacks', () => {
-    const gateway = path.join(tmpDir, 'gw');
-    writeFileSync(gateway, 'gw-file-secret\n');
+  it.each([
+    ['a 15-character provider key', '0123456789abcde', false],
+    [
+      'a 16-character provider key with 16 distinct characters',
+      '0123456789abcdef',
+      true,
+    ],
+    [
+      'a 16-character provider key just below 64 bits',
+      '0123456789abcdea',
+      false,
+    ],
+    ['a 17-character provider key above 64 bits', '0123456789abcdefX', true],
+  ])('applies the G3 gate to %s', (_title, key, kept) => {
     const members = credentialsOf(
-      `{
-        "providers": [{ "id": "p", "type": "openai-responses", "headers": {
-          "Authorization": "Bearer {path:${gateway}}",
-          "X-Fallback": "{env:NOPE:-fallback-text}",
-          "X-Session": "{env:SHORT_HDR}-{session:id}"
-        } }],
-        "mcpServers": { "local": { "type": "stdio", "command": "run", "args": ["--token={env:MCP_TOKEN}"], "env": { "A": "{env:MCP_ENV}" } } }
-      }`,
-      { MCP_TOKEN: 't0ken', MCP_ENV: 'e', SHORT_HDR: 'k-6chr' },
+      `{ "providers": [{ "id": "p", "type": "openai-responses", "key": ${JSON.stringify(key)} }] }`,
     );
 
-    expect(members).toEqual(
-      expect.arrayContaining(['gw-file-secret', 't0ken', 'e', 'k-6chr']),
-    );
-    expect(members).not.toContain('Bearer');
-    expect(members).not.toContain('Bearer ');
-    expect(members).not.toContain('--token=');
-    expect(members).not.toContain('fallback-text');
-    expect(members).not.toContain('Authorization');
-    expect(members.some((member) => member.includes('Bearer'))).toBe(false);
+    expect(members).toEqual(kept ? [key] : []);
   });
-
-  it('never treats text around a session token as a literal header member', () => {
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": {
-        "Authorization": "Bearer {session:id}",
-        "Cookie": "sid={session:id}"
-      } }] }`,
-    );
-
-    expect(members).toEqual([]);
-  });
-
-  it('contributes only the substitution of a session-split credential header', () => {
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": {
-        "Authorization": "Bearer {session:id} {env:X}"
-      } }] }`,
-      { X: 'hdr-x' },
-    );
-
-    expect(members).toEqual(['hdr-x']);
-  });
-
-  it('keeps an escaped token literal under a credential-shaped header name', () => {
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": {
-        "X-Api-Key": "{{env:FOO}"
-      } }] }`,
-    );
-
-    expect(members).toEqual(['{env:FOO}']);
-  });
-
-  it.each(['mcpServers', 'providers'] as const)(
-    'adds only credential-shaped literal headers for %s',
-    (section) => {
-      const headers = JSON.stringify({
-        'X-Api-Key': 'abcdefgh-canary',
-        'X-Region': 'eu-west-1',
-      });
-      const json =
-        section === 'mcpServers'
-          ? `{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": ${headers} } } }`
-          : `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": ${headers} }] }`;
-
-      const members = credentialsOf(json);
-
-      expect(members).toContain('abcdefgh-canary');
-      expect(members).not.toContain('eu-west-1');
-    },
-  );
 
   it.each([
     [
-      'a remote MCP URL substitution in its query',
-      '{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey={env:MCP_KEY}" } } }',
-      { MCP_KEY: 'mcp-key-value' },
-      ['mcp-key-value'],
+      'a whitespace-only provider key',
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "{env:BLANK}" }] }',
+      { BLANK: '   ' },
     ],
-    [
-      'a query substitution whatever its name, never a host substitution',
-      '{ "mcpServers": { "r": { "type": "http", "url": "https://{env:MCP_HOST}/mcp?region={env:MCP_REGION}" } } }',
-      { MCP_HOST: 'mcp.example', MCP_REGION: 'eu-west-1' },
-      ['eu-west-1'],
-    ],
-    [
-      'a query value as written and percent-decoded',
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?access_token=a%2Fb&mode=fast" }] }',
-      {},
-      ['a%2Fb', 'a/b'],
-    ],
-  ])('adds %s', (_title, json, env, expected) => {
-    expect(credentialsOf(json, env)).toEqual(expected);
-  });
-
-  it.each(['https:mcp.example/mcp', 'https:/mcp.example/mcp'])(
-    'adds a query credential from the absolute form %s',
-    (base) => {
-      const queried = `${base}?apiKey=${['gw', 'canary', '1065'].join('-')}`;
-      const members = credentialsOf(
-        `{ "mcpServers": { "r": { "type": "http", "url": ${JSON.stringify(queried)} } } }`,
-      );
-
-      expect(members).toEqual(['gw-canary-1065']);
-    },
-  );
-
-  it('adds the spelling WHATWG URL parsing transmits for a literal remote MCP URL', () => {
-    // The JSON escape stores a real LF; `new URL` accepts it and removes it,
-    // so the server receives `canarysecret`.
-    const members = credentialsOf(
-      String.raw`{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey=canary\nsecret" } } }`,
-    );
-
-    expect(members).toEqual(['canary\nsecret', 'canarysecret']);
-  });
-
-  it('adds the serialized spelling of a literal provider baseUrl query credential', () => {
-    // `new URL` sends the space as `%20`, so the provider receives a spelling
-    // the configured text does not contain.
-    const members = credentialsOf(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?token=canary secret" }] }',
-    );
-
-    expect(members).toEqual(['canary%20secret', 'canary secret']);
-  });
-
-  it('adds a credential field whole and never a substitution inside it', () => {
-    const members = credentialsOf(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "secret-prefix-{env:KEY_VERSION}-secret-suffix" }] }',
-      { KEY_VERSION: '1' },
-    );
-
-    expect(members).toEqual(['secret-prefix-1-secret-suffix']);
-  });
-
-  it('adds a credential written into a URL however it was written', () => {
-    const members = credentialsOf(
-      `{
-        "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey=sk-canary-1065&region=eu-west-1" } },
-        "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "{env:GATEWAY_URL}" }]
-      }`,
-      { GATEWAY_URL: 'https://gateway.example/v1?signature=gw-canary-1065' },
-    );
-
-    expect(members).toEqual(
-      expect.arrayContaining(['sk-canary-1065', 'gw-canary-1065']),
-    );
-    expect(members).not.toContain('eu-west-1');
-    expect(members).not.toContain(
-      'https://gateway.example/v1?signature=gw-canary-1065',
-    );
-    expect(members).not.toContain(
-      'https://mcp.example/mcp?apiKey=sk-canary-1065&region=eu-west-1',
-    );
-  });
-
-  it('adds a provider baseUrl userinfo password at any length and a username from 8 characters', () => {
-    const members = credentialsOf(
-      `{ "providers": [
-        { "id": "a", "type": "openai-responses", "baseUrl": "https://svc:abc123@gw.internal/v1" },
-        { "id": "b", "type": "openai-responses", "baseUrl": "https://username8:p%40ss@gw.internal/v1" }
-      ] }`,
-    );
-
-    expect(members).toEqual(
-      expect.arrayContaining(['abc123', 'username8', 'p%40ss', 'p@ss']),
-    );
-    expect(members).not.toContain('svc');
-  });
-
-  it.each([
-    'https:svc:pw-canary-1065@gateway.example/v1',
-    'https:/svc:pw-canary-1065@gateway.example/v1',
-  ])('takes a userinfo password from the absolute form %s', (url) => {
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
-    );
-
-    expect(members).toContain('pw-canary-1065');
-    expect(members).not.toContain(url);
-  });
-
-  it.each([
-    'https:svc:{env:PW}@gateway.example/v1',
-    'https:/svc:{env:PW}@gateway.example/v1',
-  ])('takes a userinfo password substitution from %s', (template) => {
-    const resolved = template.replace('{env:PW}', 'pw-sub-canary-1065');
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(template)} }] }`,
-      { PW: 'pw-sub-canary-1065' },
-    );
-
-    expect(members).toContain('pw-sub-canary-1065');
-    expect(members).not.toContain(resolved);
-  });
-
-  it('adds a padded credential as written and trimmed', () => {
-    const members = credentialsOf(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "  pad-sk  " }] }',
-    );
-
-    expect(members).toEqual(['  pad-sk  ', 'pad-sk']);
-  });
-
-  it.each([
-    ['a whitespace-only PGPASSWORD', { PGPASSWORD: '   ' }],
-    ['a whitespace-only POSTGRES_URL', { POSTGRES_URL: '   ' }],
-  ])('adds nothing for %s', (_title, env) => {
-    expect(credentialsOf('{}', env)).toEqual([]);
-  });
-
-  it.each([
-    ['1234567', []],
-    ['12345678', ['12345678']],
-  ])('keeps PGPASSWORD %s when the floor allows it', (value, expected) => {
-    expect(credentialsOf('{}', { PGPASSWORD: value })).toEqual(expected);
-  });
-
-  it.each([
-    ['https://longusr@gw.internal/v1', []],
-    ['https://longusr8@gw.internal/v1', ['longusr8']],
-  ])('keeps a username-only URL userinfo at its floor: %s', (url, expected) => {
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
-    );
-
-    expect(members).toEqual(expected);
-  });
-
-  it('does not add a URL fallback host', () => {
-    const members = credentialsOf(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://{env:GW_HOST:-gw.internal}/v1" }] }',
-    );
-
-    expect(members).toEqual([]);
-  });
-
-  it('adds a credential-shaped query fallback value as written', () => {
-    const members = credentialsOf(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?apiKey={env:NOPE:-not-a-secret}" }] }',
-    );
-
-    expect(members).toEqual(['not-a-secret']);
-  });
-
-  it.each([
-    ['a non-credential query value', 'https://gw.example/v1?x=mysecret', []],
-    [
-      'a credential word in the value only',
-      'https://gw.example/v1?redirect=access_token',
-      [],
-    ],
-    [
-      'a credential-shaped name without a value',
-      'https://gw.example/v1?access_token',
-      [],
-    ],
-    [
-      'a path segment that looks like a query',
-      'https://gw.example/v1/key=notsecret',
-      [],
-    ],
-    [
-      'a credential-shaped path segment',
-      'https://gw.internal/key/v1?mode=fast',
-      [],
-    ],
-  ])('adds nothing for %s', (_title, url, expected) => {
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
-    );
-
-    expect(members).toEqual(expected);
-  });
-
-  it.each([
-    ['https://gw.example/v1?access_token=abc#frag', ['abc']],
-    ['https://gw.example/v1#frag?access_token=abc', []],
-  ])('ends the query span at a fragment in %s', (url, expected) => {
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": ${JSON.stringify(url)} }] }`,
-    );
-
-    expect(members).toEqual(expected);
-  });
-
-  it('adds a substitution at the query start', () => {
-    const members = credentialsOf(
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?{env:Q}" }] }',
-      { Q: 'alpha-1' },
-    );
-
-    expect(members).toEqual(['alpha-1']);
-  });
-
-  it('does not add an endpoint, whether the fallback applied or the variable was set', () => {
-    const json =
-      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "{env:OPENAI_BASE_URL:-http://localhost:11434/v1}" }] }';
-
-    expect(credentialsOf(json, {})).toEqual([]);
-    expect(
-      credentialsOf(json, { OPENAI_BASE_URL: 'https://gateway.example/v1' }),
-    ).toEqual([]);
-  });
-
-  it('adds a Codex auth document credential leaves and not a timestamp', () => {
-    const authFile = path.join(tmpDir, 'codex-auth.json');
-    writeFileSync(
-      authFile,
-      JSON.stringify({
-        tokens: {
-          access_token: 'at-123',
-          refresh_token: 'rt-123',
-          id_token: 'id-123',
-        },
-        last_refresh: '2026-01-01T00:00:00Z',
-      }),
-    );
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "c", "type": "openai-codex", "accountId": "acct", "key": "{path:${authFile}|json:/tokens/access_token}" }] }`,
-    );
-
-    expect(members).toEqual(
-      expect.arrayContaining(['at-123', 'rt-123', 'id-123']),
-    );
-    expect(members).not.toContain('2026-01-01T00:00:00Z');
-  });
-
-  it('adds document leaves for a header substitution too', () => {
-    const authFile = path.join(tmpDir, 'gw.json');
-    writeFileSync(
-      authFile,
-      JSON.stringify({ token: 'tk-1', password: 'pw-1', region: 'eu' }),
-    );
-    const members = credentialsOf(
-      `{ "providers": [{ "id": "p", "type": "openai-responses", "headers": { "X-Auth": "{path:${authFile}|json:/token}" } }] }`,
-    );
-
-    expect(members).toEqual(expect.arrayContaining(['tk-1', 'pw-1']));
-    expect(members).not.toContain('eu');
+    ['a whitespace-only PGPASSWORD', '{}', { PGPASSWORD: '   ' }],
+    ['a whitespace-only POSTGRES_URL', '{}', { POSTGRES_URL: '   ' }],
+  ])('takes nothing for %s', (_title, json, env) => {
+    expect(credentialsOf(json, env)).toEqual([]);
   });
 
   it.each([
@@ -5285,7 +5089,7 @@ describe('loadInstanceConfig — configured credential set', () => {
       '{ "providers": [{ "id": "p", "type": "openai-responses", "headers": { "X-Trace": "{session:id}" } }] }',
       {},
     ],
-  ])('adds none of %s', (_title, json, env) => {
+  ])('takes none of %s', (_title, json, env) => {
     expect(credentialsOf(json, env)).toEqual([]);
   });
 });
