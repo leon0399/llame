@@ -168,7 +168,7 @@ absent. The rerank runs after the walk, when the result holds at least three
 file runs.
 
 The `display.rerank` field on a `grep` result records the mode, the model, the
-ranked order, the probabilities, the latency, and the cost for the owner's UI.
+ranked order, the scores, the latency, and the cost for the owner's UI.
 It is display data: the model never reads it, in `shadow` and `on` alike.
 
 ## Cost and failure

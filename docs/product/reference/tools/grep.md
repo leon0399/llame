@@ -180,7 +180,7 @@ artifact, its findings, the inline head, and the remainder map all read the
 ranked order. It changes no match, count, warning, or walk stop.
 
 The result's `display.rerank` field records the mode, the model, the ranked
-order, the probabilities, the latency, and the cost for the owner's UI; the
+order, the scores, the latency, and the cost for the owner's UI; the
 model never reads it. With mode `shadow` the record is written and nothing is
 reordered. Without a `tools.grep.rerank` block, without a decision model in the
 catalogue, or when the call fails, the canonical order stands — an unavailable

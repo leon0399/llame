@@ -71,8 +71,11 @@ export type GrepRerankRecord = {
   readonly model: string | null;
   /** The run keys in the order the lane ranked them. */
   readonly order: ReadonlyArray<string>;
-  /** Judged run key → P(relevant); an absent key was never judged. */
-  readonly probabilities: Readonly<Record<string, number>>;
+  /**
+   * Judged run key → relevance score as the ranking model answered it (a
+   * decision model's is P(relevant)); an absent key was never judged.
+   */
+  readonly scores: Readonly<Record<string, number>>;
   readonly latencyMs: number;
   readonly costUsd: number | null;
   /** Runs a failed chunk left in canonical order. */
@@ -152,7 +155,7 @@ export async function planGrepRerank(input: {
     mode: rerank.mode,
     model: judgement.model,
     order: order.map((position) => runs[position].key),
-    probabilities: Object.fromEntries(probabilities),
+    scores: Object.fromEntries(probabilities),
     latencyMs: judgement.latencyMs,
     costUsd: judgement.usage.costUsd,
     unjudged: runs.length - probabilities.size,
@@ -299,7 +302,7 @@ function logRerank(record: GrepRerankRecord, runs: number): void {
       mode: record.mode,
       model: record.model,
       runs,
-      judged: record.probabilities.size,
+      judged: Object.keys(record.scores).length,
       order: record.order,
       latencyMs: record.latencyMs,
       costUsd: record.costUsd,

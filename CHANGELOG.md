@@ -60,7 +60,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   passages, so a run stays contiguous and still opens one `## <path>` heading;
   the stored artifact, its findings, the inline head, and the remainder map all
   read one order, and no match, count, warning, or walk stop changes. `shadow`
-  records the ranked order, model, probabilities, and cost under the result's
+  records the ranked order, model, scores, and cost under the result's
   display-only `display.rerank` field and changes nothing; `on` applies the
   order before the inline head and the artifact are built.
 
