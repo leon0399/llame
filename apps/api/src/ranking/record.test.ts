@@ -66,6 +66,9 @@ describe('selectModels', () => {
     expect(() => selectModels(['m1'], ['x', 'm1', 'y'])).toThrow(
       'Not in decisionModels[]: x, y. Catalogue: m1.',
     );
+    expect(() => selectModels(['m1', 'm2'], ['x'])).toThrow(
+      'Catalogue: m1, m2.',
+    );
     expect(() => selectModels([], ['x'])).toThrow('Catalogue: (empty).');
   });
 

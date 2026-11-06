@@ -52,13 +52,14 @@ export function loadRankingCases(): Array<RankingCase> {
 }
 
 /** Recorded answers as `<case>.<model>.json`; the model id may contain dots. */
-export function loadRecordedAnswers(caseName: string): Array<RecordedAnswer> {
-  if (!fs.existsSync(RANKING_ANSWERS_DIR)) return [];
+export function loadRecordedAnswers(
+  caseName: string,
+  dir: string = RANKING_ANSWERS_DIR,
+): Array<RecordedAnswer> {
+  if (!fs.existsSync(dir)) return [];
   return fs
-    .readdirSync(RANKING_ANSWERS_DIR)
+    .readdirSync(dir)
     .filter((file) => file.startsWith(`${caseName}.`) && file.endsWith('.json'))
     .sort()
-    .map((file) =>
-      readJson(path.join(RANKING_ANSWERS_DIR, file), recordedAnswerSchema),
-    );
+    .map((file) => readJson(path.join(dir, file), recordedAnswerSchema));
 }
