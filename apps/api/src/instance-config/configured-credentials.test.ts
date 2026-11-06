@@ -122,6 +122,43 @@ describe('ConfiguredCredentialCollector — POSTGRES_URL', () => {
     expect(membersOf(() => {}, { POSTGRES_URL: url })).toEqual([]);
   });
 
+  it.each([
+    [
+      'an @ right after the authority',
+      'postgres://app:pw-canary-1065-long@db/@x',
+    ],
+    ['a query and no path', 'postgres://app:pw-canary-1065-long@db?ssl=true'],
+    ['no path and no query', 'postgres://app:pw-canary-1065-long@db'],
+    [
+      'a query before the path',
+      'postgres://app:pw-canary-1065-long@db?opt=a@b/c',
+    ],
+    [
+      'a path before the query',
+      'postgres://app:pw-canary-1065-long@db/x?opt=a@b',
+    ],
+  ])('ends the userinfo at the first delimiter for %s', (_title, url) => {
+    expect(membersOf(() => {}, { POSTGRES_URL: url })).toEqual([
+      'pw-canary-1065-long',
+    ]);
+  });
+
+  it('adds nothing when no @ precedes the path', () => {
+    expect(
+      membersOf(() => {}, {
+        POSTGRES_URL: 'postgres://db.example:0123456789abcdefghij/llame',
+      }),
+    ).toEqual([]);
+  });
+
+  it('keeps the written password when it is not valid percent-encoding', () => {
+    expect(
+      membersOf(() => {}, {
+        POSTGRES_URL: 'postgres://app:pw-%E0%A4%A-canary-1065@db/llame',
+      }),
+    ).toEqual(['pw-%E0%A4%A-canary-1065']);
+  });
+
   it('applies the gate to the database password', () => {
     expect(
       membersOf(() => {}, {
