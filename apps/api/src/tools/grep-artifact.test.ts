@@ -1041,9 +1041,12 @@ describe('grep rerank', () => {
   it('ends the walk at 108 seconds before ranking and lets 120 seconds abort the rank', async () => {
     const space = '44444444-4444-4444-8444-444444444444';
     const body = `${'x'.repeat(6000)} needle`;
-    await writeAt(`kb/${space}/a.md`, body);
-    await writeAt(`kb/${space}/b.md`, body);
-    await writeAt(`kb/${space}/c.md`, body);
+    for (const name of ['a', 'b', 'c']) {
+      await writeAt(`kb/${space}/${name}.md`, body);
+    }
+    for (let n = 1; n <= 9; n += 1) {
+      await writeAt(`kb/${space}/d${n}.md`, body);
+    }
     await writeAt(`kb/${space}/zz/d.md`, body);
     await writeAt('d/later.ts', body);
     const binding = {
@@ -1057,12 +1060,18 @@ describe('grep rerank', () => {
       resolveBindingForOwnerById: () => Promise.resolve(binding),
       createAdapter: (resolved) => new KnowledgeFilesystemAdapter(resolved),
     };
-    // The third file of the first scope ends its read at 108 seconds: the
-    // walk's own deadline passes while that scope is still being walked.
+    // The walk's deadline passes once it has taken and read a.md, b.md, and
+    // c.md. The read-ahead keeps at most eight reads queued behind the one the
+    // walk waits on and frees a slot only when the walk takes a file, so the
+    // twelfth open is the signal that the walk has taken the fourth file, and
+    // with it finished the first three. The fourth file onward hold their
+    // chunks until that signal, so the clock moves on the walk's own progress
+    // and never on elapsed time.
     const openWalk: KnowledgeFilesystemAdapter['openWalk'] =
       // eslint-disable-next-line @typescript-eslint/unbound-method -- captured unbound and re-invoked with an explicit receiver below.
       KnowledgeFilesystemAdapter.prototype.openWalk;
-    const finished = new Set<string>();
+    let opens = 0;
+    let walkTakenThree = Promise.withResolvers<void>();
     vi.spyOn(
       KnowledgeFilesystemAdapter.prototype,
       'openWalk',
@@ -1071,6 +1080,12 @@ describe('grep rerank', () => {
       file: string,
       signal?: AbortSignal,
     ): Promise<KnowledgeWalkOpen> {
+      opens += 1;
+      const ordinal = opens;
+      if (ordinal === 12) {
+        vi.setSystemTime(108_001);
+        walkTakenThree.resolve();
+      }
       // SAFETY: the captured method resolves exactly a KnowledgeWalkOpen.
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- `.call` on the captured method is typed any by the linter.
       const opened = (await openWalk.call(
@@ -1080,27 +1095,14 @@ describe('grep rerank', () => {
       )) as KnowledgeWalkOpen;
       if ('kind' in opened) return opened;
       const { chunks } = opened;
+      const held = ordinal > 3;
+      const gate = walkTakenThree.promise;
       return {
         size: opened.size,
         close: () => opened.close(),
         chunks: (async function* () {
-          for await (const chunk of chunks) yield chunk;
-          finished.add(file);
-          // Reads run ahead concurrently. The deadline passes once the walk
-          // has taken a.md and b.md and finishes c.md, whatever order the
-          // reads end in: c.md waits for the two earlier reads, then lets the
-          // walk take them before the clock moves.
-          if (path.basename(file) !== 'c.md') return;
-          while (
-            !['a.md', 'b.md'].every((name) =>
-              [...finished].some((done) => path.basename(done) === name),
-            )
-          )
-            await new Promise((resolve) => setImmediate(resolve));
-          // Real time on purpose: only the clock is faked, and the walk's
-          // own reads need real turns to take the earlier files.
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          vi.setSystemTime(108_001);
+          if (held) await gate;
+          yield* chunks;
         })(),
       };
     });
@@ -1162,7 +1164,8 @@ describe('grep rerank', () => {
       // The enclosing 120-second deadline then aborts the rank: a timeout,
       // with no failure line kept.
       vi.setSystemTime(0);
-      finished.clear();
+      opens = 0;
+      walkTakenThree = Promise.withResolvers<void>();
       const closed = new AbortController();
       const timeout = new DOMException('tool timeout', 'TimeoutError');
       await expect(
