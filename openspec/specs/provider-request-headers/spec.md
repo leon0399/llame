@@ -156,7 +156,7 @@ A header value that `{env:…}` or `{path:…}` resolves MUST get the protection
 of a provider `key`. llame MUST NOT write it to a log, a diagnostic, or a
 startup error. A resolved value with CR, LF, or NUL MUST fail startup and name
 the path, because the header validation error quotes the value. If a provider
-echoes a resolved header value in a failure, llame MUST redact it
+echoes a resolved header value that is a member, llame MUST redact it
 (`provider-api-selection`, "Provider failures never carry a configured
 credential").
 

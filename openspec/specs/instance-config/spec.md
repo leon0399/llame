@@ -1551,8 +1551,7 @@ and name the path.
 At startup the API process MUST derive one set of configured credentials. The
 set MUST stay in process memory. The set MUST NOT change after startup. llame
 MUST NOT serialize it to an API, an event, a log, or model context. llame MUST
-NOT send it to a Machine or a remote host. The set MUST NOT narrow "Resolved
-secret values are never exposed".
+NOT send it to a Machine or a remote host.
 
 #### Scenario: The set is never serialized
 
@@ -1569,8 +1568,8 @@ secret values are never exposed".
 A member MUST have at least 16 characters. A member MUST also have an
 estimated entropy of at least 64 bits. The estimate MUST be the length times
 the Shannon entropy per character of the value's own character distribution.
-A value below either bound MUST NOT be a member. llame MUST NOT detect a
-credential by its format.
+A value below either bound MUST NOT be a member, and llame does not redact it.
+llame MUST NOT detect a credential by its format.
 
 #### Scenario: A short or simple value is not a member
 
@@ -1600,9 +1599,10 @@ credential by its format.
 
 ### Requirement: Credential fields are members
 
-The set MUST contain each provider `key`. This rule covers every provider
-type. A keyless provider MUST contribute no value. The set MUST contain each
-web search engine `key` and the `github` web adapter `token`.
+The set MUST contain each provider `key` that passes the gate. This rule
+covers every provider type. A keyless provider MUST contribute no value. The
+set MUST contain each web search engine `key` and the `github` web adapter
+`token` that passes the gate.
 
 #### Scenario: Credential fields are members
 
@@ -1611,13 +1611,12 @@ web search engine `key` and the `github` web adapter `token`.
 
 ### Requirement: A selected JSON document contributes its credential leaves
 
-When a `{path:…|json:…}` substitution is a member, the set MUST also contain
-each string leaf of the selected document under a credential-shaped name. An
-element of an array under such a name MUST also be a member. The loader MUST
-read those leaves in the same file read that selects the value. A name is
-credential-shaped when it contains, without regard to case, one of
+A selected document MUST contribute each credential-shaped string leaf. A
+name is credential-shaped when it contains, without regard to case,
 `authorization`, `cookie`, `credential`, `token`, `key`, `secret`, `passw`, or
-`signature`.
+`signature`. Each leaf MUST pass the gate on its own, whether or not the
+selected value passes. Array elements count as leaves. The loader MUST read
+the leaves with the selected value.
 
 #### Scenario: A Codex auth document contributes its tokens
 
@@ -1632,23 +1631,23 @@ credential-shaped when it contains, without regard to case, one of
 
 ### Requirement: Environment credentials are members
 
-The set MUST contain the `POSTGRES_URL` password and `PGPASSWORD`. The loader
+The set MUST contain the `POSTGRES_URL` password, as written and
+percent-decoded, and `PGPASSWORD`, each when it passes the gate. The loader
 MUST read them from the process environment that it was given. The set MUST
 NOT contain the whole `POSTGRES_URL`.
 
 #### Scenario: The database password and PGPASSWORD are members
 
-- **WHEN** `POSTGRES_URL` is `postgres://app:pw-7Qx2Lm9Vb4Rt8Wn3@db:5432/llame` and `PGPASSWORD` is `pgp-7Qx2Lm9Vb4Rt8Wn3`
-- **THEN** the set contains `pw-7Qx2Lm9Vb4Rt8Wn3` and `pgp-7Qx2Lm9Vb4Rt8Wn3`
+- **WHEN** `POSTGRES_URL` is `postgres://app:pw%407Qx2Lm9Vb4Rt8Wn3@db:5432/llame` and `PGPASSWORD` is `pgp-7Qx2Lm9Vb4Rt8Wn3`
+- **THEN** the set contains `pw%407Qx2Lm9Vb4Rt8Wn3`, `pw@7Qx2Lm9Vb4Rt8Wn3`, and `pgp-7Qx2Lm9Vb4Rt8Wn3`
 - **AND** it does not contain the whole `POSTGRES_URL`
 
 ### Requirement: Header and stdio env substitutions are members
 
-The set MUST contain each resolved `{env:…}` or `{path:…}` substitution in a
-provider entry's `headers` and in a remote MCP server's `headers`. It MUST
-contain each such substitution in a stdio MCP server's `env` value. It MUST
-NOT contain the literal text around a substitution. It MUST NOT contain a
-`:-` fallback text.
+Each resolved `{env:…}` or `{path:…}` substitution in a provider or remote MCP
+server's `headers` MUST be a member when it passes the gate. The same rule
+applies to each stdio MCP server `env` value. The set MUST NOT contain literal
+text around a substitution or `:-` fallback text.
 
 #### Scenario: Header and stdio env substitutions are members
 
