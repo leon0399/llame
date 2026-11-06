@@ -101,6 +101,32 @@ copy sent to the model. Host `bash` can also discover a mounted Knowledge root
 through ordinary filesystem commands; that is separate from the owner-scoped
 `knowledge_search` and `kb://` capabilities.
 
+### Credential redaction
+
+Every bounded stream, its stored artifact parts, and the stored result pass
+through one redaction routine before the result leaves the API, each occurrence
+of a configured credential becoming `[REDACTED]`. The set stays in that process:
+neither an `ssh://` host nor a Machine ever receives it. The operator configures
+which values are members
+([native files](../../operator/native-files.md#credential-redaction-in-bash-output)).
+
+The bound is applied on raw positions. The host and an `ssh://` capture keep a
+lookahead of the longest member past the byte bound, so a member that starts
+before the bound is found whole and leaves a marker. When llame itself cut the
+capture (a capture or transport limit, or a timeout), the incomplete member
+prefix at the cut is dropped rather than shown. A Machine keeps no lookahead, so
+a member its 32,000-unit bound cut is dropped without a marker. A command that
+exits on its own keeps any partial value it printed itself.
+
+Matching is exact substring replacement, so an encoded or split form (`base64`,
+`cut`, or a value assembled from pieces) is not matched. Native `read`/`grep`,
+another tool's result, and a Workspace's own `.mcp.json` secrets are outside
+this set.
+
+Redaction blocks accidental verbatim echo only. It does not stop a model that
+intends to exfiltrate through encoded or split output; the permission policy and
+process isolation remain the controls for that.
+
 ## Bounds
 
 Each stream is bounded at the operator-configured byte bound
@@ -122,49 +148,6 @@ call shares the managed base, input, time, and process bounds but keeps its own
 32,000-unit stream bound. An `ssh://` command shares the host bounds: one
 `bash -s` process per call, the same stream bound, and the call's remaining
 time.
-
-## Credential redaction
-
-Every bounded stream, its stored artifact parts, and the stored result pass
-through one redaction routine before the result leaves the API, replacing each
-occurrence of a configured credential with `[REDACTED]`. The set is derived once
-at API/worker startup from the instance configuration and stays in that
-process: neither an `ssh://` host nor a Machine ever receives it.
-
-The set covers credential fields whole; the credential-shaped leaves of a JSON
-document a member substitution selects from, with their JSON-escaped spellings;
-`POSTGRES_URL`, its password, and `PGPASSWORD`; substitutions in provider and
-remote MCP headers and in stdio MCP `command`, `args`, and `env` values; the
-userinfo and credential-shaped query values of provider and remote MCP URLs, as
-written and percent-decoded; and literal header values under a credential-shaped
-name. A stdio MCP `command` or `args` interpolation is therefore redacted from
-bash output, so a non-secret interpolated there (for example `{env:HOME}`) is
-replaced too; write it literally. Other query values and a URL's endpoint stay
-unredacted.
-
-The bound is applied on raw positions. The host and an `ssh://` capture keep a
-lookahead of the longest member past the byte bound, so a member that starts
-before the bound is found whole and leaves a marker. When llame itself cut the
-capture (a capture or transport limit, or a timeout), the incomplete member
-prefix at the cut is dropped rather than shown. A Machine keeps no lookahead, so
-a member its 32,000-unit bound cut is dropped without a marker. A command that
-exits on its own keeps any partial value it printed itself.
-
-Matching is exact substring replacement, so an encoded or split form (`base64`,
-`cut`, or a value assembled from pieces) is not matched. Native `read`/`grep`,
-another tool's result, and a Workspace's own `.mcp.json` secrets are outside
-this set. The set is a boot snapshot: a credential rotated after startup is not
-a member until the next API/worker start. An 8-character floor applies only to
-the database password, `PGPASSWORD`, and a URL userinfo username, so a shorter
-one printed on its own is not redacted and the database password is redacted
-only inside the whole `POSTGRES_URL`. Every other member counts at any nonblank
-length, so a short or common value in a credential position over-redacts; write
-non-secrets literally. Non-credential configuration values such as
-`knowledge.root` or a port are not members and survive redaction.
-
-Redaction blocks accidental verbatim echo only. It does not stop a model that
-intends to exfiltrate through encoded or split output; the permission policy and
-process isolation remain the controls for that.
 
 ## Errors
 
