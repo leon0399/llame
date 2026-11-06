@@ -319,7 +319,7 @@ function retryAfterMs(
   value: string | null,
   now: () => number,
 ): number | undefined {
-  if (value === null) return undefined;
+  if (value === null || value.trim() === '') return undefined;
   const seconds = Number(value);
   if (Number.isFinite(seconds) && seconds >= 0) {
     return Math.min(seconds * 1000, DECISION_WAIT_CAP_MS);

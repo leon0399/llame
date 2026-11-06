@@ -497,6 +497,17 @@ describe('decision client retries', () => {
     expect(waits).toEqual([2000, 5000]);
   });
 
+  it('treats a blank retry-after as absent and waits the full backoff', async () => {
+    const { fetch } = scripted((index) =>
+      index === 0
+        ? new Response('', { status: 429, headers: { 'retry-after': '' } })
+        : json(okBody()),
+    );
+    const { waits, sleep } = recordedSleep();
+    await decide(fetch, { sleep });
+    expect(waits).toEqual([500]);
+  });
+
   it('times each attempt out and retries it', async () => {
     const { calls, fetch } = scripted((index, call) =>
       index === 0
