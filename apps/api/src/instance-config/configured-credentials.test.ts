@@ -138,6 +138,27 @@ describe('ConfiguredCredentialCollector — URL members', () => {
     ).toEqual(['pw%2Fcanary', 'pw/canary']);
   });
 
+  it('adds the serialized spelling of a credential-shaped query value with a space', () => {
+    // `new URL` sends the space as `%20`, so an upstream that echoes the
+    // request URL prints a spelling the configured text does not contain.
+    expect(urlMembers('https://gw.example/v1?token=canary secret')).toEqual([
+      'canary%20secret',
+      'canary secret',
+    ]);
+  });
+
+  it('adds the serialized spelling of a query substitution with a space', () => {
+    expect(
+      urlMembers('https://gw.example/v1?opaque={env:AUTH}', {
+        AUTH: 'canary secret',
+      }),
+    ).toEqual(['canary%20secret', 'canary secret']);
+  });
+
+  it('does not add a serialized non-credential query value with a space', () => {
+    expect(urlMembers('https://gw.example/v1?q=plain space')).toEqual([]);
+  });
+
   it('does not percent-decode a header substitution', () => {
     const collector = new ConfiguredCredentialCollector({});
     collector.addHeaderValue(

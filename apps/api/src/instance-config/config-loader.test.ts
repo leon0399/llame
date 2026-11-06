@@ -5040,6 +5040,16 @@ describe('loadInstanceConfig — configured credential set', () => {
     expect(members).toEqual(['canary\nsecret', 'canarysecret']);
   });
 
+  it('adds the serialized spelling of a literal provider baseUrl query credential', () => {
+    // `new URL` sends the space as `%20`, so the provider receives a spelling
+    // the configured text does not contain.
+    const members = credentialsOf(
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "https://gw.example/v1?token=canary secret" }] }',
+    );
+
+    expect(members).toEqual(['canary%20secret', 'canary secret']);
+  });
+
   it('adds a credential field whole and never a substitution inside it', () => {
     const members = credentialsOf(
       '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "secret-prefix-{env:KEY_VERSION}-secret-suffix" }] }',

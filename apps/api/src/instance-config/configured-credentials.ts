@@ -122,15 +122,17 @@ export class ConfiguredCredentialCollector {
    * A URL's credentials: substitutions resolved inside its userinfo password
    * or query, its userinfo password at any nonblank length, its userinfo
    * username from 8 characters, and each query value under a credential-shaped
-   * name — each as written, percent-decoded, and as WHATWG URL parsing
-   * transmits it, and never the whole URL. Spans are computed on the raw
-   * resolved string, not on a re-serialized `URL`.
+   * name — each as written, percent-decoded, and in the spelling WHATWG URL
+   * parsing serializes (percent-encoding, and dropping ASCII tab, LF, and CR)
+   * — and never the whole URL. Spans are computed on the raw resolved string,
+   * not on a re-serialized `URL`; the serialized spellings are added last.
    */
   addUrlMembers(result: InterpolationResult): void {
     const spans = urlCredentialSpans(result.value);
     this.addUrlSubstitutions(result, spans);
     this.addUserinfoMembers(result.value, spans);
     this.addQueryCredentialValues(result.value, spans);
+    this.addSerializedUrlMembers(result.value, spans);
   }
 
   /**
@@ -236,9 +238,41 @@ export class ConfiguredCredentialCollector {
     for (const pair of query.split('&')) {
       const equals = pair.indexOf('=');
       const rawName = equals === -1 ? pair : pair.slice(0, equals);
-      const rawValue = equals === -1 ? '' : pair.slice(equals + 1);
       const name = percentDecoded(rawName) ?? rawName;
-      if (isCredentialName(name)) this.addUrlMember(rawValue);
+      if (isCredentialName(name)) this.addUrlMember(queryPairValue(pair));
+    }
+  }
+
+  /**
+   * The serialized spelling of each member collected from the raw string: the
+   * query percent-encodes characters such as a space, so a consumer that
+   * echoes the request URL prints a spelling the raw string does not contain.
+   * Serialization keeps the query pairs' order, so a raw pair index maps to
+   * the serialized pair at the same index; a pair adds its serialized value
+   * only when its raw value was already a member, so a non-credential value
+   * never joins the set. The userinfo is serialized as a whole. A URL that
+   * `new URL` cannot parse adds no serialized spelling.
+   */
+  private addSerializedUrlMembers(
+    rawUrl: string,
+    spans: UrlCredentialSpans,
+  ): void {
+    const url = parsedUrl(rawUrl);
+    if (url === undefined) return;
+    if (spans.password !== undefined) this.addUrlMember(url.password);
+    if (spans.username !== undefined) {
+      this.addUrlMember(url.username, INFERRED_CREDENTIAL_MIN_LENGTH);
+    }
+    if (spans.query === undefined) return;
+    const rawPairs = rawUrl
+      .slice(spans.query.start, spans.query.end)
+      .split('&');
+    const serializedPairs = url.search.slice(1).split('&');
+    for (const [index, serializedPair] of serializedPairs.entries()) {
+      const rawPair = rawPairs[index];
+      if (rawPair === undefined) break;
+      if (!this.members.includes(queryPairValue(rawPair))) continue;
+      this.addUrlMember(queryPairValue(serializedPair));
     }
   }
 }
@@ -348,6 +382,21 @@ function indexOfFirstOf(
     if (at !== -1 && at < nearest) nearest = at;
   }
   return nearest;
+}
+
+/** The value after a query pair's first `=`, or `''` when it carries none. */
+function queryPairValue(pair: string): string {
+  const equals = pair.indexOf('=');
+  return equals === -1 ? '' : pair.slice(equals + 1);
+}
+
+/** WHATWG's parse of `value`, or `undefined` when it is not a valid URL. */
+function parsedUrl(value: string): URL | undefined {
+  try {
+    return new URL(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function percentDecoded(value: string): string | undefined {
