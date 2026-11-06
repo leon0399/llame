@@ -161,10 +161,9 @@ out of the `:outline`. The host files hold the content as it was admitted; only
 
 ### Ranked file runs
 
-The operator enables ranking for `grep` with the tool's own
-`tools.grep.rerank.model` (a `decisionModels[]` id); see
-[decisions](../../operator/decisions.md). The block has no other field: naming
-a model is the operator's consent to send it card text.
+The operator can enable ranking for `grep`; see
+[decisions](../../operator/decisions.md). Enabling it is the operator's consent
+to send card text to the configured decision model.
 
 The call ranks only when the model cannot see the whole result: more than
 `limit` files, or text over 15,000 code units. There is no minimum number of
@@ -263,9 +262,9 @@ from a reject.
 The order is the submitted scope order, then the walk order, then the start
 line. The walk order is depth-first with names in byte order. A bare
 `kb://` visits Spaces in byte order of the Space identifier. A bare `skill://`
-visits packages in byte order of the package name. A configured
-`tools.grep.rerank.model` reorders whole file runs after the walk when the
-result does not fit inline; see [Ranked file runs](#ranked-file-runs).
+visits packages in byte order of the package name. When the operator enables
+ranking, whole file runs are reordered after the walk if the result does not
+fit inline; see [Ranked file runs](#ranked-file-runs).
 
 ## Behavior
 
