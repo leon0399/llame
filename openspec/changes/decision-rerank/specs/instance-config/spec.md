@@ -287,7 +287,7 @@ affected array-index paths, never an interpolated value.
 #### Scenario: A blank decision model id fails startup
 
 - **WHEN** a `decisionModels` entry has an `id` that is blank or resolves to blank
-- **THEN** startup fails and names `decisionModels`
+- **THEN** startup fails and names that entry's `decisionModels[<index>].id` path
 
 ### Requirement: Decision model catalog entries name a System One provider
 
