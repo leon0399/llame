@@ -113,8 +113,16 @@ rank with nothing.
 
 A rerank only reorders candidates; it never adds or drops one, so the result
 count, every warning, and the `left out` notice are unchanged. `shadow` records
-the would-be order, the model that answered, probabilities, latency, and cost
+the would-be order, the model that answered, scores, latency, and cost
 beside the result for the owner's UI; the model never reads that field.
+
+The `rerank` block is the tool's one seat for a ranking model. Today the only
+models that can fill it are decision models, which return P(helps answer) per
+candidate; a conventional reranking model (a cross-encoder scoring each
+(query, candidate) pair) is the same operation with an uncalibrated score, and
+would take the same seat from its own catalogue once one exists. Either way
+the tool sorts by the score, keeps unjudged candidates after the judged ones,
+and records the scores under `display.rerank`.
 
 ### `web_search`
 
@@ -134,7 +142,7 @@ The order is decided once, before the inline fit, the artifact and its findings
 are built, so a `read` of the artifact continues in the same order the model
 read inline. The result carries the record either way in its display-only
 field, beside its closed output shape:
-`display.rerank: { mode, model, order, probabilities, latencyMs, costUsd }`,
+`display.rerank: { mode, model, order, scores, latencyMs, costUsd }`,
 naming the order `on` applied or the one `shadow` would have. The model never
 sees `display`; it exists for the owner's UI and for comparing a shadow run
 against the live order. One `web_search.rerank` line is logged per ranked

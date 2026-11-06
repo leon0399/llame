@@ -22,7 +22,7 @@
  * which every downstream step (the inline fit, the stored artifact text, the
  * findings and the continuation line) reads, so they agree by construction.
  * Either way the result carries `display.rerank: { mode, model, order,
- * probabilities, latencyMs, costUsd }` beside its closed output shape, in the
+ * scores, latencyMs, costUsd }` beside its closed output shape, in the
  * field the model-facing renderer strips: a reorder never changes counts, and
  * the record is for the owner's UI and for a later comparison, not for the model.
  */
@@ -62,8 +62,12 @@ export type WebSearchRerankRecord = {
   readonly model: string | null;
   /** Every judged result key, in the order the mode applies or would apply. */
   readonly order: ReadonlyArray<string>;
-  /** Judged key → P(helps answer), exactly as the judge answered. */
-  readonly probabilities: Readonly<Record<string, number>>;
+  /**
+   * Judged key → relevance score, exactly as the ranking model answered. A
+   * decision model's score is P(helps answer); a conventional reranker's
+   * would be its own relevance number, comparable only within this record.
+   */
+  readonly scores: Readonly<Record<string, number>>;
   readonly latencyMs: number;
   readonly costUsd: number | null;
 };
@@ -127,7 +131,7 @@ function rankedRerank(
     mode: plan.rerank.mode,
     model: judgement.model,
     order: ranked.map((card) => card.key),
-    probabilities: Object.fromEntries(probabilities),
+    scores: Object.fromEntries(probabilities),
     latencyMs: judgement.latencyMs,
     costUsd: judgement.usage.costUsd,
   };

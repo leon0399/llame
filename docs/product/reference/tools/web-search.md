@@ -160,7 +160,7 @@ The ranked record carries one extra field beside the closed shape above:
     "mode": "on",
     "model": "jev-1.13",
     "order": ["p02", "p05", "p03", "p01", "p04"],
-    "probabilities": {
+    "scores": {
       "p01": 0.1,
       "p02": 0.9,
       "p03": 0.5,
@@ -174,7 +174,8 @@ The ranked record carries one extra field beside the closed shape above:
 ```
 
 `order` names every judged result by its canonical rank key (`p<rank>`), and
-`probabilities` maps exactly those keys to P(helps answer). `shadow` records the
+`scores` maps exactly those keys to the ranking model's relevance score — for
+a decision model, P(helps answer). `shadow` records the
 order it would have applied and leaves the results in canonical order; `on`
 applies it. Counts never change either way, and the model-facing text never
 shows the field. An `answer` output is never ranked, and a call that sends no

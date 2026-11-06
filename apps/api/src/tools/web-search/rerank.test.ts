@@ -306,7 +306,7 @@ it('records the shadow order beside an unchanged output', async () => {
         mode: 'shadow',
         model: 'jev-1.13',
         order: ['p02', 'p05', 'p03', 'p01', 'p04'],
-        probabilities: { p01: 0.1, p02: 0.9, p03: 0.5, p04: 0.05, p05: 0.7 },
+        scores: { p01: 0.1, p02: 0.9, p03: 0.5, p04: 0.05, p05: 0.7 },
         latencyMs: 180,
         costUsd: 0.0000042,
       },

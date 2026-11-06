@@ -42,7 +42,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   continuation line agree; a permutation never changes a count or the `left
   out` notice. `shadow` leaves the output untouched, records the order it would
   have applied in the display-only `display.rerank: { mode, model, order,
-  probabilities, latencyMs, costUsd }` field beside the closed result shape,
+  scores, latencyMs, costUsd }` field beside the closed result shape,
   and logs one `web_search.rerank` line; `on` applies it and records the same
   field. The call names its
   catalogue model on every judgement, and the lane answers `unavailable` for an
