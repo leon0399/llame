@@ -10,7 +10,12 @@
  * .integration suites.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { Logger } from '@nestjs/common';
+import * as Sentry from '@sentry/nestjs';
 import { streamText } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -30,13 +35,17 @@ import { isModelChangePayload } from '../chats/context-item-producers';
 import { RecencyDigestService } from '../chats/recency-digest.service';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { type CompactionCapability } from '../compaction/compaction.service';
+import { loadInstanceConfig } from '../instance-config/config-loader';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { MediaService } from '../media/media.service';
 import { MemoryService } from '../memory/memory.service';
 import { type ModelClient } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type ModelSelectionValidator } from '../models/models.service';
+import {
+  ModelsService,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -59,10 +68,128 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
+// The real SDK without a client, with the three entry points a Run touches
+// observable: a provider failure must never reach Sentry carrying a credential.
+vi.mock('@sentry/nestjs', async (importOriginal) => ({
+  ...(await importOriginal<typeof Sentry>()),
+  captureException: vi.fn(),
+  setConversationId: vi.fn(),
+  setUser: vi.fn(),
+}));
+
 const MODEL_ID = 'mock';
 const USER_TEXT = 'answer the question';
 const ITEM_TEXT =
   '<system-reminder producer="workspace" form="notice">attempt A item</system-reminder>';
+
+/**
+ * One canary per configured credential the five provider wires can echo. The
+ * header canary is reachable only through the Chat Completions entry's
+ * `Authorization` substitution, which proves header values are protected too.
+ */
+const CREDENTIAL_CANARY = {
+  responses: 'RESPONSES-KEY-CANARY-0a1b',
+  completions: 'COMPLETIONS-KEY-CANARY-2c3d',
+  go: 'GO-KEY-CANARY-4e5f',
+  messages: 'MESSAGES-KEY-CANARY-6a7b',
+  codex: 'CODEX-KEY-CANARY-8c9d',
+  header: 'HEADER-KEY-CANARY-1e2f',
+} as const;
+
+const WIRE_MODEL_ID = {
+  responses: 'system:responses:test-model',
+  completions: 'system:completions:test-model',
+  go: 'system:go:test-model',
+  messages: 'system:messages:test-model',
+  codex: 'system:codex:test-model',
+} as const;
+
+const WIRE_USER_AGENT = 'llame/0.0.0-test';
+
+/**
+ * The five provider entries and the models that dispatch to them, as the
+ * operator file spells them: every credential is a `{env:...}` token, so
+ * `loadInstanceConfig` — the only producer of a nonempty credential set — is
+ * what makes the factory's redaction active.
+ */
+function fiveWireConfigJson(): string {
+  return JSON.stringify({
+    providers: [
+      {
+        id: 'responses',
+        type: 'openai-responses',
+        key: '{env:RESPONSES_KEY}',
+        baseUrl: 'https://responses.example.test/v1',
+      },
+      {
+        id: 'completions',
+        type: 'openai-completions',
+        key: '{env:COMPLETIONS_KEY}',
+        baseUrl: 'https://completions.example.test/v1',
+        headers: { Authorization: 'Bearer {env:HEADER_KEY}' },
+      },
+      { id: 'go', type: 'opencode-go', key: '{env:GO_KEY}' },
+      {
+        id: 'messages',
+        type: 'anthropic-messages',
+        key: '{env:MESSAGES_KEY}',
+        baseUrl: 'https://messages.example.test',
+      },
+      {
+        id: 'codex',
+        type: 'openai-codex',
+        key: '{env:CODEX_KEY}',
+        accountId: 'account-id',
+      },
+    ],
+    models: [
+      {
+        id: WIRE_MODEL_ID.responses,
+        provider: 'responses',
+        providerModelId: 'test-model',
+        contextWindowTokens: 128_000,
+      },
+      {
+        id: WIRE_MODEL_ID.completions,
+        provider: 'completions',
+        providerModelId: 'test-model',
+        contextWindowTokens: 128_000,
+      },
+      {
+        id: WIRE_MODEL_ID.go,
+        provider: 'go',
+        providerModelId: 'test-model',
+        contextWindowTokens: 128_000,
+      },
+      {
+        id: WIRE_MODEL_ID.messages,
+        provider: 'messages',
+        providerModelId: 'test-model',
+        contextWindowTokens: 128_000,
+      },
+      {
+        id: WIRE_MODEL_ID.codex,
+        provider: 'codex',
+        providerModelId: 'test-model',
+        contextWindowTokens: 128_000,
+      },
+    ],
+    defaults: { modelId: WIRE_MODEL_ID.responses },
+  });
+}
+
+/** A JSON provider error envelope echoing `text`; 401 is never retried. */
+function jsonErrorEnvelope(text: string): Response {
+  return new Response(JSON.stringify({ error: { message: text } }), {
+    status: 401,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+/** A plain-text provider error envelope echoing `text`; 401 is never retried. */
+function textErrorEnvelope(text: string): Response {
+  return new Response(text, { status: 401 });
+}
 
 const MODEL_ENTRY: SystemModelCatalogEntry = {
   id: MODEL_ID,
@@ -182,6 +309,9 @@ describeIfDb(
     let userId: string;
     let runExecution: RunExecutionService;
     let chatLoop: ChatLoopService;
+    /** Provider clients built from the loader's own configuration. */
+    let wireClients: ModelsService;
+    let wireConfigDir: string;
     const jobState = vi.fn<RunDispatcher['jobState']>(() =>
       Promise.resolve('active'),
     );
@@ -255,6 +385,27 @@ describeIfDb(
         new MemoryService(tenantDb),
         new RecencyDigestService(tenantDb),
       );
+
+      // The factory redacts against `configuredCredentials(config)`, a WeakMap
+      // keyed by the exact object `loadInstanceConfig` returns — so the loaded
+      // value reaches `ModelsService` by reference and `createClient` stays the
+      // real factory (no override, no hand-built config fixture).
+      wireConfigDir = mkdtempSync(path.join(tmpdir(), 'llame-five-wire-'));
+      const wireConfigPath = path.join(wireConfigDir, 'llame.config.json');
+      writeFileSync(wireConfigPath, fiveWireConfigJson());
+      const wireConfig = loadInstanceConfig({
+        LLAME_CONFIG_PATH: wireConfigPath,
+        RESPONSES_KEY: CREDENTIAL_CANARY.responses,
+        COMPLETIONS_KEY: CREDENTIAL_CANARY.completions,
+        HEADER_KEY: CREDENTIAL_CANARY.header,
+        GO_KEY: CREDENTIAL_CANARY.go,
+        MESSAGES_KEY: CREDENTIAL_CANARY.messages,
+        CODEX_KEY: CREDENTIAL_CANARY.codex,
+      });
+      wireClients = new ModelsService({
+        config: wireConfig,
+        productUserAgent: WIRE_USER_AGENT,
+      });
     });
 
     afterEach(() => {
@@ -264,6 +415,8 @@ describeIfDb(
     });
 
     afterAll(async () => {
+      if (wireConfigDir)
+        rmSync(wireConfigDir, { recursive: true, force: true });
       if (sql) {
         await sql`DELETE FROM users WHERE id = ${userId}`;
         await sql.end();
@@ -282,8 +435,11 @@ describeIfDb(
       return chatId;
     }
 
-    /** A user message and its queued Run on `chatId`. */
-    async function seedTurn(chatId: string): Promise<SeededTurn> {
+    /** A user message and its queued Run on `chatId`, on `modelId`. */
+    async function seedTurn(
+      chatId: string,
+      modelId: string = MODEL_ID,
+    ): Promise<SeededTurn> {
       return tenantDb.runAs(userId, async (tx) => {
         const userMessage = await new MessagesRepository(tx).create({
           chatId,
@@ -295,7 +451,7 @@ describeIfDb(
           chatId,
           messageId: userMessage.id,
           userId,
-          modelId: MODEL_ID,
+          modelId,
         });
         return { chatId, runId: run.id, userMessage };
       });
@@ -769,6 +925,143 @@ describeIfDb(
 
         expect(await switchedFrom(chatId)).toEqual(['source-model']);
       });
+    });
+
+    describe('configured credential redaction', () => {
+      /** One wire's failure envelope and whether the factory itself must redact it. */
+      type CredentialWire = {
+        readonly wire: string;
+        readonly modelId: string;
+        readonly canary: string;
+        /**
+         * The Messages and Codex clients sanitize the failure before it reaches
+         * the factory's wrapper, so they report no credential without needing
+         * its marker; the other three wires rely on `withRedactedFailures`.
+         */
+        readonly redacts: boolean;
+        readonly respond: () => Response;
+      };
+
+      const credentialWires: ReadonlyArray<CredentialWire> = [
+        {
+          wire: 'openai-responses',
+          modelId: WIRE_MODEL_ID.responses,
+          canary: CREDENTIAL_CANARY.responses,
+          redacts: true,
+          respond: () =>
+            jsonErrorEnvelope(`echoed ${CREDENTIAL_CANARY.responses}`),
+        },
+        {
+          wire: 'openai-completions',
+          modelId: WIRE_MODEL_ID.completions,
+          canary: CREDENTIAL_CANARY.completions,
+          redacts: true,
+          // Also proves the configured `Authorization` substitution is protected.
+          respond: () =>
+            jsonErrorEnvelope(
+              `echoed ${CREDENTIAL_CANARY.completions} and ${CREDENTIAL_CANARY.header}`,
+            ),
+        },
+        {
+          wire: 'opencode-go',
+          modelId: WIRE_MODEL_ID.go,
+          canary: CREDENTIAL_CANARY.go,
+          redacts: true,
+          respond: () => jsonErrorEnvelope(`echoed ${CREDENTIAL_CANARY.go}`),
+        },
+        {
+          wire: 'anthropic-messages',
+          modelId: WIRE_MODEL_ID.messages,
+          canary: CREDENTIAL_CANARY.messages,
+          redacts: false,
+          respond: () =>
+            textErrorEnvelope(`echoed ${CREDENTIAL_CANARY.messages}`),
+        },
+        {
+          wire: 'openai-codex',
+          modelId: WIRE_MODEL_ID.codex,
+          canary: CREDENTIAL_CANARY.codex,
+          redacts: false,
+          respond: () => textErrorEnvelope(`echoed ${CREDENTIAL_CANARY.codex}`),
+        },
+      ];
+
+      it.each(credentialWires)(
+        'keeps a configured credential out of the run, its stored events, the log, and Sentry on the $wire wire',
+        async ({ modelId, canary, redacts, respond }) => {
+          // Codex and Go capture `globalThis.fetch` when the client is built;
+          // the other wires resolve it per request. Stub before `createClient`
+          // so every transport is the stub and no request leaves the process.
+          const fetchStub = vi.fn(() => Promise.resolve(respond()));
+          vi.stubGlobal('fetch', fetchStub);
+          const loggerError = vi
+            .spyOn(Logger.prototype, 'error')
+            .mockImplementation(() => undefined);
+          vi.mocked(Sentry.captureException).mockClear();
+          try {
+            // The real `ModelsService` -> `createModelClient`, with only the
+            // transport stubbed: no client override, no hand-built config.
+            const client = wireClients.createClient(modelId);
+            const chatId = await createChat();
+            const failing = await seedTurn(chatId, modelId);
+
+            const result = await execute(failing, client);
+            await Promise.resolve(result.consumeStream?.()).catch(
+              () => undefined,
+            );
+            await waitForEvent(failing.runId, 'run.failed');
+
+            const failedRun = await tenantDb.runAs(userId, (tx) =>
+              new RunsRepository(tx).findById(failing.runId, userId),
+            );
+            const events = await runEvents(failing.runId);
+            const terminal = events.find(
+              (event) => event.eventType === 'run.failed',
+            );
+
+            // A failure carrying its own error envelope, not a native/tool one.
+            expect(failedRun?.status).toBe('failed');
+            expect(terminal).toBeDefined();
+            expect(fetchStub).toHaveBeenCalled();
+
+            // `runs.error` and the stored terminal event, read back from Postgres.
+            const runError = JSON.stringify(failedRun?.error);
+            const terminalPayload = JSON.stringify(terminal?.payload);
+            // Every other surface the same failure reaches: the run logger
+            // (error stack) and the Sentry event argument.
+            const logged = JSON.stringify(loggerError.mock.calls);
+            const captured = JSON.stringify(
+              vi
+                .mocked(Sentry.captureException)
+                .mock.calls.map(([error]) =>
+                  error instanceof Error
+                    ? `${error.message}\n${error.stack ?? ''}`
+                    : String(error),
+                ),
+            );
+
+            for (const surface of [
+              runError,
+              terminalPayload,
+              logged,
+              captured,
+            ]) {
+              expect(surface).not.toContain(canary);
+              expect(surface).not.toContain(CREDENTIAL_CANARY.header);
+            }
+            if (redacts) {
+              expect(runError).toContain('[REDACTED]');
+              expect(terminalPayload).toContain('[REDACTED]');
+            }
+            // Non-vacuous: the failure actually reached both observation points.
+            expect(loggerError).toHaveBeenCalled();
+            expect(Sentry.captureException).toHaveBeenCalled();
+          } finally {
+            loggerError.mockRestore();
+            vi.unstubAllGlobals();
+          }
+        },
+      );
     });
   },
 );

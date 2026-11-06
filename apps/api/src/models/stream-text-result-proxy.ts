@@ -9,7 +9,11 @@
  * model-client boundary that augments `consumeStream()`/`text` with
  * abort-settlement or completion tracking (`openai-model-client.ts`,
  * `fake-model-client.ts`, and the `testing/support.ts`/
- * `runs/worker-harness.ts` test doubles) into one reviewed, owned location.
+ * `runs/worker-harness.ts` test doubles), and the failure redaction that
+ * wraps every promise channel (`model-client-failures.ts`), into one
+ * reviewed, owned location. An override key may be a symbol or a
+ * non-enumerable own key: the pass-through lookup is an own-property test,
+ * not an enumerable-string scan.
  *
  * Uses `Reflect.get(target, property, receiver)` for the fall-through path
  * rather than direct `target[property]` access: the AI SDK's
@@ -34,9 +38,10 @@ export function wrapStreamTextResult<T extends object>(
 ): T {
   return new Proxy(target, {
     get(target, property, receiver) {
-      for (const [key, produce] of Object.entries(overrides)) {
-        if (key === property && produce) return produce(target).value;
-      }
+      const produce = Object.hasOwn(overrides, property)
+        ? overrides[property]
+        : undefined;
+      if (produce !== undefined) return produce(target).value;
       // eslint-disable-next-line anti-slop/no-reflect-get -- see the file doc comment above (verified against the AI SDK's own source, not inferred): the single owned exception for StreamTextResult pass-through wrapping.
       return Reflect.get(target, property, receiver);
     },

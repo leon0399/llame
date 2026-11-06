@@ -844,6 +844,7 @@ describe('createOpenCodeGoModelClient — cost is unknown unless declared (desig
   function goClient(pricingUsdPer1M?: ModelPricingUsdPer1M): ModelClient {
     return createModelClient({
       userAgent: USER_AGENT,
+      credentials: [],
       provider: {
         id: 'opencode-go',
         type: 'opencode-go',
