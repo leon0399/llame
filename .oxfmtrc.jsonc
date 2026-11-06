@@ -60,6 +60,7 @@
     "apps/api/src/skills/prompts/",
     "apps/api/src/tools/prompts/",
     "apps/api/src/decisions/prompts/",
+    "apps/api/src/ranking/prompts/",
 
     // Vendored from shadcn CLI (upstream serialization).
     "packages/ui/src/styles/shadcn.css",

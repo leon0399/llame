@@ -21,6 +21,8 @@
     "format": "oxfmt src evals",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
+    "ranking:eval": "npx tsx evals/ranking/eval.ts",
+    "ranking:record": "npx tsx evals/ranking/record.ts",
     "search:backfill": "npx tsx src/search/operations/cli.ts backfill",
     "search:coverage": "npx tsx src/search/operations/cli.ts coverage",
     "search:projection-coverage": "npx tsx src/search/operations/cli.ts projection-coverage",

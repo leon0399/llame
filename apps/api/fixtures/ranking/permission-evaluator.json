@@ -1,0 +1,207 @@
+{
+  "tool": "grep",
+  "query": "permission|evaluate|allow|reject",
+  "objective": "Find where a tool call is allowed or rejected against the permission policy",
+  "cards": [
+    {
+      "key": "p00",
+      "text": "src/ai-sdk-warnings.ts\n* here is type-only, so loading this module evaluates nothing — `instrument.ts`",
+      "relevant": false
+    },
+    {
+      "key": "p01",
+      "text": "src/chats/chat-creation-record.repository.ts\n* design D9; `tool-call-permissions` \"Chat-creation path decisions are recorded",
+      "relevant": false
+    },
+    {
+      "key": "p02",
+      "text": "src/chats/chats.controller.ts\n// here and never captured by the `:id` param route (which would then reject\n...(input.permissionMode !== undefined && {\npermissionMode: input.permissionMode,",
+      "relevant": false
+    },
+    {
+      "key": "p03",
+      "text": "src/chats/dto/follow-up-run.dto.ts\nPERMISSION_MODES,\ntype PermissionMode,\n} from '../../tools/permissions/permission-mode';",
+      "relevant": false
+    },
+    {
+      "key": "p04",
+      "text": "src/chats/messages-repository.ts\n* Write ownership is enforced by RLS: the `messages_owner` policy's check rejects",
+      "relevant": false
+    },
+    {
+      "key": "p05",
+      "text": "src/chats/tool-observation-part.ts\nimport { isRejectedHopUrl } from '../tools/permissions/messages';\nconst HOP_REJECTION_OUTCOME = 'permission_denied';\n* the only record that carries a `rejectedUrl`, on the way in as well as on",
+      "relevant": false
+    },
+    {
+      "key": "p06",
+      "text": "src/compaction/compaction.service.ts\n// executor here, so its output is rejected rather than persisted: a",
+      "relevant": false
+    },
+    {
+      "key": "p07",
+      "text": "src/db/schema/identity.ts\n// org_units is infinite RLS recursion, which Postgres rejects.\n// (deny-overrides-allow) — see roleInPath's doc.",
+      "relevant": false
+    },
+    {
+      "key": "p08",
+      "text": "src/decisions/decisions.service.ts\n* rejects with the signal's reason so the tool runner reports its own timeout",
+      "relevant": false
+    },
+    {
+      "key": "p09",
+      "text": "src/instance-config/llame.config.schema.json\n\"description\": \"Operator-owned instance configuration for llame (config-as-code, openspec/changes/in\n\"description\": \"Two or more distinct ids of configured engines; an entry that is itself an aggregate\n\"permissionClause\": {",
+      "relevant": false
+    },
+    {
+      "key": "p10",
+      "text": "src/instructions/instructions-producer.ts\n* the native `read` tool under the Run's own permission decision and audit\nimport { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';\n* evaluated for every candidate under exactly the locator the model wrote.",
+      "relevant": false
+    },
+    {
+      "key": "p11",
+      "text": "src/knowledge/knowledge-locator.ts\n* This is the shared projection for both the native resolver and permission\nallowMissing = false,\nallowMissing,",
+      "relevant": false
+    },
+    {
+      "key": "p12",
+      "text": "src/machines/executor-git.service.ts\n* before this probe, and re-evaluates the canonical path it returns before any\n* git call, so a symlink cannot walk out of an allow list. The probe therefore\n* only ever sees a value the `enter_workspace` policy allows.",
+      "relevant": false
+    },
+    {
+      "key": "p13",
+      "text": "src/mcp/machine-workspace-servers.ts\n* its own relayed `mcp.open` channel. The admission, shadowing, permission,\nreturn Promise.reject(",
+      "relevant": false
+    },
+    {
+      "key": "p14",
+      "text": "src/media/dto/media.dto.ts\n* allowlist: no owner id and no digest.\n* no model variant. Egress allowlist: no owner id and no digest.",
+      "relevant": false
+    },
+    {
+      "key": "p15",
+      "text": "src/media/tool-media-store.ts\n* read's structured failure. A read the caller cancels rejects with the",
+      "relevant": false
+    },
+    {
+      "key": "p16",
+      "text": "src/models/models.service.ts\nimport { type PermissionMode } from '../tools/permissions/permission-mode';\nexport class PermissionModeNotAvailableError extends Error {\nreadonly code = 'permission_mode_not_available';",
+      "relevant": false
+    },
+    {
+      "key": "p17",
+      "text": "src/models/stream-idle-watchdog.ts\n* One provider request's idle window. `fail` is what expiry does: reject the\nconst stalled = new Promise<never>((_, reject) => {\nwatchdog.onExpiry(reject);",
+      "relevant": false
+    },
+    {
+      "key": "p18",
+      "text": "src/pins/pins-repository.ts\n// DO NOTHING also swallows `pins_user_position_unique` races, which",
+      "relevant": false
+    },
+    {
+      "key": "p19",
+      "text": "src/queue/queue.ts\n* `QueueOptions.policy`), at most one job per key is allowed in each governed\n// bound would reject every concrete definition), AND — unlike enqueue and\n// instantiation in tests (RunsWorkerService's suite). Tried and rejected: a",
+      "relevant": false
+    },
+    {
+      "key": "p20",
+      "text": "src/runs/effective-context-resolver.ts\nallowedToolRules: ReadonlyArray<string>;\n/** Synchronous source snapshots; shared allowlist and declaration admission still apply. */\nallowedToolRules: input.allowedToolRules,",
+      "relevant": false
+    },
+    {
+      "key": "p21",
+      "text": "src/runs/run-execution.service.ts\npreviewToolPermission,\nimport { type PermissionMode } from '../tools/permissions/permission-mode';\nimport { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';",
+      "relevant": false
+    },
+    {
+      "key": "p22",
+      "text": "src/runs/worker-harness.ts\nimport { type PermissionGroup } from '../tools/permissions/types';\nimport { type PermissionMode } from '../tools/permissions/permission-mode';\nallowedTools?: ReadonlyArray<string>;",
+      "relevant": false
+    },
+    {
+      "key": "p23",
+      "text": "src/search/openai-embedding-backend.ts\n* reproduces the exact same rejection forever, exactly like a terminal 4xx.\n* the SDK's own schema validation's job to reject, not this function's.\n* `failedResponseHandler`/schema validation to reject with its own error —",
+      "relevant": false
+    },
+    {
+      "key": "p24",
+      "text": "src/search/operations/retry-failed.ts\n/** Owners whose clear rejected; empty on full success. The caller must",
+      "relevant": false
+    },
+    {
+      "key": "p25",
+      "text": "src/skills/skill-imports.ts\nimport { type PermissionDecision } from '../tools/permissions/types';\ndecision: PermissionDecision,",
+      "relevant": false
+    },
+    {
+      "key": "p26",
+      "text": "src/ssh/ssh-locator.ts\n* no SSH — the tool layer, the permission admission, and result rendering all\nimport { decodeFileAlias } from '../tools/permissions/file-alias';\nimport { encodeLocatorPath } from '../tools/permissions/locator-path';",
+      "relevant": false
+    },
+    {
+      "key": "p27",
+      "text": "src/testing/machine-sshd/Dockerfile\n# account's own permissions decide each case: a plain file and a link to it, an",
+      "relevant": false
+    },
+    {
+      "key": "p28",
+      "text": "src/testing/tool-permission-policy.ts\nimport { compileToolPermissionMap } from '../tools/permissions/compile-permissions';\ntype PermissionGroup,\n} from '../tools/permissions/types';",
+      "relevant": false
+    },
+    {
+      "key": "p29",
+      "text": "src/tools/attempt-tool-additions.ts\nimport { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';\nallowedToolRules: ReadonlyArray<string>;\nallowedToolRules: options.allowedToolRules,",
+      "relevant": false
+    },
+    {
+      "key": "p30",
+      "text": "src/tools/grep-page.ts\n* `allow_only` rule that admitted it, and its artifact line range, the heading\nrule: 'allow_only',\n// A literal clause matches text, so a reject written with the separator",
+      "relevant": false
+    },
+    {
+      "key": "p31",
+      "text": "src/tools/permissions/admit.ts\nimport { evaluatePermission } from './evaluator';\nDEFAULT_PERMISSION_MODE,\ntype PermissionMode,",
+      "relevant": true
+    },
+    {
+      "key": "p32",
+      "text": "src/tools/permissions/evaluator.ts\ntype SelectedPermissionValue,\ntype CompiledPermissionClause,\ntype CompiledPermissionGroup,",
+      "relevant": true
+    },
+    {
+      "key": "p33",
+      "text": "src/tools/permissions/locator-projection.ts\nconst NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);\n* Canonicalize a submitted native `path` value for permission matching only.\n* the request drops cannot smuggle clause-matching text past an allow, a",
+      "relevant": false
+    },
+    {
+      "key": "p34",
+      "text": "src/tools/permissions/types.ts\n* Operator tool-call permission surface (openspec/changes/tool-call-permissions).\n* configured-MCP tool id. Each group carries optional `allow`/`reject`, each\nexport type PermissionFieldTarget = {",
+      "relevant": false
+    },
+    {
+      "key": "p35",
+      "text": "src/tools/ssh-files.ts\n* permission was decided on.",
+      "relevant": false
+    },
+    {
+      "key": "p36",
+      "text": "src/tools/web-read/adapters/linkedin/fixtures/leon0399-post.html\n\"articleBody\": \"Last week at Madrid Tech Brunch, I was surprised by how many people asked me to shar",
+      "relevant": false
+    },
+    {
+      "key": "p37",
+      "text": "src/tools/web-read/execute.ts\nif (admit('adapter', url).decision === 'reject') {\ntype: 'permission_denied',\nmessage: 'The adapter target was refused by operator permissions.',",
+      "relevant": false
+    },
+    {
+      "key": "p38",
+      "text": "src/tools/web-search/artifact.ts\nrule: 'reject_only' as const,",
+      "relevant": false
+    },
+    {
+      "key": "p39",
+      "text": "src/tools/web-search/removal.ts\nimport { evaluateWebLocatorRead } from '../web-read/admission';\n* Whether the `read` group rejects a URL: only a reject clause with an index\n* removes an entry, so a whole-tool reject and a missing allow keep it. Used",
+      "relevant": false
+    }
+  ]
+}
