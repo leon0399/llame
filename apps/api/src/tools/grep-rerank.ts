@@ -22,6 +22,7 @@ import { codePointSafeCutIndex } from '@workspace/runtime-safety';
 
 import { type DecisionJudge } from '../decisions/decisions.service';
 import { rankCards, type RankCardsResult } from '../ranking/rank-cards';
+import { GREP_RERANK_RUBRIC } from '../ranking/rubrics';
 import {
   artifactRunLengths,
   replaceArtifactPassages,
@@ -29,13 +30,6 @@ import {
   type PageState,
 } from './grep-page';
 import { type ToolContext } from './types';
-
-/**
- * The one question a file run answers. A fixed string in code, never text
- * taken from a file: a file may carry its own instructions.
- */
-export const GREP_RERANK_RUBRIC =
-  'Is this file likely to contain what the objective (or query) is looking for: a substantive implementation or explanation, not a mere mention?';
 
 /** One card holds the file path and up to three matching lines. */
 export const GREP_RERANK_CARD_UNITS = 384;
