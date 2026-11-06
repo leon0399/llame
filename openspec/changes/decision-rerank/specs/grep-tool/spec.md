@@ -239,8 +239,8 @@ of a rank-failure line.
 The tool MUST make one card for each file run and judge every card.
 A card MUST use a path excerpt and up to three matching-line excerpts within
 384 UTF-16 code units. Keys MUST use `p<index>` with canonical zero-based indices,
-padded to the last index's width. Path and line text MUST be cut to fit,
-without changing stored passages.
+padded to the last index's width. Excerpt cuts MUST NOT change stored passages;
+the required protected-key presentation exception MUST still apply.
 
 #### Scenario: A refused file supplies no card
 
@@ -277,6 +277,7 @@ The tool MUST sort the judged runs by score, strongest first. A tie and an
 unjudged run MUST keep the canonical order. The tool MUST NOT change a match,
 a count, a warning, a bound, the walk stop, or an admission. A run MUST keep
 exactly one `## <path>` line.
+The protected-key presentation exception MUST preserve the underlying matches.
 
 #### Scenario: Thirty files put three implementations first
 

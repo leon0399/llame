@@ -104,7 +104,6 @@ The state MUST carry `query`, `cards`, and `criteria`.
 When the caller supplies `objective`, the state MUST carry that exact value.
 The judge MUST use `objective` when present, or `query` when absent.
 Exact-value and verbatim-text rules MUST apply after the required credential replacement.
-That replacement MUST NOT mutate tool source passages or results.
 
 #### Scenario: An objective reaches the judge
 
@@ -264,6 +263,30 @@ A malformed envelope, absent answer, wrong answer type, or probability outside
 - **WHEN** an answer has a probability below 0 or above 1
 - **THEN** that request is `unavailable`
 
+### Requirement: Accepted responses carry valid usage and a model id
+
+`model` MUST be a nonempty string and `usage` MUST be an object.
+`usage.input_tokens` and `usage.output_tokens` MUST each be integers from 0 through 9,007,199,254,740,991.
+Absent `usage.cost` MUST mean unknown cost; a present value MUST be a finite nonnegative number.
+Invalid required fields or present cost MUST make that request unavailable.
+Missing counts MUST NOT default to zero. Extra fields MUST be ignored.
+
+#### Scenario: Invalid usage cannot enter aggregates
+
+- **WHEN** a count is missing, negative, fractional, or unsafe, or a present cost is negative, null, or nonfinite
+- **THEN** that request is unavailable and contributes no answers or usage
+
+### Requirement: Served model identities cannot contain the credential
+
+A served `model` that contains the provider's resolved key MUST make its
+request unavailable before acceptance. That request MUST contribute no answers
+or usage. The unsafe identity MUST NOT reach logs, results, or display records.
+
+#### Scenario: The provider echoes its credential in a model id
+
+- **WHEN** the served model id contains the decision provider's resolved key
+- **THEN** the request is unavailable and neither the identity nor key reaches logs or results
+
 ### Requirement: A failed request leaves only its cards unjudged
 
 An ordinary backend failure MUST leave only its request's cards unjudged.
@@ -352,13 +375,27 @@ It MUST NOT add heuristic credential detection, another consent gate, or chat-mo
 #### Scenario: Candidate text contains the decision credential
 
 - **WHEN** query, objective, or candidate source text contains the decision provider's resolved key
-- **THEN** the decision request contains the protected-value replacement, not the full key or a truncated key fragment
+- **THEN** the decision request replaces the key before the rank stage's excerpt limits can split that occurrence
 
 #### Scenario: No decision model answers
 
 - **WHEN** the lane is unavailable
 - **THEN** the system sends no request to a chat model
 - **AND** the tool output stays in canonical order
+
+### Requirement: Ranked tools protect the decision key in returned presentation
+
+A tool with a configured decision model MUST replace complete occurrences of
+that provider's resolved key in received source-derived fields.
+Replacement MUST precede its ranking excerpts, inline cuts, artifact storage, and replay.
+It MUST preserve source line identities, ordering, counts, and noncredential text.
+This exact-key presentation exception MUST override source-fidelity rules, without changing underlying files or detecting other secrets.
+
+#### Scenario: A source excerpt contains the configured decision key
+
+- **WHEN** received grep or web-search source text contains that complete key
+- **THEN** its decision card, inline output, artifact, and replay use the same protected replacement
+- **AND** the source file, matching decisions, line identities, counts, and unrelated text stay unchanged
 
 ### Requirement: Rank requests share the enclosing cancellation and deadline
 

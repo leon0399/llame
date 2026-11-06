@@ -45,8 +45,9 @@ kernel, and #1510 is next; separate tool-local implementations would duplicate i
 Naming a model authorizes disclosure of everything the tool admits, including
 `kb://` and `machine://` findings. Document this egress consequence. No refused
 finding becomes a card; relevance never bypasses read admission.
-The lane protects its own resolved credential with the existing sanitizer before
-excerpt limits and dispatch; this adds no generic credential detector or consent gate.
+The lane protects its resolved credential before ranking excerpts and dispatch.
+Tools apply the same exact-key replacement to returned presentation, not underlying
+files or matches. This adds no generic credential detector or consent gate.
 
 ### D5. Defer the ledger
 
@@ -146,3 +147,5 @@ None affecting the contract; operator model choice follows fixture evaluation.
 - v5: Accounting/header exceptions, enclosing aborts, criterion/fallback, note bounds.
 - v6: Stream bounds, aggregate provenance, indexed diagnostics, explicit run lengths,
   source preservation, visible-row scores, and recomputed omission counts.
+- v7: Explicit usage types, unsafe served-id rejection, and exact decision-key
+  presentation replacement across inline/artifact/replay without source-file mutation.

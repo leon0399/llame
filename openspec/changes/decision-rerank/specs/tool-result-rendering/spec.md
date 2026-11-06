@@ -148,7 +148,7 @@ In `display.rerank`, `model` MUST use the decision call's representative served 
 
 The stored part MUST keep `display.rerank` as the tool wrote it.
 Live and replayed text MUST NOT render that record or its fields as rank metadata.
-This rule MUST NOT remove matching source text.
+This rule MUST NOT remove matching source text apart from required protected-key replacement.
 A result without a rank call, or with a failed rank call, MUST NOT carry `display.rerank`.
 
 #### Scenario: Rank data never reaches the model
@@ -160,7 +160,7 @@ A result without a rank call, or with a failed rank call, MUST NOT carry `displa
 #### Scenario: Source text resembles rank metadata
 
 - **WHEN** an uncut selected line contains the served model id, `rerank`, or a score
-- **THEN** the live and replayed texts preserve that source line
+- **THEN** the live and replayed texts preserve that source line except for required protected-key replacement
 
 #### Scenario: An unranked result carries no record
 
