@@ -6,9 +6,12 @@
  * adapter or SDK change that stops routing a failure through `onError`, a
  * promise channel, or a rejection fails here.
  */
+import { inspect } from 'node:util';
+
 import { Logger } from '@nestjs/common';
 import { APICallError } from '@ai-sdk/provider';
 import { RetryError, jsonSchema, type ModelMessage } from 'ai';
+import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
 import type { ProviderConfig } from '../instance-config/llame-config';
@@ -54,6 +57,35 @@ function jsonResponse(body: string, status: number): Response {
 
 function serve(response: () => Response): Fetch {
   return () => Promise.resolve(response());
+}
+
+/** The Responses wire forwards this envelope as a plain object, not an `Error`. */
+function partialErrorStream(error: UnknownRecord): Response {
+  return new Response(
+    [
+      {
+        type: 'response.output_text.delta',
+        sequence_number: 0,
+        item_id: 'msg-1',
+        output_index: 0,
+        content_index: 0,
+        delta: 'partial answer',
+      },
+      error,
+    ]
+      .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+      .join(''),
+    { headers: { 'content-type': 'text/event-stream' } },
+  );
+}
+
+/** The message text Nest prints, rendering object arguments the way it does. */
+function printedLog(calls: ReadonlyArray<ReadonlyArray<unknown>>): string {
+  return calls
+    .flatMap((args) =>
+      args.map((arg) => (isString(arg) ? arg : inspect(arg, { depth: 5 }))),
+    )
+    .join('\n');
 }
 
 /** A client built by the factory for `provider`, with only the transport stubbed. */
@@ -345,27 +377,25 @@ describe('createModelClient failure redaction', () => {
     const consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
-    const client = factoryClient(
-      {
-        id: 'responses',
-        type: 'openai-responses',
-        key: KEY,
-        baseUrl: 'https://endpoint.example.test/v1',
-        headers: {},
-      },
-      {
-        createOpenAIModelClient: (config) =>
-          createOpenAIModelClient({
-            ...config,
-            fetch: serve(() =>
-              jsonResponse(
-                JSON.stringify({ error: { message: `echoed ${KEY}` } }),
-                401,
-              ),
+    const provider: ProviderConfig = {
+      id: 'responses',
+      type: 'openai-responses',
+      key: KEY,
+      baseUrl: 'https://endpoint.example.test/v1',
+      headers: {},
+    };
+    const client = factoryClient(provider, {
+      createOpenAIModelClient: (config) =>
+        createOpenAIModelClient({
+          ...config,
+          fetch: serve(() =>
+            jsonResponse(
+              JSON.stringify({ error: { message: `echoed ${KEY}` } }),
+              401,
             ),
-          }),
-      },
-    );
+          ),
+        }),
+    });
 
     await client.streamText({ chat: CHAT, messages }).text.then(
       () => undefined,
@@ -374,11 +404,48 @@ describe('createModelClient failure redaction', () => {
 
     expect(consoleError).not.toHaveBeenCalled();
     expect(loggerError).toHaveBeenCalledTimes(1);
-    const printed = loggerError.mock.calls
-      .map((args) => args.map(String).join('\n'))
-      .join('\n');
+    const printed = printedLog(loggerError.mock.calls);
     expect(printed).toContain('[REDACTED]');
     expect(printed).not.toContain(KEY);
+
+    // A failure the Responses wire forwards as a plain object has no `message`
+    // to interpolate: the log must render the redacted envelope's fields
+    // instead of collapsing it to `[object Object]`.
+    loggerError.mockClear();
+    const structuredClient = factoryClient(provider, {
+      createOpenAIModelClient: (config) =>
+        createOpenAIModelClient({
+          ...config,
+          fetch: serve(() =>
+            partialErrorStream({
+              type: 'response.failed',
+              sequence_number: 2,
+              response: {
+                error: {
+                  code: 'server_error',
+                  message: `Upstream echoed ${KEY}`,
+                },
+                incomplete_details: { reason: 'error' },
+              },
+            }),
+          ),
+        }),
+    });
+
+    await structuredClient.streamText({ chat: CHAT, messages }).text.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(loggerError).toHaveBeenCalledTimes(1);
+    const structuredPrinted = printedLog(loggerError.mock.calls);
+    expect(structuredPrinted).toContain(
+      "message: 'Upstream echoed [REDACTED]'",
+    );
+    expect(structuredPrinted).toContain("code: 'server_error'");
+    expect(structuredPrinted).not.toContain('[object Object]');
+    expect(structuredPrinted).not.toContain(KEY);
   });
 
   it('keeps a client without structured generation untouched', () => {

@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { isString } from '@workspace/runtime-safety';
 import type { StreamTextOnErrorCallback } from 'ai';
 
 import type {
@@ -154,6 +155,14 @@ function redactingOnError(
     if (caller !== undefined) return caller({ error: failure });
     if (failure instanceof Error) {
       logger.error(`A model request failed: ${failure.message}`, failure.stack);
+      return;
+    }
+    if (redacted !== undefined && !isString(redacted)) {
+      // A structured failure has no `message` to interpolate: `String` would
+      // collapse a Responses `error`/`response.failed` envelope to
+      // `[object Object]`. Nest inspects an extra argument, so the redacted
+      // `message`, `code`, and the fields around them stay readable.
+      logger.error('A model request failed', redacted);
       return;
     }
     logger.error(`A model request failed: ${String(failure)}`);
