@@ -103,9 +103,9 @@ order. `scores` MUST map each judged key to its answered score.
 
 #### Scenario: A partial answer lists unjudged keys last
 
-- **WHEN** a rank call judges three of four cards
-- **THEN** `order` holds four keys, with the three judged keys first by score
-- **AND** `scores` holds three keys
+- **WHEN** a 300-card rank call has two requests and only the 256-card request answers every question
+- **THEN** `order` holds all 300 keys, with the 256 judged keys first by score
+- **AND** `scores` holds 256 keys
 
 ### Requirement: A rank record names the served model and the call cost
 

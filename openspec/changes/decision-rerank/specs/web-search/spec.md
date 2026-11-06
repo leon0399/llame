@@ -106,12 +106,6 @@ the `left out` notice, or the removal rules.
 - **WHEN** two results receive the same score
 - **THEN** the result with the earlier engine rank comes first
 
-#### Scenario: An unjudged result follows the judged results
-
-- **WHEN** the rank call answers three of four cards
-- **THEN** the three judged results come first in score order
-- **AND** the unjudged result comes last
-
 #### Scenario: The engine type does not stop the rank call
 
 - **WHEN** `parallel` answers the call and `webSearch.rerank.model` is set
@@ -138,11 +132,12 @@ the system MUST use the rank order and MUST NOT add the note.
 - **AND** the output carries one note with the text `rerank: unavailable`
 - **AND** the output stores no `display.rerank`
 
-#### Scenario: A partial rank call adds no note
+#### Scenario: A response with absent answers adds the failure note
 
-- **WHEN** the decision endpoint answers 15 of 20 cards
-- **THEN** the 15 judged results follow the rank order
-- **AND** the notes do not contain `rerank: unavailable`
+- **WHEN** the decision endpoint answers only 15 of 20 questions in one request
+- **THEN** the request fails and all 20 results keep engine order
+- **AND** the notes contain `rerank: unavailable`
+- **AND** the output stores no `display.rerank`
 
 ### Requirement: The rank record is display data
 
@@ -157,12 +152,6 @@ the record.
 
 - **WHEN** a rank call completes for a call with five judged results
 - **THEN** `display.rerank` holds the served model id, the five card keys, their scores, `latencyMs`, and `costUsd`
-
-#### Scenario: A partial answer lists every key in order
-
-- **WHEN** the rank call judges three of four results
-- **THEN** `order` holds all four keys, the three judged keys first by score
-- **AND** `scores` holds three keys
 
 #### Scenario: The model reads the results without the record
 

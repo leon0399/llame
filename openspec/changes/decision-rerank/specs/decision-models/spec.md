@@ -172,7 +172,15 @@ of the card, zero-padded to the width of the last index.
 
 - **WHEN** a call has 30 cards
 - **THEN** the card keys run from `p00` to `p29`
-- **AND** a call with 100 or more cards pads each key to three digits
+- **AND** a call with 101 through 1,000 cards pads each key to three digits
+
+#### Scenario: Key width changes at the last index boundary
+
+- **WHEN** a call has 100 cards
+- **THEN** its last key is `p99`
+- **AND** 101 cards use `p000` through `p100`
+- **AND** 1,000 cards use `p000` through `p999`
+- **AND** 1,001 cards use `p0000` through `p1000`
 
 ### Requirement: A judge result reports probabilities or unavailability
 
@@ -190,10 +198,10 @@ result MUST list every key that no answer covers.
 
 #### Scenario: Some cards are not answered
 
-- **WHEN** the provider answers only some questions
+- **WHEN** a 300-card call has two requests and only the 256-card request answers every question
 - **THEN** the result has the status `answered`
-- **AND** the unanswered list holds every key without an answer
-- **AND** no key without an answer gets a probability
+- **AND** the unanswered list holds the 44 keys from the failed request
+- **AND** no key from the failed request gets a probability
 
 #### Scenario: No request answers
 

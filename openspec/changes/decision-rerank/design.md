@@ -206,6 +206,13 @@ one badge (served model, latency, cost) and a score beside each judged row;
 an unavailable rerank shows the rendered note. Stories: ranked, unavailable,
 absent.
 
+The grep part preserves consecutive file runs, not one global group per
+path. It uses the same boundary rule as the native renderer: a different
+file or a non-increasing start line opens a new run. Inline run ordinal
+selects the corresponding key from `display.rerank.order`, and that key
+selects the score. Overlapping scopes can repeat a path, so a story must
+verify two distinct scores beside two runs of that path after reordering.
+
 ### Other technical choices
 
 - **Provider carries the wire.** `system-one` is a `providers[]` type like
@@ -214,9 +221,11 @@ absent.
   refactor of model-client selection and is not needed.
 - **Decision client is not a `ModelClient`.** The config loader fails
   startup when a `models[]` or `embeddingModels[]` entry names a
-  `system-one` provider, naming `models[<id>].provider`; the lazy factory
-  error of the experiment is replaced by that boot check. Tools receive the
-  judge through `ToolContext.decisions`, optional and fail-closed like
+  `system-one` provider, naming `models[<id>].provider`. The factory retains
+  a defensive guard for an impossible binding. Its exhaustive switch
+  changes with the provider union in the config layer, so that layer
+  compiles before the decision client exists. Tools receive the judge
+  through `ToolContext.decisions`, optional and fail-closed like
   `modelClients`.
 - **One client per catalog id**, built at boot from the catalog, so two
   entries on different routes never share an endpoint.
@@ -271,3 +280,14 @@ publication, so no shipped configuration ever contained them.
 
 None that change the specs or the layers. Which model an operator turns on
 is answered by `ranking:eval` on that operator's keys.
+
+## Revision history
+
+- v1: Initial proposal from the agreed D1-D14 decisions.
+- v2: Reconciled canonical order and inline reserves, dedupe placement,
+  served-model and cost semantics, provider headers, startup checks, and
+  layer ownership after two independent reviews.
+- v3: Made partial success atomic per request, corrected key-width
+  boundaries, kept the config layer type-safe, and bound UI scores to file
+  runs rather than globally merged paths. The measurement comment now
+  distinguishes pre-fix and post-fix runs.
