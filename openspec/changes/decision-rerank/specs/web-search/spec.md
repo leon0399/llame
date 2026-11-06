@@ -1,5 +1,99 @@
 # Spec Delta
 
+## MODIFIED Requirements
+
+### Requirement: Output fields are bounded within the result cap
+
+Lengths MUST count JavaScript UTF-16 code units, cut at a code-point boundary.
+Titles MUST hold at most 200 units, snippets 300, and answers 8,000.
+`published` MUST be present only as an ISO 8601 date.
+The output MUST hold at most the fetch size of results and 20 citations.
+An aggregate with `webSearch.rerank.model` set MUST retain its whole merged
+result set instead of the fetch-size count cap.
+The inline and artifact bounds still apply.
+`notes` MUST hold at most 10 notes of at most 200 units each.
+When more notes are due, the tenth MUST record the rest as `<n> more engines`.
+
+#### Scenario: Long snippet is cut
+
+- **WHEN** an engine returns a 2,000-character snippet
+- **THEN** the stored snippet and the snippet that the model reads are at most 300 characters
+
+#### Scenario: Long answer is cut
+
+- **WHEN** a hosted engine answers with 12,000 units of text and three citations
+- **THEN** the answer is cut to 8,000 units with a note and all three citations remain
+
+### Requirement: Aggregate engines fan out and merge by rank fusion
+
+An `aggregate` MUST run each child that accepts the query concurrently.
+It MUST wait until each child settles.
+It MUST group results by canonical URL, without `www.` at the host start
+and without `/` at the path end.
+It MUST score each URL by `Σ 1/(60 + rank)` over the children that return it.
+It MUST order the results by score.
+A group MUST use its best-ranked URL and the longest snippet.
+Without `webSearch.rerank.model`, the aggregate MUST cut the merged list
+to the fetch size.
+With that setting, it MUST retain the whole merged list for the guard,
+rank call, and artifact.
+If the rank call fails, the retained list MUST keep its rank-fusion order.
+An aggregate with no result MUST be empty when a child was empty.
+In other cases it MUST fail.
+
+#### Scenario: Shared result ranks first
+
+- **WHEN** child A returns `[u1, u2]` and child B returns `[u3, u1]`
+- **THEN** the merged order starts with `u1`
+
+#### Scenario: A grouped result keeps a real spelling
+
+- **WHEN** child A returns `https://www.example.com/docs/` first and child B returns `https://example.com/docs` second
+- **THEN** the aggregate emits one merged entry with the URL `https://www.example.com/docs/`
+
+#### Scenario: Partial failure still answers
+
+- **WHEN** one child fails with `rate_limited` and another returns results
+- **THEN** the aggregate returns the results of the successful child with a note that names the failed child
+
+#### Scenario: A failed and an empty child are empty
+
+- **WHEN** one child fails with `auth` and the other returns no results
+- **THEN** the aggregate outcome is empty and the chain advances
+
+#### Scenario: Every child fails
+
+- **WHEN** every child of an aggregate fails
+- **THEN** the aggregate outcome is `upstream_error` and the chain advances
+
+#### Scenario: Cancellation aborts every child
+
+- **WHEN** the owner cancels the Run while two aggregate children are in flight
+- **THEN** llame aborts both requests
+
+#### Scenario: Every skipped child fails as unsupported
+
+- **WHEN** the query limit skips each child of an aggregate
+- **THEN** the aggregate outcome is `unsupported` and the chain advances
+
+#### Scenario: A configured rank call sees every merged candidate
+
+- **WHEN** two children each return 20 distinct results, the fetch size is 20, `limit` is 10, and `webSearch.rerank.model` is set
+- **THEN** all 40 merged results become cards
+- **AND** the first 10 results in rank order appear inline
+- **AND** the artifact holds all 40 when the Run can read artifacts and the output fits the artifact bound
+
+#### Scenario: An aggregate without a rank model keeps its fetch-size cut
+
+- **WHEN** two children each return 20 distinct results, the fetch size is 20, and no rank model is set
+- **THEN** the aggregate returns the first 20 merged results in rank-fusion order
+
+#### Scenario: A failed rank call keeps the full merged candidate set
+
+- **WHEN** two children each return 20 distinct results, the fetch size is 20, and the configured rank call fails
+- **THEN** the retained 40 results keep rank-fusion order and the output carries `rerank: unavailable`
+- **AND** the artifact holds all 40 when the Run can read artifacts and the output fits the artifact bound
+
 ## ADDED Requirements
 
 ### Requirement: One engine's results are deduplicated by URL
@@ -138,27 +232,3 @@ the system MUST use the rank order and MUST NOT add the note.
 - **THEN** the request fails and all 20 results keep engine order
 - **AND** the notes contain `rerank: unavailable`
 - **AND** the output stores no `display.rerank`
-
-### Requirement: The rank record is display data
-
-A ranked call MUST store `display.rerank` beside its output. The record MUST
-hold `model`, `order`, `scores`, `latencyMs`, and `costUsd`. `model` MUST be the
-served model id. `order` MUST list every card key in the applied order. `scores`
-MUST hold the judged keys only. `latencyMs` MUST measure the whole decision call.
-`costUsd` MUST be a number or `null`. The model-facing text MUST NOT contain
-the record.
-
-#### Scenario: The record names the served model and the order
-
-- **WHEN** a rank call completes for a call with five judged results
-- **THEN** `display.rerank` holds the served model id, the five card keys, their scores, `latencyMs`, and `costUsd`
-
-#### Scenario: The model reads the results without the record
-
-- **WHEN** the model reads the tool result of a ranked call
-- **THEN** the text holds the results and the notes and no score
-
-#### Scenario: A call without a rank model stores no record
-
-- **WHEN** `webSearch.rerank.model` is not set
-- **THEN** the output has no `display.rerank`

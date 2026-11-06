@@ -9,7 +9,7 @@ the model's question sits in the artifact. The model then reads the artifact
 page by page, or stops early.
 
 A decision model (System One / Jev class: one forward pass over a shared
-state and keyed yes/no questions, calibrated probabilities out, no generated
+state and keyed yes/no questions, per-card probabilities out, no generated
 text) can order those candidates by the call's `objective` for a fraction of
 a cent and under a second. The experimental stack
 ([#1584](https://github.com/leon0399/llame/pull/1584),
@@ -77,6 +77,8 @@ were settled with Leo in a grilling round on 2026-11-06 (D1–D14 in
   the inline bound). A lane failure keeps engine order and adds one note.
   **One engine's list is deduplicated by the aggregate's grouping key**
   before ranking and output.
+  A configured aggregate retains its whole deduplicated merged set for the
+  rank call and artifact instead of cutting it to the fetch size first.
 - **`display.rerank`** on both results records the served model, the order
   of every card, the scores of the judged ones, latency, and cost (the
   wire's reported cost, else `null`). It is display data under the existing
@@ -132,7 +134,8 @@ were settled with Leo in a grilling round on 2026-11-06 (D1–D14 in
   counts; the inline reserve for the failure line; the `ranking` field; the
   artifact and findings follow the ranked order.
 - `web-search`: the rerank stage on every `results` outcome; within-engine
-  URL deduplication before ranking; the failure note.
+  URL deduplication and aggregate candidate retention before ranking; the
+  failure note.
 - `tool-result-rendering`: the `display.rerank` record, the grep failure
   line, the web search note, and the owner UI badge.
 

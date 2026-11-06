@@ -162,6 +162,13 @@ Whatever engine won, including objective-aware engines (Parallel, Exa,
 DeepSeek). Answers are never ranked. Alternative (#1433's original text):
 skip objective-aware winners; rejected by Leo; the fixtures can revisit it.
 
+A configured aggregate keeps its whole deduplicated merged list in canonical
+rank-fusion order until the rank stage. `fetchLimit` still bounds what each
+child fetches, but it does not cut the merged candidate set first. The inline
+part is a bounded prefix, and the artifact keeps the full set. Without a
+configured rank model, the existing merged fetch-size cut remains. A failed
+rank call keeps the full retained set in rank-fusion order plus the note.
+
 ### D11. Fixtures and evaluation
 
 `apps/api/fixtures/ranking/<case>.json`: `{ tool, query, objective?, cards:
@@ -291,3 +298,6 @@ is answered by `ranking:eval` on that operator's keys.
   boundaries, kept the config layer type-safe, and bound UI scores to file
   runs rather than globally merged paths. The measurement comment now
   distinguishes pre-fix and post-fix runs.
+- v4: Retained every merged aggregate candidate for the configured rank
+  stage and artifact, as #1433 requires. Kept the common provider `billing`
+  field instead of adding a type-specific rejection.

@@ -34,8 +34,8 @@ and MUST NOT accept another field. It MUST reject `baseUrl` and `accountId` at
 boot. Its `key` MUST be a string with `{env:…}` or `{path:…}` interpolation
 that resolves nonblank.
 
-The `system-one` variant MUST accept `{ id, type, key, baseUrl, headers? }`.
-It MUST reject `accountId` and `billing`. Its `key` and `baseUrl` MUST be strings with
+The `system-one` variant MUST accept `{ id, type, key, baseUrl, billing?, headers? }`.
+It MUST reject `accountId`. Its `key` and `baseUrl` MUST be strings with
 `{env:…}` or `{path:…}` interpolation that resolve nonblank. The variant
 MUST NOT load as keyless.
 
@@ -48,8 +48,8 @@ A duplicate `id` MUST fail startup and name the entry. A `type` outside the
 schema set MUST fail startup and name the entry. The set MUST exclude the
 retired `"openai"` and a bare `"anthropic"`.
 
-The optional `billing` key on every variant except `system-one` is defined by
-the billing-mode requirement below. The optional `headers` key on every variant is defined by
+The optional `billing` key on every variant is defined by the billing-mode
+requirement below. The optional `headers` key on every variant is defined by
 the `provider-request-headers` capability.
 
 Resolved `key` values MUST NOT appear in logs, errors, or diagnostics. A
@@ -169,12 +169,6 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 - **THEN** startup fails and names the offending configuration path
 - **AND** the entry does not load
 
-#### Scenario: System One provider rejects a billing mode
-
-- **WHEN** the file defines a `type: "system-one"` provider that also sets `billing`
-- **THEN** startup fails and names the entry and the `billing` field
-- **AND** the entry does not load
-
 ### Requirement: Operator configuration can bound grep walks
 
 The configuration MUST accept an optional `tools.grep` object with the fields
@@ -257,41 +251,6 @@ engine ids with no duplicate. The built-in default MUST be absent.
 
 - **WHEN** two `webSearch.engines` entries share the id `brave`
 - **THEN** startup fails and names `webSearch.engines` and the duplicate id
-
-### Requirement: Providers and models may declare their billing mode
-
-A `providers[]` entry and a `models[]` entry MUST each be able to declare an
-optional `billing` key. Its value MUST be exactly `"usage"` (billed per token)
-or `"subscription"` (a flat plan under which any declared price is notional).
-Any other value MUST fail startup and name the entry and field. A non-string
-value or an interpolation token is another value.
-
-A provider of every `type` except `system-one` MUST accept the key. A
-`system-one` provider MUST reject it. The key is server-only, and
-`GET /api/v1/models` MUST NOT return it. A configuration that omits it
-everywhere MUST start as before. The `run-usage-accounting` capability owns the
-billing-mode resolution order.
-
-#### Scenario: Declared billing modes boot
-
-- **WHEN** a provider entry declares `"billing": "subscription"` and one of its models declares `"billing": "usage"`
-- **THEN** startup succeeds
-
-#### Scenario: An unknown billing value fails startup
-
-- **WHEN** a provider or model entry declares `"billing": "free"`
-- **THEN** startup fails naming that entry and its `billing` field
-- **AND** no partial configuration is applied
-
-#### Scenario: A non-string or interpolated billing value fails startup
-
-- **WHEN** a provider or model entry declares `"billing": true` or `"billing": "{env:BILLING}"`
-- **THEN** startup fails naming that entry and its `billing` field, before any interpolation resolves
-
-#### Scenario: Billing mode is not exposed in the model catalog
-
-- **WHEN** an authenticated caller reads `GET /api/v1/models` for a model whose provider declares `billing`
-- **THEN** the response contains no billing field
 
 ## ADDED Requirements
 
