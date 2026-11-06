@@ -200,10 +200,18 @@ function providerStream(
   });
 }
 
-function holdOpen(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+/**
+ * Holds for at least `ms` on the wall clock the run measures with. A Node timer
+ * can fire a millisecond or two before `Date.now()` has advanced by `ms`, so
+ * a bare `setTimeout` made the usage assertions below flaky.
+ */
+async function holdOpen(ms: number): Promise<void> {
+  const until = Date.now() + ms;
+  for (let left = ms; left > 0; left = until - Date.now()) {
+    await new Promise((resolve) => {
+      setTimeout(resolve, left);
+    });
+  }
 }
 
 /**
