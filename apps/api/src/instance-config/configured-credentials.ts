@@ -98,9 +98,16 @@ export class ConfiguredCredentialCollector {
     return Object.freeze(normalizeProtectedValues(this.members));
   }
 
+  /**
+   * Adds `value` and, when it differs, its trimmed spelling: the loader sends
+   * trimmed values and `fetch` trims header whitespace, so either spelling can
+   * reach a log line. Each spelling must pass the gate on its own.
+   */
   private add(value: string | undefined): void {
-    if (value === undefined || !passesGate(value)) return;
-    this.members.push(value);
+    if (value === undefined) return;
+    if (passesGate(value)) this.members.push(value);
+    const trimmed = value.trim();
+    if (trimmed !== value && passesGate(trimmed)) this.members.push(trimmed);
   }
 }
 
@@ -142,10 +149,10 @@ function postgresPassword(databaseUrl: string | undefined): string | undefined {
   const authorityStart = schemeEnd + '://'.length;
   const authorityEnd = firstDelimiter(databaseUrl, authorityStart);
   const userinfoEnd = databaseUrl.lastIndexOf('@', authorityEnd - 1);
-  if (userinfoEnd < authorityStart) return undefined;
-  const colon = databaseUrl.indexOf(':', authorityStart);
-  if (colon === -1 || colon > userinfoEnd) return undefined;
-  return databaseUrl.slice(colon + 1, userinfoEnd);
+  if (userinfoEnd === -1) return undefined;
+  const userinfo = databaseUrl.slice(authorityStart, userinfoEnd);
+  const colon = userinfo.indexOf(':');
+  return colon === -1 ? undefined : userinfo.slice(colon + 1);
 }
 
 /** The index of the first `/`, `?`, or the end of the string at or after `from`. */
@@ -158,7 +165,6 @@ function firstDelimiter(value: string, from: number): number {
 }
 
 function percentDecoded(value: string): string | undefined {
-  if (!value.includes('%')) return undefined;
   try {
     return decodeURIComponent(value);
   } catch {

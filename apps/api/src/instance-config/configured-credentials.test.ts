@@ -71,6 +71,10 @@ describe('ConfiguredCredentialCollector — G3 gate', () => {
   ])('keeps %s only when it passes', (_title, value, expected) => {
     expect(secretMembers(value)).toEqual(expected);
   });
+  it('keeps both a padded secret and its trimmed spelling', () => {
+    const value = '  0123456789abcdef  ';
+    expect(secretMembers(value)).toEqual([value, value.trim()]);
+  });
 
   it('applies the gate to PGPASSWORD', () => {
     expect(membersOf(() => {}, { PGPASSWORD: 'short-pgpass' })).toEqual([]);
@@ -186,6 +190,13 @@ describe('ConfiguredCredentialCollector — addSubstitutions', () => {
     expect(members).toEqual(['mcp-header-canary-9f3a']);
     expect(members).not.toContain('Bearer');
     expect(members).not.toContain('Bearer ');
+  });
+  it('keeps both spellings of a padded header substitution', () => {
+    const value = '  0123456789abcdef  ';
+    expect(substitutionMembers('{env:TOKEN}', { TOKEN: value })).toEqual([
+      value,
+      value.trim(),
+    ]);
   });
 
   it('skips :- fallback text even when it would pass the gate', () => {

@@ -1511,7 +1511,7 @@ function resolveInterpolatedString(
 
 /**
  * As {@link resolveInterpolatedString}, but also reports each token's resolved
- * value and span so a credential-bearing field can collect exactly what it
+ * value so a credential-bearing field can collect exactly what it
  * resolved to.
  */
 function resolveInterpolatedWithSubstitutions(
