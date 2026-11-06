@@ -30,8 +30,7 @@ A member MUST have at least 16 characters and an estimated entropy of at
 least 64 bits. The estimate is the length times the Shannon entropy per
 character of the value's own characters. A value below either bound MUST NOT
 be a member, so llame does not redact it from a command result or an upstream
-failure. llame MUST NOT detect a credential by its format. llame still never
-writes a resolved secret value to its own logs, errors, or diagnostics.
+failure. llame MUST NOT detect a credential by its format.
 
 #### Scenario: A short or simple value is not a member
 
