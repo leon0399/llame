@@ -1,0 +1,103 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { type DecisionJudge } from '../decisions/decisions.service';
+import { CARD_BOUND, type RankingCase, type RecordedAnswer } from './fixtures';
+import { rankCards } from './rank-cards';
+
+const RUBRICS = {
+  grep: 'Is this file likely to contain what the objective (or query) is looking for: a substantive implementation or explanation, not a mere mention?',
+  web_search:
+    'Does this card help answer the objective (or, without one, the query)?',
+} as const;
+
+export type RecordSink = {
+  write(caseName: string, model: string, answer: RecordedAnswer): void;
+  log(line: string): void;
+};
+
+/** Models to record: the requested ids, or the whole catalogue when none. */
+export function selectModels(
+  catalogue: ReadonlyArray<string>,
+  requested: ReadonlyArray<string>,
+): Array<string> {
+  const unknown = requested.filter((id) => !catalogue.includes(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Not in decisionModels[]: ${unknown.join(', ')}. Catalogue: ${catalogue.join(', ') || '(empty)'}.`,
+    );
+  }
+  const models = requested.length > 0 ? [...requested] : [...catalogue];
+  if (models.length === 0) {
+    throw new Error('No decisionModels[] in the operator config to record.');
+  }
+  return models;
+}
+
+/** Judges one case with one model; false when the judgement was unavailable. */
+export async function recordCase(
+  judge: Pick<DecisionJudge, 'judgeCandidates'>,
+  sink: RecordSink,
+  rankingCase: RankingCase,
+  model: string,
+): Promise<boolean> {
+  const result = await rankCards({
+    judge,
+    model,
+    tool: rankingCase.tool,
+    runId: 'ranking-record',
+    chatId: 'ranking-record',
+    query: rankingCase.query,
+    cards: rankingCase.cards,
+    cardBound: CARD_BOUND[rankingCase.tool],
+    rubric: RUBRICS[rankingCase.tool],
+    ...(rankingCase.objective !== undefined && {
+      objective: rankingCase.objective,
+    }),
+  });
+  sink.log(`${rankingCase.name} ${model}: ${result.status}`);
+  if (result.status === 'unavailable') return false;
+  sink.write(rankingCase.name, model, {
+    model,
+    status: result.status,
+    scores: result.scores,
+    latencyMs: result.latencyMs,
+    costUsd: result.costUsd,
+  });
+  return true;
+}
+
+/** Records every case with every model; throws when any judgement was unavailable. */
+export async function recordAll(
+  judge: Pick<DecisionJudge, 'judgeCandidates'>,
+  sink: RecordSink,
+  cases: ReadonlyArray<RankingCase>,
+  models: ReadonlyArray<string>,
+): Promise<void> {
+  let unavailable = 0;
+  for (const rankingCase of cases) {
+    for (const model of models) {
+      if (!(await recordCase(judge, sink, rankingCase, model)))
+        unavailable += 1;
+    }
+  }
+  if (unavailable > 0) {
+    throw new Error(`${unavailable} judgement(s) unavailable and not written.`);
+  }
+}
+
+/** A sink that writes `<case>.<model>.json` under `dir` and logs to stdout. */
+export function fileSink(dir: string): RecordSink {
+  fs.mkdirSync(dir, { recursive: true });
+  return {
+    write(caseName, model, answer) {
+      fs.writeFileSync(
+        path.join(dir, `${caseName}.${model}.json`),
+        `${JSON.stringify(answer, null, 2)}\n`,
+      );
+    },
+    log(line) {
+      process.stdout.write(`${line}\n`);
+    },
+  };
+}

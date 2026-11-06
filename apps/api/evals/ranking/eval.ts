@@ -5,11 +5,13 @@
  * and never calls a model. Without recorded answers it prints the canonical
  * baseline only.
  */
-import { evaluateCase } from './eval-report';
-import { loadRankingCases, loadRecordedAnswers } from './fixtures';
+import { evaluateCase } from '../../src/ranking/eval-report';
+import {
+  loadRankingCases,
+  loadRecordedAnswers,
+} from '../../src/ranking/fixtures';
 
 const rows = loadRankingCases().flatMap((rankingCase) =>
   evaluateCase(rankingCase, loadRecordedAnswers(rankingCase.name)),
 );
-// oxlint-disable-next-line eslint/no-console -- the CLI's output is the table.
 console.table(rows);
