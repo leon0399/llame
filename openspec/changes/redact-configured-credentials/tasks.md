@@ -37,7 +37,7 @@ master
 - [x] 0.1 Run adversarial review with two independent reviewers per round, one of them security-focused; verify findings against the shipped specs and code; commit each round separately.
 - [x] 0.2 Prove the final revision: `pnpm exec openspec validate redact-configured-credentials --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized script diff of each MODIFIED block against its canonical requirement keeping every canonical scenario in order; record Leo's approval of that revision, including proposal decisions A1-A4.
 - [x] 0.3 Self-review the proposal diff before marking the PR ready; record the review rounds in the PR body.
-- [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 1. credential-set
 
