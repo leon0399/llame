@@ -569,7 +569,8 @@ describe('aggregate candidate retention', () => {
     expect(writtenTitles()[0]).toBe('Title 00');
   });
 
-  it('retains both 20-result children through the tool: 40 cards, 40 artifact results', async () => {
+  /** Two Brave engines of 20 results each, behind one aggregate. */
+  function stubTwoBraves() {
     vi.stubGlobal(
       'fetch',
       vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -592,16 +593,22 @@ describe('aggregate candidate retention', () => {
         );
       }),
     );
+  }
+
+  const twoBraveEngines: WebSearchConfig['engines'] = [
+    { id: 'a', type: 'brave', key: 'a-key', timeoutSeconds: 60 },
+    { id: 'b', type: 'brave', key: 'b-key', timeoutSeconds: 60 },
+    { id: 'agg', type: 'aggregate', engines: ['a', 'b'] },
+  ];
+
+  it('retains both 20-result children through the tool: 40 cards, 40 artifact results', async () => {
+    stubTwoBraves();
     try {
       const spy = vi.fn<JudgeFn>(byKeyNumber((n) => n));
       const context = testContext({
         decisions: { judgeCandidates: spy, protectText: (_m, t) => t },
         webSearch: {
-          engines: [
-            { id: 'a', type: 'brave', key: 'a-key', timeoutSeconds: 60 },
-            { id: 'b', type: 'brave', key: 'b-key', timeoutSeconds: 60 },
-            { id: 'agg', type: 'aggregate', engines: ['a', 'b'] },
-          ],
+          engines: twoBraveEngines,
           chain: ['agg'],
           fetchLimit: 20,
           rerank: { model: 'jev' },
@@ -610,10 +617,33 @@ describe('aggregate candidate retention', () => {
       const result = await webSearchTool.execute(context, {
         query: 'query text',
         limit: 10,
+        objective: 'find the thing',
       });
       expect(spy.mock.calls[0][0].cards).toHaveLength(40);
+      expect(spy.mock.calls[0][0].objective).toBe('find the thing');
       expect(titles(result)).toHaveLength(10);
       expect(writtenTitles()).toHaveLength(40);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the fetch-size cut through the tool when no model is configured', async () => {
+    stubTwoBraves();
+    try {
+      const context = testContext({
+        webSearch: {
+          engines: twoBraveEngines,
+          chain: ['agg'],
+          fetchLimit: 20,
+        },
+      });
+      const result = await webSearchTool.execute(context, {
+        query: 'query text',
+        limit: 10,
+      });
+      expect(titles(result)).toHaveLength(10);
+      expect(writtenTitles()).toHaveLength(20);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -746,5 +776,169 @@ describe('decision-key replacement', () => {
       inlineCall,
     );
     expect(renderWebSearchText(result)).toContain(KEY);
+  });
+});
+
+describe('what the lane receives', () => {
+  it('sends the run id, the call objective and the enclosing signal', async () => {
+    const controller = new AbortController();
+    const { spy, context } = lane(byKeyNumber(() => 0.5));
+    await spillWebSearchResult(
+      { ...context, abortSignal: controller.signal },
+      source(results(12)),
+      { ...inlineCall, objective: 'find the thing' },
+    );
+    const input = spy.mock.calls[0][0];
+    expect(input.runId).toBe('run');
+    expect(input.objective).toBe('find the thing');
+    expect(input.abortSignal).toBe(controller.signal);
+  });
+
+  it('leaves out an absent objective and signal and sends an empty run id', async () => {
+    const { spy, context } = lane(byKeyNumber(() => 0.5));
+    await spillWebSearchResult(
+      { ...context, runId: undefined },
+      source(results(12)),
+      inlineCall,
+    );
+    const input = spy.mock.calls[0][0];
+    expect(input.runId).toBe('');
+    expect(Object.keys(input)).not.toContain('objective');
+    expect(Object.keys(input)).not.toContain('abortSignal');
+  });
+
+  it('pads a ten-result set to one digit', async () => {
+    const { spy, context } = lane(byKeyNumber(() => 0.5));
+    await spillWebSearchResult(context, source(results(10)), {
+      limit: 5,
+      fetchSize: 20,
+    });
+    const keys = spy.mock.calls[0][0].cards.map((card) => card.key);
+    expect(keys).toEqual(Array.from({ length: 10 }, (_unused, i) => `p${i}`));
+  });
+
+  it('falls back to the URL for a blank title and drops an empty snippet', async () => {
+    const { spy, context } = lane(byKeyNumber(() => 0.5));
+    const list = results(12);
+    list[0] = resultAt(0, { title: '   ', snippet: '' });
+    list[1] = resultAt(1, { snippet: undefined });
+    await spillWebSearchResult(context, source(list), inlineCall);
+    const cards = spy.mock.calls[0][0].cards;
+    expect(cards[0].text).toBe('[p00] https://example.test/r/0 — example.test');
+    expect(cards[1].text).toBe('[p01] Title 01 — example.test');
+  });
+
+  it('keeps a title that has text and joins its lines', async () => {
+    const { spy, context } = lane(byKeyNumber(() => 0.5));
+    const list = results(12);
+    list[0] = resultAt(0, { title: '  A\nB ', snippet: 'x\ny' });
+    await spillWebSearchResult(context, source(list), inlineCall);
+    expect(spy.mock.calls[0][0].cards[0].text).toBe(
+      '[p00] A B — example.test — x y',
+    );
+  });
+});
+
+describe('answers and citations of a results call', () => {
+  it('replaces the key in the merged answers and their citations', async () => {
+    const { context } = lane(byKeyNumber((n) => n));
+    const result = await spillWebSearchResult(
+      context,
+      source(results(12), {
+        answers: [
+          {
+            engine: 'hosted',
+            answer: `answer ${KEY} end`,
+            citations: [
+              {
+                url: `https://example.test/c?k=${KEY}`,
+                title: `cited ${KEY} title`,
+              },
+              { url: 'https://example.test/untitled' },
+            ],
+          },
+        ],
+      }),
+      inlineCall,
+    );
+    const rendered = renderWebSearchText(result) ?? '';
+    expect(JSON.stringify(result)).not.toContain(KEY);
+    expect(rendered).not.toContain(KEY);
+    expect(rendered).toContain('answer [REDACTED] end');
+    expect(JSON.stringify(result)).toContain('cited [REDACTED] title');
+    expect(rendered).toContain('https://example.test/untitled');
+  });
+
+  it('replaces the key in the title of an answer citation', async () => {
+    const { context } = lane(byKeyNumber((n) => n));
+    const result = await spillWebSearchResult(
+      context,
+      {
+        kind: 'answer',
+        engine: 'hosted',
+        query: 'q',
+        answer: 'text',
+        citations: [
+          { url: 'https://example.test/a', title: `cited ${KEY} title` },
+          { url: 'https://example.test/b' },
+        ],
+      },
+      inlineCall,
+    );
+    const rendered = renderWebSearchText(result) ?? '';
+    expect(rendered).not.toContain(KEY);
+    expect(JSON.stringify(result)).toContain('cited [REDACTED] title');
+  });
+});
+
+describe('which sources keep the whole merged set', () => {
+  const braveEntry: WebSearchConfig['engines'][number] = {
+    id: 'brave',
+    type: 'brave',
+    key: 'k',
+    timeoutSeconds: 60,
+  };
+  const call = { limit: 10, fetchSize: 20 };
+
+  it('stores only the fetch size for a single engine next to an aggregate', async () => {
+    const { context } = lane(
+      byKeyNumber((n) => n),
+      {
+        engines: [...AGGREGATE_ENGINES, braveEntry],
+      },
+    );
+    await spillWebSearchResult(context, source(results(40)), call);
+    expect(writtenTitles()).toHaveLength(20);
+  });
+
+  it('stores only the fetch size for an aggregate when no model is configured', async () => {
+    const { context } = lane(
+      byKeyNumber((n) => n),
+      {
+        engines: AGGREGATE_ENGINES,
+        rerank: false,
+      },
+    );
+    await spillWebSearchResult(
+      context,
+      source(results(40), { engine: 'agg' }),
+      call,
+    );
+    expect(writtenTitles()).toHaveLength(20);
+  });
+
+  it('stores only the fetch size when the winning engine is not configured as an aggregate', async () => {
+    const { context } = lane(
+      byKeyNumber((n) => n),
+      {
+        engines: [{ ...braveEntry, id: 'agg' }, braveEntry],
+      },
+    );
+    await spillWebSearchResult(
+      context,
+      source(results(40), { engine: 'agg' }),
+      call,
+    );
+    expect(writtenTitles()).toHaveLength(20);
   });
 });
