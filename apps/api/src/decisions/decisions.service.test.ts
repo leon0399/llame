@@ -568,14 +568,17 @@ describe('judgeCandidatesWith', () => {
       expect(client.requests).toHaveLength(0);
     });
 
-    it('passes the signal to every request and surfaces an abort as a rejection, not unavailable', async () => {
+    it('passes the signal to every request and surfaces an abort as a rejection after logging the call once', async () => {
       const controller = new AbortController();
       const reason = new Error('owner cancelled');
       const seen: Array<AbortSignal | undefined> = [];
       const lines: Array<unknown> = [];
+      const accepted = answering('m');
       const client: DecisionClient = {
         decide: (request) => {
           seen.push(request.signal);
+          // The first group is accepted before the abort; the rest never answer.
+          if (seen.length === 1) return Promise.resolve(accepted(request));
           return new Promise((_, reject) => {
             request.signal?.addEventListener('abort', () => reject(reason));
           });
@@ -592,7 +595,16 @@ describe('judgeCandidatesWith', () => {
       await expect(pending).rejects.toBe(reason);
       expect(seen).toHaveLength(3);
       expect(seen.every((signal) => signal === controller.signal)).toBe(true);
-      expect(lines).toHaveLength(0);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({
+        event: 'decision.completed',
+        status: 'answered',
+        requests: 3,
+        judged: 256,
+        inputTokens: 10,
+        outputTokens: 2,
+        costUsd: 0.1,
+      });
     });
 
     it('stops a retry wait and starts no new attempt when the enclosing call aborts', async () => {

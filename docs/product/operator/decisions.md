@@ -4,6 +4,9 @@ read_when:
   - you are wiring a Jev / System One decision endpoint into llame
   - you are enabling ranking of web_search or grep results
   - a decision call failed and you need to know whether the output changed
+behavior:
+  - ../reference/tools/web-search.md
+  - ../reference/tools/grep.md
 ---
 
 # Decisions

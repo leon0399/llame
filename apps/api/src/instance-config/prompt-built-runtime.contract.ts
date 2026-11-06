@@ -88,6 +88,10 @@ import '../skills/skill-target';
 // Same proof for `tools/prompts/*.md`, via the search-result notice.
 import '../tools/search-conversations';
 
+// Same proof for `decisions/prompts/*.md`: `decisions/decisions.service` renders
+// the relevance criteria and untrusted-state instruction at import.
+import '../decisions/decisions.service';
+
 // Verify the built runtime reads llame's version from the manifest beside
 // dist/ (design D6 of openspec/changes/opencode-go-provider). The call makes
 // `product-identity` resolve `apps/api/package.json` from its own compiled
