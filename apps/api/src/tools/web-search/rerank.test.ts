@@ -56,6 +56,7 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
       'web-search-rerank-test',
     ),
     artifactReadable: true,
+    configuredCredentials: [],
     tenantDb: {
       runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
