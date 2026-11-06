@@ -1549,27 +1549,35 @@ and name the path.
 ### Requirement: Configured credentials form one protected set
 
 At startup the API process MUST derive one set of configured credentials. The
-set MUST stay in process memory. The set MUST NOT change after startup. llame
-MUST NOT serialize it to an API, an event, a log, or model context. llame MUST
-NOT send it to a Machine or a remote host.
+set MUST stay in process memory and MUST NOT change after startup. llame MUST
+NOT serialize it to an API, an event, a log, or model context, or send it to a
+Machine or a remote host. llame sends values without the whitespace at their
+two ends. If that trimmed form of a member passes the gate, the trimmed form
+MUST also be a member.
 
 #### Scenario: The set is never serialized
 
 - **WHEN** a provider `key` resolves to `sk-canary-7Qx2Lm9Vb4Rt8Wn3` and an owner requests the model catalog or any other configuration-derived response
 - **THEN** no response contains `sk-canary-7Qx2Lm9Vb4Rt8Wn3`
 
+#### Scenario: A padded credential also counts trimmed
+
+- **WHEN** a provider `key` resolves to `sk-canary-7Qx2Lm9Vb4Rt8Wn3` with two spaces at each end
+- **THEN** the set contains the padded value and `sk-canary-7Qx2Lm9Vb4Rt8Wn3`
+
 #### Scenario: The set never reaches a Machine or a remote host
 
-- **WHEN** a run whose set holds `sk-canary-7Qx2Lm9Vb4Rt8Wn3` sends an `ssh://` command and a Machine command
-- **THEN** the request to the remote host and the request to the Machine contain no member
+- **WHEN** a run whose set holds `sk-canary-7Qx2Lm9Vb4Rt8Wn3` sends an `ssh://` command and a Machine command that do not contain it
+- **THEN** neither request to the remote host nor request to the Machine contains `sk-canary-7Qx2Lm9Vb4Rt8Wn3`
 
 ### Requirement: Only high-entropy values are members
 
-A member MUST have at least 16 characters. A member MUST also have an
-estimated entropy of at least 64 bits. The estimate MUST be the length times
-the Shannon entropy per character of the value's own character distribution.
-A value below either bound MUST NOT be a member, and llame does not redact it.
-llame MUST NOT detect a credential by its format.
+A member MUST have at least 16 characters and an estimated entropy of at
+least 64 bits. The estimate is the length times the Shannon entropy per
+character of the value's own characters. A value below either bound MUST NOT
+be a member, so llame does not redact it from a command result or an upstream
+failure. llame MUST NOT detect a credential by its format. llame still never
+writes a resolved secret value to its own logs, errors, or diagnostics.
 
 #### Scenario: A short or simple value is not a member
 
@@ -1611,12 +1619,13 @@ set MUST contain each web search engine `key` and the `github` web adapter
 
 ### Requirement: A selected JSON document contributes its credential leaves
 
-A selected document MUST contribute each credential-shaped string leaf. A
-name is credential-shaped when it contains, without regard to case,
-`authorization`, `cookie`, `credential`, `token`, `key`, `secret`, `passw`, or
-`signature`. Each leaf MUST pass the gate on its own, whether or not the
-selected value passes. Array elements count as leaves. The loader MUST read
-the leaves with the selected value.
+A `{path:…|json:…}` substitution in a member position selects a document. Each
+credential-shaped string leaf of that document that passes the gate MUST be a
+member, whether or not the selected value passes. A name is credential-shaped
+when it contains, without regard to case, `authorization`, `cookie`,
+`credential`, `token`, `key`, `secret`, `passw`, or `signature`. Array
+elements under such a name count as leaves. The loader MUST read the leaves in
+the same file read that selects the value.
 
 #### Scenario: A Codex auth document contributes its tokens
 
