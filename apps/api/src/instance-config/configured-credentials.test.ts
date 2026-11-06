@@ -17,6 +17,12 @@ function urlMembers(
   return collector.snapshot();
 }
 
+function postgresMembers(postgresUrl: string): ReadonlyArray<string> {
+  return new ConfiguredCredentialCollector({
+    POSTGRES_URL: postgresUrl,
+  }).snapshot();
+}
+
 describe('ConfiguredCredentialCollector — URL members', () => {
   it('skips a query value that decodes to whitespace', () => {
     expect(urlMembers('https://gw.example/v1?apiKey=%20')).toEqual(['%20']);
@@ -75,5 +81,57 @@ describe('ConfiguredCredentialCollector — URL members', () => {
     expect(urlMembers('https://gw.example/a@b/v1?apiKey=secret')).toEqual([
       'secret',
     ]);
+  });
+
+  it('reads a literal URL that begins with whitespace', () => {
+    expect(
+      urlMembers('  https://svc:pw-canary@gw.example/v1?apiKey=qs-canary'),
+    ).toEqual(['pw-canary', 'qs-canary']);
+  });
+
+  it('reads a slashless http URL that begins with whitespace', () => {
+    expect(urlMembers(' \thttp:svc:pw-canary@host/v1')).toEqual(['pw-canary']);
+  });
+
+  it('reads an {env:} URL whose value begins with whitespace', () => {
+    expect(
+      urlMembers('{env:BASE_URL}', {
+        BASE_URL: '  https://svc:pw-canary@gw.example/v1?apiKey=qs-canary',
+      }),
+    ).toEqual(['pw-canary', 'qs-canary']);
+  });
+
+  it('reads the password of a whitespace-prefixed POSTGRES_URL', () => {
+    expect(
+      postgresMembers('  postgres://app:pw-canary@db.example:5432/app'),
+    ).toContain('pw-canary');
+  });
+
+  it('adds a query substitution in written and percent-decoded spellings', () => {
+    expect(
+      urlMembers('https://gw.example/v1?auth={env:AUTH}', {
+        AUTH: 'secret%2Fcanary',
+      }),
+    ).toEqual(['secret%2Fcanary', 'secret/canary']);
+  });
+
+  it('adds a userinfo password substitution in written and percent-decoded spellings', () => {
+    expect(
+      urlMembers('https://svc:{env:PW}@gw.example/v1', {
+        PW: 'pw%2Fcanary',
+      }),
+    ).toEqual(['pw%2Fcanary', 'pw/canary']);
+  });
+
+  it('does not percent-decode a header substitution', () => {
+    const collector = new ConfiguredCredentialCollector({});
+    collector.addHeaderValue(
+      'x-trace',
+      interpolateStringWithSubstitutions('{env:TRACE}', {
+        TRACE: 'trace%2Fcanary',
+      }),
+      false,
+    );
+    expect(collector.snapshot()).toEqual(['trace%2Fcanary']);
   });
 });

@@ -2,7 +2,6 @@ import {
   isCredentialName,
   type InterpolationResult,
   type InterpolationSpan,
-  type InterpolationSubstitution,
 } from '@workspace/config-interpolation';
 import { normalizeProtectedValues } from '@workspace/runtime-safety';
 
@@ -109,15 +108,11 @@ export class ConfiguredCredentialCollector {
    * Every substitution of a credential-bearing value, excluding `:-` fallback
    * text (a default written in the file is not a secret), plus the credential
    * leaves of a selected JSON document when the token was `{path:…|json:…}`.
-   * `keep` narrows the substitutions a caller considers credential-bearing.
+   * The spelling is the one written: header and stdio values are not URLs.
    */
-  addSubstitutions(
-    result: InterpolationResult,
-    keep?: (substitution: InterpolationSubstitution) => boolean,
-  ): void {
+  addSubstitutions(result: InterpolationResult): void {
     for (const substitution of result.substituted) {
       if (substitution.fallback) continue;
-      if (keep !== undefined && !keep(substitution)) continue;
       this.add(substitution.value);
       for (const leaf of substitution.documentLeaves) this.add(leaf);
     }
@@ -132,14 +127,34 @@ export class ConfiguredCredentialCollector {
    */
   addUrlMembers(result: InterpolationResult): void {
     const spans = urlCredentialSpans(result.value);
-    this.addSubstitutions(
-      result,
-      (substitution) =>
-        within(spans.password, substitution) ||
-        within(spans.query, substitution),
-    );
+    this.addUrlSubstitutions(result, spans);
     this.addUserinfoMembers(result.value, spans);
     this.addQueryCredentialValues(result.value, spans);
+  }
+
+  /**
+   * A substitution resolved inside the userinfo password or the query, in the
+   * spelling written and its percent-decoded form: the URL may carry either
+   * (`secret%2Fcanary` travels as-is, `secret/canary` once a consumer decodes
+   * it). `:-` fallback text is not a secret.
+   */
+  private addUrlSubstitutions(
+    result: InterpolationResult,
+    spans: UrlCredentialSpans,
+  ): void {
+    for (const substitution of result.substituted) {
+      if (substitution.fallback) continue;
+      if (
+        !within(spans.password, substitution) &&
+        !within(spans.query, substitution)
+      ) {
+        continue;
+      }
+      this.addEncodedAndDecoded(substitution.value);
+      for (const leaf of substitution.documentLeaves) {
+        this.addEncodedAndDecoded(leaf);
+      }
+    }
   }
 
   /** Normalized (deduped, longest first) and deeply frozen. */
@@ -234,10 +249,11 @@ function within(
  * plus any slash run rather than after a literal `://`.
  */
 function urlCredentialSpans(url: string): UrlCredentialSpans {
-  const colon = schemeColon(url);
+  const start = leadingWhitespaceLength(url);
+  const colon = schemeColon(url, start);
   if (colon === undefined) return {};
   const query = querySpan(url, colon + 1);
-  const scheme = url.slice(0, colon).toLowerCase();
+  const scheme = url.slice(start, colon).toLowerCase();
   const hasAuthority =
     scheme === 'http' || scheme === 'https' || url.startsWith('//', colon + 1);
   if (!hasAuthority) return query === undefined ? {} : { query };
@@ -254,11 +270,46 @@ function urlCredentialSpans(url: string): UrlCredentialSpans {
   };
 }
 
-/** The index of the scheme's `:`, when `url` starts with a valid scheme. */
-function schemeColon(url: string): number | undefined {
-  const colon = url.indexOf(':');
-  if (colon <= 0) return undefined;
-  return /^[A-Za-z][A-Za-z0-9+.-]*$/u.test(url.slice(0, colon))
+/**
+ * The number of leading whitespace characters. The loader trims a resolved URL
+ * before it stores or validates it, but the scanner reads the raw resolved
+ * string so substitution offsets still line up: a padded literal or `{env:…}`
+ * value must not hide its scheme.
+ */
+function leadingWhitespaceLength(url: string): number {
+  let index = 0;
+  while (index < url.length && isWhitespace(url.charCodeAt(index))) {
+    index += 1;
+  }
+  return index;
+}
+
+/** The ECMAScript `WhiteSpace`/`LineTerminator` set, which `trim()` applies. */
+function isWhitespace(code: number): boolean {
+  return (
+    code === 0x20 ||
+    (code >= 0x09 && code <= 0x0d) ||
+    code === 0xa0 ||
+    code === 0x16_80 ||
+    (code >= 0x20_00 && code <= 0x20_0a) ||
+    code === 0x20_28 ||
+    code === 0x20_29 ||
+    code === 0x20_2f ||
+    code === 0x20_5f ||
+    code === 0x30_00 ||
+    code === 0xfe_ff
+  );
+}
+
+/**
+ * The index of the scheme's `:`, when the substring from `from` starts with a
+ * valid scheme. `from` is the first non-whitespace character; spans stay in
+ * raw-string coordinates so they still match substitution spans.
+ */
+function schemeColon(url: string, from: number): number | undefined {
+  const colon = url.indexOf(':', from);
+  if (colon <= from) return undefined;
+  return /^[A-Za-z][A-Za-z0-9+.-]*$/u.test(url.slice(from, colon))
     ? colon
     : undefined;
 }
