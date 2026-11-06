@@ -2,6 +2,8 @@ import {
   EngineFailure,
   canonicalizeCitations,
   canonicalizeResults,
+  distinctResults,
+  groupingKey,
   isFailureClass,
   isGrounded,
   runOne,
@@ -33,6 +35,8 @@ type ChildRun = { readonly child: AggregateChild } & (
       readonly kind: 'answer';
       readonly answer: string;
       readonly citations: ReadonlyArray<RawCitation>;
+      /** How many citations become merge candidates: the child's fetch bound. */
+      readonly candidateBound: number;
       readonly notes?: ReadonlyArray<string>;
     }
   | {
@@ -74,11 +78,12 @@ function classifyOutcome(
       kind: 'answer',
       answer: outcome.answer,
       citations,
+      candidateBound: limit,
       notes: outcome.notes,
     };
   }
   // Each child holds its own fetch bound, whatever it returned.
-  const results = canonicalizeResults(outcome.results).slice(0, limit);
+  const results = distinctResults(canonicalizeResults(outcome.results), limit);
   return results.length === 0
     ? { child, kind: 'empty', notes: outcome.notes }
     : { child, kind: 'results', results, notes: outcome.notes };
@@ -92,18 +97,6 @@ async function runChild(
   return isFailureClass(outcome)
     ? { child, kind: 'failure', failureClass: outcome }
     : classifyOutcome(child, outcome, request.limit);
-}
-
-/**
- * The key that makes two spellings of one page the same result: the canonical
- * URL without a leading `www.` and without a trailing `/`.
- */
-export function groupingKey(rawUrl: string): string {
-  const url = new URL(rawUrl);
-  if (url.hostname.startsWith('www.'))
-    url.hostname = url.hostname.slice('www.'.length);
-  if (url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
-  return url.href;
 }
 
 function isNonEmpty(value: string | undefined): value is string {
@@ -150,7 +143,7 @@ function groupResult(group: ResultGroup): RawResult {
 function runResults(run: ChildRun): ReadonlyArray<RawResult> {
   if (run.kind === 'results') return run.results;
   if (run.kind !== 'answer') return [];
-  return run.citations.map((citation) => ({
+  return run.citations.slice(0, run.candidateBound).map((citation) => ({
     title: citation.title ?? '',
     url: citation.url,
   }));

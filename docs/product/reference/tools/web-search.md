@@ -147,8 +147,8 @@ without a trailing `/`. The first spelling wins, no note is added, and every
 later step — the ranking guard, the inline cut, the `left out` count, and the
 artifact — works on the deduplicated results.
 
-With the tool's `webSearch.rerank` block set (`{ model: <decisionModels[] id> }`,
-see [Decisions](../../operator/decisions.md)), every `results` outcome is
+When the operator enables ranking (see
+[Decisions](../../operator/decisions.md)), every `results` outcome is
 ranked, whichever engine answered, unless the whole result fits inline: at most
 `limit` deduplicated results and rendered text within 15,000 units. There is no
 minimum result count. An `answer` outcome is never ranked. A ranked call sends
@@ -220,7 +220,7 @@ Titles, snippets, answers, notes, and citations may be stale or contain prompt-i
 
 ## Bounds
 
-Lengths are JavaScript UTF-16 code units, cut only at code-point boundaries: `query` 1-1,000; `objective` 1-2,000; result/citation titles 200 each; snippets 300 each; `answer` 8,000; URLs 2,048 each; at most 20 citations (deduplicated by URL); at most 10 notes of 200 each (the tenth records any remainder); inline output at most 15,000 UTF-16 units. The normalized output holds at most `max(limit, webSearch.fetchLimit)` results.
+Lengths are JavaScript UTF-16 code units, cut only at code-point boundaries: `query` 1-1,000; `objective` 1-2,000; result/citation titles 200 each; snippets 300 each; `answer` 8,000; URLs 2,048 each; at most 20 citations (deduplicated by URL); at most 10 notes of 200 each (the tenth records any remainder); inline output at most 15,000 UTF-16 units. The normalized output holds at most `max(limit, webSearch.fetchLimit)` results. With ranking enabled, an aggregate's stored artifact holds every merged candidate, bounded by the sum of its children's fetch sizes, rather than only the inline `limit`.
 Requested `limit` remains 1-20. An engine's vendor query limit is shorter for some types (600 code points and 75 words on `brave`), and a longer query skips that engine as `unsupported`. `published` is kept only for an ISO 8601 date. If the inline text exceeds its bound, trailing results/citations are dropped with a note (URLs are never cut); an answer keeps its first citation and its text is cut further if needed. Each attached answer has at most 8,000 units and 20 citations. An aggregate output over its inline bound drops result entries from the end first, then citations from the last answer's end while each answer keeps one, then answer text from the last answer backwards, then whole answers from the end; each step adds one note with its count. Every entry the inline text leaves out stays in `artifact://web_search-<n>` when the Run can read it.
 
 ## Errors

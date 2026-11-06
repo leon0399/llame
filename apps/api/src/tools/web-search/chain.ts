@@ -167,6 +167,38 @@ export function canonicalizeResults(
   });
 }
 
+/**
+ * The key that makes two spellings of one page the same result: the canonical
+ * URL without a leading `www.` and without a trailing `/`.
+ */
+export function groupingKey(rawUrl: string): string {
+  const url = new URL(rawUrl);
+  if (url.hostname.startsWith('www.'))
+    url.hostname = url.hostname.slice('www.'.length);
+  if (url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
+  return url.href;
+}
+
+/**
+ * The first `limit` results that differ by grouping key, first spelling wins,
+ * so a repeated page does not use a slot of the fetch bound.
+ */
+export function distinctResults(
+  results: ReadonlyArray<RawResult>,
+  limit: number,
+): Array<RawResult> {
+  const seen = new Set<string>();
+  const distinct: Array<RawResult> = [];
+  for (const result of results) {
+    if (distinct.length === limit) break;
+    const key = groupingKey(result.url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(result);
+  }
+  return distinct;
+}
+
 export function canonicalizeCitations(
   citations: ReadonlyArray<RawCitation>,
 ): Array<RawCitation> {
@@ -473,7 +505,7 @@ function classifyOutcome(
   // An engine holds its own fetch bound; an aggregate keeps its merged set.
   const success =
     canonical.kind === 'results' && limit !== undefined
-      ? { ...canonical, results: canonical.results.slice(0, limit) }
+      ? { ...canonical, results: distinctResults(canonical.results, limit) }
       : canonical;
   if (
     success.kind === 'empty' ||

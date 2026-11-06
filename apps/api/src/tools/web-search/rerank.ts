@@ -22,8 +22,8 @@ import {
 } from '../../ranking/rank-cards';
 import { WEB_SEARCH_RERANK_RUBRIC } from '../../ranking/rubrics';
 import { type ToolContext } from '../types';
-import { groupingKey } from './aggregate';
 import {
+  groupingKey,
   type RawAnswer,
   type RawCitation,
   type RawResult,

@@ -377,13 +377,19 @@ describe('the fits-inline guard', () => {
   });
 
   it('ranks the results of a parallel engine like any other', async () => {
-    const { spy, context } = lane(byKeyNumber((n) => n));
-    await spillWebSearchResult(
+    const { spy, context } = lane(byKeyNumber((n) => n / 100));
+    const result = await spillWebSearchResult(
       context,
       source(results(12), { engine: 'parallel' }),
       inlineCall,
     );
     expect(spy).toHaveBeenCalledOnce();
+    expect(titles(result)).toEqual(
+      results(12)
+        .slice(2)
+        .reverse()
+        .map((item) => item.title),
+    );
   });
 });
 

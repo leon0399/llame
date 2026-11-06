@@ -721,6 +721,46 @@ it('drops an answer child that loses every citation to removal', async () => {
   });
 });
 
+describe('child bounds under retained merging', () => {
+  it('bounds a child that repeats pages by distinct results', async () => {
+    const engine = createAggregateEngine(
+      [
+        child('a', () =>
+          results(
+            result('https://example.test/0'),
+            result('https://www.example.test/0/'),
+            result('https://example.test/1'),
+            result('https://example.test/2'),
+            result('https://example.test/3'),
+          ),
+        ),
+      ],
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 3));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results.map((entry) => entry.url)).toStrictEqual([
+      'https://example.test/0',
+      'https://example.test/1',
+      'https://example.test/2',
+    ]);
+  });
+
+  it('merges only the first limit citations of an answer child, and attaches all', async () => {
+    const citations = Array.from({ length: 6 }, (_unused, index) => ({
+      url: `https://example.test/c${index}`,
+    }));
+    const engine = createAggregateEngine(
+      [child('a', () => answer('text', citations))],
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 3));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(3);
+    expect(output.answers?.[0].citations).toHaveLength(6);
+  });
+});
+
 describe('merged candidate retention', () => {
   const distinct = (id: string, count: number): Promise<EngineOutcome> =>
     results(
