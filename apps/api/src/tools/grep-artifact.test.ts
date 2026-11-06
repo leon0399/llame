@@ -1062,7 +1062,7 @@ describe('grep rerank', () => {
     const openWalk: KnowledgeFilesystemAdapter['openWalk'] =
       // eslint-disable-next-line @typescript-eslint/unbound-method -- captured unbound and re-invoked with an explicit receiver below.
       KnowledgeFilesystemAdapter.prototype.openWalk;
-    let finished = 0;
+    const finished = new Set<string>();
     vi.spyOn(
       KnowledgeFilesystemAdapter.prototype,
       'openWalk',
@@ -1085,8 +1085,22 @@ describe('grep rerank', () => {
         close: () => opened.close(),
         chunks: (async function* () {
           for await (const chunk of chunks) yield chunk;
-          finished += 1;
-          if (finished === 3) vi.setSystemTime(108_001);
+          finished.add(file);
+          // Reads run ahead concurrently. The deadline passes once the walk
+          // has taken a.md and b.md and finishes c.md, whatever order the
+          // reads end in: c.md waits for the two earlier reads, then lets the
+          // walk take them before the clock moves.
+          if (path.basename(file) !== 'c.md') return;
+          while (
+            !['a.md', 'b.md'].every((name) =>
+              [...finished].some((done) => path.basename(done) === name),
+            )
+          )
+            await new Promise((resolve) => setImmediate(resolve));
+          // Real time on purpose: only the clock is faked, and the walk's
+          // own reads need real turns to take the earlier files.
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          vi.setSystemTime(108_001);
         })(),
       };
     });
@@ -1148,7 +1162,7 @@ describe('grep rerank', () => {
       // The enclosing 120-second deadline then aborts the rank: a timeout,
       // with no failure line kept.
       vi.setSystemTime(0);
-      finished = 0;
+      finished.clear();
       const closed = new AbortController();
       const timeout = new DOMException('tool timeout', 'TimeoutError');
       await expect(
