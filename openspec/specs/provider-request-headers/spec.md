@@ -39,7 +39,7 @@ map is server-only and SHALL NOT be returned by the models endpoint.
 
 ### Requirement: Provider types supply default headers under the operator map
 
-Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session:id}" }` for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`, and an empty map for `openai-codex`. The effective map SHALL be the default with the operator's map laid over it key by key, comparing names by ASCII case-folding: a string replaces the default, and `null` removes a default entry.
+Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex` and for `system-one`. The effective map MUST be the default map with the operator map laid over it key by key. The system compares names without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
 
 #### Scenario: An entry without a map sends the default
 
@@ -49,7 +49,7 @@ Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session
 #### Scenario: Null removes a default header
 
 - **WHEN** an `anthropic-messages` entry declares `"headers": { "x-session-id": null }`
-- **THEN** its requests carry no `X-Session-Id` header under any casing
+- **THEN** its requests carry no `X-Session-Id` header in any letter case
 
 #### Scenario: An operator value replaces a default
 
@@ -65,6 +65,11 @@ Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session
 
 - **WHEN** an `openai-codex` entry declares `"headers": { "X-Session-Id": "{session:id}" }`
 - **THEN** its requests carry `X-Session-Id` rendered from the request's Chat identity
+
+#### Scenario: A decision provider sends no default header
+
+- **WHEN** a `system-one` entry declares no `headers`
+- **THEN** its requests carry no header from a default map
 
 ### Requirement: Operator header values take precedence over the client's own
 
@@ -99,11 +104,18 @@ An operator string value SHALL replace any header llame's client sets under the 
 
 ### Requirement: Header values are templates resolved at startup
 
-A header string value SHALL resolve `{env:…}` and `{path:…}` once at startup under the existing interpolation rules and SHALL render `{session:id}` per request. Any other `{name:…}` token SHALL fail startup naming the path. A value that renders empty SHALL send no operator or default value for that header. Interpolated output SHALL NOT be rescanned for `{session:id}`.
+A header string MUST resolve `{env:…}` and `{path:…}` once at startup under
+the existing interpolation rules.
+For providers other than `system-one`, it MUST render `{session:id}` per request.
+For `system-one`, an authored `{session:id}` token MUST fail startup and
+name the provider id and header.
+Any other `{name:…}` token MUST fail startup and name the path.
+An empty render MUST send no operator or default value for that header.
+The system MUST NOT rescan interpolated output for `{session:id}`.
 
 #### Scenario: Interpolation and the variable combine
 
-- **WHEN** a value is `"{env:DEPLOY}:{session:id}"` and `DEPLOY` is `prod`
+- **WHEN** a value is `"{env:DEPLOY}:{session:id}"` on a chat provider and `DEPLOY` is `prod`
 - **THEN** a main-lane request for Chat `c1` carries the value `prod:c1`
 
 #### Scenario: Interpolated text is not rescanned
@@ -114,12 +126,12 @@ A header string value SHALL resolve `{env:…}` and `{path:…}` once at startup
 #### Scenario: An unknown variable fails startup
 
 - **WHEN** a value contains `{sesion:id}`
-- **THEN** startup fails naming the header path
+- **THEN** startup fails and names the header path
 - **AND** the token is never sent verbatim
 
 #### Scenario: An empty value omits the header
 
-- **WHEN** a value is `"{env:TAG:-}"` for a header the client does not set itself, and `TAG` is unset
+- **WHEN** `TAG` is unset and `"{env:TAG:-}"` defines a header that the client does not set
 - **THEN** requests carry no header of that name
 
 ### Requirement: The session variable renders the Chat identity per lane
@@ -169,3 +181,14 @@ credential").
 
 - **WHEN** a header value's `{env:…}` token resolves to text with a line feed
 - **THEN** startup fails, names the header path, and does not print the resolved value
+
+### Requirement: A decision provider header cannot name the session
+
+An authored header value of a `system-one` entry MUST NOT contain
+`{session:id}`. Startup MUST fail and name the provider id and header name.
+
+#### Scenario: A decision provider header names the session
+
+- **WHEN** a `system-one` entry declares `"headers": { "X-Tag": "{session:id}" }`
+- **THEN** startup fails
+- **AND** the message names the provider id and the header `X-Tag`

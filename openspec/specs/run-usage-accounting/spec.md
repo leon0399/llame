@@ -8,14 +8,32 @@ Defines what an assistant message's usage and estimated cost cover across the mo
 
 ### Requirement: Message usage aggregates every model request of its attempt
 
-An assistant message's persisted usage SHALL be the sum of the provider-reported usage of every model request made by the Run attempt that produced it, including tool-requesting requests and the final answer. Each request's usage SHALL be normalized on its own before summing: cached-input and cache-write tokens SHALL each be bounded within that request's input total, and total tokens SHALL be at least that request's input plus output. Reasoning tokens SHALL be treated as a subset of output tokens and SHALL NOT be added to output. The aggregate SHALL NOT include usage from compaction or title-generation requests. A hosted-search sub-request of a `web-search` model-hosted engine is not a model request of the attempt for any requirement of this capability, so it adds no usage, measured context size, reasoning count, or completeness condition.
+An assistant message's persisted usage MUST sum the provider-reported usage
+of every model request from the Run attempt that produced it.
+This includes requests for tools and the final answer.
+The system MUST normalize each request before the sum.
+Each request's cached-input and cache-write tokens MUST stay within its input total.
+Its total tokens MUST be at least its input plus output.
+Reasoning tokens MUST count as a subset of output, not as extra output.
+The aggregate MUST exclude compaction and title-generation requests.
+A hosted-search sub-request of a `web-search` model-hosted engine is not a
+model request of the attempt for this capability.
+A decision request from a tool's rank call is also not a model request of
+the attempt for this capability.
+These sub-requests MUST NOT add usage, estimated cost, measured context size,
+reasoning count, or a completeness condition.
 
-Alongside the aggregate, the same persisted usage SHALL record the attempt's final completed model request's input plus output tokens as that attempt's measured context size, in a separate field that is never added to the aggregate. When that final request reported neither an input nor an output count, the measured context size SHALL be absent rather than zero or estimated.
+The same persisted usage MUST record the final completed model request's
+input plus output as the attempt's measured context size.
+This separate field MUST NOT add to the aggregate.
+If that final request reports neither input nor output, the field MUST be absent,
+not zero or an estimate.
 
 #### Scenario: A two-request tool loop sums both requests
 
-- **WHEN** an attempt makes a tool-requesting request reporting 1,000 input, 0 cached, 200 output, and 150 reasoning tokens, then an answer request reporting 1,400 input, 1,000 cached, 100 output, and 60 reasoning tokens
-- **THEN** the assistant message usage records 2,400 input, 1,000 cached-input, 300 output, 210 reasoning, and 2,700 total tokens
+- **WHEN** a tool request reports 1,000 input, 0 cached, 200 output, and 150 reasoning tokens
+- **AND** the final answer request reports 1,400 input, 1,000 cached, 100 output, and 60 reasoning tokens
+- **THEN** usage records 2,400 input, 1,000 cached-input, 300 output, 210 reasoning, and 2,700 total tokens
 
 #### Scenario: A single-request turn is unchanged
 
@@ -24,26 +42,32 @@ Alongside the aggregate, the same persisted usage SHALL record the attempt's fin
 
 #### Scenario: Cache subsets stay bounded per request
 
-- **WHEN** one request of a loop reports cached-input plus cache-write tokens exceeding its input total
-- **THEN** that request's cache subsets are bounded within its own input total before summing
+- **WHEN** one request of a loop reports cached-input plus cache-write tokens that exceed its input total
+- **THEN** that request's cache subsets stay within its own input total before the sum
 - **AND** no other request's input absorbs the excess
 
 #### Scenario: The measured context size sits outside the aggregate
 
 - **WHEN** the two-request tool loop above completes
-- **THEN** the assistant message usage records 1,500 as that attempt's measured context size
+- **THEN** usage records 1,500 as that attempt's measured context size
 - **AND** the aggregate stays at 2,400 input and 2,700 total tokens
 
 #### Scenario: A final request without counts records no measured size
 
-- **WHEN** an attempt's final completed model request reported neither an input nor an output count
-- **THEN** the persisted usage records no measured context size
-- **AND** the aggregate still records the requests that did report
+- **WHEN** the final completed model request reports neither input nor output
+- **THEN** persisted usage records no measured context size
+- **AND** the aggregate still records the requests that report counts
 
 #### Scenario: A pre-step compaction is not added to the message
 
-- **WHEN** the Run's first model step is preceded by a compaction whose request reports usage
-- **THEN** the assistant message usage is unchanged by the compaction request
+- **WHEN** a compaction request reports usage before the Run's first model step
+- **THEN** the compaction request changes no assistant message usage
+
+#### Scenario: A decision request does not affect attempt measurements
+
+- **WHEN** a tool's rank call reports tokens and cost during the two-request loop above
+- **THEN** usage stays at 2,400 input and 2,700 total tokens, with a measured context size of 1,500
+- **AND** the decision request changes no estimated message cost, reasoning count, or usage completeness condition
 
 ### Requirement: Estimated cost prices each request before summing
 
@@ -411,15 +435,26 @@ When usage records `billing: "subscription"` and a cost, the owner-facing usage 
 
 ### Requirement: Compaction and title spend stay separate categories
 
-Assistant message usage SHALL cover only the Run's own model requests. A published compaction's usage SHALL remain a single-request receipt on the checkpoint message row it was written to. Compaction requests that publish no checkpoint, title-generation requests, and the hosted-search sub-requests of `web-search` model-hosted engines are not recorded by this capability.
+Assistant message usage MUST cover only the Run's own model requests.
+A published compaction's usage MUST remain a single-request receipt on its
+checkpoint message row.
+This capability MUST NOT record unpublished compaction requests or title-generation requests.
+It MUST NOT record hosted-search sub-requests of `web-search` model-hosted engines
+or tool rank requests to decision models.
 
 #### Scenario: A compaction keeps its own receipt
 
-- **WHEN** a Run's first model request is preceded by a compaction that publishes a checkpoint
-- **THEN** the compaction's usage is recorded on that checkpoint message row as that one request's usage
+- **WHEN** a compaction publishes a checkpoint before a Run's first model request
+- **THEN** that checkpoint message row records the one compaction request's usage
 - **AND** no assistant message usage includes the compaction request
 
 #### Scenario: A hosted web search is not added to the message
 
-- **WHEN** a Run's tool call is answered by a model-hosted web search engine whose sub-request reports usage
-- **THEN** the assistant message usage, measured context size, and estimated cost are unchanged by that sub-request
+- **WHEN** a model-hosted web search engine answers a tool call and its sub-request reports usage
+- **THEN** that sub-request changes no assistant message usage, measured context size, or estimated cost
+
+#### Scenario: A decision rank call keeps its separate provenance
+
+- **WHEN** a successful decision rank call reports cost and latency
+- **THEN** the tool part keeps its `display.rerank` record
+- **AND** no assistant message usage includes that decision request
