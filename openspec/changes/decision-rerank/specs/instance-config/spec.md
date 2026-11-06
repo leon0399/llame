@@ -67,7 +67,7 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 
 #### Scenario: Duplicable providers of the same type coexist
 
-- **WHEN** the file defines two providers of the same `type` with different ids (e.g. two `openai-completions` endpoints on different `baseUrl`s, or two `openai-responses` providers with different keys)
+- **WHEN** the file defines two providers of the same `type` with different ids
 - **THEN** both load as different providers keyed by `id`
 - **AND** startup succeeds
 
@@ -89,7 +89,8 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 
 #### Scenario: Anthropic provider loads by shape
 
-- **WHEN** the file defines a `type: "anthropic-messages"` provider with no `baseUrl`, and another provider with a `baseUrl` on a non-Anthropic host and a `key` that resolves to empty
+- **WHEN** the file defines an `anthropic-messages` provider with no `baseUrl`
+- **AND** another such provider targets a non-Anthropic host with a `key` that resolves to empty
 - **THEN** both load as different providers keyed by `id`
 - **AND** the first provider targets the Anthropic API, and the second provider stays keyless against its authored base URL
 - **AND** startup succeeds and contacts no endpoint
@@ -132,7 +133,7 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 
 #### Scenario: Missing or invalid Codex configuration
 
-- **WHEN** a Codex credential file is absent, its JSON is invalid, its pointer is absent or not a string, either resolved credential is blank, or a forbidden endpoint field is present
+- **WHEN** a Codex entry has an absent credential file, invalid JSON or pointer, a blank resolved credential, or a forbidden endpoint field
 - **THEN** startup fails with a diagnostic that names the field, and shows no resolved value and no file content
 
 #### Scenario: Subscription provider cannot back embeddings

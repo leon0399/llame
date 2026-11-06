@@ -128,9 +128,9 @@ count. The deduplication MUST NOT add a note.
 
 ### Requirement: Results are ranked by the objective before the inline cut
 
-When `webSearch.rerank.model` is set and a call returns `kind: "results"`, the
-system MUST rank the results once, before the inline cut and the artifact,
-unless the next requirement applies. Each result MUST give one card
+When `webSearch.rerank.model` is set, the system MUST rank each `results`
+outcome unless the whole result fits inline. The rank MUST precede the
+inline cut and the artifact. Each result MUST give one card
 `[k] <title> — <host> — <snippet>` of at most 400 units. The key `k` MUST be
 `p<index>`: the zero-based engine position, zero-padded to the width of the
 last index. The system MUST judge each card against the `objective`, or against
@@ -165,10 +165,10 @@ the query when `objective` is absent.
 
 ### Requirement: A call that shows every result makes no decision call
 
-The system MUST make no decision call when the deduplicated results number at
-most `limit` and the inline text holds all of them within 15,000 units. No
-minimum number of results applies. Such a call MUST keep engine order and MUST
-NOT store `display.rerank`.
+The system MUST make no decision call when at most `limit` deduplicated
+results fit wholly within the 15,000-unit inline bound. No minimum number
+of results applies. Such a call MUST keep engine order and MUST NOT store
+`display.rerank`.
 
 #### Scenario: A fetched set within the limit makes no rank call
 

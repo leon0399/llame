@@ -155,9 +155,9 @@ The `read` group MUST admit a directory locator both as written and with a
 final separator before the result counts or names it. The walk MUST record at
 most 1,000 excluded directories for one call, across every scope. When it
 excludes more, `ignored.atLeast` MUST be `true`. The inline part MUST reserve
-room for the `ignored`, `unfinishedFile`, remainder, and artifact notice
-lines, and for the `[ranking unavailable; walk order]` line, so the tool loop
-never cuts the result.
+room for the `ignored`, `unfinishedFile`, remainder, artifact notice, and
+`[ranking unavailable; walk order]` lines. This reserve prevents a cut by the
+tool loop.
 
 #### Scenario: A refused directory is not named
 
@@ -190,11 +190,10 @@ never cuts the result.
 ### Requirement: The rank makes one card for each file run
 
 The tool MUST make one card for each file run. A card MUST hold the file path
-and up to three lines that match, inside 384 UTF-16 code units. The key of a
-card is `p<index>`: the zero-based canonical position of the run, zero-padded
-to the width of the last index, such as `p00` to `p29`. The tool MUST ask the
-decision model about every card, with the call's `objective` when the call
-sets one.
+and up to three lines that match, inside 384 UTF-16 code units. Each key
+MUST use the `p<index>` format. Its zero-based canonical index uses the width
+of the last index, such as `p00` to `p29`. The tool MUST ask the decision
+model about every card, with the call's `objective` when the call sets one.
 
 #### Scenario: A refused file supplies no card
 
