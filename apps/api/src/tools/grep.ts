@@ -186,12 +186,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     state,
     request.context,
     request.input.limit ?? GREP_LIMITS.filesPerPage,
-    {
-      patterns: request.input.patterns,
-      ...(request.input.objective !== undefined && {
-        objective: request.input.objective,
-      }),
-    },
+    request.input,
   );
 }
 

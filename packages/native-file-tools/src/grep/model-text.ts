@@ -547,6 +547,4 @@ export const GREP_RANKING_UNAVAILABLE_LINE =
   "[ranking unavailable; walk order]";
 
 /** Rendered width of the ranking-unavailable line and its newline. */
-export function grepRankingUnits(): number {
-  return GREP_RANKING_UNAVAILABLE_LINE.length + 1;
-}
+export const GREP_RANKING_UNITS = GREP_RANKING_UNAVAILABLE_LINE.length + 1;

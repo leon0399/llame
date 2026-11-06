@@ -284,6 +284,8 @@ export function grepArtifactFindings(
     if (block.newRun) {
       if (current !== undefined) findings.push(current);
       current = {
+        // The protected locator, deliberately: the decision key never reaches
+        // the database through findings.
         locators: [grepFileLocator(artifact.results[index].locator)],
         rule: 'allow_only',
         start,

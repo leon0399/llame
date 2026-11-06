@@ -57,7 +57,7 @@ export {
   grepPassageBlockLines,
   grepPassageContinues,
   grepPassageUnits,
-  grepRankingUnits,
+  GREP_RANKING_UNITS,
   grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,

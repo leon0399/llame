@@ -3,7 +3,7 @@ import {
   grepArtifactLines,
   grepIgnoredUnits,
   grepPassageUnits,
-  grepRankingUnits,
+  GREP_RANKING_UNITS,
   measureGrepRendering,
   renderGrepText,
 } from "./model-text";
@@ -429,6 +429,8 @@ describe("ranked grep run boundaries", () => {
   const x10 = passage("/x.ts:10-10", "10: a", [10]);
   const y5 = passage("/y.ts:5-5", "5: b", [5]);
   const x20 = passage("/x.ts:20-20", "20: c", [20]);
+  const headingsOf = (text: string) =>
+    text.split("\n").filter((line) => line.startsWith("## "));
   const ranked = (runLengths: ReadonlyArray<number>) => ({
     results: [x10, x20, y5],
     complete: true,
@@ -437,11 +439,7 @@ describe("ranked grep run boundaries", () => {
 
   it("keeps same-file runs a reorder placed side by side apart", () => {
     const text = renderGrepText(ranked([1, 1, 1]));
-    expect(text.split("\n").filter((line) => line.startsWith("## "))).toEqual([
-      "## /x.ts",
-      "## /x.ts",
-      "## /y.ts",
-    ]);
+    expect(headingsOf(text)).toEqual(["## /x.ts", "## /x.ts", "## /y.ts"]);
     expect(grepArtifactLines(ranked([1, 1, 1]))).toEqual([
       "## /x.ts",
       "*10: a",
@@ -458,10 +456,7 @@ describe("ranked grep run boundaries", () => {
       complete: true,
       display: { rerank: { runLengths: [2, 1] } },
     });
-    expect(text.split("\n").filter((line) => line.startsWith("## "))).toEqual([
-      "## /x.ts",
-      "## /y.ts",
-    ]);
+    expect(headingsOf(text)).toEqual(["## /x.ts", "## /y.ts"]);
   });
 
   it("consumes the lengths only through a truncated inline prefix", () => {
@@ -470,10 +465,7 @@ describe("ranked grep run boundaries", () => {
       complete: true,
       display: { rerank: { runLengths: [1, 1, 3] } },
     });
-    expect(text.split("\n").filter((line) => line.startsWith("## "))).toEqual([
-      "## /x.ts",
-      "## /x.ts",
-    ]);
+    expect(headingsOf(text)).toEqual(["## /x.ts", "## /x.ts"]);
   });
 
   it("derives a boundary past the lengths from the pair", () => {
@@ -482,9 +474,7 @@ describe("ranked grep run boundaries", () => {
       complete: true,
       display: { rerank: { runLengths: [1] } },
     });
-    expect(text.split("\n").filter((line) => line.startsWith("## "))).toEqual([
-      "## /x.ts",
-    ]);
+    expect(headingsOf(text)).toEqual(["## /x.ts"]);
   });
 
   it("ignores malformed lengths and never renders the record", () => {
@@ -494,9 +484,7 @@ describe("ranked grep run boundaries", () => {
       display: { rerank: { runLengths: [0, "a"], model: "jev-test" } },
     });
     expect(text).not.toContain("jev-test");
-    expect(text.split("\n").filter((line) => line.startsWith("## "))).toEqual([
-      "## /x.ts",
-    ]);
+    expect(headingsOf(text)).toEqual(["## /x.ts"]);
   });
 
   it("measures a passage after an explicit boundary", () => {
@@ -521,7 +509,7 @@ describe("grep ranking failure line", () => {
     expect(lines[3]).toBe("[ranking unavailable; walk order]");
     expect(lines[4]).toMatch(/^\[ignored /u);
     expect(lines[5]).toBe("[not searched to the end: /r/big.md]");
-    expect(grepRankingUnits()).toBe(lines[3].length + 1);
+    expect(GREP_RANKING_UNITS).toBe(lines[3].length + 1);
   });
 
   it("renders no line without the field", () => {

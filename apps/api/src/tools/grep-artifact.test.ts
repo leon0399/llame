@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import {
+  GREP_RANKING_UNITS,
   grepLeftOutUnits,
   measureGrepRendering,
   type GrepPassage,
@@ -30,7 +31,10 @@ import { z } from 'zod';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
+import {
+  KnowledgeFilesystemAdapter,
+  type KnowledgeWalkOpen,
+} from '../knowledge/knowledge-filesystem';
 import {
   type CandidateJudgement,
   type DecisionJudge,
@@ -914,13 +918,15 @@ describe('grep rerank', () => {
   });
 
   it('consumes the lengths only through a truncated final inline run', async () => {
-    const answers = lane({ p0: 0.1, p1: 0.9 });
+    // Canonical order x:10, y, x:20: three runs, two of one file. The rank
+    // puts the two x runs side by side and y last; the inline part ends after
+    // the second x run, so it consumes the lengths only that far.
+    const answers = lane({ p0: 0.9, p2: 0.8, p1: 0.1 });
     const result = await finishGrepCall(
       stateOf([
-        longPassage('/a.ts', 1),
-        longPassage('/a.ts', 10),
-        longPassage('/a.ts', 20),
-        longPassage('/b.ts', 1, 100),
+        longPassage('/x.ts', 10),
+        longPassage('/y.ts', 1),
+        longPassage('/x.ts', 20),
       ]),
       rankedContext(answers.decisions),
       20,
@@ -928,12 +934,17 @@ describe('grep rerank', () => {
     );
 
     expect(rerankOf(result)).toMatchObject({
-      order: ['p1', 'p0'],
-      runLengths: [1, 3],
+      order: ['p0', 'p2', 'p1'],
+      runLengths: [1, 1, 1],
     });
+    expect(resultsOf(result).map((entry) => entry.locator)).toEqual([
+      '/x.ts:10-10',
+      '/x.ts:20-20',
+    ]);
     const live = renderToolResultText('grep', result);
-    expect(headings(live)).toEqual(['## /b.ts', '## /a.ts']);
-    expect(resultsOf(result).length).toBeLessThan(4);
+    expect(headings(live)).toEqual(['## /x.ts', '## /x.ts']);
+    expect(remainderOf(result)?.files).toBe(1);
+    expect(renderToolResultText('grep', structuredClone(result))).toBe(live);
   });
 
   it('keeps walk order and says so after a failed rank call', async () => {
@@ -971,24 +982,40 @@ describe('grep rerank', () => {
   });
 
   it('reserves room for the ranking line whatever the inline fill', async () => {
-    for (let units = 8000; units < 8100; units += 1) {
+    // No artifact is readable, so the call takes the left-out path. The sweep
+    // covers every fill within the ranking line's width of the exact edge a
+    // reserve without that line would overrun.
+    const reserve = grepLeftOutUnits(999_999_999, 'results');
+    const edge = 15_000 - reserve - GREP_RANKING_UNITS;
+    const fit = (units: number) =>
+      measureGrepRendering({
+        results: [longPassage('/a.ts', 1), longPassage('/b.ts', 1, units)],
+        complete: true,
+      });
+    let swept = 0;
+    for (let units = 6000; units < 9000; units += 1) {
+      const filled = fit(units);
+      if (filled < edge - 1 || filled > edge + GREP_RANKING_UNITS + 1) continue;
+      swept += 1;
       const answers = lane('unavailable');
       const result = await finishGrepCall(
         stateOf([
-          longPassage('/a.ts', 1, 6000),
+          longPassage('/a.ts', 1),
           longPassage('/b.ts', 1, units),
-          longPassage('/c.ts', 1, 6000),
+          longPassage('/c.ts', 1),
         ]),
-        rankedContext(answers.decisions),
+        rankedContext(answers.decisions, { artifactReadable: false }),
         20,
         ASK,
       );
 
+      expect(success(result)).toHaveProperty('leftOut');
       expect(measureGrepRendering(success(result))).toBeLessThanOrEqual(15_000);
       expect(renderToolResultText('grep', result)).toContain(
         '[ranking unavailable; walk order]',
       );
     }
+    expect(swept).toBeGreaterThanOrEqual(GREP_RANKING_UNITS);
   });
 
   it('ranks the judged runs first when only some are answered', async () => {
@@ -1011,32 +1038,130 @@ describe('grep rerank', () => {
     });
   });
 
-  it('lets the 120-second enclosing deadline end rank work as a timeout', async () => {
-    await writePassageFiles(3);
-    // Rank work starts after the 108-second walk deadline; the enclosing
-    // 120-second deadline then aborts it, and the tool keeps no failure line.
-    const controller = new AbortController();
-    const timeout = new DOMException('tool timeout', 'TimeoutError');
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(0);
-    const decisions: DecisionJudge = {
-      judgeCandidates: () => {
+  it('ends the walk at 108 seconds before ranking and lets 120 seconds abort the rank', async () => {
+    const space = '44444444-4444-4444-8444-444444444444';
+    const body = `${'x'.repeat(6000)} needle`;
+    await writeAt(`kb/${space}/a.md`, body);
+    await writeAt(`kb/${space}/b.md`, body);
+    await writeAt(`kb/${space}/c.md`, body);
+    await writeAt(`kb/${space}/zz/d.md`, body);
+    await writeAt('d/later.ts', body);
+    const binding = {
+      id: space,
+      name: space,
+      root: path.join(root, 'kb'),
+      directory: path.join(root, 'kb', space),
+    };
+    const knowledgeResolver: KnowledgeToolResolver = {
+      listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+      resolveBindingForOwnerById: () => Promise.resolve(binding),
+      createAdapter: (resolved) => new KnowledgeFilesystemAdapter(resolved),
+    };
+    // The third file of the first scope ends its read at 108 seconds: the
+    // walk's own deadline passes while that scope is still being walked.
+    const openWalk: KnowledgeFilesystemAdapter['openWalk'] =
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- captured unbound and re-invoked with an explicit receiver below.
+      KnowledgeFilesystemAdapter.prototype.openWalk;
+    let finished = 0;
+    vi.spyOn(
+      KnowledgeFilesystemAdapter.prototype,
+      'openWalk',
+    ).mockImplementation(async function (
+      this: KnowledgeFilesystemAdapter,
+      file: string,
+      signal?: AbortSignal,
+    ): Promise<KnowledgeWalkOpen> {
+      // SAFETY: the captured method resolves exactly a KnowledgeWalkOpen.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- `.call` on the captured method is typed any by the linter.
+      const opened = (await openWalk.call(
+        this,
+        file,
+        signal,
+      )) as KnowledgeWalkOpen;
+      if ('kind' in opened) return opened;
+      const { chunks } = opened;
+      return {
+        size: opened.size,
+        close: () => opened.close(),
+        chunks: (async function* () {
+          for await (const chunk of chunks) yield chunk;
+          finished += 1;
+          if (finished === 3) vi.setSystemTime(108_001);
+        })(),
+      };
+    });
+    const args = {
+      patterns: ['needle'],
+      scopes: [`kb://${space}/`, `${root}/d/**`],
+      limit: 1,
+    };
+    const seen: Array<{
+      readonly now: number;
+      readonly keys: ReadonlyArray<string>;
+      readonly texts: string;
+      readonly signal: AbortSignal | undefined;
+    }> = [];
+    const decisionsOf = (
+      controller: AbortController,
+      timeout: DOMException | undefined,
+    ): DecisionJudge => ({
+      judgeCandidates: (input) => {
+        seen.push({
+          now: Date.now(),
+          keys: input.cards.map((card) => card.key),
+          texts: input.cards.map((card) => card.text).join('\n'),
+          signal: input.abortSignal,
+        });
+        if (timeout === undefined) {
+          return lane('unavailable').decisions.judgeCandidates(input);
+        }
         vi.setSystemTime(120_001);
         controller.abort(timeout);
         return Promise.reject(timeout);
       },
       protectText: (_model, text) => text,
-    };
+    });
+    vi.useFakeTimers({ toFake: ['Date'] });
     try {
+      // The walk's deadline passes inside the first scope: the second scope is
+      // never opened, the deadline warning stands, and the judge sees only
+      // the first scope's runs, under the enclosing signal.
+      vi.setSystemTime(0);
+      const open = new AbortController();
+      const result = await run(
+        rankedContext(decisionsOf(open, undefined), {
+          knowledgeResolver,
+          timeoutMs: 120_000,
+          abortSignal: open.signal,
+        }),
+        args,
+      );
+      expect(warningsOf(result)).toEqual(['deadline']);
+      expect(success(result).ranking).toBe('unavailable');
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.now).toBeGreaterThanOrEqual(108_001);
+      expect(seen[0]?.texts).toContain(`kb://${space}/a.md`);
+      expect(seen[0]?.texts).toContain(`kb://${space}/c.md`);
+      expect(seen[0]?.texts).not.toContain('later.ts');
+      expect(seen[0]?.signal).toBe(open.signal);
+
+      // The enclosing 120-second deadline then aborts the rank: a timeout,
+      // with no failure line kept.
+      vi.setSystemTime(0);
+      finished = 0;
+      const closed = new AbortController();
+      const timeout = new DOMException('tool timeout', 'TimeoutError');
       await expect(
         run(
-          rankedContext(decisions, {
+          rankedContext(decisionsOf(closed, timeout), {
+            knowledgeResolver,
             timeoutMs: 120_000,
-            abortSignal: controller.signal,
+            abortSignal: closed.signal,
           }),
-          { patterns: ['needle'], scopes: [`${root}/d/**`], limit: 1 },
+          args,
         ),
       ).rejects.toMatchObject({ name: 'TimeoutError' });
+      expect(seen[1]?.signal).toBe(closed.signal);
     } finally {
       vi.useRealTimers();
     }
@@ -1153,6 +1278,35 @@ describe('grep rerank', () => {
     );
     expect(first?.matches).toEqual([3]);
     expect(first?.locator.endsWith(':3-3')).toBe(true);
+  });
+
+  it('replaces the decision key in the unfinished file and ignored directories', async () => {
+    const answers = lane({ p0: 0.5, p1: 0.9, p2: 0.1 });
+    const state = stateOf([
+      longPassage('/a.ts', 1),
+      longPassage('/b.ts', 1),
+      longPassage('/c.ts', 1),
+    ]);
+    state.ignored.count = 1;
+    state.ignored.paths.push(`/r/${KEY}/dist`);
+    state.ignored.seen.add(`/r/${KEY}/dist`);
+    state.unfinished = `/r/${KEY}/big.log`;
+    const result = await finishGrepCall(
+      state,
+      rankedContext(answers.decisions),
+      20,
+      ASK,
+    );
+
+    const live = renderToolResultText('grep', result);
+    expect(live).toContain('/r/%5Bprotected%5D/dist');
+    expect(live).toContain('/r/[protected]/big.log');
+    expect(live).not.toContain(KEY);
+    expect(JSON.stringify(result)).not.toContain(KEY);
+    expect(artifactText()).not.toContain(KEY);
+    expect(renderToolResultText('grep', structuredClone(result))).not.toContain(
+      KEY,
+    );
   });
 
   it('preserves source text that resembles rank metadata', async () => {

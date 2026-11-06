@@ -18,13 +18,15 @@ import {
   oneLine,
   type GrepPassage,
 } from '@workspace/native-file-tools';
+import { codePointSafeCutIndex } from '@workspace/runtime-safety';
 
 import { type DecisionJudge } from '../decisions/decisions.service';
 import { rankCards, type RankCardsResult } from '../ranking/rank-cards';
 import {
+  artifactRunLengths,
   replaceArtifactPassages,
   type GrepArtifact,
-  type GrepRerankRecord,
+  type PageState,
 } from './grep-page';
 import { type ToolContext } from './types';
 
@@ -48,29 +50,20 @@ export type GrepFileRun = {
   readonly indices: ReadonlyArray<number>;
 };
 
-/** The outcome of one rank attempt. */
-export type GrepRanking =
-  | {
-      readonly status: 'ranked';
-      readonly runs: ReadonlyArray<GrepFileRun>;
-      readonly record: GrepRerankRecord;
-    }
-  | { readonly status: 'unavailable' };
-
 /** The runs of the artifact text, by its explicit run boundaries. */
 export function grepFileRuns(artifact: GrepArtifact): Array<GrepFileRun> {
-  const groups: Array<Array<number>> = [];
-  for (const [index, block] of artifact.blocks.entries()) {
-    if (block.newRun || groups.length === 0) groups.push([]);
-    // `groups.at(-1)` exists: the loop appended one when it was empty.
-    groups.at(-1)?.push(index);
-  }
-  const width = String(Math.max(groups.length - 1, 0)).length;
-  return groups.map((indices, position) => ({
-    key: `p${String(position).padStart(width, '0')}`,
-    path: grepFileLocator(artifact.results[indices[0]]?.locator ?? ''),
-    indices,
-  }));
+  const lengths = artifactRunLengths(artifact);
+  const width = String(Math.max(lengths.length - 1, 0)).length;
+  let start = 0;
+  return lengths.map((length, position) => {
+    const indices = Array.from({ length }, (_, offset) => start + offset);
+    start += length;
+    return {
+      key: `p${String(position).padStart(width, '0')}`,
+      path: grepFileLocator(artifact.results[indices[0]]?.locator ?? ''),
+      indices,
+    };
+  });
 }
 
 /** The card of one file run: its path, then up to three matching lines. */
@@ -101,33 +94,32 @@ export function protectArtifact(
   protect: (text: string) => string,
 ): void {
   const opens = artifact.blocks.map((block) => block.newRun);
-  const results = artifact.results.map((passage): GrepPassage => {
-    const locator = protect(passage.locator);
-    const content = protect(passage.content);
-    return locator === passage.locator && content === passage.content
-      ? passage
-      : { ...passage, locator, content };
-  });
+  const results = artifact.results.map((passage): GrepPassage => ({
+    ...passage,
+    locator: protect(passage.locator),
+    content: protect(passage.content),
+  }));
   replaceArtifactPassages(artifact, results, opens);
 }
 
 /**
- * Rank the artifact's runs with the configured decision model. Returns
- * `undefined` when no model or judge is configured, in which case the walk
- * order stands without a note. Ordinary failure returns `unavailable`; an
- * abort of the enclosing call propagates so the runner reports its own
- * timeout or cancellation.
+ * Rank the artifact's runs with the configured decision model, reorder the
+ * artifact by whole run, and record the outcome on the call's state. Nothing
+ * changes when no model or judge is configured: the walk order stands without
+ * a note. Ordinary failure sets `state.ranking`; an abort of the enclosing call
+ * propagates so the runner reports its own timeout or cancellation.
  */
 export async function rankGrepRuns(
   context: ToolContext,
-  artifact: GrepArtifact,
+  state: PageState,
   request: GrepRankRequest,
-): Promise<GrepRanking | undefined> {
+): Promise<void> {
   const model = context.grepBounds?.rerank?.model;
   const judge = context.decisions;
-  if (model === undefined || judge === undefined) return undefined;
+  if (model === undefined || judge === undefined) return;
+  const { artifact } = state;
   const runs = grepFileRuns(artifact);
-  if (runs.length === 0) return undefined;
+  if (runs.length === 0) return;
 
   const ranked = await rankSafely(context, judge, {
     model,
@@ -137,22 +129,38 @@ export async function rankGrepRuns(
       text: grepRunCard(artifact, run),
     })),
   });
-  if (ranked === undefined || ranked.status === 'unavailable')
-    return { status: 'unavailable' };
+  if (ranked === undefined || ranked.status === 'unavailable') {
+    state.ranking = 'unavailable';
+    return;
+  }
 
+  applyRank(state, runs, ranked);
+}
+
+/** Reorder the artifact by whole run and record the ranked outcome. */
+function applyRank(
+  state: PageState,
+  runs: ReadonlyArray<GrepFileRun>,
+  ranked: RankCardsResult,
+): void {
+  const { artifact } = state;
   const byKey = new Map(runs.map((run) => [run.key, run]));
   const ordered = ranked.order.flatMap((key) => byKey.get(key) ?? []);
-  return {
-    status: 'ranked',
-    runs: ordered,
-    record: {
-      model: ranked.model,
-      order: ranked.order,
-      scores: ranked.scores,
-      latencyMs: ranked.latencyMs,
-      costUsd: ranked.costUsd,
-      runLengths: ordered.map((run) => run.indices.length),
-    },
+  // Each run stays contiguous and opens exactly one `## <path>` line.
+  replaceArtifactPassages(
+    artifact,
+    ordered.flatMap((run) =>
+      run.indices.map((index) => artifact.results[index]),
+    ),
+    ordered.flatMap((run) => run.indices.map((_index, place) => place === 0)),
+  );
+  state.rerank = {
+    model: ranked.model,
+    order: ranked.order,
+    scores: ranked.scores,
+    latencyMs: ranked.latencyMs,
+    costUsd: ranked.costUsd,
+    runLengths: ordered.map((run) => run.indices.length),
   };
 }
 
@@ -200,33 +208,6 @@ async function rankSafely(
   }
 }
 
-/**
- * Reorder the artifact's passages by whole run, each run contiguous and
- * opening exactly one `## <path>` line, and rebuild the blocks from explicit
- * run boundaries.
- */
-export function applyGrepRanking(
-  artifact: GrepArtifact,
-  runs: ReadonlyArray<GrepFileRun>,
-): void {
-  const results = runs.flatMap((run) =>
-    run.indices.map((index) => artifact.results[index]),
-  );
-  const opens = runs.flatMap((run) =>
-    run.indices.map((_index, position) => position === 0),
-  );
-  replaceArtifactPassages(artifact, results, opens);
-}
-
-/** The first `units` UTF-16 code units, never splitting a surrogate pair. */
-function cutUnits(text: string, units: number): string {
-  if (text.length <= units) return text;
-  const end = /[\uD800-\uDBFF]/u.test(text[units - 1] ?? '')
-    ? units - 1
-    : units;
-  return text.slice(0, end);
-}
-
 /** Every match line of one run, whole and in line order, each counted once. */
 function matchingLines(
   artifact: GrepArtifact,
@@ -247,4 +228,9 @@ function matchingLines(
     }
   }
   return lines;
+}
+
+/** The first `units` UTF-16 code units, never splitting a surrogate pair. */
+function cutUnits(text: string, units: number): string {
+  return text.slice(0, codePointSafeCutIndex(text, units));
 }

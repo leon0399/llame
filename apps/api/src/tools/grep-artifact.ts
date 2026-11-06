@@ -18,7 +18,7 @@ import {
   grepPassageBlockLines,
   grepPassageUnits,
   grepRemainderUnits,
-  grepRankingUnits,
+  GREP_RANKING_UNITS,
   grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,
@@ -48,7 +48,6 @@ import {
   type PageState,
 } from './grep-page';
 import {
-  applyGrepRanking,
   protectArtifact,
   rankGrepRuns,
   type GrepRankRequest,
@@ -74,7 +73,7 @@ export async function finishGrepCall(
 ): Promise<ToolResult> {
   const artifact = state.artifact;
   dropDanglingCut(artifact);
-  protectPresentation(artifact, context);
+  protectPresentation(state, context);
   // UTF-16 units are at least a third of the UTF-8 bytes, so a larger
   // artifact cannot fit and needs no render.
   const withinReach =
@@ -85,7 +84,7 @@ export async function finishGrepCall(
     measureGrepRendering(pageResult(state)) <= GREP_LIMITS.pageCodeUnits
   )
     return pageResult(state);
-  await rankFileRuns(state, context, request);
+  await rankGrepRuns(context, state, request);
   const trailing = trailingUnits(state);
   const findings = grepArtifactFindings(artifact);
   const written = await storeGrepArtifact(state, context, findings);
@@ -100,31 +99,24 @@ export async function finishGrepCall(
   });
 }
 
-/** Replace the configured decision key in received passages, before any cut. */
-function protectPresentation(
-  artifact: GrepArtifact,
-  context: ToolContext,
-): void {
+/**
+ * Replace the configured decision key in received passages, unfinished file,
+ * and ignored directories, before any cut or measure. `ignored.seen` stays raw:
+ * it only dedupes.
+ */
+function protectPresentation(state: PageState, context: ToolContext): void {
   const model = context.grepBounds?.rerank?.model;
   const decisions = context.decisions;
   if (model === undefined || decisions === undefined) return;
-  protectArtifact(artifact, (text) => decisions.protectText(model, text));
-}
-
-/** Rank the walk's file runs and record the outcome on the call's state. */
-async function rankFileRuns(
-  state: PageState,
-  context: ToolContext,
-  request: GrepRankRequest,
-): Promise<void> {
-  const ranking = await rankGrepRuns(context, state.artifact, request);
-  if (ranking === undefined) return;
-  if (ranking.status === 'unavailable') {
-    state.ranking = 'unavailable';
-    return;
-  }
-  applyGrepRanking(state.artifact, ranking.runs);
-  state.rerank = ranking.record;
+  const protect = (text: string): string => decisions.protectText(model, text);
+  protectArtifact(state.artifact, protect);
+  if (state.unfinished !== undefined)
+    state.unfinished = protect(state.unfinished);
+  state.ignored.paths.splice(
+    0,
+    state.ignored.paths.length,
+    ...state.ignored.paths.map(protect),
+  );
 }
 
 /**
@@ -344,7 +336,7 @@ function trailingUnits(state: PageState): number {
   const ignored = ignoredReportOf(state);
   return (
     grepWarningsUnits(state.warnings) +
-    (state.ranking === undefined ? 0 : grepRankingUnits()) +
+    (state.ranking === undefined ? 0 : GREP_RANKING_UNITS) +
     (ignored === undefined ? 0 : grepIgnoredUnits(ignored)) +
     (state.unfinished === undefined ? 0 : grepUnfinishedUnits(state.unfinished))
   );
