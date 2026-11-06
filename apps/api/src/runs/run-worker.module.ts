@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CompactionModule } from '../compaction/compaction.module';
+import { DecisionsModule } from '../decisions/decisions.module';
 import { RecencyDigestModule } from '../chats/recency-digest.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { MachinesModule } from '../machines/machines.module';
@@ -44,6 +45,7 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
     QueueModule,
     ModelsModule,
     CompactionModule,
+    DecisionsModule,
     KnowledgeModule,
     SkillsModule,
     TitlesModule,

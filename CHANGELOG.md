@@ -2,6 +2,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-06
 
+- **A decision lane for ranking.** `ToolContext.decisions` now carries
+  `judgeCandidates` and `protectText`, built from the `decisionModels[]`
+  catalogue; a call that names an id outside the catalogue, or any call on an
+  instance with no catalogue, is `unavailable` and no chat model answers in its
+  place. Cards travel with their `noul` questions in groups of at most 256, keyed
+  `p<index>` zero-padded to the last index's width, and every group of one call
+  is sent at once, each request carrying only its own cards, the query, the
+  objective, the criteria, and a fixed untrusted-data task. A failed or malformed
+  request leaves only its cards unjudged; the call is unavailable only when every
+  request failed, and an ordinary failure never throws into the tool. The tool's
+  deadline and the Run's cancellation reach every request and retry wait and
+  surface as the runner's timeout or cancellation, not as a ranking failure.
+  Complete occurrences of the decision provider's resolved key are replaced
+  before dispatch, and `protectText` exposes that same exact-key replacement to
+  tools. One `decision.completed` line per call records `tool`, `model` (the
+  first accepted response's served id, else `null`), `cards`, `requests`,
+  `judged`, tokens, `costUsd` (accepted wire costs, `null` if any is missing),
+  and `latencyMs`. Decision calls stay outside message usage, cost, measured
+  context, reasoning, and completeness. `docs/product/operator/decisions.md`
+  covers the consent that naming a model implies. No tool ranks results yet.
+
 - **Operator config for decision-model ranking.** A new provider `type`,
   `system-one`, takes `{ id, type, key, baseUrl, billing?, headers? }`; `key`
   and `baseUrl` must resolve nonblank, `accountId` is rejected, the default
