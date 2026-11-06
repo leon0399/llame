@@ -2,6 +2,8 @@ import {
   EngineFailure,
   canonicalizeCitations,
   canonicalizeResults,
+  distinctResults,
+  groupingKey,
   isFailureClass,
   isGrounded,
   runOne,
@@ -33,6 +35,8 @@ type ChildRun = { readonly child: AggregateChild } & (
       readonly kind: 'answer';
       readonly answer: string;
       readonly citations: ReadonlyArray<RawCitation>;
+      /** How many citations become merge candidates: the child's fetch bound. */
+      readonly candidateBound: number;
       readonly notes?: ReadonlyArray<string>;
     }
   | {
@@ -59,6 +63,7 @@ type ResultGroup = {
 function classifyOutcome(
   child: AggregateChild,
   outcome: EngineOutcome,
+  limit: number,
 ): ChildRun {
   if (outcome.kind === 'empty')
     return { child, kind: 'empty', notes: outcome.notes };
@@ -73,10 +78,12 @@ function classifyOutcome(
       kind: 'answer',
       answer: outcome.answer,
       citations,
+      candidateBound: limit,
       notes: outcome.notes,
     };
   }
-  const results = canonicalizeResults(outcome.results);
+  // Each child holds its own fetch bound, whatever it returned.
+  const results = distinctResults(canonicalizeResults(outcome.results), limit);
   return results.length === 0
     ? { child, kind: 'empty', notes: outcome.notes }
     : { child, kind: 'results', results, notes: outcome.notes };
@@ -89,15 +96,7 @@ async function runChild(
   const outcome = await runOne(child.engine, child.timeoutSeconds, request);
   return isFailureClass(outcome)
     ? { child, kind: 'failure', failureClass: outcome }
-    : classifyOutcome(child, outcome);
-}
-
-function groupingKey(rawUrl: string): string {
-  const url = new URL(rawUrl);
-  if (url.hostname.startsWith('www.'))
-    url.hostname = url.hostname.slice('www.'.length);
-  if (url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
-  return url.href;
+    : classifyOutcome(child, outcome, request.limit);
 }
 
 function isNonEmpty(value: string | undefined): value is string {
@@ -144,13 +143,17 @@ function groupResult(group: ResultGroup): RawResult {
 function runResults(run: ChildRun): ReadonlyArray<RawResult> {
   if (run.kind === 'results') return run.results;
   if (run.kind !== 'answer') return [];
-  return run.citations.map((citation) => ({
+  return run.citations.slice(0, run.candidateBound).map((citation) => ({
     title: citation.title ?? '',
     url: citation.url,
   }));
 }
 
-function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
+/** The merged groups in rank-fusion order, cut to `limit` unless it is undefined. */
+function mergeResultGroups(
+  runs: ReadonlyArray<ChildRun>,
+  limit?: number,
+): Array<RawResult> {
   const groups = new Map<string, ResultGroup>();
   runs.forEach((run, childIndex) => {
     runResults(run).forEach((result, resultIndex) => {
@@ -180,7 +183,8 @@ function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
         left.bestRank - right.bestRank ||
         left.bestChild - right.bestChild,
     )
-    .map(groupResult);
+    .map(groupResult)
+    .slice(0, limit);
 }
 
 /** The grounded answers one aggregate attaches, in child order. */
@@ -214,9 +218,30 @@ function childNotes(runs: ReadonlyArray<ChildRun>): Array<string> {
   );
 }
 
-/** Build an aggregate engine that fans out to every configured child. */
+/** The merged results of the runs that answered, with the answers and notes. */
+function mergedOutcome(
+  runs: ReadonlyArray<ChildRun>,
+  limit: number | undefined,
+  notes: ReadonlyArray<string>,
+): EngineOutcome {
+  const answers = attachedAnswers(runs);
+  const result = {
+    kind: 'results' as const,
+    results: mergeResultGroups(runs, limit),
+    ...(answers.length > 0 && { answers }),
+  };
+  return notes.length === 0 ? result : { ...result, notes };
+}
+
+/**
+ * Build an aggregate engine that fans out to every configured child. It cuts
+ * the merged list to the request's fetch size, unless `retainMerged` keeps
+ * every merged candidate for a rank call: each child still holds its own fetch
+ * bound, so the list stays at most the sum of the children's results.
+ */
 export function createAggregateEngine(
   children: ReadonlyArray<AggregateChild>,
+  { retainMerged = false }: { readonly retainMerged?: boolean } = {},
 ): Engine {
   return async (request) => {
     if (request.signal.aborted) throwAbort(request.signal);
@@ -236,13 +261,11 @@ export function createAggregateEngine(
     if (request.signal.aborted) throwAbort(request.signal);
     const notes = [...outcomeNotes(runs), ...childNotes(runs)];
     if (runs.some((run) => run.kind === 'results' || run.kind === 'answer')) {
-      const answers = attachedAnswers(runs);
-      const result = {
-        kind: 'results' as const,
-        results: mergeResultGroups(runs).slice(0, request.limit),
-        ...(answers.length > 0 && { answers }),
-      };
-      return notes.length === 0 ? result : { ...result, notes };
+      return mergedOutcome(
+        runs,
+        retainMerged ? undefined : request.limit,
+        notes,
+      );
     }
     if (runs.some((run) => run.kind === 'empty')) {
       return { kind: 'empty' as const, notes };

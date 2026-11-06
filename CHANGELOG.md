@@ -2,6 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-06
 
+- **Ranked `web_search` results.** A call now deduplicates one engine's
+  results by canonical URL (without `www.` and a trailing `/`, first spelling
+  wins) before it counts or caps anything. With `webSearch.rerank.model` set,
+  every `results` outcome that does not fit inline is ranked by the decision
+  model against the objective or the query: one `[p<index>] title — host —
+  snippet` card per result, sorted by score with ties in engine order and unjudged
+  results last, before the inline cut and the artifact, so the artifact and the
+  `left out` count follow the ranked order. A configured `aggregate` keeps every
+  merged candidate for the ranking and the artifact. A failed ranking keeps
+  engine order and adds the last note `rerank: unavailable`; a ranked call stores
+  `display.rerank` with `model`, `order`, `scores`, `latencyMs`, and `costUsd`,
+  never shown to the model. The decision key is replaced in received titles,
+  snippets, and URLs. Decision-call usage stays out of the assistant message's
+  usage, cost, and completeness.
+
 - **Ranking kernel and labeled evaluation.** `rankCards` in
   `apps/api/src/ranking` sorts judged cards by score (ties keep canonical
   position), appends unjudged cards in canonical order, throws on an order that

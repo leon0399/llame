@@ -167,6 +167,38 @@ export function canonicalizeResults(
   });
 }
 
+/**
+ * The key that makes two spellings of one page the same result: the canonical
+ * URL without a leading `www.` and without a trailing `/`.
+ */
+export function groupingKey(rawUrl: string): string {
+  const url = new URL(rawUrl);
+  if (url.hostname.startsWith('www.'))
+    url.hostname = url.hostname.slice('www.'.length);
+  if (url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
+  return url.href;
+}
+
+/**
+ * The first `limit` results that differ by grouping key, first spelling wins,
+ * so a repeated page does not use a slot of the fetch bound.
+ */
+export function distinctResults(
+  results: ReadonlyArray<RawResult>,
+  limit: number,
+): Array<RawResult> {
+  const seen = new Set<string>();
+  const distinct: Array<RawResult> = [];
+  for (const result of results) {
+    if (distinct.length === limit) break;
+    const key = groupingKey(result.url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(result);
+  }
+  return distinct;
+}
+
 export function canonicalizeCitations(
   citations: ReadonlyArray<RawCitation>,
 ): Array<RawCitation> {
@@ -462,13 +494,19 @@ function classifyOutcome(
   id: string,
   outcome: RunOne,
   notes: Notes,
+  limit: number | undefined,
 ): OutcomeDecision {
   if (isFailureClass(outcome)) {
     notes.push(`${id}: ${outcome}`);
     return { kind: 'continue' };
   }
-  const success =
+  const canonical =
     outcome.kind === 'empty' ? outcome : canonicalizeOutcome(outcome);
+  // An engine holds its own fetch bound; an aggregate keeps its merged set.
+  const success =
+    canonical.kind === 'results' && limit !== undefined
+      ? { ...canonical, results: distinctResults(canonical.results, limit) }
+      : canonical;
   if (
     success.kind === 'empty' ||
     (success.kind === 'results' && success.results.length === 0)
@@ -491,6 +529,27 @@ function classifyOutcome(
     return { kind: 'continue' };
   }
   return { kind: 'success', success };
+}
+
+/** Run one chain entry and classify its outcome. */
+async function runEntry(
+  entry: WebSearchEngineConfig,
+  engine: Engine,
+  request: EngineRequest,
+  notes: Notes,
+): Promise<OutcomeDecision> {
+  const aggregate = entry.type === 'aggregate';
+  const outcome = await runOne(
+    engine,
+    aggregate ? undefined : entry.timeoutSeconds,
+    request,
+  );
+  return classifyOutcome(
+    entry.id,
+    outcome,
+    notes,
+    aggregate ? undefined : request.limit,
+  );
 }
 
 /**
@@ -533,15 +592,7 @@ export async function executeSearchChain(
       notes.push(`${id}: unsupported`);
       continue;
     }
-    const decision = classifyOutcome(
-      id,
-      await runOne(
-        lookup(id),
-        entry.type === 'aggregate' ? undefined : entry.timeoutSeconds,
-        request,
-      ),
-      notes,
-    );
+    const decision = await runEntry(entry, lookup(id), request, notes);
     if (decision.kind === 'success')
       return withRemoved(
         withChainNotes(

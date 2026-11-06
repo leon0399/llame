@@ -489,10 +489,13 @@ it('uses a later child spelling when it has the better rank', async () => {
   ]);
 
   await expect(
-    engine(request(new AbortController().signal, 1)),
+    engine(request(new AbortController().signal, 2)),
   ).resolves.toStrictEqual({
     kind: 'results',
-    results: [result('https://www.example.test/docs/')],
+    results: [
+      result('https://www.example.test/docs/'),
+      result('https://example.test/filler'),
+    ],
   });
 });
 
@@ -506,7 +509,7 @@ it('breaks equal scores by a better best rank than insertion order', async () =>
     child('d', () => rankedResults('d', 24, 24, first)),
   ]);
 
-  const output = await engine(request());
+  const output = await engine(request(undefined, 30));
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.results.slice(0, 2).map(({ url }) => url)).toStrictEqual([
     first,
@@ -715,5 +718,109 @@ it('drops an answer child that loses every citation to removal', async () => {
     kind: 'results',
     results: [result('https://example.test/u1')],
     notes: ['claude: ungrounded'],
+  });
+});
+
+describe('child bounds under retained merging', () => {
+  it('bounds a child that repeats pages by distinct results', async () => {
+    const engine = createAggregateEngine(
+      [
+        child('a', () =>
+          results(
+            result('https://example.test/0'),
+            result('https://www.example.test/0/'),
+            result('https://example.test/1'),
+            result('https://example.test/2'),
+            result('https://example.test/3'),
+          ),
+        ),
+      ],
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 3));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results.map((entry) => entry.url)).toStrictEqual([
+      'https://example.test/0',
+      'https://example.test/1',
+      'https://example.test/2',
+    ]);
+  });
+
+  it('merges only the first limit citations of an answer child, and attaches all', async () => {
+    const citations = Array.from({ length: 6 }, (_unused, index) => ({
+      url: `https://example.test/c${index}`,
+    }));
+    const engine = createAggregateEngine(
+      [child('a', () => answer('text', citations))],
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 3));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(3);
+    expect(output.answers?.[0].citations).toHaveLength(6);
+  });
+});
+
+describe('merged candidate retention', () => {
+  const distinct = (id: string, count: number): Promise<EngineOutcome> =>
+    results(
+      ...Array.from({ length: count }, (_unused, index) =>
+        result(`https://example.test/${id}/${index}`),
+      ),
+    );
+  const twoChildren = (options?: { readonly retainMerged: boolean }) =>
+    createAggregateEngine(
+      [
+        child('a', () => distinct('a', 20)),
+        child('b', () => distinct('b', 20)),
+      ],
+      options,
+    );
+
+  it('retains all 40 merged results when a rank model is configured', async () => {
+    const output = await twoChildren({ retainMerged: true })(
+      request(undefined, 20),
+    );
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(40);
+  });
+
+  it('keeps the fetch-size cut without a rank model', async () => {
+    const output = await twoChildren()(request(undefined, 20));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(20);
+  });
+
+  it('retains the sum of the children results, each child holding its own bound', async () => {
+    const received: Array<number> = [];
+    const engine = createAggregateEngine(
+      ['a', 'b', 'c'].map((id) =>
+        child(id, (engineRequest) => {
+          received.push(engineRequest.limit);
+          return distinct(id, 100);
+        }),
+      ),
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 100));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(300);
+    expect(received).toStrictEqual([100, 100, 100]);
+  });
+
+  it('cuts a child that returns more than the fetch size, even when retaining', async () => {
+    const engine = createAggregateEngine(
+      [
+        child('a', () => distinct('a', 25)),
+        child('b', () => distinct('b', 20)),
+      ],
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 20));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(40);
+    expect(output.results.some((entry) => entry.url.endsWith('/a/20'))).toBe(
+      false,
+    );
   });
 });

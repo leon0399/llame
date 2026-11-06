@@ -73,12 +73,29 @@ function isoPublished(value: string | undefined): string | undefined {
   return value;
 }
 
-function capNotes(notes: ReadonlyArray<string>): Array<string> {
+/**
+ * The note a call carries when its rank call failed. It is always the last
+ * note: the cap reserves its slot, and an excess of other notes is summarized
+ * in the slot before it.
+ */
+export const WEB_SEARCH_RANK_FAILURE_NOTE = 'rerank: unavailable';
+
+function capNotes(
+  notes: ReadonlyArray<string>,
+  rankFailed: boolean,
+): Array<string> {
   const bounded = notes.map((note) =>
     capText(note, WEB_SEARCH_NOTE_MAX_CODE_UNITS),
   );
-  if (bounded.length <= WEB_SEARCH_NOTES_MAX) return bounded;
-  return [...bounded.slice(0, 9), `${bounded.length - 9} more engines`];
+  const room = rankFailed ? WEB_SEARCH_NOTES_MAX - 1 : WEB_SEARCH_NOTES_MAX;
+  const kept =
+    bounded.length <= room
+      ? bounded
+      : [
+          ...bounded.slice(0, room - 1),
+          `${bounded.length - (room - 1)} more engines`,
+        ];
+  return rankFailed ? [...kept, WEB_SEARCH_RANK_FAILURE_NOTE] : kept;
 }
 
 function capResults(source: ResultSource, limit: number): Array<RawResult> {
@@ -277,7 +294,11 @@ function withNotes(
   value: WebSearchSuccess,
   { notes, counts, answerCut, removed }: NoteInputs,
 ): WebSearchSuccess {
-  const visible = [...trimNoteList(counts), ...notes];
+  const rankFailed = notes.includes(WEB_SEARCH_RANK_FAILURE_NOTE);
+  const visible = [
+    ...trimNoteList(counts),
+    ...notes.filter((note) => note !== WEB_SEARCH_RANK_FAILURE_NOTE),
+  ];
   if (answerCut) visible.unshift(ANSWER_CUT_NOTE);
   // The count note goes before every other note, including the truncation ones
   // above, so neither the cap nor a cut can take its place. It names no URL or
@@ -286,7 +307,7 @@ function withNotes(
     visible.unshift(
       `removed ${removed} ${removed === 1 ? 'entry' : 'entries'}`,
     );
-  const bounded = capNotes(visible);
+  const bounded = capNotes(visible, rankFailed);
   return bounded.length === 0 ? value : { ...value, notes: bounded };
 }
 

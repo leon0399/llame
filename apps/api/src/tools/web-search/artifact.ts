@@ -23,32 +23,50 @@ import {
   INLINE_NOTICE_RESERVE,
   normalizeFullOutput,
   normalizeOutput,
+  WEB_SEARCH_RANK_FAILURE_NOTE,
   type WebSearchSuccess,
 } from './output';
+import {
+  prepareSource,
+  rankWebSearchResults,
+  type WebSearchRanking,
+  type WebSearchRerankRecord,
+} from './rerank';
 import {
   type RenderedWebSearchText,
   renderWebSearchOutput,
   type WebSearchTextBlock,
 } from './text';
 
-/** The inline result count and the fetched size. */
+/** The inline result count, the fetched size, and the search's goal. */
 export type WebSearchSpill = {
   readonly limit: number;
   readonly fetchSize: number;
+  /** The call's `objective`, the decision lane's ranking criterion. */
+  readonly objective?: string;
 };
 
 /**
  * The normalized result of one call: the inline output, the artifact locator
  * when the rest was stored, and the one line the text ends with.
+ *
+ * The call's source is deduplicated and, with a rank model, key-protected and
+ * ranked here, once. Both normalize calls read the same source, so the inline
+ * head, the stored artifact text, its findings, and the continuation line share
+ * one order.
  */
 export async function spillWebSearchResult(
   context: ToolContext,
-  source: SearchChainSuccess,
-  { limit, fetchSize }: WebSearchSpill,
+  received: SearchChainSuccess,
+  { limit, fetchSize, objective }: WebSearchSpill,
 ): Promise<ToolResult> {
-  const full = normalizeFullOutput(source, fetchSize);
-  const whole = normalizeOutput(source, limit);
-  if (JSON.stringify(full) === JSON.stringify(whole)) return whole;
+  const { source, record, full, whole } = await rankedSpillSource(
+    context,
+    received,
+    { limit, fetchSize, objective },
+  );
+  if (JSON.stringify(full) === JSON.stringify(whole))
+    return { ...whole, ...record };
 
   // The inline body shares the 15,000-unit bound with the notice this path
   // adds, so it is fitted with the notice's room kept back.
@@ -71,7 +89,78 @@ export async function spillWebSearchResult(
     ...inline,
     ...(written !== undefined && { artifact: written.locator }),
     truncationNotice: notice,
+    ...record,
   };
+}
+
+type SpillSource = {
+  readonly source: SearchChainSuccess;
+  readonly record: {
+    readonly display?: { readonly rerank: WebSearchRerankRecord };
+  };
+  readonly full: WebSearchSuccess;
+  readonly whole: WebSearchSuccess;
+};
+
+/**
+ * The deduplicated, key-protected source, ranked unless the whole of it fits
+ * inline, with the full and inline-cut outputs both normalize calls produce
+ * from it and the `display` field a ranked call stores.
+ */
+async function rankedSpillSource(
+  context: ToolContext,
+  received: SearchChainSuccess,
+  { limit, fetchSize, objective }: WebSearchSpill,
+): Promise<SpillSource> {
+  const prepared = prepareSource(context, received);
+  const count = retainsMergedSet(context, prepared)
+    ? Number.POSITIVE_INFINITY
+    : fetchSize;
+  const full = normalizeFullOutput(prepared, count);
+  const whole = normalizeOutput(prepared, limit);
+  const fits = JSON.stringify(full) === JSON.stringify(whole);
+  const ranking =
+    prepared.kind === 'results' && !fits
+      ? await rankWebSearchResults(context, prepared, objective)
+      : undefined;
+  if (prepared.kind !== 'results' || ranking === undefined)
+    return { source: prepared, record: {}, full, whole };
+  const source = rankedSource(prepared, ranking);
+  return {
+    source,
+    record:
+      ranking.status === 'ranked'
+        ? { display: { rerank: ranking.record } }
+        : {},
+    full: normalizeFullOutput(source, count),
+    whole: normalizeOutput(source, limit),
+  };
+}
+
+/** The ranked source, or the prepared one with the failure note appended. */
+function rankedSource(
+  prepared: Extract<SearchChainSuccess, { kind: 'results' }>,
+  ranking: WebSearchRanking,
+): SearchChainSuccess {
+  return ranking.status === 'ranked'
+    ? ranking.source
+    : {
+        ...prepared,
+        notes: [...(prepared.notes ?? []), WEB_SEARCH_RANK_FAILURE_NOTE],
+      };
+}
+
+/** Whether the winning engine is an aggregate that keeps every merged result. */
+function retainsMergedSet(
+  context: ToolContext,
+  source: SearchChainSuccess,
+): boolean {
+  return (
+    context.webSearch?.rerank !== undefined &&
+    context.webSearch.engines.some(
+      (entry) => entry.id === source.engine && entry.type === 'aggregate',
+    )
+  );
 }
 
 /** Store the whole rendered output with one finding for each block. */

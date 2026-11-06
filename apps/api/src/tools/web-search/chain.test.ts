@@ -486,6 +486,59 @@ it('omits the note when the only engine is empty', async () => {
     results: [],
   });
 });
+it('keeps the fetch size of distinct results when an engine repeats a page', async () => {
+  const urls = [
+    'https://example.test/0',
+    'https://www.example.test/0/',
+    'https://example.test/1',
+    'https://example.test/1',
+    'https://example.test/2',
+    'https://example.test/3',
+    'https://example.test/4',
+  ];
+  const output = await executeSearchChain(
+    config(['brave']),
+    request(undefined, { limit: 4 }),
+    lookup({
+      brave: () =>
+        Promise.resolve({
+          kind: 'results',
+          results: urls.map((url, index) => ({ title: `r${index}`, url })),
+        }),
+    }),
+  );
+  if (!('results' in output)) throw new Error('expected results');
+  expect(output.results.map((entry) => entry.title)).toStrictEqual([
+    'r0',
+    'r2',
+    'r4',
+    'r5',
+  ]);
+});
+it('cuts a single engine that returns more than the fetch size', async () => {
+  const output = await executeSearchChain(
+    config(['brave']),
+    request(undefined, { limit: 5 }),
+    lookup({
+      brave: () =>
+        Promise.resolve({
+          kind: 'results',
+          results: Array.from({ length: 8 }, (_unused, index) => ({
+            title: `r${index}`,
+            url: `https://example.test/${index}`,
+          })),
+        }),
+    }),
+  );
+  if (!('results' in output)) throw new Error('expected results');
+  expect(output.results.map((entry) => entry.title)).toStrictEqual([
+    'r0',
+    'r1',
+    'r2',
+    'r3',
+    'r4',
+  ]);
+});
 it('keeps notes from a final empty engine', async () => {
   const output = await executeSearchChain(
     config(['backup']),
