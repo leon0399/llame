@@ -386,7 +386,7 @@ It MUST NOT add heuristic credential detection, another consent gate, or chat-mo
 ### Requirement: Ranked tools protect the decision key in returned presentation
 
 A tool with a configured decision model MUST replace complete occurrences of
-that provider's resolved key in received source-derived fields.
+that provider's resolved key in received source text and locators.
 Replacement MUST precede its ranking excerpts, inline cuts, artifact storage, and replay.
 It MUST preserve source line identities, ordering, counts, and noncredential text.
 This exact-key presentation exception MUST override source-fidelity rules, without changing underlying files or detecting other secrets.
@@ -396,6 +396,18 @@ This exact-key presentation exception MUST override source-fidelity rules, witho
 - **WHEN** received grep or web-search source text contains that complete key
 - **THEN** its decision card, inline output, artifact, and replay use the same protected replacement
 - **AND** the source file, matching decisions, line identities, counts, and unrelated text stay unchanged
+
+### Requirement: Protected locators need not round-trip to read
+
+The protected-key exception MUST apply to source locators as well as excerpts.
+A locator with a protected replacement MUST NOT be promised as a valid `read` target.
+The system MUST NOT expose its unredacted form to restore that interaction.
+
+#### Scenario: A source locator contains the configured decision key
+
+- **WHEN** a received source locator contains that complete key
+- **THEN** the heading, card, inline output, artifact, and replay use its protected form
+- **AND** the protected locator need not round-trip to `read`, and the underlying file stays unchanged
 
 ### Requirement: Rank requests share the enclosing cancellation and deadline
 

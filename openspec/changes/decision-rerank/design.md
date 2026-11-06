@@ -48,6 +48,8 @@ finding becomes a card; relevance never bypasses read admission.
 The lane protects its resolved credential before ranking excerpts and dispatch.
 Tools apply the same exact-key replacement to returned presentation, not underlying
 files or matches. This adds no generic credential detector or consent gate.
+A key-bearing locator stays protected even when its replacement cannot round-trip
+to `read`; source navigation does not justify exposing the original credential.
 
 ### D5. Defer the ledger
 
