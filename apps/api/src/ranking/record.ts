@@ -4,11 +4,11 @@ import path from 'node:path';
 import { type DecisionJudge } from '../decisions/decisions.service';
 import { CARD_BOUND, type RankingCase, type RecordedAnswer } from './fixtures';
 import { rankCards } from './rank-cards';
+import { GREP_RERANK_RUBRIC, WEB_SEARCH_RERANK_RUBRIC } from './rubrics';
 
 const RUBRICS = {
-  grep: 'Is this file likely to contain what the objective (or query) is looking for: a substantive implementation or explanation, not a mere mention?',
-  web_search:
-    'Does this card help answer the objective (or, without one, the query)?',
+  grep: GREP_RERANK_RUBRIC,
+  web_search: WEB_SEARCH_RERANK_RUBRIC,
 } as const;
 
 export type RecordSink = {

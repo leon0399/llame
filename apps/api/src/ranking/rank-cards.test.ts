@@ -143,7 +143,8 @@ describe('labeled ranking fixtures', () => {
           expect(card.text.split('\n').length).toBeLessThanOrEqual(4);
         } else {
           expect(card.text.length).toBeLessThanOrEqual(CARD_BOUND.web_search);
-          expect(card.text).toMatch(/^\[\d+\] .+ — .+ — .+/);
+          expect(card.text.startsWith(`[${card.key}] `)).toBe(true);
+          expect(card.text).toMatch(/^\[p\d+\] .+ — .+ — .+/);
         }
       }
     }

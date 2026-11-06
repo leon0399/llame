@@ -92,6 +92,10 @@ import '../tools/search-conversations';
 // the relevance criteria and untrusted-state instruction at import.
 import '../decisions/decisions.service';
 
+// Same proof for `ranking/prompts/*.md`: `ranking/rubrics` renders both rubrics
+// at import.
+import '../ranking/rubrics';
+
 // Verify the built runtime reads llame's version from the manifest beside
 // dist/ (design D6 of openspec/changes/opencode-go-provider). The call makes
 // `product-identity` resolve `apps/api/package.json` from its own compiled

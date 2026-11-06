@@ -16,6 +16,7 @@ import {
   type RecordSink,
   selectModels,
 } from './record';
+import { GREP_RERANK_RUBRIC, WEB_SEARCH_RERANK_RUBRIC } from './rubrics';
 
 const grepCase: RankingCase = {
   name: 'case-a',
@@ -129,7 +130,7 @@ describe('recordCase', () => {
       objective: 'find it',
       cardBound: 384,
     });
-    expect(request?.rubric).toMatch(/^Is this file likely to contain/);
+    expect(request?.rubric).toBe(GREP_RERANK_RUBRIC);
   });
 
   it('uses the web_search rubric and bound, and omits an absent objective', async () => {
@@ -138,7 +139,7 @@ describe('recordCase', () => {
     await recordCase(h.judge, h.sink, { ...rest, tool: 'web_search' }, 'm1');
     const request = h.judgeCandidates.mock.calls[0]?.[0];
     expect(request?.cardBound).toBe(400);
-    expect(request?.rubric).toMatch(/^Does this card help answer/);
+    expect(request?.rubric).toBe(WEB_SEARCH_RERANK_RUBRIC);
     expect(request).not.toHaveProperty('objective');
   });
 });
