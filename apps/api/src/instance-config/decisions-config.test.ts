@@ -377,7 +377,9 @@ describe('per-tool rerank config', () => {
   it('rejects a rerank block without a model', () => {
     configWith(CATALOGUE, { grep: { rerank: {} } });
 
-    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/tools\/grep\/rerank: must have required property 'model'/u,
+    );
   });
 });
 
@@ -389,7 +391,9 @@ describe('system-one provider config', () => {
       ],
     });
 
-    expect(() => loadInstanceConfig()).toThrow(/key/u);
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/providers\[native\]: must have required property 'key'/u,
+    );
   });
 
   it('requires a system-one provider to carry a baseUrl', () => {
@@ -397,7 +401,9 @@ describe('system-one provider config', () => {
       providers: [{ id: 'native', type: 'system-one', key: 'k' }],
     });
 
-    expect(() => loadInstanceConfig()).toThrow(/baseUrl/u);
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/providers\[native\]: must have required property 'baseUrl'/u,
+    );
   });
 
   it('fails startup when the system-one key interpolates to empty', () => {
@@ -440,7 +446,7 @@ describe('system-one provider config', () => {
     });
 
     expect(() => loadInstanceConfig()).toThrow(
-      /providers\[opencode-decisions\]: must match "then" schema/u,
+      /\/providers\[opencode-decisions\]\/accountId/u,
     );
   });
 

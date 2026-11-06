@@ -181,7 +181,7 @@ export type WebSearchConfig = {
   /**
    * Opt-in ranking of this call's results by a catalogue decision model. The
    * tool reads its own setting here; an absent block means it never asks the
-   * lane (`off`).
+   * lane.
    */
   rerank?: ToolRerankConfig;
 };

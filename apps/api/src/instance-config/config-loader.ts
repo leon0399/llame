@@ -326,11 +326,7 @@ function resolveGrepBounds(
   const bounds = raw?.tools?.grep;
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.grep;
   const resolve = (
-    key:
-      | 'maxFilesExamined'
-      | 'maxEntriesListed'
-      | 'maxBytesRead'
-      | 'maxFileBytes',
+    key: Exclude<keyof LlameConfig['tools']['grep'], 'rerank'>,
   ) =>
     resolveNumeric({
       configPath: `tools.grep.${key}`,
@@ -2997,16 +2993,12 @@ function buildModelCatalogEntry(
     }),
   });
 
+  const providerOptions = resolveProviderOptions(entry);
+
   return {
     ...display,
     source: 'system' as const,
-    billing: resolveBillingMode(
-      entry.billing,
-      // A decision provider has no billing mode: it is never a `models[]`
-      // provider, so the union member without the field resolves to undefined.
-      'billing' in provider ? provider.billing : undefined,
-      provider.type,
-    ),
+    billing: resolveBillingMode(entry.billing, provider.billing, provider.type),
     contextWindowTokens,
     // The schema enforces the closed set, `text` membership, and uniqueness
     // (vision-media D9); absent resolves to text only. Never checked against
@@ -3017,21 +3009,10 @@ function buildModelCatalogEntry(
       compactionThresholdTokens,
     }),
     ...(maxOutputTokens !== undefined && { maxOutputTokens }),
-    ...resolveProviderOptionsEntry(entry),
+    ...(providerOptions !== undefined && { providerOptions }),
     ...(reasoning !== undefined && { reasoning }),
     ...resolveToolPromptFilesEntry(entry.toolPromptFiles),
   };
-}
-
-/**
- * The provider options for one model, or nothing when the entry declares none —
- * so the field stays absent rather than present-and-undefined.
- */
-function resolveProviderOptionsEntry(
-  entry: RawModelEntry,
-): Pick<SystemModelCatalogEntry, 'providerOptions'> | Record<string, never> {
-  const providerOptions = resolveProviderOptions(entry);
-  return providerOptions === undefined ? {} : { providerOptions };
 }
 
 /**

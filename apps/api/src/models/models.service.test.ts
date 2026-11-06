@@ -234,9 +234,6 @@ describe('ModelsService', () => {
     expect(response.models.map((model) => model.id)).toEqual(
       CATALOG.map((model) => model.id),
     );
-    expect(response.models.map((model) => model.id)).not.toContain(
-      'decision-only',
-    );
     expect(JSON.stringify(response)).not.toContain('jev-1.1');
     expect(JSON.stringify(response)).not.toContain('decision-key');
   });

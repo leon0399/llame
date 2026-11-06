@@ -346,7 +346,7 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own; \"system-one\" speaks the System One decision wire (POST {baseUrl}/systemone) for the experimental `decisions` block, from a required `key` and a required `baseUrl`, and never serves a `models[]` entry. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own; \"system-one\" speaks the System One decision wire (POST {baseUrl}/systemone) for the experimental `decisionModels[]` catalog, from a required `key` and a required `baseUrl`, and never serves a `models[]` entry. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
       "enum": [
         "openai-responses",
         "openai-completions",
@@ -385,7 +385,7 @@
           "type": "object",
           "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": ["string", "null"] },
-          "description": "Optional operator headers. Defaults include `X-Session-Id: {session:id}` for openai-responses, openai-completions, anthropic-messages, and opencode-go (openai-codex and system-one have no default); null removes a default, and operator values take precedence without reserved names. `{env:...}` and `{path:...}` resolve at startup; `{session:id}` resolves per request."
+          "description": "Optional operator headers. Defaults include `X-Session-Id: {session:id}` for openai-responses, openai-completions, anthropic-messages, and opencode-go (openai-codex and system-one have no default); null removes a default, and operator values take precedence without reserved names. `{env:...}` and `{path:...}` resolve at startup; `{session:id}` resolves per request, and an authored `{session:id}` fails startup for system-one."
         }
       },
       "allOf": [
@@ -422,7 +422,7 @@
           "if": { "properties": { "type": { "const": "system-one" } } },
           "then": {
             "required": ["key", "baseUrl"],
-            "not": { "required": ["accountId"] }
+            "properties": { "accountId": false }
           }
         }
       ]
