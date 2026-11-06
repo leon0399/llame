@@ -48,11 +48,18 @@ the [operator index](../index.md#operator):
 `key` and `accountId` must resolve to nonblank strings. `baseUrl` is rejected.
 Codex sends no default provider headers; add
 `"headers": { "X-Session-Id": "{session:id}" }` to opt in when a gateway needs
-session affinity. The fixed transport uses the Codex Responses endpoint;
-llame reads these fields once at API/worker startup and never reads refresh or
-ID tokens or writes the credential file. Omit `pricingUsdPer1M` when the cost is
-unknown: completed Run telemetry retains token counts and latency with
-`costUsd: null`.
+session affinity. The fixed transport uses the Codex Responses endpoint.
+At API/worker startup the loader reads this credential file only to build the
+in-memory set of values it redacts from tool output and provider failures. The
+members are the configured `key` and the credential-shaped leaves of the file,
+refresh and ID tokens included. The `accountId` is not a member. The membership
+rules and their size gate are in
+[native files](../native-files.md#credential-redaction-in-bash-output). The
+loader does not log, send, or write those values, and it never writes the
+credential file.
+
+Omit `pricingUsdPer1M` when the cost is unknown: completed Run telemetry retains
+token counts and latency with `costUsd: null`.
 
 `billing` accepts `"usage"` or `"subscription"` on a provider or model; the
 model setting wins, then the provider setting, then the provider-type default

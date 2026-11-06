@@ -37,6 +37,7 @@ function context(
   permissionMode?: 'default' | 'bypass' | 'read-only',
 ): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
@@ -79,6 +80,7 @@ describe('admitPermission', () => {
   it('keeps absent policy fail-closed for callers that require a decision', () => {
     const decide = vi.fn<(evaluate: EvaluateCall) => PermissionDecision>();
     const noPolicy: ToolContext = {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       tenantDb: { runAs: () => Promise.reject(new Error('unused')) },

@@ -92,6 +92,7 @@ d('grep artifact producer', () => {
 
   function contextWith(policy: ToolPermissionMap): ToolContext {
     return {
+      configuredCredentials: [],
       userId: owner,
       chatId,
       runId: crypto.randomUUID(),

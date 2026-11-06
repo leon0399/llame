@@ -96,6 +96,7 @@ function contextOf(options: ContextOptions = {}): ToolContext {
   return {
     userId: 'owner-a',
     chatId: 'chat-a',
+    configuredCredentials: [],
     toolCallId: 'call-a',
     runId: options.run === false ? undefined : 'run-a',
     nativeExecutorId: trusted ? 'host-a' : undefined,

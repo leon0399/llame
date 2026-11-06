@@ -74,47 +74,114 @@ function canonicalJsonScalar(value: unknown): string | undefined {
   return undefined;
 }
 
+/** One half-open code-unit range a protected value occupies in a string. */
+export type ProtectedValueInterval = {
+  readonly start: number;
+  readonly end: number;
+};
+
 /**
- * Redacts every protected value inside a single string, longest match first.
- * Exported for the stdio diagnostic path, which redacts plain text rather than
- * a JSON document.
+ * Every protected value occurrence in a string as merged raw code-unit
+ * intervals, sorted: overlapping and adjacent intervals join, so a replacement
+ * leaves no tail of either value. Values are expected normalized (as
+ * {@link normalizeProtectedValues} returns them); empty values are skipped
+ * defensively.
+ */
+export function protectedValueIntervals(
+  value: string,
+  protectedValues: ReadonlyArray<string>,
+): ReadonlyArray<ProtectedValueInterval> {
+  // One member's occurrences arrive in start order, so its overlapping or
+  // adjacent runs coalesce as they are found. Only completed runs join the
+  // cross-member list; a single-character member over a long repeated capture
+  // therefore stays one interval instead of one per occurrence.
+  const matches: Array<ProtectedValueInterval> = [];
+  for (const protectedValue of protectedValues) {
+    if (protectedValue.length === 0) continue;
+    collectMemberIntervals(value, protectedValue, matches);
+  }
+  if (matches.length === 0) return [];
+
+  matches.sort(
+    (left, right) => left.start - right.start || left.end - right.end,
+  );
+  return mergeIntervals(matches);
+}
+
+/**
+ * Coalesce one member's start-ordered occurrences into completed runs. Only a
+ * new run allocates; adjacent or overlapping occurrences extend the pending
+ * one, so a repeated single-character member stays one interval.
+ */
+function collectMemberIntervals(
+  value: string,
+  protectedValue: string,
+  completed: Array<ProtectedValueInterval>,
+): void {
+  let pendingStart = -1;
+  let pendingEnd = -1;
+  let index = value.indexOf(protectedValue);
+  while (index !== -1) {
+    const end = index + protectedValue.length;
+    if (pendingStart === -1) {
+      pendingStart = index;
+      pendingEnd = end;
+    } else if (index <= pendingEnd) {
+      pendingEnd = Math.max(pendingEnd, end);
+    } else {
+      completed.push({ start: pendingStart, end: pendingEnd });
+      pendingStart = index;
+      pendingEnd = end;
+    }
+    index = value.indexOf(protectedValue, index + 1);
+  }
+  if (pendingStart !== -1) {
+    completed.push({ start: pendingStart, end: pendingEnd });
+  }
+}
+
+function mergeIntervals(
+  sorted: ReadonlyArray<ProtectedValueInterval>,
+): ReadonlyArray<ProtectedValueInterval> {
+  const merged: Array<ProtectedValueInterval> = [];
+  for (const interval of sorted) {
+    const previous = merged.at(-1);
+    if (previous !== undefined && interval.start <= previous.end) {
+      if (interval.end > previous.end) {
+        merged[merged.length - 1] = {
+          start: previous.start,
+          end: interval.end,
+        };
+      }
+      continue;
+    }
+    merged.push(interval);
+  }
+  return merged;
+}
+
+/**
+ * Redacts every protected value inside a single string through the merged
+ * intervals, so overlapping members leave no tail. Exported for the stdio
+ * diagnostic path, which redacts plain text rather than a JSON document.
  */
 export function redactProtectedString(
   value: string,
   protectedValues: ReadonlyArray<string>,
 ): string {
+  const intervals = protectedValueIntervals(value, protectedValues);
+  if (intervals.length === 0) return value;
+
   const output: Array<string> = [];
   let cursor = 0;
-
-  while (cursor < value.length) {
-    let earliestIndex = -1;
-    let match = "";
-
-    for (const protectedValue of protectedValues) {
-      const index = value.indexOf(protectedValue, cursor);
-      if (
-        index !== -1 &&
-        (earliestIndex === -1 ||
-          index < earliestIndex ||
-          (index === earliestIndex && protectedValue.length > match.length))
-      ) {
-        earliestIndex = index;
-        match = protectedValue;
-      }
-    }
-
-    if (earliestIndex === -1) {
-      output.push(value.slice(cursor));
-      break;
-    }
-
+  for (const interval of intervals) {
     output.push(
-      value.slice(cursor, earliestIndex),
+      value.slice(cursor, interval.start),
       PROTECTED_VALUE_REDACTION_MARKER,
     );
-    cursor = earliestIndex + match.length;
+    cursor = interval.end;
   }
-
+  output.push(value.slice(cursor));
   return output.join("");
 }
 

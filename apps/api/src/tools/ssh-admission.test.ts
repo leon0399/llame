@@ -47,6 +47,7 @@ function context(
     tenantDb,
     permissionPolicy: permissionPolicy(map),
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

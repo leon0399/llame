@@ -207,6 +207,7 @@ function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
       runAs: () => Promise.reject(new Error('Database unavailable')),
     },
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

@@ -53,6 +53,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
       'test-policy',
     ),
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

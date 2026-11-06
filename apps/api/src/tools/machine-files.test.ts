@@ -28,6 +28,7 @@ import {
 import { runTool } from './runner';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { expectRedacted, stubArtifactWrites } from '../testing/support';
 import { type ToolContext } from './types';
 import { type ToolMediaStore } from '../media/tool-media-store';
 import { createWorkspaceRootCell } from './workspace-path';
@@ -99,6 +100,7 @@ function context(
     machineStatus: { list: () => Promise.resolve(STATUS) },
     machineAttemptKey: 'attempt-1',
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 
@@ -952,6 +954,151 @@ describe('Machine bash', () => {
     stderr: '',
     truncated: false,
   };
+
+  it('redacts configured credentials from the result, parts, and native.result', async () => {
+    const provider = 'PROVIDER-CANARY-7f3';
+    const mcp = 'MCP-HEADER-CANARY-2b9';
+    const knowledge = '/srv/app/knowledge/root';
+    const filler = Array.from(
+      { length: 4000 },
+      (_, line) => `line ${String(line)}`,
+    ).join('\n');
+    const { peer, connector } = fixture({
+      answers: {
+        'proc.bash': {
+          value: {
+            status: 'success',
+            exitCode: 0,
+            stdout: `provider ${provider}\nmcp ${mcp}\nknowledge ${knowledge}\n${filler}\n`,
+            stderr: `stderr ${provider} ${mcp}\n`,
+            truncated: false,
+          },
+        },
+      },
+    });
+    const { append } = stubFence();
+    const insertParts = stubArtifactWrites();
+
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'machine://devl/srv/app' },
+      context(connector, {
+        artifactReadable: true,
+        permissionPolicy: compileTestPermissionPolicy(),
+        configuredCredentials: [provider, mcp],
+      }),
+      5,
+    );
+
+    const shown = JSON.stringify(result);
+    expectRedacted(shown, [provider, mcp]);
+    expect(shown).toContain(knowledge);
+
+    const parts = insertParts.mock.calls
+      .flatMap(([, written]) => written)
+      .map((part) => part.content.toString('utf8'))
+      .join('\n');
+    expectRedacted(parts, [provider, mcp]);
+    expect(parts).toContain(knowledge);
+
+    const events = append.mock.calls
+      .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
+      .join('\n');
+    expectRedacted(events, [provider, mcp]);
+    expect(events).toContain(knowledge);
+
+    const session = await peer.session(0);
+    const sent = JSON.stringify(session.calls.at(-1)?.params);
+    expect(sent).not.toContain(provider);
+    expect(sent).not.toContain(mcp);
+  });
+
+  it('drops a member prefix a Machine bound or deadline cut', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'proc.bash': {
+          value: {
+            status: 'success',
+            exitCode: 0,
+            stdout: 'prefix SECRET-',
+            stderr: '',
+            truncated: true,
+          },
+        },
+      },
+    });
+
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'machine://devl/srv/app' },
+      context(connector, { configuredCredentials: ['SECRET-KEY'] }),
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'success', stdout: 'prefix ' });
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
+  it('keeps a member prefix a finished command wrote itself', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'proc.bash': {
+          value: {
+            status: 'success',
+            exitCode: 0,
+            stdout: 'prefix SECRET-',
+            stderr: 'warn SECRET-',
+            truncated: false,
+          },
+        },
+      },
+    });
+
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'machine://devl/srv/app' },
+      context(connector, { configuredCredentials: ['SECRET-KEY'] }),
+      5,
+    );
+
+    // The daemon neither cut the capture nor timed out, so these bytes are the
+    // command's own text, not the front of a value llame dropped.
+    expect(result).toMatchObject({
+      status: 'success',
+      stdout: 'prefix SECRET-',
+      stderr: 'warn SECRET-',
+    });
+  });
+
+  it('drops a member prefix a Machine timeout cut', async () => {
+    stubFence();
+    const { connector } = fixture({
+      answers: {
+        'proc.bash': {
+          value: {
+            status: 'error',
+            type: 'timed_out',
+            durationMs: 100,
+            stdout: 'partial SECRET-',
+            stderr: '',
+            truncated: false,
+          },
+        },
+      },
+    });
+
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'machine://devl/srv/app' },
+      context(connector, { configuredCredentials: ['SECRET-KEY'] }),
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'timed_out' });
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
 
   it('runs in the given Machine directory without a local executor', async () => {
     stubFence();

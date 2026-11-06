@@ -71,6 +71,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     tenantDb,
     permissionPolicy: permissivePolicy(),
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

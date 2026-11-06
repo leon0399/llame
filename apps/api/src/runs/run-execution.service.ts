@@ -181,6 +181,7 @@ import {
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
 import { type ProductIdentityReader } from '../instance-config/product-identity';
+import { configuredCredentials } from '../instance-config/configured-credentials';
 import { resolveConfigPath } from '../instance-config/config-loader';
 import {
   createToolPromptRenderer,
@@ -1530,6 +1531,7 @@ export class RunExecutionService {
       ),
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
+      configuredCredentials: configuredCredentials(this.instanceConfig.config),
       webAdapters: this.instanceConfig.config.tools.webAdapters,
       webSearch: this.instanceConfig.config.webSearch,
       grepBounds: this.instanceConfig.config.tools.grep,
@@ -3265,6 +3267,7 @@ export class RunExecutionService {
       knowledgeResolver: this.knowledgeResolver,
       skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
       permissionPolicy: this.permissionPolicy,
+      configuredCredentials: configuredCredentials(this.instanceConfig.config),
       webAdapters: this.instanceConfig.config.tools.webAdapters,
       webSearch: this.instanceConfig.config.webSearch,
       grepBounds: this.instanceConfig.config.tools.grep,

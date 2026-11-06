@@ -147,6 +147,12 @@ export interface ToolContext {
    * or replace it.
    */
   readonly permissionPolicy?: CompiledPolicy;
+  /**
+   * The boot-time configured credential set (instance-config D1), read only to
+   * redact configured secrets from tool output. It never leaves the API
+   * process: a remote host or Machine never receives it.
+   */
+  readonly configuredCredentials: ReadonlyArray<string>;
   /** Ordered, boot-validated web adapters enabled by instance configuration. */
   readonly webAdapters?: ReadonlyArray<WebAdapterConfig>;
   /** Ordered, boot-validated web search engines enabled by instance configuration. */

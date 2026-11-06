@@ -34,6 +34,7 @@ import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { expectRedacted, stubArtifactWrites } from '../testing/support';
 
 function testContext(
   toolCallId = 'call-1',
@@ -41,6 +42,7 @@ function testContext(
 ): ToolContext {
   const db: Db = drizzle.mock({ schema });
   return {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
@@ -531,6 +533,62 @@ describe('bash durable admission', () => {
     }
   });
 
+  it('redacts configured credentials from the result, artifact parts, and native.result', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-redact-'));
+    const provider = 'PROVIDER-CANARY-7f3';
+    const mcp = 'MCP-HEADER-CANARY-2b9';
+    const knowledge = '/srv/knowledge/root';
+    const context = {
+      ...testContext(),
+      artifactReadable: true,
+      configuredCredentials: [provider, mcp],
+    };
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result',
+        payload: null,
+        createdAt: new Date(),
+      });
+    const insertParts = stubArtifactWrites();
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    try {
+      const result = await runTool(
+        bashTool,
+        {
+          command: `printf 'provider %s\nmcp %s\nknowledge %s\n' '${provider}' '${mcp}' '${knowledge}'; seq 1 4000; printf 'stderr %s\n' '${mcp}' >&2`,
+        },
+        context,
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'success' });
+      const shown = JSON.stringify(result);
+      expectRedacted(shown, [provider, mcp]);
+      expect(shown).toContain(knowledge);
+
+      const parts = insertParts.mock.calls
+        .flatMap(([, written]) => written)
+        .map((part) => part.content.toString('utf8'))
+        .join('\n');
+      expectRedacted(parts, [provider, mcp]);
+      expect(parts).toContain(knowledge);
+
+      const events = append.mock.calls
+        .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
+        .join('\n');
+      expectRedacted(events, [provider, mcp]);
+      expect(events).toContain(knowledge);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('bounds a host stream in bytes from tools.artifacts.maxBytes', () => {
     const bounds = managedBashContext({
       ...testContext(),
@@ -836,6 +894,7 @@ describe('bash durable admission', () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
     const path = join(directory, 'effect');
     const context: ToolContext = {
+      configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
       runId: 'run',

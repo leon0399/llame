@@ -102,6 +102,7 @@ function directoryReply(pairs: string) {
 
 function context(remoteClient: Remote | undefined): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     tenantDb,

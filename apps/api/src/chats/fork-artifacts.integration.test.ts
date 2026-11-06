@@ -243,6 +243,7 @@ d('fork artifact copy', () => {
   }
 
   const context = (chatId: string, userId = owner): ToolContext => ({
+    configuredCredentials: [],
     userId,
     chatId,
     tenantDb,

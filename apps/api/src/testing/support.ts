@@ -6,7 +6,7 @@
  * (re-exported below) so each file stays under the size trip-wire.
  */
 
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
 import { z } from 'zod';
 import {
   request as httpRequest,
@@ -16,6 +16,7 @@ import {
 } from 'node:http';
 
 import { isContextItemPart } from '../chats/context-item';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { isTemporalPayload } from '../chats/context-item-producers';
 import type request from 'supertest';
 import type { ModelMessage } from 'ai';
@@ -49,6 +50,31 @@ export function expectRegisteredUserId(
   ) {
     throw new Error('Expected register response with user.id');
   }
+}
+
+/**
+ * Captures the artifact writes a bash placement test makes: a fixed sequence,
+ * one artifact row, and the parts handed to the store. The returned spy holds
+ * each call's parts for a redaction assertion.
+ */
+export function stubArtifactWrites() {
+  vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+  vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue({
+    id: 'artifact-1',
+    createdAt: new Date('2026-11-05T00:00:00.000Z'),
+  });
+  return vi
+    .spyOn(ArtifactsRepository.prototype, 'insertParts')
+    .mockResolvedValue(undefined);
+}
+
+/** The marker is present and no configured member survives in `text`. */
+export function expectRedacted(
+  text: string,
+  members: ReadonlyArray<string>,
+): void {
+  expect(text).toContain('[REDACTED]');
+  for (const member of members) expect(text).not.toContain(member);
 }
 
 /**

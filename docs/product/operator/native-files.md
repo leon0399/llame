@@ -334,6 +334,60 @@ That is how the directory of a deleted Chat goes away; a live Chat gets its
 files back at its next reconcile. A worker that does not allowlist `bash`
 never sweeps.
 
+## Credential redaction in bash output
+
+At API/worker startup the loader derives one in-memory set of configured
+credentials from the instance configuration. These values are members:
+
+- Each provider `key`, for every provider type. A provider without a key adds
+  nothing.
+- Each web search engine `key`.
+- The `github` web adapter `token`.
+- Each resolved `{env:}` or `{path:}` substitution in a provider or remote MCP
+  `headers` value. Literal text around it and fallback text after `:-` are not
+  members.
+- Each such substitution in a stdio MCP `env` value, with the same two
+  exclusions.
+- The password in `POSTGRES_URL`, which the loader reads from the environment,
+  and `PGPASSWORD`.
+
+The set also contains the credential-shaped string leaves of a document that a
+member substitution reads through `{path:…|json:…}`, from the same file read.
+A property is credential-shaped when its name contains `authorization`,
+`cookie`, `credential`, `token`, `key`, `secret`, `passw`, or `signature`,
+regardless of case. An array element under such a name counts too.
+
+A member must have at least 16 characters and at least 64 bits of estimated
+entropy. The estimate is the value length multiplied by the Shannon entropy per
+character of the value's own character distribution. A value below either
+threshold is not a member. A command that prints such a value reveals it, and
+llame accepts that leak.
+
+The set is a boot snapshot and changes no configuration key. Restart API and Run
+workers after you rotate a credential file, or the old value stays a member and
+the new one does not. The set is not written anywhere: it is not part of
+`LlameConfig`, no API response serializes it, and the loader reads a credential
+file only to redact it.
+
+These placements and forms are not members:
+
+- Any part of a provider `baseUrl` or a remote MCP `url`, including URL userinfo
+  and query values.
+  To protect a key there, put it in a `headers` value through `{env:}` or
+  `{path:}` instead.
+- A stdio MCP `command` or `args` substitution.
+- A literal header value, even under a credential-shaped name.
+- The `openai-codex` `accountId`.
+- The whole `POSTGRES_URL` string. Only its password is a member.
+- A JSON-escaped form of a leaf value.
+
+llame scans no key format. It does not detect a secret it was not configured
+with. What the model and the stored result show is in the
+[bash reference](../reference/tools/bash.md#credential-redaction).
+
+Redaction also does not protect the credential files on disk: restrict their
+ownership and mode as the provider pages describe.
+
 ## Instruction files
 
 Per-directory project instruction files are loaded into the model's context by

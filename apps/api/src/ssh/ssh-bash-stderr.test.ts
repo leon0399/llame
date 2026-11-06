@@ -71,6 +71,28 @@ function runWithTail(client: SshClient) {
   });
 }
 
+/**
+ * Write a whole head, a dropped middle, and a tail that starts with `tail` and
+ * is padded to exactly the tail bound, so those bytes stay at the tail's start.
+ */
+function writeSplitStream(
+  process: FakeProcess,
+  head: Buffer,
+  tail: Buffer,
+): void {
+  process.stderr.write(head);
+  process.stderr.write('m'.repeat(100));
+  process.stderr.write(
+    Buffer.concat([
+      tail,
+      Buffer.from(`z${'b'.repeat(TAIL_BYTES - tail.length - 1)}`),
+    ]),
+  );
+  process.close(1);
+}
+
+const HEAD_AT_BOUND = Buffer.from('a'.repeat(SSH_DIAGNOSTIC_BYTES));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -96,6 +118,123 @@ describe('remote bash stderr tail', () => {
       'a'.repeat(100) + 'b'.repeat(headBytes + TAIL_BYTES),
     );
     expect(outcome.stderrOverflow).toBe(true);
+    // The head is all ASCII here, so its byte count is its code-unit count.
+    expect(outcome.diagnosticGap).toBe(SSH_DIAGNOSTIC_BYTES);
+  });
+
+  it('locates a gap that splits a multi-byte character', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    process.stderr.write(`${'a'.repeat(SSH_DIAGNOSTIC_BYTES - 1)}é`);
+    process.stderr.write('b'.repeat(100));
+    process.close(1);
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.stderrOverflow).toBe(true);
+    // The head ends inside the two-byte `é`; the gap sits before the
+    // character starts, so it is the byte count of the ASCII prefix.
+    expect(outcome.diagnosticGap).toBe(SSH_DIAGNOSTIC_BYTES - 1);
+  });
+
+  it('decodes an incomplete head and the tail on separate boundaries', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    const headFiller = 'h'.repeat(SSH_DIAGNOSTIC_BYTES - 4);
+    process.stderr.write(`${headFiller}aaa`);
+    // The last head byte is the lead of a two-byte character the head cut.
+    process.stderr.write(Buffer.from([0xc3]));
+    // Bytes between the head and the tail are the dropped gap.
+    process.stderr.write('dropped-bytes');
+    const tail = `KEY-ABCDEF zzz${'q'.repeat(64 - 14)}`;
+    process.stderr.write(tail);
+    process.close(0);
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    // Neither part invents a replacement character at the gap.
+    expect(outcome.diagnostic).toBe(`${headFiller}aaa${tail}`);
+    expect(outcome.diagnostic).not.toContain('\uFFFD');
+    expect(outcome.diagnosticGap).toBe(headFiller.length + 3);
+  });
+
+  it('keeps a byte order mark at the head start', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    // The head starts with the UTF-8 byte order mark: the transport's bytes,
+    // not a decoder guess, decide whether it stays.
+    const head = Buffer.concat([
+      Buffer.from('\uFEFF'),
+      Buffer.from('a'.repeat(SSH_DIAGNOSTIC_BYTES - 3)),
+    ]);
+    writeSplitStream(process, head, Buffer.alloc(0));
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.diagnostic).toBe(
+      `\uFEFF${'a'.repeat(SSH_DIAGNOSTIC_BYTES - 3)}z${'b'.repeat(63)}`,
+    );
+    expect(outcome.diagnosticGap).toBe(SSH_DIAGNOSTIC_BYTES - 2);
+  });
+
+  it('skips at most three continuation bytes at the tail start', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    // Four continuation bytes cannot all belong to one cut character, so the
+    // fourth decodes on its own instead of disappearing with the skipped run.
+    writeSplitStream(
+      process,
+      HEAD_AT_BOUND,
+      Buffer.from([0x80, 0x80, 0x80, 0x80]),
+    );
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.diagnostic).toBe(
+      `${'a'.repeat(SSH_DIAGNOSTIC_BYTES)}\uFFFDz${'b'.repeat(59)}`,
+    );
+    expect(outcome.diagnosticGap).toBe(SSH_DIAGNOSTIC_BYTES);
+  });
+
+  it('skips every continuation byte inside the three-byte window', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    // 0xbf is the last continuation byte: it still belongs to the window and
+    // leaves no replacement character behind.
+    writeSplitStream(process, HEAD_AT_BOUND, Buffer.from([0xbf, 0xa9]));
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.diagnostic).toBe(
+      `${'a'.repeat(SSH_DIAGNOSTIC_BYTES)}z${'b'.repeat(61)}`,
+    );
+  });
+
+  it('keeps a tail that starts with a lead byte', async () => {
+    const { client, processes } = fakeClient();
+    const pending = runWithTail(client);
+    const process = processes[0];
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    // A lead byte starts a character rather than continuing one, so the tail
+    // keeps its `é` whole.
+    writeSplitStream(process, HEAD_AT_BOUND, Buffer.from([0xc3, 0xa9]));
+
+    const outcome = await pending;
+    if (outcome.outcome !== 'ended') throw new Error('expected an end');
+    expect(outcome.diagnostic).toBe(
+      `${'a'.repeat(SSH_DIAGNOSTIC_BYTES)}éz${'b'.repeat(61)}`,
+    );
+    expect(outcome.diagnostic).not.toContain('\uFFFD');
   });
 
   it('keeps its own copy of the head, not a view of the chunk', async () => {

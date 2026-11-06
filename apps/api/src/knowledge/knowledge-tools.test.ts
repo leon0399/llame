@@ -60,6 +60,7 @@ function context(
   resolverError?: Error,
 ): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner-a',
     chatId: 'chat-a',
     permissionPolicy: compileTestPermissionPolicy(),
@@ -99,6 +100,7 @@ function multiSpaceContext(
   adapters: ReadonlyMap<string, KnowledgeFilesystemAdapterPort>,
 ): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner-a',
     chatId: 'chat-a',
     permissionPolicy: compileTestPermissionPolicy(),

@@ -110,6 +110,7 @@ describe('ssh bash over a real sshd', () => {
       permissionPolicy: policy,
       sshClient,
       ...overrides,
+      configuredCredentials: overrides.configuredCredentials ?? [],
     };
   }
 

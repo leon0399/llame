@@ -144,6 +144,7 @@ describe('native media reads', () => {
       },
       media: createToolMediaStore(media.service, 'owner', memory),
       ...overrides,
+      configuredCredentials: overrides.configuredCredentials ?? [],
     };
   }
 

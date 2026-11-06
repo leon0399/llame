@@ -1573,6 +1573,7 @@ describe('web fetch redirects', () => {
           ? redirectResponse(302, '/guide#section')
           : textResponse('guide', 'text/markdown'),
       createDerivedAdmission({
+        configuredCredentials: [],
         userId: 'owner',
         chatId: 'chat',
         permissionPolicy: compiled,

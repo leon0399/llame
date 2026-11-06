@@ -71,6 +71,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     },
     machineAttemptKey: 'attempt-1',
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

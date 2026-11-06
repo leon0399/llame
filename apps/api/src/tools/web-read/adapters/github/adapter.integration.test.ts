@@ -312,6 +312,7 @@ function jobRoute(): FixtureRoute {
 
 function testContext(policy: CompiledPolicy): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     productUserAgent: USER_AGENT,

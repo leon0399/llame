@@ -79,6 +79,7 @@ describe('Knowledge tools — real Postgres owner binding', () => {
     resolver: KnowledgeToolRuntimeResolver = runtimeResolver,
   ): ToolContext {
     return {
+      configuredCredentials: [],
       userId,
       chatId: 'knowledge-tools-chat',
       tenantDb,

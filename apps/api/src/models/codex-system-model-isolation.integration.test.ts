@@ -147,6 +147,7 @@ describeIfDb('Codex system-model owner isolation', () => {
 
     const search = await searchConversationsTool.execute(
       {
+        configuredCredentials: [],
         userId: secondOwnerId,
         chatId: crypto.randomUUID(),
         tenantDb,

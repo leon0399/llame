@@ -59,6 +59,7 @@ d('artifact store', () => {
   });
 
   const context = (chat: string, user = owner): ToolContext => ({
+    configuredCredentials: [],
     userId: user,
     chatId: chat,
     tenantDb,

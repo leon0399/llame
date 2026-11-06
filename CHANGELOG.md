@@ -1,5 +1,26 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-05
+
+- Configured credentials are redacted from every `bash` result on the llame
+  host, an `ssh://` host, and a Machine. The API derives one in-memory,
+  boot-snapshot set at startup: each provider `key` and web search engine `key`,
+  the `github` web adapter `token`, the credential-shaped leaves of a JSON
+  document a member substitution reads, `{env:}`/`{path:}` substitutions in
+  provider and remote MCP headers and stdio MCP `env`, the `POSTGRES_URL`
+  password, and `PGPASSWORD`. A member needs at least 16 characters and 64 bits
+  of estimated entropy, so a shorter or low-entropy value leaks by design. URL
+  userinfo and query values, any part of a provider `baseUrl` or a remote MCP
+  `url`, stdio `command`/`args`, literal header values, and
+  `openai-codex` `accountId` are not members. To protect a key in a header, use
+  `{env:}` or `{path:}` rather than a URL. llame matches the configured values
+  only, with no key-format scanning, and keeps the set out of every remote
+  request. The output bound is applied on raw positions with a longest-member
+  lookahead, so a value that crosses the byte bound or is cut by a timeout
+  leaves no fragment. Encoded or split forms and a partial value a command
+  printed itself are out of scope. Refs
+  [#1065](https://github.com/leon0399/llame/issues/1065).
+
 # 2026-11-03
 
 - A Continue Run now builds its kept steps through the same projection a later

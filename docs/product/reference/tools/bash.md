@@ -101,6 +101,32 @@ copy sent to the model. Host `bash` can also discover a mounted Knowledge root
 through ordinary filesystem commands; that is separate from the owner-scoped
 `knowledge_search` and `kb://` capabilities.
 
+### Credential redaction
+
+Every bounded stream, its stored artifact parts, and the stored result pass
+through one redaction routine before the result leaves the API, each occurrence
+of a configured credential becoming `[REDACTED]`. The set stays in that process:
+neither an `ssh://` host nor a Machine ever receives it. The operator configures
+which values are members
+([native files](../../operator/native-files.md#credential-redaction-in-bash-output)).
+
+The bound is applied on raw positions. The host and an `ssh://` capture keep a
+lookahead of the longest member past the byte bound, so a member that starts
+before the bound is found whole and leaves a marker. When llame itself cut the
+capture (a capture or transport limit, or a timeout), the incomplete member
+prefix at the cut is dropped rather than shown. A Machine keeps no lookahead, so
+a member its 32,000-unit bound cut is dropped without a marker. A command that
+exits on its own keeps any partial value it printed itself.
+
+Matching is exact substring replacement, so an encoded or split form (`base64`,
+`cut`, or a value assembled from pieces) is not matched. Native `read`/`grep`,
+another tool's result, and a Workspace's own `.mcp.json` secrets are outside
+this set.
+
+Redaction blocks accidental verbatim echo only. It does not stop a model that
+intends to exfiltrate through encoded or split output; the permission policy and
+process isolation remain the controls for that.
+
 ## Bounds
 
 Each stream is bounded at the operator-configured byte bound

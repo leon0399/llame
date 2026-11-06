@@ -140,6 +140,236 @@ describe("process-group settlement", () => {
     });
   });
 
+  it("keeps a lookahead so a member crossing the byte bound is redacted whole", async () => {
+    const member = "SECRET-KEY-0123456789";
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_360 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      true,
+    );
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, outputBound: undefined, outputBoundBytes: 30 },
+          attemptId: "lookahead",
+          options: { protectedValues: [member] },
+        },
+        resolve,
+      );
+    });
+    child.stdout.emit("data", Buffer.from(`012345678901234${member}`));
+    child.emit("close", 0, null);
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (!("stdout" in result)) throw new Error("Expected known output");
+    expect(result.stdout).toBe("012345678901234[REDACTED]");
+    expect(result.stdout).not.toContain(member);
+  });
+
+  it("redacts a non-ASCII member split across chunks and the byte bound", async () => {
+    const member = "SECRET-ключ";
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_361 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      true,
+    );
+    const bytes = Buffer.from(`0123456789${member}`, "utf8");
+    // The split lands inside the two-byte sequence of `л`, and the byte bound
+    // does too; the streaming decoder must still see the member whole.
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, outputBound: undefined, outputBoundBytes: 20 },
+          attemptId: "split-code-point",
+          options: { protectedValues: [member] },
+        },
+        resolve,
+      );
+    });
+    child.stdout.emit("data", bytes.subarray(0, 20));
+    child.stdout.emit("data", bytes.subarray(20));
+    child.emit("close", 0, null);
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (!("stdout" in result)) throw new Error("Expected known output");
+    expect(result.stdout).toBe("0123456789");
+    expect(result.stdout).not.toContain(member);
+    expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThanOrEqual(20);
+  });
+
+  it("drops a capture the lookahead cut mid-member", async () => {
+    const member = "SECRET-KEY";
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_362 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      true,
+    );
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, outputBound: 16 },
+          attemptId: "capture-cut",
+          options: { protectedValues: [member] },
+        },
+        resolve,
+      );
+    });
+    child.stdout.emit("data", Buffer.from(`0123456789${member}${member}X`));
+    child.emit("close", 0, null);
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (!("stdout" in result)) throw new Error("Expected known output");
+    expect(result.stdout).toBe("0123456789");
+    expect(result.stdout).not.toContain(member);
+  });
+
+  it("redacts a complete member whose capture cut starts inside it", async () => {
+    const member = "SECRET-KEY";
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_365 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      true,
+    );
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: {
+            ...context,
+            outputBound: undefined,
+            outputBoundBytes: 16,
+          },
+          attemptId: "cut-inside-member",
+          options: { protectedValues: [member] },
+        },
+        resolve,
+      );
+    });
+    // The capture limit lands after 24 bytes because the emoji cannot fit, so
+    // a drop-before-find would leave the member's first character visible.
+    child.stdout.emit("data", Buffer.from(`${"x".repeat(15)}SECRET-KE😀`));
+    child.emit("close", 0, null);
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    if (!("stdout" in result)) throw new Error("Expected known output");
+    expect(result.stdout).toBe("x".repeat(15));
+    expect(result.stdout).not.toContain("S");
+  });
+
+  it("discards an incomplete UTF-8 sequence the drain stopped on", async () => {
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_366 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "stopProcessGroup").mockImplementation(() => {
+      setImmediate(() => {
+        // `л` is D0 BB; the drain ends after its first byte, so the decoder
+        // holds an incomplete sequence rather than a character.
+        child.stdout?.emit(
+          "data",
+          Buffer.concat([Buffer.from("prefix SECRET-к"), Buffer.from([0xd0])]),
+        );
+        child.stdout?.emit("end");
+        child.stderr?.emit("end");
+      });
+      return Promise.resolve(true);
+    });
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, durationMs: 0 },
+          attemptId: "incomplete-sequence",
+          options: { protectedValues: ["SECRET-ключ"] },
+        },
+        resolve,
+      );
+    });
+
+    const result = await pending;
+    expect(result).toMatchObject({ type: "timed_out", truncated: true });
+    if (!("stdout" in result)) throw new Error("Expected known output");
+    expect(result.stdout).toBe("prefix ");
+    expect(result.stdout).not.toContain("\uFFFD");
+  });
+
+  it("keeps a natural exit's trailing member prefix", async () => {
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_363 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      true,
+    );
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, outputBound: 32 },
+          attemptId: "natural-prefix",
+          options: { protectedValues: ["SECRET-KEY"] },
+        },
+        resolve,
+      );
+    });
+    child.stdout.emit("data", Buffer.from("prefix SECRET"));
+    child.emit("close", 0, null);
+
+    const result = await pending;
+    expect(result).toMatchObject({
+      status: "success",
+      stdout: "prefix SECRET",
+      truncated: false,
+    });
+  });
+
+  it("drops a member prefix when a timeout kill ends the stream within the drain", async () => {
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_364 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "stopProcessGroup").mockImplementation(() => {
+      setImmediate(() => {
+        child.stdout?.emit("data", Buffer.from("prefix SECRET"));
+        child.stdout?.emit("end");
+        child.stderr?.emit("end");
+      });
+      return Promise.resolve(true);
+    });
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, durationMs: 0 },
+          attemptId: "timeout-mid-member",
+          options: { protectedValues: ["SECRET-KEY"] },
+        },
+        resolve,
+      );
+    });
+
+    expect(await pending).toMatchObject({
+      type: "timed_out",
+      stdout: "prefix ",
+      truncated: true,
+    });
+  });
+
   it("keeps a deadline unknown while a group survives the kill budget", async () => {
     // A kernel-blocked process can remain observable after SIGKILL. Model that
     // OS response without leaving an unkillable process on the test host.

@@ -25,7 +25,12 @@ const ASIDE = '00000000-0000-4000-8000-000000000002';
 function contextOf(chatId = CHAT_ID): ToolContext {
   const db = drizzle.mock({ schema });
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
-  return { userId: USER_ID, chatId, tenantDb: { runAs } };
+  return {
+    configuredCredentials: [],
+    userId: USER_ID,
+    chatId,
+    tenantDb: { runAs },
+  };
 }
 
 function part(

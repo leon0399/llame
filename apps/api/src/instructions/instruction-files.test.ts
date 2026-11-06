@@ -54,6 +54,7 @@ afterEach(async () => {
 function readingContext(permissionPolicy: CompiledPolicy): ToolContext {
   const db: Db = drizzle.mock({ schema });
   return {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',

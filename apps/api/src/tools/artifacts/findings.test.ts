@@ -31,6 +31,7 @@ function contextOf(
   mode?: PermissionMode,
 ): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     permissionPolicy: compiled,

@@ -73,6 +73,7 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
         callback(db),
     },
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

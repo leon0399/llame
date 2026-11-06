@@ -114,6 +114,12 @@ export type SshRunOutcome =
       readonly diagnostic: string;
       /** True when ssh wrote more stderr than the head (and tail) bound. */
       readonly stderrOverflow: boolean;
+      /**
+       * Code-unit offset in `diagnostic` where the head meets the tail when
+       * the tail dropped bytes. A re-sanitizer uses it to drop the two halves
+       * of a value the gap cut.
+       */
+      readonly diagnosticGap?: number;
       readonly code: number | null;
       readonly signal: string | null;
     }
@@ -200,9 +206,16 @@ type BoundedSshLimits = {
   readonly input?: string | Buffer;
 };
 
+/** One immutable read of the collected stderr. */
+type StderrSnapshot = {
+  readonly text: string;
+  readonly overflow: boolean;
+  /** The head/tail boundary in `text` when the tail dropped bytes. */
+  readonly gap?: number;
+};
+
 type StderrCollector = {
-  readonly text: () => string;
-  readonly overflow: () => boolean;
+  readonly snapshot: () => StderrSnapshot;
 };
 
 type BoundedWiring = {
@@ -230,14 +243,16 @@ function collectStderr(
 ): StderrCollector {
   if (tailBytes <= 0) {
     const text = collectSshDiagnostic(stderr);
-    return { text, overflow: () => false };
+    return { snapshot: () => ({ text: text(), overflow: false }) };
   }
   const head: Array<Buffer> = [];
   let headBytes = 0;
   let tail = Buffer.alloc(0);
   let dropped = 0;
+  let cached: StderrSnapshot | undefined;
   stderr.on('data', (chunk: Buffer | string) => {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    cached = undefined;
     // The head takes what is left of its bound and the rest becomes the tail.
     // Both keep copies: a view, even an empty one, would pin the whole chunk
     // and let retained memory grow with the stderr volume.
@@ -251,10 +266,49 @@ function collectStderr(
     tail = Buffer.from(kept.subarray(-tailBytes));
   });
   stderr.on('error', () => undefined);
-  return {
-    text: () => Buffer.concat([...head, tail]).toString('utf8'),
-    overflow: () => dropped > 0,
+  const snapshot = () => {
+    cached ??= stderrSnapshot(head, tail, headBytes, dropped);
+    return cached;
   };
+  return { snapshot };
+}
+
+/**
+ * Decode a head and tail that a gap separates without inventing a character at
+ * the boundary. A contiguous stream is decoded whole. With dropped bytes, the
+ * head stops before its incomplete trailing sequence and the tail skips at
+ * most the three continuation bytes that belonged to a character the head
+ * started, so each part is decoded on its own character boundaries and the gap
+ * is the head text's length.
+ */
+function stderrSnapshot(
+  head: ReadonlyArray<Buffer>,
+  tail: Buffer,
+  headBytes: number,
+  dropped: number,
+): StderrSnapshot {
+  const joined = Buffer.concat([...head, tail]);
+  if (dropped === 0) {
+    return { text: joined.toString('utf8'), overflow: false };
+  }
+  const headText = new TextDecoder('utf-8', { ignoreBOM: true }).decode(
+    joined.subarray(0, headBytes),
+    { stream: true },
+  );
+  let tailStart = headBytes;
+  const maxSkip = Math.min(3, joined.length - headBytes);
+  while (
+    tailStart - headBytes < maxSkip &&
+    isContinuationByte(joined[tailStart])
+  ) {
+    tailStart += 1;
+  }
+  const tailText = joined.subarray(tailStart).toString('utf8');
+  return { text: headText + tailText, overflow: true, gap: headText.length };
+}
+
+function isContinuationByte(byte: number): boolean {
+  return byte >= 0x80 && byte <= 0xbf;
 }
 
 /** Append one chunk under the caller's byte bound, flagging dropped bytes. */
@@ -290,17 +344,19 @@ function wireBoundedProcess(wiring: BoundedWiring): void {
       diagnostic: error.message,
     }),
   );
-  process.onClose((code, signal) =>
+  process.onClose((code, signal) => {
+    const snapshot = stderr.snapshot();
     finish({
       outcome: 'ended',
       stdout: state.stdout,
       stdoutOverflow: state.overflow,
-      diagnostic: stderr.text(),
-      stderrOverflow: stderr.overflow(),
+      diagnostic: snapshot.text,
+      stderrOverflow: snapshot.overflow,
+      ...(snapshot.gap !== undefined && { diagnosticGap: snapshot.gap }),
       code,
       signal,
-    }),
-  );
+    });
+  });
 }
 
 /** Run one bounded `ssh` process and report its raw facts. */
@@ -323,7 +379,11 @@ function runBoundedSsh(
     resolve(end);
   };
   const fail = (reason: 'client_missing' | 'timed_out' | 'cancelled') =>
-    finish({ outcome: 'failed', reason, diagnostic: stderr.text() });
+    finish({
+      outcome: 'failed',
+      reason,
+      diagnostic: stderr.snapshot().text,
+    });
   const onAbort = () => fail('cancelled');
   const timer = setTimeout(() => fail('timed_out'), limits.deadlineMs);
 

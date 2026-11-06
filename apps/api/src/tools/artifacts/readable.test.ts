@@ -30,6 +30,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
         callback(db),
     },
     ...overrides,
+    configuredCredentials: overrides.configuredCredentials ?? [],
   };
 }
 

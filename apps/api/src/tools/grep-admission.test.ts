@@ -20,6 +20,7 @@ function contextWith(
   onDerivedDecision?: (decision: DerivedDecision) => void,
 ): ToolContext {
   return {
+    configuredCredentials: [],
     userId: 'user-A',
     chatId: 'chat-1',
     tenantDb: {

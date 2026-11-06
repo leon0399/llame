@@ -71,6 +71,7 @@ d('artifact finding re-check', () => {
     onDerivedDecision?: () => void;
   }): ToolContext {
     return {
+      configuredCredentials: [],
       userId: owner,
       chatId: options.chat ?? chatId,
       tenantDb,

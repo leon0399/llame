@@ -228,6 +228,7 @@ describe('McpRuntimeService', () => {
     await expect(
       resolution.executor.execute(
         {
+          configuredCredentials: [],
           userId: 'user-1',
           chatId: 'chat-1',
           tenantDb: fakeTenantDb,
@@ -300,6 +301,7 @@ describe('McpRuntimeService', () => {
     const recorded = vi.fn();
     const result = await resolution.executor.execute(
       {
+        configuredCredentials: [],
         runId: 'run-1',
         nativeDeliverySequence: 1,
         userId: 'user-1',
@@ -371,6 +373,7 @@ describe('McpRuntimeService', () => {
     await expect(
       resolution.executor.execute(
         {
+          configuredCredentials: [],
           runId: 'run-persist-failure',
           nativeDeliverySequence: 1,
           userId: 'user-1',
@@ -440,6 +443,7 @@ describe('McpRuntimeService', () => {
     };
     const result = await resolution.executor.execute(
       {
+        configuredCredentials: [],
         runId: 'run-truncated',
         nativeDeliverySequence: 1,
         userId: 'user-1',
@@ -471,6 +475,7 @@ describe('McpRuntimeService', () => {
 
   /** A context the MCP runtime can spill from: the Run can read artifacts. */
   const spillingContext = (runId: string): ToolContext => ({
+    configuredCredentials: [],
     runId,
     nativeDeliverySequence: 1,
     userId: 'user-1',
@@ -648,6 +653,7 @@ describe('McpRuntimeService', () => {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
     const context = {
+      configuredCredentials: [],
       runId: 'run-2',
       nativeDeliverySequence: 2,
       userId: 'user-1',
@@ -695,6 +701,7 @@ describe('McpRuntimeService', () => {
     await expect(
       resolution.executor.execute(
         {
+          configuredCredentials: [],
           runId: 'run-aborted-before-record',
           nativeDeliverySequence: 1,
           userId: 'user-1',
@@ -743,6 +750,7 @@ describe('McpRuntimeService', () => {
     await expect(
       resolution.executor.execute(
         {
+          configuredCredentials: [],
           runId: 'run-aborted-after-record',
           nativeDeliverySequence: 1,
           userId: 'user-1',
@@ -1178,6 +1186,7 @@ describe('McpRuntimeService', () => {
     await expect(
       resolution.executor.execute(
         {
+          configuredCredentials: [],
           userId: 'user-1',
           chatId: 'chat-1',
           tenantDb: fakeTenantDb,
@@ -1350,6 +1359,7 @@ describe('McpRuntimeService', () => {
     await expect(
       resolution.executor.execute(
         {
+          configuredCredentials: [],
           userId: 'user-1',
           chatId: 'chat-1',
           tenantDb: fakeTenantDb,
@@ -1413,6 +1423,7 @@ describe('McpRuntimeService', () => {
       await expect(
         resolution.executor.execute(
           {
+            configuredCredentials: [],
             userId: 'user-1',
             chatId: 'chat-1',
             tenantDb: fakeTenantDb,
@@ -1458,6 +1469,7 @@ describe('McpRuntimeService', () => {
     await expect(
       resolution.executor.execute(
         {
+          configuredCredentials: [],
           userId: 'user-1',
           chatId: 'chat-1',
           tenantDb: fakeTenantDb,

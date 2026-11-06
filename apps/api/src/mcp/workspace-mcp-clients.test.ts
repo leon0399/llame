@@ -175,6 +175,7 @@ const tenantDb: TenantRunner = {
 const toolContext: ToolContext = {
   userId: 'user-1',
   chatId: 'chat-1',
+  configuredCredentials: [],
   tenantDb,
 };
 

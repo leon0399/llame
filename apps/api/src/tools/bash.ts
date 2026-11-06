@@ -1,7 +1,13 @@
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
+import { BASH_BOUNDS, type ProcBashResult } from '@workspace/machine-protocol';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
-import { admitManagedBash, type BashResult } from '@workspace/bash-executor';
+import {
+  admitManagedBash,
+  sanitizeKnownResultAtBound,
+  type BashResult,
+  type StreamBound,
+} from '@workspace/bash-executor';
 import { parsePathScheme } from '@workspace/native-file-tools';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
@@ -37,6 +43,12 @@ import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 
 const bashLogger = new Logger('BashTool');
+
+/** The daemon's own perf-stream bound, in code units (machine-protocol). */
+const MACHINE_BASH_STREAM_BOUND: StreamBound = {
+  kind: 'code-units',
+  limit: BASH_BOUNDS.outputBound,
+};
 
 type AdmittedBashExecution = Extract<
   ReturnType<typeof admitManagedBash>,
@@ -202,9 +214,34 @@ async function runMachineBash(
       );
       const result = readProcBashResult(raw);
       if (result === undefined) return machineUnusableResult(name);
+      const sanitized = sanitizeMachineBashResult(context, result);
       // The Machine opens its own paths; the llame host files are a cache this
       // command cannot reach (tool-result-artifacts D10).
-      return spillBashResult(context, result, true);
+      return spillBashResult(context, sanitized, true);
+    },
+  );
+}
+
+/**
+ * Redact the daemon's answer before it is spilled or recorded. Only a known
+ * result carries streams; its capture has no lookahead, so a stream the
+ * daemon's bound or deadline cut drops a trailing member prefix. A refusal or
+ * an unknown outcome passes through unchanged.
+ */
+function sanitizeMachineBashResult(
+  context: ToolContext,
+  result: ProcBashResult,
+): ProcBashResult {
+  if (!('stdout' in result)) return result;
+  const endedByLlame =
+    result.truncated || ('type' in result && result.type === 'timed_out');
+  return sanitizeKnownResultAtBound(
+    result,
+    MACHINE_BASH_STREAM_BOUND,
+    context.configuredCredentials,
+    {
+      stdout: { endedByLlame },
+      stderr: { endedByLlame },
     },
   );
 }
@@ -342,6 +379,7 @@ async function runHostBash(
       timeoutSignal: context.timeoutSignal,
       timeoutMs: context.timeoutMs,
       toolCallId,
+      protectedValues: context.configuredCredentials,
     },
   );
   if ('type' in admitted) return toToolResult(admitted);

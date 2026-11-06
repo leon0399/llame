@@ -92,6 +92,7 @@ describe('ssh operations stay in their owner scope', () => {
 
   function context(userId: string, run: SeededRun): ToolContext {
     return {
+      configuredCredentials: [],
       userId,
       chatId: run.chatId,
       runId: run.runId,

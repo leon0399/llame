@@ -1,4 +1,4 @@
-import { cutStringAtCodePointBoundary } from "@workspace/runtime-safety";
+import { codePointSafeCutIndex } from "@workspace/runtime-safety";
 import type { BashExecutorContext } from "./types";
 
 /**
@@ -29,22 +29,31 @@ export function boundedLength(text: string, bound: StreamBound): number {
 }
 
 /**
+ * The code-unit length of `text` cut to the bound on a code-point boundary,
+ * without taking the substring. A caller that only needs the index (a kept
+ * range, a replacement end) avoids a bound-sized copy.
+ */
+export function cutLength(text: string, bound: StreamBound): number {
+  return bound.kind === "bytes"
+    ? utf8CutIndex(text, bound.limit)
+    : codePointSafeCutIndex(text, Math.min(text.length, bound.limit));
+}
+
+/**
  * Cut a string to the bound on a code-point boundary. A string within the
  * bound is returned as it is, so a caller can tell a cut by identity.
  */
 export function cutToBound(text: string, bound: StreamBound): string {
-  return bound.kind === "bytes"
-    ? cutToUtf8Bytes(text, bound.limit)
-    : cutStringAtCodePointBoundary(text, bound.limit);
+  const index = cutLength(text, bound);
+  return index === text.length ? text : text.slice(0, index);
 }
 
 /**
- * The UTF-8 prefix of `text` that fits `limit` bytes. Each code point is
- * measured as the UTF-8 length it encodes to, so a surrogate pair is kept or
- * dropped whole.
+ * The code-unit index whose UTF-8 prefix fits `limit` bytes. Each code point
+ * is measured as the UTF-8 length it encodes to, so a surrogate pair is kept
+ * or dropped whole.
  */
-function cutToUtf8Bytes(text: string, limit: number): string {
-  if (Buffer.byteLength(text, "utf8") <= limit) return text;
+function utf8CutIndex(text: string, limit: number): number {
   let bytes = 0;
   let index = 0;
   while (index < text.length) {
@@ -53,7 +62,7 @@ function cutToUtf8Bytes(text: string, limit: number): string {
     if (bytes > limit) break;
     index += code > 0xff_ff ? 2 : 1;
   }
-  return index === text.length ? text : text.slice(0, index);
+  return index;
 }
 
 function utf8Width(code: number): number {
