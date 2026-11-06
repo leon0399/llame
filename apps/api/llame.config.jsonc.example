@@ -102,6 +102,24 @@
     //   "key": "{env:OPENCODE_GO_API_KEY}"
     // },
     // --- opencode-go block: end ---
+
+    // A System One decision endpoint (experimental decision lane). It serves
+    // the `decisionModels[]` catalogue, never a models[] entry, and both the
+    // key and the baseUrl are required. These are the routes verified on
+    // 2026-11-05; the wire is the same on each, so only the destination,
+    // credential, and model id differ.
+    // {
+    //   "id": "opencode-decisions",
+    //   "type": "system-one",
+    //   "key": "{env:OPENCODE_API_KEY}",
+    //   "baseUrl": "https://opencode.ai/zen/v1"
+    // },
+    // {
+    //   "id": "openrouter-decisions",
+    //   "type": "system-one",
+    //   "key": "{env:OPENROUTER_API_KEY}",
+    //   "baseUrl": "https://openrouter.ai/api/v1"
+    // },
   ],
 
   // Executable model catalog. Each provider must name a providers[].id.
@@ -518,7 +536,33 @@
   //   // Each vendor's own maximum still clamps it. `limit` bounds what the
   //   // model reads inline; results beyond it stay in the call's artifact.
   //   "fetchLimit": 20,
+  //   // Optional ranking of this call's results by a decision model from
+  //   // `decisionModels[]`. Absent means the tool never asks one; there is no
+  //   // mode or "off" value. An unknown or blank `model` fails startup.
+  //   "rerank": { "model": "jev-openrouter" },
   // },
+
+  // Optional System One decision-model catalogue (experimental). Leave this
+  // commented unless a Jev / System One endpoint is configured: without it no
+  // decision client is built and no tool changes its order. Each entry needs a
+  // unique `id`; its `provider` must be a `providers[]` entry of type
+  // "system-one" (see the commented entries above `models[]`), and the model id
+  // is sent verbatim on the wire. Decision calls are side calls, logged with
+  // their own usage and never folded into a Run's message usage. A TOOL opts in
+  // through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`),
+  // which names one of these ids; see docs/product/operator/decisions.md.
+  // "decisionModels": [
+  //   {
+  //     "id": "jev-opencode",
+  //     "provider": "opencode-decisions",
+  //     "model": "jev-1.13",
+  //   },
+  //   {
+  //     "id": "jev-openrouter",
+  //     "provider": "openrouter-decisions",
+  //     "model": "~typesafe/jev-latest",
+  //   },
+  // ],
 
   // Run limits — every one is OPT-IN. Interpolated numbers must be
   // whole-value quoted tokens.
@@ -906,7 +950,10 @@
     //   "maxFilesExamined": 5000,
     //   "maxEntriesListed": 20000,
     //   "maxBytesRead": 33554432,
-    //   "maxFileBytes": null
+    //   "maxFileBytes": null,
+    //   // Optional ranking of the walk's file runs by a decision model from
+    //   // `decisionModels[]`; absent means this tool never asks one.
+    //   "rerank": { "model": "jev-openrouter" }
     // },
     // The largest one stored tool-result artifact part may be, in UTF-8 bytes.
     // Unset (as here) means 8388608 (8 MiB). The range is 131072 (128 KiB), so

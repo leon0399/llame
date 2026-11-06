@@ -5,6 +5,7 @@ import type { ProductIdentityReader } from '../instance-config/product-identity'
 import { loadInstanceConfig } from '../instance-config/config-loader';
 import {
   BUILT_IN_DEFAULTS,
+  type DecisionModelConfig,
   type ProviderConfig,
 } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
@@ -150,6 +151,7 @@ function createService(overrides: {
   titleGenerationModelId?: string | null;
   models?: Array<SystemModelCatalogEntry>;
   providers?: Array<ProviderConfig>;
+  decisionModels?: Array<DecisionModelConfig>;
 }): ModelsService {
   const instanceConfig: InstanceConfigReader & ProductIdentityReader = {
     productUserAgent: USER_AGENT,
@@ -161,6 +163,9 @@ function createService(overrides: {
       },
       providers: overrides.providers ?? [DEFAULT_PROVIDER],
       models: overrides.models ?? CATALOG,
+      ...(overrides.decisionModels !== undefined && {
+        decisionModels: overrides.decisionModels,
+      }),
     },
   };
 
@@ -202,6 +207,35 @@ describe('ModelsService', () => {
     expect(firstModel.pricingUsdPer1M?.input).toEqual(expect.any(Number));
     expect(firstModel.pricingUsdPer1M?.output).toEqual(expect.any(Number));
     expect(firstModel).not.toHaveProperty('providerModelId');
+  });
+
+  it('lists no decision model and keeps a chat model that shares a decision id', () => {
+    const [chatModel] = CATALOG;
+    const service = createService({
+      defaultModelId: chatModel.id,
+      providers: [
+        DEFAULT_PROVIDER,
+        {
+          id: 'decisions',
+          type: 'system-one',
+          key: 'decision-key',
+          baseUrl: 'https://decisions.example/v1',
+          headers: {},
+        },
+      ],
+      decisionModels: [
+        { id: chatModel.id, provider: 'decisions', model: 'jev-1.13' },
+        { id: 'decision-only', provider: 'decisions', model: 'jev-1.14' },
+      ],
+    });
+
+    const response = service.getAvailableModels();
+
+    expect(response.models.map((model) => model.id)).toEqual(
+      CATALOG.map((model) => model.id),
+    );
+    expect(JSON.stringify(response)).not.toContain('jev-1.1');
+    expect(JSON.stringify(response)).not.toContain('decision-key');
   });
 
   it('publishes a manually declared Codex model without provider credentials or invented pricing', () => {

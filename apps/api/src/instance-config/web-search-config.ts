@@ -1,5 +1,10 @@
 /** Operator `webSearch` configuration types (extend-web-search D7, D8). */
 
+import type {
+  RawToolRerankConfig,
+  ToolRerankConfig,
+} from './tool-rerank-config';
+
 /** A Parallel search mode; `fast` is the default for agent calls. */
 export type ParallelSearchMode = 'turbo' | 'fast' | 'basic' | 'advanced';
 
@@ -93,6 +98,8 @@ export type RawWebSearchConfig = {
   chain: Array<string>;
   /** Schema-validated integer of 1 to 100; no interpolation applies. */
   fetchLimit?: number;
+  /** The tool's own rerank block; absent means no decision call. */
+  rerank?: RawToolRerankConfig;
 };
 
 export type WebSearchEngineConfig =
@@ -171,4 +178,10 @@ export type WebSearchConfig = {
    * directly built config may omit it and takes the built-in default.
    */
   fetchLimit?: number;
+  /**
+   * Opt-in ranking of this call's results by a catalogue decision model. The
+   * tool reads its own setting here; an absent block means it never asks the
+   * lane.
+   */
+  rerank?: ToolRerankConfig;
 };
