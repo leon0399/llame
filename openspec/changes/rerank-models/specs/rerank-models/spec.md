@@ -15,7 +15,7 @@ A `providers[]` entry of `type: "cohere-rerank"` MUST serve the Cohere v2
 rerank wire. Each request MUST go to `POST {baseUrl}/rerank`. The request body
 MUST hold `model`, `query`, and `documents`. When the entry has a `key`, each
 request MUST carry it as a bearer token. A keyless entry MUST send no
-`Authorization` header. The client MUST NOT read a credential from the process
+`Authorization` header unless its operator header map sets one. The client MUST NOT read a credential from the process
 environment.
 
 #### Scenario: A rerank provider is configured
@@ -142,7 +142,7 @@ MUST stop reading a body at 1,048,576 bytes, and that request is unavailable.
 
 The judge result MUST map each judged card key to its `relevance_score`. The
 representative model MUST be the first accepted response's served `model` in
-request order, else the catalog `model`. It MUST be `null` when no response is
+request order if it names one, else the catalog `model`. It MUST be `null` when no response is
 accepted.
 
 #### Scenario: Two requests report different served models
