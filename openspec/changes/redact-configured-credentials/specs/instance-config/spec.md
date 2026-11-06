@@ -98,7 +98,8 @@ For a provider `baseUrl` and a remote MCP `url`, the set MUST contain each
 substitution inside the userinfo password or query. It MUST contain each
 query value under a credential-shaped name, in a literal or a substituted URL.
 It MUST contain the userinfo password at any nonblank length and the username
-from 8 characters. It MUST contain each value as written and percent-decoded.
+from 8 characters. It MUST contain each value as written, percent-decoded, and
+without ASCII tab, LF, or CR, as URL parsing sends it.
 It MUST NOT contain the whole URL or any other part of it.
 
 #### Scenario: A URL substitution is a member
@@ -117,6 +118,12 @@ It MUST NOT contain the whole URL or any other part of it.
 
 - **WHEN** a provider `baseUrl` is `{env:OPENAI_BASE_URL:-http://localhost:11434/v1}` and `OPENAI_BASE_URL` is set to `https://gateway.example/v1` or unset
 - **THEN** neither URL is in the set
+
+#### Scenario: A URL credential counts in every spelling that llame sends
+
+- **WHEN** a remote MCP `url` holds the query `apiKey=canary%2F1065` and a provider `baseUrl` holds the query `token=canary` followed by a line feed and `secret`
+- **THEN** the set contains `canary%2F1065` and `canary/1065`
+- **AND** it contains the token with the line feed and `canarysecret`
 
 ### Requirement: Other settings are not members
 
