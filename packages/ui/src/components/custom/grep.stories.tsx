@@ -157,3 +157,215 @@ export const Failed: Story = {
     await expect(canvas.getByText("Pattern 1: unclosed group")).toBeVisible();
   },
 };
+
+const pass = (locator: string, line: number, text: string) => ({
+  locator,
+  content: `${line}: ${text}\n`,
+  matches: [line],
+});
+
+const rerank = {
+  model: "jev-1.14",
+  order: ["p2", "p0", "p1"],
+  scores: { p2: 0.81, p0: 0.4, p1: 0.05 },
+  latencyMs: 530,
+  costUsd: 0.0037,
+  runLengths: [1, 2, 1],
+};
+
+const rankedOutput = {
+  ...output,
+  results: [
+    pass("src/c.ts:5-5", 5, "needle c"),
+    pass("src/a.ts:10-10", 10, "needle a1"),
+    pass("src/a.ts:30-30", 30, "needle a2"),
+    pass("src/b.ts:2-2", 2, "needle b"),
+  ],
+  display: { rerank },
+};
+
+/**
+ * A ranked call shows one badge with the served model, latency, and cost; each
+ * run shows its ordinal, original key, and score beside its file line.
+ *
+ * @summary for a ranked search
+ */
+export const Ranked: Story = {
+  tags: ["ai-generated"],
+  args: { output: rankedOutput },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    await expect(canvas.getByText("Ranked by jev-1.14")).toBeVisible();
+    await expect(canvas.getByText("· 530 ms · $0.0037")).toBeVisible();
+    await expect(canvas.getByText("#1 · p2 · score 0.81")).toBeVisible();
+    await expect(canvas.getByText("#2 · p0 · score 0.40")).toBeVisible();
+    await expect(canvas.getByText("#3 · p1 · score 0.05")).toBeVisible();
+  },
+};
+
+/**
+ * Only judged runs show a score; an unjudged run follows with none.
+ *
+ * @summary for a partly judged ranking
+ */
+export const RankedPartial: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...rankedOutput,
+      display: { rerank: { ...rerank, scores: { p2: 0.81 } } },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    await expect(canvas.getAllByText(/score/u)).toHaveLength(1);
+  },
+};
+
+/**
+ * A failed rank call keeps walk order and shows the framing line, with no
+ * badge and no score.
+ *
+ * @summary for a search whose rank call failed
+ */
+export const RankUnavailable: Story = {
+  tags: ["ai-generated"],
+  args: { output: { ...output, ranking: "unavailable" } },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    await expect(
+      canvas.getByText(/\[ranking unavailable; walk order\]/u),
+    ).toBeVisible();
+    await expect(canvas.queryByText(/Ranked by/u)).not.toBeInTheDocument();
+    await expect(canvas.queryByText(/score/u)).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * A part without a record shows no badge and no score.
+ *
+ * @summary for a search that was not ranked
+ */
+export const RankAbsent: Story = {
+  tags: ["ai-generated"],
+  args: { output },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    await expect(canvas.queryByText(/Ranked by/u)).not.toBeInTheDocument();
+    await expect(canvas.queryByText(/score/u)).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * The record judges three runs, but the part holds one; only that run shows
+ * its score and no row appears for an omitted run.
+ *
+ * @summary for a record with more judged runs than rows
+ */
+export const RankedOmittedRows: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...rankedOutput,
+      results: rankedOutput.results.slice(0, 1),
+      display: { rerank },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    await expect(canvas.getAllByText(/score/u)).toHaveLength(1);
+    await expect(canvas.getAllByRole("group")).toHaveLength(1);
+  },
+};
+
+/**
+ * A reorder can place two runs of one file side by side, the later run
+ * starting after the earlier. Explicit run lengths keep them separate, each
+ * with its own key and score.
+ *
+ * @summary for same-file runs with increasing start lines after a reorder
+ */
+export const SameFileRunsAfterReorder: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...output,
+      results: [
+        pass("src/a.ts:10-10", 10, "first run"),
+        pass("src/a.ts:30-30", 30, "second run"),
+      ],
+      display: {
+        rerank: {
+          ...rerank,
+          order: ["p1", "p0"],
+          scores: { p1: 0.9, p0: 0.3 },
+          runLengths: [1, 1],
+        },
+      },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    const groups = canvas.getAllByRole("group", {
+      name: "Matches in src/a.ts",
+    });
+    await expect(groups).toHaveLength(2);
+    await expect(groups[0]?.closest("li")).toContainElement(
+      canvas.getByText("#1 · p1 · score 0.90"),
+    );
+    await expect(groups[1]?.closest("li")).toContainElement(
+      canvas.getByText("#2 · p0 · score 0.30"),
+    );
+  },
+};
+
+/**
+ * The inline part cut the final run: it holds fewer passages than its stored
+ * length, and still shows as one run with its own score.
+ *
+ * @summary for a final run cut by the inline part
+ */
+export const TruncatedFinalRun: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...output,
+      results: [
+        pass("src/a.ts:10-10", 10, "needle a1"),
+        pass("src/a.ts:30-30", 30, "needle a2"),
+      ],
+      display: { rerank: { ...rerank, runLengths: [1, 3] } },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    const groups = canvas.getAllByRole("group", {
+      name: "Matches in src/a.ts",
+    });
+    await expect(groups).toHaveLength(2);
+    await expect(groups[1]?.closest("li")).toContainElement(
+      canvas.getByText("#2 · p0 · score 0.40"),
+    );
+  },
+};
+
+/**
+ * The call's `objective` shows with its parameters.
+ *
+ * @summary for a search that states an objective
+ */
+export const WithObjective: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: {
+      patterns: ["grepInputSchema"],
+      objective: "Find where the grep input schema is defined",
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    await expect(
+      canvas.getByText(/Find where the grep input schema is defined/u),
+    ).toBeVisible();
+  },
+};

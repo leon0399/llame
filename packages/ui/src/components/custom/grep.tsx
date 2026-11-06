@@ -10,8 +10,13 @@ import {
   SourceLines,
 } from "@workspace/ui/components/custom/source-lines";
 import {
+  rankDisplaySchema,
+  rankRecordOf,
+  rankScoreAt,
   ToolDetails,
   type ToolPartProps,
+  ToolRankBadge,
+  ToolRankScore,
   ToolResultFallback,
   ToolRow,
   ToolSection,
@@ -22,6 +27,7 @@ const inputSchema = z.object({
   scopes: z.array(z.string()).optional(),
   literal: z.boolean().optional(),
   ignoreCase: z.boolean().optional(),
+  objective: z.string().optional(),
 });
 
 const passageSchema = z.object({
@@ -43,6 +49,10 @@ const outputSchema = z.looseObject({
   results: z.array(passageSchema),
   complete: z.boolean(),
   warnings: z.array(z.object({ kind: z.string(), count: z.number() })),
+  /** `"unavailable"`: the rank call failed and the walk order stands. */
+  ranking: z.string().optional(),
+  /** A ranked call stores `display.rerank`; `runLengths` aligns with `order`. */
+  display: rankDisplaySchema,
   notice: z.string().optional(),
   truncationNotice: z.string().optional(),
 });
@@ -53,7 +63,8 @@ type GrepOutput = z.infer<typeof outputSchema>;
 /** Props for the dedicated `grep` tool row. */
 export type GrepToolProps = ToolPartProps;
 
-type FileMatches = {
+/** One run: consecutive passages of one file, shown as one numbered view. */
+type FileRun = {
   path: string;
   lines: Array<SourceLine>;
   matches: Set<number>;
@@ -71,25 +82,49 @@ const warningLabels = new Map([
   ["deadline", "search deadline reached"],
 ]);
 
-/** The file part of a `<path>:<start>-<end>` passage locator. The path may
- *  itself contain `:`, so only the last one separates the range. */
-function locatorPath(locator: string): string {
+type LocatorParts = { path: string; start: number };
+
+/** The `<path>` and start line of a `<path>:<start>-<end>` passage locator.
+ *  The path may itself contain `:`, so only the last one separates the range. */
+function locatorParts(locator: string): LocatorParts {
   const separator = locator.lastIndexOf(":");
-  return separator === -1 ? locator : locator.slice(0, separator);
+  if (separator === -1) return { path: locator, start: 0 };
+  return {
+    path: locator.slice(0, separator),
+    start: Number.parseInt(locator.slice(separator + 1), 10) || 0,
+  };
 }
 
-/** Passages grouped by file in result order; a file's passages share one
- *  numbered view, where a gap marker separates non-adjacent passages. */
-function groupByFile(output: GrepOutput): Array<FileMatches> {
-  const files = new Map<string, FileMatches>();
-  for (const passage of output.results) {
-    const path = locatorPath(passage.locator);
-    const file = files.get(path) ?? { path, lines: [], matches: new Set() };
-    file.lines.push(...parseNumberedLines(passage.content));
-    for (const line of passage.matches) file.matches.add(line);
-    files.set(path, file);
+/** The passages as runs in result order. Explicit `runLengths` mark each run's
+ *  passages, so same-file runs a reorder placed side by side stay separate; the
+ *  last run may hold fewer passages than its length when the inline part cut
+ *  it. Passages past the lengths, or without them, continue a run only while
+ *  the file stays the same and the start line rises. */
+function groupRuns(output: GrepOutput): Array<FileRun> {
+  const explicit = new Set<number>();
+  let covered = 0;
+  for (const length of output.display?.rerank?.runLengths ?? []) {
+    explicit.add(covered);
+    covered += length;
   }
-  return [...files.values()];
+  const runs: Array<FileRun> = [];
+  let previous: LocatorParts | undefined;
+  output.results.forEach((passage, index) => {
+    const parts = locatorParts(passage.locator);
+    const opens =
+      index < covered
+        ? explicit.has(index)
+        : !(previous?.path === parts.path && parts.start > previous.start);
+    previous = parts;
+    let run = runs.at(-1);
+    if (opens || !run) {
+      run = { path: parts.path, lines: [], matches: new Set<number>() };
+      runs.push(run);
+    }
+    run.lines.push(...parseNumberedLines(passage.content));
+    for (const line of passage.matches) run.matches.add(line);
+  });
+  return runs;
 }
 
 function GrepQuery({ input }: { input: GrepInput }) {
@@ -109,6 +144,11 @@ function GrepQuery({ input }: { input: GrepInput }) {
           </li>
         ))}
       </ul>
+      {input.objective ? (
+        <p className="break-words text-xs">
+          <span className="font-medium">Objective:</span> {input.objective}
+        </p>
+      ) : null}
       <p className="break-all text-muted-foreground text-xs">
         in {input.scopes?.join(", ") ?? "the Workspace"}
       </p>
@@ -116,12 +156,19 @@ function GrepQuery({ input }: { input: GrepInput }) {
   );
 }
 
-function GrepFile({ file }: { file: FileMatches }) {
+function GrepFile({
+  file,
+  rank,
+}: {
+  file: FileRun;
+  rank: ReturnType<typeof rankScoreAt>;
+}) {
   return (
     <li className="space-y-1">
       <p className="flex items-baseline justify-between gap-4 text-xs">
         <span className="break-all font-medium font-mono">{file.path}</span>
-        <span className="shrink-0 text-muted-foreground">
+        <span className="flex shrink-0 items-baseline gap-2 text-muted-foreground">
+          {rank ? <ToolRankScore {...rank} /> : null}
           {file.matches.size} {file.matches.size === 1 ? "match" : "matches"}
         </span>
       </p>
@@ -149,6 +196,12 @@ function grepDetailRows(
       `${warningLabels.get(kind) ?? kind} (${count})`,
     ]),
     [
+      "Ranking",
+      output.ranking === "unavailable"
+        ? "[ranking unavailable; walk order]"
+        : undefined,
+    ],
+    [
       "Truncated",
       output.results.some((passage) => passage.cut)
         ? "a passage was cut at a page bound"
@@ -160,24 +213,35 @@ function grepDetailRows(
 }
 
 function GrepResult({ output }: { output: GrepOutput }) {
-  const files = groupByFile(output);
-  const matchCount = files.reduce((sum, file) => sum + file.matches.size, 0);
+  const runs = groupRuns(output);
+  const record = rankRecordOf(output.display);
+  const fileCount = new Set(runs.map((run) => run.path)).size;
+  const matchCount = runs.reduce((sum, run) => sum + run.matches.size, 0);
   return (
     <>
+      {record ? (
+        <div className="px-4 pt-3">
+          <ToolRankBadge record={record} />
+        </div>
+      ) : null}
       <ToolSection
         label="Matches"
         aside={
-          files.length === 0
+          runs.length === 0
             ? undefined
-            : `${matchCount} in ${files.length} ${files.length === 1 ? "file" : "files"}`
+            : `${matchCount} in ${fileCount} ${fileCount === 1 ? "file" : "files"}`
         }
       >
-        {files.length === 0 ? (
+        {runs.length === 0 ? (
           <p className="text-muted-foreground text-sm">No matches.</p>
         ) : (
           <ul className="space-y-3">
-            {files.map((file) => (
-              <GrepFile file={file} key={file.path} />
+            {runs.map((run, index) => (
+              <GrepFile
+                file={run}
+                key={`${run.path}-${index}`}
+                rank={rankScoreAt(record, index)}
+              />
             ))}
           </ul>
         )}

@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-06
 
+- **Rank badge and scores in the `grep` and `web_search` parts.** A part whose
+  result carries `display.rerank` shows one badge with the served model, the
+  latency, and the cost, and each present row shows its judged score with its
+  applied-order ordinal and card key; omitted results get no rows, and a part
+  without a record shows neither badge nor score. `grep` now groups passages
+  into the consecutive runs that `display.rerank.runLengths` give, so same-file
+  runs a reorder placed side by side stay separate and a cut final run stays
+  one run. A failed rank call shows `[ranking unavailable; walk order]` or
+  `[rerank: unavailable]`. The `grep` part also shows the call's `objective`.
+
 - **Ranked `grep` file runs.** `grep` takes an optional `objective` (1 to 2,000
   UTF-16 code units) that changes no match. With `tools.grep.rerank.model` set
   and a result that does not fit inline (more than `limit` files or over 15,000
