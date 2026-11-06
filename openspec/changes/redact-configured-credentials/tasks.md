@@ -45,7 +45,7 @@ master
 - [x] 1.2 Verify the set appears in no serialized projection: a high-entropy canary credential is absent from `GET /api/v1/models` and every other configuration-derived response.
 - [x] 1.3 Verify the layer: `pnpm --filter @workspace/config-interpolation test`, in `apps/api` `pnpm exec vitest run --project unit src/instance-config src/models`, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
 - [x] 1.4 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
-- [ ] 1.5 Pass the GitHub review and CI gate under Ready-PR monitoring, referencing #1065 and #1098 without closing either.
+- [x] 1.5 Pass the GitHub review and CI gate under Ready-PR monitoring, referencing #1065 and #1098 without closing either.
 
 ## 2. bash
 
