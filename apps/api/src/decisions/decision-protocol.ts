@@ -1,0 +1,118 @@
+/**
+ * System One wire shapes for the decision lane.
+ *
+ * `POST {baseUrl}/systemone` carries `{ model, state, questions }` and returns
+ * `{ model, answers, usage }`. Hosted routes add envelope fields of their own
+ * (`id`, `provider`, `usage.opencode`); the codec ignores what it does not
+ * model, so a route adding one never breaks it.
+ *
+ * A `noul` answer is P(yes): absolute and comparable across calls. The caller
+ * owns every threshold, and a decision model is never replaced by a prompted
+ * chat model, which cannot reproduce calibrated probabilities.
+ */
+
+import { type UnknownRecord } from '@workspace/runtime-safety';
+import { z } from 'zod';
+
+/** Per-attempt request timeout. */
+export const DECISION_ATTEMPT_TIMEOUT_MS = 10_000;
+/** Attempts per request, transient failures only. */
+export const DECISION_MAX_ATTEMPTS = 3;
+/** A response body larger than this many bytes is a codec mismatch. */
+export const DECISION_RESPONSE_MAX_BYTES = 1_048_576;
+
+/** The shared `state`: a string, or any JSON structure. */
+export type DecisionState = string | UnknownRecord | ReadonlyArray<unknown>;
+
+export type DecisionQuestion = {
+  readonly type: 'noul';
+  readonly instructions: string;
+  readonly criteria: {
+    readonly true: string;
+    readonly false: string;
+  };
+};
+
+/** Question id → question. The id is echoed on the matching answer. */
+export type DecisionQuestions = Readonly<Record<string, DecisionQuestion>>;
+
+export const DecisionAnswerSchema = z.object({
+  type: z.literal('noul'),
+  noul: z.number().min(0).max(1),
+});
+
+const DecisionUsageSchema = z.object({
+  input_tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  output_tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  /** Authoritative USD cost. Absent means unknown, never zero. */
+  cost: z.number().nonnegative().optional(),
+});
+
+export const DecisionResponseSchema = z.object({
+  /** The id that answered, never the alias sent. */
+  model: z.string().min(1),
+  answers: z.record(z.string(), z.unknown()),
+  usage: DecisionUsageSchema,
+});
+
+export type DecisionAnswer = z.infer<typeof DecisionAnswerSchema>;
+export type DecisionWireUsage = z.infer<typeof DecisionUsageSchema>;
+
+/** Normalized usage of one decision request. `costUsd` is null when unknown. */
+export type DecisionUsage = {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly costUsd: number | null;
+};
+
+/** Why a decision request produced no answers. */
+export type DecisionFailureReason =
+  | 'timeout'
+  | 'rate_limited'
+  | 'rejected'
+  | 'upstream_error'
+  | 'invalid_response';
+
+export type DecisionRequest = {
+  readonly state: DecisionState;
+  readonly questions: DecisionQuestions;
+  /** The enclosing call's cancellation and deadline. */
+  readonly signal?: AbortSignal;
+};
+
+export type DecisionOutcome =
+  | {
+      readonly status: 'answered';
+      /** The served model id reported by the provider. */
+      readonly model: string;
+      /** One answer for every requested question id. */
+      readonly answers: Readonly<Record<string, DecisionAnswer>>;
+      readonly usage: DecisionUsage;
+      readonly latencyMs: number;
+    }
+  | {
+      readonly status: 'unavailable';
+      readonly reason: DecisionFailureReason;
+      readonly latencyMs: number;
+    };
+
+/**
+ * The wire body of one decision request. Pure: no credential, no endpoint, so
+ * a test can assert the exact JSON a provider receives.
+ */
+export function encodeDecisionRequest(
+  model: string,
+  state: DecisionState,
+  questions: DecisionQuestions,
+) {
+  return { model, state, questions };
+}
+
+/** A reported wire cost is authoritative; no reported cost is unknown. */
+export function toUsage(usage: DecisionWireUsage): DecisionUsage {
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    costUsd: usage.cost ?? null,
+  };
+}
