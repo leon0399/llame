@@ -139,6 +139,68 @@ with artifact://web_search-<n>:<next>-]` line ends the text, after the notes.
 cannot read the artifact, the last line is instead `[left out: <count>
 results; full result not stored]`.
 
+### Deduplicated and ranked results
+
+Before anything else, a call deduplicates one engine's results by the
+aggregate's grouping key: the canonical URL without a leading `www.` and
+without a trailing `/`. The first spelling wins, no note is added, and every
+later step — the ranking guard, the inline cut, the `left out` count, and the
+artifact — works on the deduplicated results.
+
+With the tool's `webSearch.rerank` block set (`{ model: <decisionModels[] id> }`,
+see [Decisions](../../operator/decisions.md)), every `results` outcome is
+ranked, whichever engine answered, unless the whole result fits inline: at most
+`limit` deduplicated results and rendered text within 15,000 units. There is no
+minimum result count. An `answer` outcome is never ranked. A ranked call sends
+one card per result, `[p<index>] <title> — <host> — <snippet>` (the zero-based
+engine position, zero-padded to the width of the last index), cut at 400 units,
+and asks whether it helps answer the call's `objective`, or the query without
+one. Judged results sort by score, highest first; a tie keeps engine order, and
+a result the model did not judge follows the judged ones in engine order. The
+inline head, the stored artifact text, its findings, the continuation line and
+the `left out` count all read that one order.
+
+A configured `aggregate` keeps every merged candidate — up to the sum of its
+children's results, each child keeping its own fetch bound — for the ranking
+and the artifact instead of cutting the merged list to the fetch size. If the
+ranking fails, the whole merged set stays in rank-fusion order. Without a
+rank model, the aggregate keeps its fetch-size cut.
+
+When the ranking judges no result, the call still succeeds with the results in
+engine order and its last note reads `rerank: unavailable`. Removal stays the
+first note, and with the ten-note cap the excess engine notes are summarized as
+`<n> more engines` in the last engine slot before the failure note. An
+enclosing timeout or cancellation is not a ranking failure; it ends the call as
+usual. With a rank model set, the decision key is also replaced in every
+received title, snippet and URL before any cut or artifact, even when nothing is
+ranked.
+
+A ranked result carries one extra field beside the closed shape above, which the
+model-facing text never shows:
+
+```json
+{
+  "rerank": {
+    "model": "jev-1.14",
+    "order": ["p2", "p5", "p3", "p1", "p4", "p0"],
+    "scores": {
+      "p0": 0.05,
+      "p1": 0.1,
+      "p2": 0.9,
+      "p3": 0.5,
+      "p4": 0.05,
+      "p5": 0.7
+    },
+    "latencyMs": 180,
+    "costUsd": 0.0000042
+  }
+}
+```
+
+`order` lists every card key in the applied order and `scores` maps each judged
+key to the model's score. A call that sent no question, or whose ranking failed,
+has no `rerank` field.
+
 ## Behavior
 
 The configured chain runs in order, or the call's `engines` when it sets them: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. An engine whose vendor query limit the query exceeds sends nothing and advances as `unsupported`; an `aggregate` runs only the children that accept the query. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.

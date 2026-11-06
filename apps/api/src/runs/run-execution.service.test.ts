@@ -1,3 +1,4 @@
+import { type DecisionJudge } from '../decisions/decisions.service';
 import type {
   LanguageModelV3Message,
   LanguageModelV3StreamPart,
@@ -486,6 +487,8 @@ type ExecutionServiceOptions = {
   artifacts?: InstanceConfigReader['config']['tools']['artifacts'];
   /** The operator's global per-call timeout. */
   callTimeoutSeconds?: number;
+  /** The decision lane a tool receives as `context.decisions`. */
+  decisions?: DecisionJudge;
 };
 
 function makeExecutionService(
@@ -600,6 +603,9 @@ function makeExecutionService(
     // No Machine status reader in these tests.
     undefined,
     options.sshClientFactory,
+    // No executor git in these tests.
+    undefined,
+    options.decisions,
   );
   return {
     service,
@@ -4107,6 +4113,93 @@ describe('RunExecutionService executeRun — stream completion', () => {
         telemetry: usage,
       }),
     );
+  });
+
+  it('keeps a tool’s decision-lane call out of the assistant usage and completeness', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, {
+      pricing: {
+        inputUsdPer1M: 2,
+        cachedInputUsdPer1M: 0.5,
+        outputUsdPer1M: 10,
+      },
+      billing: 'subscription',
+    });
+    const judgeCandidates = vi.fn<DecisionJudge['judgeCandidates']>(() =>
+      Promise.resolve({
+        status: 'answered',
+        probabilities: new Map([['p0', 0.9]]),
+        unanswered: [],
+        usage: { inputTokens: 5_000_000, outputTokens: 700_000, costUsd: 99 },
+        model: 'jev-1.14',
+        latencyMs: 40,
+      }),
+    );
+    const execute = vi.fn(async (context: ToolContext) => {
+      await context.decisions?.judgeCandidates({
+        model: 'jev',
+        runId: context.runId ?? '',
+        chatId: context.chatId,
+        tool: 'web_search',
+        query: 'q',
+        cards: [{ key: 'p0', text: 'card' }],
+        cardBound: 400,
+        rubric: 'Does this help?',
+      });
+      return { status: 'success' as const, hits: 1 };
+    });
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      {
+        ...withDeclaredTool(),
+        decisions: { judgeCandidates, protectText: (_model, text) => text },
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(
+      requestUsageReceipt({
+        inputTokens: 1000,
+        cachedInputTokens: 0,
+        outputTokens: 200,
+        totalTokens: 1200,
+        reasoningTokens: 150,
+      }),
+      300,
+    );
+    await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(judgeCandidates).toHaveBeenCalledOnce();
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+    ).toMatchObject({
+      inputTokens: 1000,
+      cachedInputTokens: 0,
+      outputTokens: 200,
+      reasoningTokens: 150,
+      totalTokens: 1200,
+      contextTokens: 1200,
+      costUsd: 0.004,
+      billing: 'subscription',
+      status: 'completed',
+      complete: true,
+    });
   });
 
   it('measures latency from stream creation through terminal telemetry', async () => {

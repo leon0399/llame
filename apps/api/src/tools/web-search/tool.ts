@@ -83,7 +83,12 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
         engine: engines.get(id)!,
       };
     });
-    engines.set(engineConfig.id, createAggregateEngine(children));
+    engines.set(
+      engineConfig.id,
+      createAggregateEngine(children, {
+        retainMerged: config.rerank !== undefined,
+      }),
+    );
   }
   return (id) => engines.get(id)!;
 }
@@ -177,6 +182,7 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       : spillWebSearchResult(context, result, {
           limit: input.limit,
           fetchSize,
+          ...(input.objective !== undefined && { objective: input.objective }),
         });
   },
 };

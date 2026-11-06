@@ -92,7 +92,11 @@ async function runChild(
     : classifyOutcome(child, outcome);
 }
 
-function groupingKey(rawUrl: string): string {
+/**
+ * The key that makes two spellings of one page the same result: the canonical
+ * URL without a leading `www.` and without a trailing `/`.
+ */
+export function groupingKey(rawUrl: string): string {
   const url = new URL(rawUrl);
   if (url.hostname.startsWith('www.'))
     url.hostname = url.hostname.slice('www.'.length);
@@ -214,9 +218,24 @@ function childNotes(runs: ReadonlyArray<ChildRun>): Array<string> {
   );
 }
 
-/** Build an aggregate engine that fans out to every configured child. */
+/** The merged list, cut to `limit` unless the caller retains every candidate. */
+function mergedResults(
+  runs: ReadonlyArray<ChildRun>,
+  limit: number | undefined,
+): Array<RawResult> {
+  const merged = mergeResultGroups(runs);
+  return limit === undefined ? merged : merged.slice(0, limit);
+}
+
+/**
+ * Build an aggregate engine that fans out to every configured child. It cuts
+ * the merged list to the request's fetch size, unless `retainMerged` keeps
+ * every merged candidate for a rank call: each child still holds its own fetch
+ * bound, so the list stays at most the sum of the children's results.
+ */
 export function createAggregateEngine(
   children: ReadonlyArray<AggregateChild>,
+  { retainMerged = false }: { readonly retainMerged?: boolean } = {},
 ): Engine {
   return async (request) => {
     if (request.signal.aborted) throwAbort(request.signal);
@@ -239,7 +258,7 @@ export function createAggregateEngine(
       const answers = attachedAnswers(runs);
       const result = {
         kind: 'results' as const,
-        results: mergeResultGroups(runs).slice(0, request.limit),
+        results: mergedResults(runs, retainMerged ? undefined : request.limit),
         ...(answers.length > 0 && { answers }),
       };
       return notes.length === 0 ? result : { ...result, notes };

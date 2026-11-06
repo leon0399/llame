@@ -717,3 +717,44 @@ it('drops an answer child that loses every citation to removal', async () => {
     notes: ['claude: ungrounded'],
   });
 });
+
+describe('merged candidate retention', () => {
+  const distinct = (id: string, count: number): Promise<EngineOutcome> =>
+    results(
+      ...Array.from({ length: count }, (_unused, index) =>
+        result(`https://example.test/${id}/${index}`),
+      ),
+    );
+  const twoChildren = (options?: { readonly retainMerged: boolean }) =>
+    createAggregateEngine(
+      [
+        child('a', () => distinct('a', 20)),
+        child('b', () => distinct('b', 20)),
+      ],
+      options,
+    );
+
+  it('retains all 40 merged results when a rank model is configured', async () => {
+    const output = await twoChildren({ retainMerged: true })(
+      request(undefined, 20),
+    );
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(40);
+  });
+
+  it('keeps the fetch-size cut without a rank model', async () => {
+    const output = await twoChildren()(request(undefined, 20));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(20);
+  });
+
+  it('retains the sum of the children results, each child holding its own bound', async () => {
+    const engine = createAggregateEngine(
+      ['a', 'b', 'c'].map((id) => child(id, () => distinct(id, 100))),
+      { retainMerged: true },
+    );
+    const output = await engine(request(undefined, 100));
+    if (output.kind !== 'results') throw new Error('expected results');
+    expect(output.results).toHaveLength(300);
+  });
+});
