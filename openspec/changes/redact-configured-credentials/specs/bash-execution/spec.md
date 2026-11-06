@@ -28,9 +28,11 @@ command, the API redacts the output it received. llame never sends the
 configured credential set to the remote host or the Machine.
 
 The executor MUST apply the bound to the raw output's positions in the bound's
-own unit. llame can cut a stream at a capture or transport limit, or because
-the command timed out. In that case llame MUST drop the fragment at the end
-that is a proper prefix of a member.
+own unit, and a stream MUST NOT exceed the bound. llame MUST replace a member
+fragment that the bound clips with `[REDACTED]` when the fragment has at least
+10 characters, and MUST remove a shorter fragment. llame can cut a stream at a
+capture or transport limit, or because the command timed out. In that case
+llame MUST drop the fragment at the end that is a proper prefix of a member.
 
 When a transport dropped output between two kept parts of a stream, a member
 fragment can match on both sides of that gap. llame MUST drop both fragments.
@@ -121,6 +123,12 @@ MUST destroy it.
 - **WHEN** a Machine command's stdout reaches the 32,000-unit bound in the middle of a configured credential
 - **THEN** the hub result contains no prefix of the credential
 - **AND** the result is marked truncated
+
+#### Scenario: A short fragment at the bound leaves no marker
+
+- **WHEN** a configured credential starts 4 characters before the stdout bound
+- **THEN** the result's stdout ends before the credential and is no longer than the bound
+- **AND** it contains no character of the credential
 
 #### Scenario: Non-credential configuration survives
 
