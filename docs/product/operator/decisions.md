@@ -134,14 +134,15 @@ attempt, 3 attempts on 408/429/5xx and transport errors, `retry-after` honoured
 up to 5 s), an exhausted retry, a bad key, or a rerank naming a catalogue id
 with no client leaves those candidates **unjudged**, and they keep their
 canonical order. A malformed response — a missing answer, an answer of the
-wrong type, or a probability outside `[0, 1]` — makes the whole call
-`unavailable` and changes nothing.
+wrong type, or a probability outside `[0, 1]` — makes that request
+`unavailable`: its own cards stay unjudged and nothing changes for them.
 
 **Unavailable is not a negative judgment.** A model that could not answer says
 nothing about relevance; never read a failed call as "irrelevant".
 
-Requests carry at most 256 questions (one per candidate); a larger batch is
-chunked, every chunk is sent at once, and the answers are merged. A failed
-chunk leaves only its own candidates unjudged. The chunk size keeps the
-largest cards under the smallest input ceiling measured on the hosted routes
-(OpenCode rejects about 80k input tokens); cost is linear in cards either way.
+Requests carry at most 256 cards with their yes/no questions; a larger batch is
+split into several requests sent at once, each carrying only its own cards, and
+the answers are merged. A failed request leaves only its own cards unjudged. The
+request size keeps the largest cards under the smallest input ceiling measured
+on the hosted routes (OpenCode rejects about 80k input tokens); cost is linear
+in cards either way.

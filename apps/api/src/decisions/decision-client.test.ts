@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { type SystemOneProviderConfig } from '../instance-config/llame-config';
 import { createDecisionClient } from './decision-client';
 import {
-  chunkQuestions,
   encodeDecisionRequest,
   type DecisionQuestions,
 } from './decision-protocol';
@@ -239,21 +238,6 @@ describe('System One codec', () => {
       },
       other: { type: 'noul', instructions: 'Is it other?' },
     });
-  });
-
-  it('splits questions into chunks of at most the cap, in request order', () => {
-    const questions = Object.fromEntries(
-      Array.from({ length: 5 }, (_, index) => [
-        `q${index}`,
-        { type: 'noul' as const, instructions: `question ${index}` },
-      ]),
-    );
-    const chunks = chunkQuestions(questions, 2);
-    expect(chunks.map((chunk) => Object.keys(chunk))).toEqual([
-      ['q0', 'q1'],
-      ['q2', 'q3'],
-      ['q4'],
-    ]);
   });
 
   it('decodes the OpenRouter probe response, keeping every answer type', async () => {
@@ -635,113 +619,5 @@ describe('System One retries', () => {
       client.decide({ state: 's', questions, signal: controller.signal }),
     ).resolves.toMatchObject({ status: 'unavailable', reason: 'aborted' });
     expect(calls).toHaveLength(0);
-  });
-});
-
-describe('System One chunking', () => {
-  function questions(count: number): DecisionQuestions {
-    return Object.fromEntries(
-      Array.from({ length: count }, (_, index) => [
-        `q${String(index).padStart(2, '0')}`,
-        { type: 'noul' as const, instructions: `Question ${index}?` },
-      ]),
-    );
-  }
-
-  function answersFor(keys: ReadonlyArray<string>) {
-    return {
-      model: 'jev-1.13',
-      answers: Object.fromEntries(
-        keys.map((key) => [key, { type: 'noul', noul: 0.5 }]),
-      ),
-      usage: { input_tokens: 100, output_tokens: 0, cost: 0.0000042 },
-    };
-  }
-
-  it('splits 258 questions into 256 + 2 and merges the answers', async () => {
-    const { calls, fetch } = scriptedFetch((call) => {
-      const keys = Object.keys(bodyOf(call).questions);
-      return jsonResponse(answersFor(keys));
-    });
-    const client = createDecisionClient(provider(), 'jev-1.13', { fetch });
-
-    const outcome = await client.decide({
-      state: 's',
-      questions: questions(258),
-    });
-
-    expect(
-      calls.map((call) => Object.keys(bodyOf(call).questions).length),
-    ).toEqual([256, 2]);
-    expect(outcome).toMatchObject({
-      status: 'answered',
-      unanswered: [],
-      usage: { inputTokens: 200, costUsd: 0.0000084 },
-    });
-    if (outcome.status !== 'answered') throw new Error('expected answers');
-    expect(Object.keys(outcome.answers)).toHaveLength(258);
-  });
-
-  it('keeps a failed chunk unjudged and still answers the other chunk', async () => {
-    const { fetch } = scriptedFetch((call) => {
-      const keys = Object.keys(bodyOf(call).questions);
-      if (keys.length === 2) {
-        return jsonResponse({ error: { message: 'boom' } }, 500);
-      }
-      return jsonResponse(answersFor(keys));
-    });
-    const client = createDecisionClient(provider(), 'jev-1.13', {
-      fetch,
-      sleep: () => Promise.resolve(),
-    });
-
-    const outcome = await client.decide({
-      state: 's',
-      questions: questions(258),
-    });
-
-    expect(outcome).toMatchObject({
-      status: 'answered',
-      unanswered: ['q256', 'q257'],
-      usage: { inputTokens: 100 },
-    });
-  });
-
-  it('is unavailable when every chunk fails', async () => {
-    const { fetch } = scriptedFetch(() =>
-      jsonResponse({ error: { message: 'boom' } }, 503),
-    );
-    const client = createDecisionClient(provider(), 'jev-1.13', {
-      fetch,
-      sleep: () => Promise.resolve(),
-    });
-
-    await expect(
-      client.decide({ state: 's', questions: questions(50) }),
-    ).resolves.toMatchObject({
-      status: 'unavailable',
-      reason: 'upstream_error',
-    });
-  });
-
-  it('sends every chunk at once', async () => {
-    let active = 0;
-    let peak = 0;
-    const { fetch } = scriptedFetch(async (call) => {
-      active += 1;
-      peak = Math.max(peak, active);
-      // One microtask hop: every sibling worker starts before any finishes,
-      // so the peak is the real in-flight count with no wall-clock wait.
-      await Promise.resolve();
-      active -= 1;
-      return jsonResponse(answersFor(Object.keys(bodyOf(call).questions)));
-    });
-    const client = createDecisionClient(provider(), 'jev-1.13', {
-      fetch,
-      maxQuestions: 1,
-    });
-
-    await client.decide({ state: 's', questions: questions(10) });
-    expect(peak).toBe(10);
   });
 });

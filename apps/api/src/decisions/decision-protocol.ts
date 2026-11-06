@@ -24,12 +24,13 @@ export const DECISION_ATTEMPT_TIMEOUT_MS = 10_000;
 /** Attempts per chunk, transient failures only. */
 export const DECISION_MAX_ATTEMPTS = 3;
 /**
- * Questions per request. Measured 2026-11-06 on grep-sized cards (~100
- * input tokens each): OpenRouter answered 800 in one request, OpenCode
- * rejected 800 (~80k tokens) with `max_tokens_exceeded` and answered 400, and
- * latency grew sublinearly (400 cards in 0.5 s against 1.75 s for ten chunks
- * of 48), so a chunk is sized to stay under that token ceiling with the
- * largest card, and every chunk is sent at once.
+ * Cards per request. Measured 2026-11-06 on grep-sized cards (~100 input
+ * tokens each): OpenRouter answered 800 in one request, OpenCode rejected 800
+ * (~80k tokens) with `max_tokens_exceeded` and answered 400, and latency grew
+ * sublinearly (400 cards in 0.5 s against 1.75 s for ten chunks of 48), so
+ * `judgeCandidatesWith` splits a batch into groups of at most this many cards,
+ * each group carrying only its own cards and questions, and sends every group
+ * at once.
  */
 export const DECISION_MAX_QUESTIONS = 256;
 /** A response body larger than this is a codec mismatch, not an answer. */
@@ -198,19 +199,6 @@ function wireQuestion(question: DecisionQuestion) {
   }
 }
 
-/** Split questions into requests of at most `maxQuestions`, in request order. */
-export function chunkQuestions(
-  questions: DecisionQuestions,
-  maxQuestions: number,
-): Array<DecisionQuestions> {
-  const entries = Object.entries(questions);
-  const chunks: Array<DecisionQuestions> = [];
-  for (let index = 0; index < entries.length; index += maxQuestions) {
-    chunks.push(Object.fromEntries(entries.slice(index, index + maxQuestions)));
-  }
-  return chunks;
-}
-
 /**
  * Normalize a wire usage block: a reported `cost` always wins, and a wire that
  * reports none is priced from the configured fallback (or left unknown).
@@ -231,7 +219,10 @@ export function toUsage(
   };
 }
 
-/** Sum chunk usages. Any unknown chunk cost makes the total unknown. */
+/**
+ * Sum the usages of several requests. Any unknown cost makes the total
+ * unknown.
+ */
 export function sumUsage(usages: ReadonlyArray<DecisionUsage>): DecisionUsage {
   let inputTokens = 0;
   let outputTokens = 0;

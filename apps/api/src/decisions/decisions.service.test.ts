@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
@@ -5,8 +7,10 @@ import {
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
 import { type DecisionClient } from './decision-client';
 import {
+  DECISION_MAX_QUESTIONS,
   type DecisionAnswer,
   type DecisionOutcome,
+  type DecisionRequest,
   type DecisionUsage,
 } from './decision-protocol';
 import {
@@ -16,13 +20,15 @@ import {
   RELEVANCE_NO,
   RELEVANCE_YES,
   UNTRUSTED_STATE_INSTRUCTION,
+  type JudgeCandidate,
   type JudgeCandidatesInput,
 } from './decisions.service';
 
+const USAGE_COST_USD = 0.0000216;
 const USAGE: DecisionUsage = {
   inputTokens: 514,
   outputTokens: 104,
-  costUsd: 0.0000216,
+  costUsd: USAGE_COST_USD,
 };
 
 const RUBRIC = 'Does this result help answer the objective or query?';
@@ -263,6 +269,185 @@ describe('judgeCandidatesWith', () => {
       status: 'unavailable',
       probabilities: undefined,
     });
+  });
+});
+
+describe('judgeCandidatesWith chunking', () => {
+  /** The state one request carries, parsed so its cards are typed. */
+  const JudgeStateSchema = z.object({
+    criteria: z.object({ yes: z.string(), no: z.string() }),
+    task: z.string(),
+    query: z.string(),
+    cards: z.record(z.string(), z.string()),
+  });
+
+  function manyCards(count: number): ReadonlyArray<JudgeCandidate> {
+    return Array.from({ length: count }, (_, index) => ({
+      key: `q${String(index).padStart(4, '0')}`,
+      text: `result ${index} about postgres row level security`,
+    }));
+  }
+
+  function cardsIn(request: DecisionRequest): Record<string, string> {
+    return JudgeStateSchema.parse(request.state).cards;
+  }
+
+  /**
+   * A client that records each request in call order and answers through
+   * `respond`, so a test can assert what one request carried.
+   */
+  function recordingClient(
+    respond: (
+      request: DecisionRequest,
+      index: number,
+    ) => DecisionOutcome | Promise<DecisionOutcome>,
+  ) {
+    const requests: Array<DecisionRequest> = [];
+    const client: DecisionClient = {
+      decide: async (request) => {
+        const index = requests.length;
+        requests.push(request);
+        return respond(request, index);
+      },
+    };
+    return { client, requests };
+  }
+
+  function answeredOutcome(
+    request: DecisionRequest,
+    latencyMs = 240,
+  ): DecisionOutcome {
+    return {
+      status: 'answered',
+      model: 'jev-1.14',
+      answers: Object.fromEntries(
+        Object.keys(request.questions).map((key) => [
+          key,
+          { type: 'noul' as const, noul: 0.5 },
+        ]),
+      ),
+      unanswered: [],
+      usage: USAGE,
+      latencyMs,
+    };
+  }
+
+  it('carries each card, with its own question, in exactly one request', async () => {
+    const { client, requests } = recordingClient((request) =>
+      answeredOutcome(request),
+    );
+    const batch = manyCards(DECISION_MAX_QUESTIONS + 2);
+
+    const judgement = await judgeCandidatesWith(
+      client,
+      input({ cards: batch }),
+      SILENT,
+    );
+
+    expect(requests).toHaveLength(2);
+    expect(
+      requests.map((request) => Object.keys(cardsIn(request)).length),
+    ).toEqual([DECISION_MAX_QUESTIONS, 2]);
+    for (const request of requests) {
+      expect(Object.keys(request.questions)).toEqual(
+        Object.keys(cardsIn(request)),
+      );
+    }
+
+    // The regression: no card's text may reach more than one request.
+    const texts = requests.flatMap((request) =>
+      Object.values(cardsIn(request)),
+    );
+    expect(texts).toEqual(batch.map((card) => card.text));
+    expect(new Set(texts).size).toBe(texts.length);
+
+    expect(judgement).toMatchObject({
+      status: 'answered',
+      model: 'jev-1.14',
+      usage: {
+        inputTokens: USAGE.inputTokens * 2,
+        outputTokens: USAGE.outputTokens * 2,
+        costUsd: USAGE_COST_USD * 2,
+      },
+    });
+    expect(judgement.probabilities?.size).toBe(batch.length);
+  });
+
+  it('leaves only a failed group unjudged and sums the answered usage', async () => {
+    const { client, requests } = recordingClient(
+      (request, index): DecisionOutcome =>
+        index === 1
+          ? { status: 'unavailable', reason: 'timeout', latencyMs: 30 }
+          : answeredOutcome(request),
+    );
+    const batch = manyCards(DECISION_MAX_QUESTIONS + 2);
+
+    const judgement = await judgeCandidatesWith(
+      client,
+      input({ cards: batch }),
+      SILENT,
+    );
+
+    expect(requests).toHaveLength(2);
+    expect(judgement).toEqual({
+      status: 'answered',
+      probabilities: new Map(
+        batch
+          .slice(0, DECISION_MAX_QUESTIONS)
+          .map((card): [string, number] => [card.key, 0.5]),
+      ),
+      usage: USAGE,
+      model: 'jev-1.14',
+      latencyMs: 240,
+    });
+  });
+
+  it('is unavailable with the first reason only when every group fails', async () => {
+    const { client, requests } = recordingClient(
+      (_request, index): DecisionOutcome => ({
+        status: 'unavailable',
+        reason: index === 0 ? 'rate_limited' : 'timeout',
+        latencyMs: index === 0 ? 30 : 40,
+      }),
+    );
+
+    const judgement = await judgeCandidatesWith(
+      client,
+      input({ cards: manyCards(DECISION_MAX_QUESTIONS + 2) }),
+      SILENT,
+    );
+
+    expect(requests).toHaveLength(2);
+    expect(judgement).toEqual({
+      status: 'unavailable',
+      probabilities: undefined,
+      usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+      model: null,
+      latencyMs: 40,
+    });
+  });
+
+  it('sends every group at once', async () => {
+    let active = 0;
+    let peak = 0;
+    const { client, requests } = recordingClient(async (request) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      // One microtask hop: every sibling group starts before any finishes,
+      // so the peak is the real in-flight count with no wall-clock wait.
+      await Promise.resolve();
+      active -= 1;
+      return answeredOutcome(request);
+    });
+
+    await judgeCandidatesWith(
+      client,
+      input({ cards: manyCards(DECISION_MAX_QUESTIONS * 10) }),
+      SILENT,
+    );
+
+    expect(requests).toHaveLength(10);
+    expect(peak).toBe(10);
   });
 });
 

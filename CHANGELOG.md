@@ -16,16 +16,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   because a decision call returns typed probabilities in one forward pass and
   has its own usage shape rather than streaming. The service builds and caches
   one client per catalogue id, so two entries on different routes never share
-  an endpoint. The client packs up to 256 yes/no questions over one shared
-  state per request, sends every chunk at once, retries only 408/429/5xx and transport
+  endpoint. The lane packs up to 256 cards and their yes/no questions per
+  request, sends every request at once, retries only 408/429/5xx and transport
   failures three times with `retry-after` honoured up to five seconds, and never
-  throws: an exhausted retry leaves those candidates unjudged so the caller
-  keeps its canonical order, while a malformed envelope, a missing answer, a
-  wrong answer type, or a probability outside `[0, 1]` makes the whole call
-  `unavailable`. `ToolContext.decisions` carries the judge to tools, absent when
-  the catalogue is empty. Each call logs one `decision.completed` line with its
-  own tokens and cost; it is a side call and is never folded into a Run's
-  message usage. See `docs/product/operator/decisions.md`.
+  throws: an exhausted retry leaves only that request's candidates unjudged so
+  the caller keeps its canonical order, while a malformed envelope, a missing
+  answer, a wrong answer type, or a probability outside `[0, 1]` makes that
+  request `unavailable` and leaves only its own cards unjudged.
+  `ToolContext.decisions` carries the judge to tools, absent when the catalogue
+  is empty. Each call logs one `decision.completed` line with its own tokens and
+  cost; it is a side call and is never folded into a Run's message usage. See
+  `docs/product/operator/decisions.md`.
 
 # 2026-11-03
 

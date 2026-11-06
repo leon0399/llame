@@ -1,12 +1,13 @@
 /**
  * The System One decision client (experimental decision lane): one fetch, one
- * codec, chunked questions, bounded retries.
+ * codec, one request per call, bounded retries.
  *
  * Failure posture: `decide` NEVER throws for a provider problem. A transport
- * failure after retries, or a timeout, leaves those questions unjudged
- * (`unanswered`) and the caller keeps its canonical order for them; a
+ * failure after retries, or a timeout, makes the call `unavailable`; the
+ * service sends each group of cards as its own request, so only that group's
+ * cards stay unjudged and the caller keeps its canonical order for them. A
  * malformed envelope, a missing answer, or an answer of the wrong type is a
- * contract violation and makes the whole call `unavailable`, because a codec
+ * contract violation and also makes the request `unavailable`, because a codec
  * mismatch means no answer can be trusted. A decision model's silence is never
  * evidence: callers must not read `unavailable` as "irrelevant".
  */
@@ -14,10 +15,8 @@
 import type { SystemOneProviderConfig } from '../instance-config/llame-config';
 import { type RequestHeaders } from '../models/request-headers';
 import {
-  chunkQuestions,
   DECISION_ATTEMPT_TIMEOUT_MS,
   DECISION_MAX_ATTEMPTS,
-  DECISION_MAX_QUESTIONS,
   DECISION_RESPONSE_MAX_CODE_UNITS,
   DecisionResponseSchema,
   type DecisionAnswer,
@@ -26,7 +25,6 @@ import {
   type DecisionQuestions,
   type DecisionRequest,
   encodeDecisionRequest,
-  sumUsage,
   toUsage,
   type DecisionUsage,
 } from './decision-protocol';
@@ -51,7 +49,6 @@ export type DecisionClientDependencies = {
   readonly now?: () => number;
   readonly attemptTimeoutMs?: number;
   readonly maxAttempts?: number;
-  readonly maxQuestions?: number;
   /**
    * Fallback input price for a wire that reports no `usage.cost` (the native
    * TypeSafe wire). A reported cost always wins.
@@ -83,7 +80,6 @@ type DecisionWire = {
   readonly now: () => number;
   readonly attemptTimeoutMs: number;
   readonly maxAttempts: number;
-  readonly maxQuestions: number;
   readonly pricingUsdPer1M?: { readonly input: number };
 };
 
@@ -102,7 +98,6 @@ function buildWire(
     attemptTimeoutMs:
       dependencies.attemptTimeoutMs ?? DECISION_ATTEMPT_TIMEOUT_MS,
     maxAttempts: dependencies.maxAttempts ?? DECISION_MAX_ATTEMPTS,
-    maxQuestions: dependencies.maxQuestions ?? DECISION_MAX_QUESTIONS,
     ...(dependencies.pricingUsdPer1M !== undefined && {
       pricingUsdPer1M: dependencies.pricingUsdPer1M,
     }),
@@ -128,17 +123,7 @@ async function decide(
   }
 
   try {
-    const chunks = chunkQuestions(request.questions, wire.maxQuestions);
-    const outcomes = await Promise.all(
-      chunks.map((questions) =>
-        judgeChunk(wire, {
-          state: request.state,
-          questions,
-          signal: request.signal,
-        }),
-      ),
-    );
-    return mergeOutcomes(wire, keys, outcomes, latencyMs());
+    return outcomeOf(await judgeChunk(wire, request), keys, latencyMs());
   } catch {
     // Defense in depth: a bug must not turn into a failed tool call.
     return {
@@ -149,59 +134,23 @@ async function decide(
   }
 }
 
-/**
- * Merge chunk outcomes. A failed chunk leaves only its own questions unjudged;
- * a malformed response or a caller abort fails the whole call, because neither
- * can be attributed to one chunk.
- */
-function mergeOutcomes(
-  wire: DecisionWire,
+/** Project the one request's outcome onto the requested question keys. */
+function outcomeOf(
+  outcome: ChunkOutcome,
   keys: ReadonlyArray<string>,
-  outcomes: ReadonlyArray<ChunkOutcome>,
   latencyMs: number,
 ): DecisionOutcome {
-  const fatal = outcomes.find(
-    (outcome) =>
-      outcome.kind === 'failed' &&
-      (outcome.reason === 'invalid_response' || outcome.reason === 'aborted'),
-  );
-  if (fatal !== undefined && fatal.kind === 'failed') {
-    return { status: 'unavailable', reason: fatal.reason, latencyMs };
+  if (outcome.kind === 'failed') {
+    return { status: 'unavailable', reason: outcome.reason, latencyMs };
   }
-
-  const answered = outcomes.filter(isAnsweredChunk);
-  if (answered.length === 0) {
-    const failed = outcomes.find(isFailedChunk);
-    return {
-      status: 'unavailable',
-      reason: failed?.reason ?? 'upstream_error',
-      latencyMs,
-    };
-  }
-
-  const answers: Record<string, DecisionAnswer> = {};
-  for (const chunk of answered) {
-    for (const [key, answer] of Object.entries(chunk.answers)) {
-      answers[key] = answer;
-    }
-  }
-  const first = answered[0];
   return {
     status: 'answered',
-    model: first === undefined ? wire.modelId : first.model,
-    answers,
-    unanswered: keys.filter((key) => !(key in answers)),
-    usage: sumUsage(answered.map((chunk) => chunk.usage)),
+    model: outcome.model,
+    answers: outcome.answers,
+    unanswered: keys.filter((key) => !(key in outcome.answers)),
+    usage: outcome.usage,
     latencyMs,
   };
-}
-
-function isAnsweredChunk(outcome: ChunkOutcome): outcome is AnsweredChunk {
-  return outcome.kind === 'answered';
-}
-
-function isFailedChunk(outcome: ChunkOutcome): outcome is FailedChunk {
-  return outcome.kind === 'failed';
 }
 
 async function judgeChunk(

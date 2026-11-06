@@ -6,6 +6,7 @@ import { InstanceConfigService } from '../instance-config/instance-config.servic
 import { createDecisionClient, type DecisionClient } from './decision-client';
 import {
   DECISION_MAX_QUESTIONS,
+  sumUsage,
   type DecisionAnswer,
   type DecisionOutcome,
   type DecisionRequest,
@@ -79,9 +80,11 @@ export type DecisionJudge = {
 };
 
 /**
- * The state and questions of one judge call: every card is packed into ONE
- * request keyed by its own id, sharing one state (the state is billed once),
- * and every card gets its own `noul` question.
+ * The state and questions of ONE decision request: its cards are keyed by id in
+ * one shared state (the state is billed once) and each gets its own `noul`
+ * question. `judgeCandidatesWith` sends one such request per group of at most
+ * `DECISION_MAX_QUESTIONS` cards, so a request never carries another group's
+ * state.
  */
 export function buildJudgeRequest(input: JudgeCandidatesInput) {
   const state = {
@@ -125,6 +128,11 @@ function unavailableJudgement(): CandidateJudgement {
  * Judge a batch of candidates through one decision client, merge the answers,
  * and emit one structured log line. Never throws: a provider failure leaves
  * those cards unjudged, so the caller keeps its canonical order for them.
+ *
+ * Cards travel with their questions: the batch is split into groups of at most
+ * `DECISION_MAX_QUESTIONS` cards, one request per group carries only that
+ * group's state, and every group is in flight at once. A failed group leaves
+ * only its own cards unjudged.
  */
 export async function judgeCandidatesWith(
   client: DecisionClient,
@@ -135,7 +143,12 @@ export async function judgeCandidatesWith(
     return unavailableJudgement();
   }
 
-  const outcome = await decideSafely(client, buildJudgeRequest(input));
+  const outcomes = await Promise.all(
+    chunkCards(input.cards, DECISION_MAX_QUESTIONS).map((cards) =>
+      decideSafely(client, buildJudgeRequest({ ...input, cards })),
+    ),
+  );
+  const outcome = mergeOutcomes(input.cards, outcomes);
   const probabilities =
     outcome.status === 'answered'
       ? toProbabilities(input.cards, outcome.answers)
@@ -147,6 +160,70 @@ export async function judgeCandidatesWith(
     // A logging failure never fails a tool call.
   }
   return judgement;
+}
+
+/** Split cards, in request order, into groups of at most `maxCards`. */
+function chunkCards(
+  cards: ReadonlyArray<JudgeCandidate>,
+  maxCards: number,
+): Array<ReadonlyArray<JudgeCandidate>> {
+  const groups: Array<ReadonlyArray<JudgeCandidate>> = [];
+  for (let index = 0; index < cards.length; index += maxCards) {
+    groups.push(cards.slice(index, index + maxCards));
+  }
+  return groups;
+}
+
+/** One `answered` group of a batch's outcomes. */
+type AnsweredOutcome = Extract<DecisionOutcome, { status: 'answered' }>;
+
+/**
+ * Merge the group outcomes into the batch outcome. An answered group
+ * contributes its answers and usage; a failed group leaves only its own cards
+ * unjudged, so the unanswered keys are the cards no group answered, in card
+ * order. The batch is unavailable only when every group failed, and then
+ * reports the first failure's reason. Latency is the slowest group's, because
+ * the groups run together.
+ */
+function mergeOutcomes(
+  cards: ReadonlyArray<JudgeCandidate>,
+  outcomes: ReadonlyArray<DecisionOutcome>,
+): DecisionOutcome {
+  const latencyMs = Math.max(
+    0,
+    ...outcomes.map((outcome) => outcome.latencyMs),
+  );
+  const answered: ReadonlyArray<AnsweredOutcome> = outcomes.flatMap(
+    (outcome) => (outcome.status === 'answered' ? [outcome] : []),
+  );
+  const first = answered[0];
+  if (first === undefined) {
+    const failures = outcomes.flatMap((outcome) =>
+      outcome.status === 'unavailable' ? [outcome.reason] : [],
+    );
+    return {
+      status: 'unavailable',
+      reason: failures[0] ?? 'upstream_error',
+      latencyMs,
+    };
+  }
+
+  const answers: Record<string, DecisionAnswer> = {};
+  for (const outcome of answered) {
+    for (const [key, answer] of Object.entries(outcome.answers)) {
+      answers[key] = answer;
+    }
+  }
+  return {
+    status: 'answered',
+    model: first.model,
+    answers,
+    unanswered: cards.flatMap((card) =>
+      card.key in answers ? [] : [card.key],
+    ),
+    usage: sumUsage(answered.map((outcome) => outcome.usage)),
+    latencyMs,
+  };
 }
 
 /**
