@@ -6,9 +6,18 @@ import { z } from "zod";
 import type { ToolHeaderState } from "@workspace/ui/components/ai-elements/tool";
 import { cn } from "@workspace/ui/lib/utils";
 import {
+  type RankRecord,
+  rankDisplaySchema,
+  rankRecordOf,
+  rankScoreAt,
+  ToolRankBadge,
+  ToolRankScore,
   ToolResultFallback,
   ToolRow,
 } from "@workspace/ui/components/custom/tool-row";
+
+/** The note a call carries when its rank call failed; the part frames it. */
+const rankFailureNote = "rerank: unavailable";
 
 const markdownSpecialCharacterPattern = /[\\`*_[\]{}()#+\-.!|<>~$&]/gu;
 
@@ -30,6 +39,8 @@ const outputBaseSchema = {
   engine: z.string(),
   query: z.string(),
   notes: z.array(z.string()).optional(),
+  /** A ranked call stores `display.rerank`. */
+  display: rankDisplaySchema.optional(),
 };
 
 const answerSchema = z.object({
@@ -139,7 +150,8 @@ function SearchMetadata({
         <ul className="mt-1 space-y-0.5">
           {notes.map((note, index) => (
             <li key={`${note}-${index}`}>
-              <span className="font-medium">Note:</span> {note}
+              <span className="font-medium">Note:</span>{" "}
+              {note === rankFailureNote ? `[${note}]` : note}
             </li>
           ))}
         </ul>
@@ -150,9 +162,11 @@ function SearchMetadata({
 
 function ResultItem({
   result,
+  rank,
   Markdown,
 }: {
   result: WebSearchResult;
+  rank: { key: string; score: number; ordinal: number } | undefined;
   Markdown: ComponentType<{ children?: string }>;
 }) {
   const metadata = [
@@ -168,6 +182,15 @@ function ResultItem({
         url={result.url}
         Markdown={Markdown}
       />
+      {rank ? (
+        <p className="mt-1">
+          <ToolRankScore
+            ordinal={rank.ordinal}
+            itemKey={rank.key}
+            score={rank.score}
+          />
+        </p>
+      ) : null}
       {metadata.length > 0 && (
         <p className="mt-1 text-muted-foreground text-xs">
           {metadata.join(" · ")}
@@ -231,6 +254,13 @@ function AttachedAnswers({
   ));
 }
 
+/** The score of the row at `index`: rows are the head of the applied order,
+ *  so omitted results never get a row. */
+function resultRank(record: RankRecord | undefined, index: number) {
+  const scored = rankScoreAt(record, index);
+  return scored && { ...scored, ordinal: index + 1 };
+}
+
 function ResultsBody({
   output,
   Markdown,
@@ -238,8 +268,14 @@ function ResultsBody({
   output: WebSearchResultsOutput;
   Markdown: ComponentType<{ children?: string }>;
 }) {
+  const record: RankRecord | undefined = rankRecordOf(output.display);
   return (
     <div className="space-y-4">
+      {record ? (
+        <div className="px-4 pt-4">
+          <ToolRankBadge record={record} />
+        </div>
+      ) : null}
       {output.results.length === 0 ? (
         <p className="px-4 pt-4 text-muted-foreground text-sm">
           No results found.
@@ -250,6 +286,7 @@ function ResultsBody({
             <ResultItem
               key={`${result.url}-${index}`}
               result={result}
+              rank={resultRank(record, index)}
               Markdown={Markdown}
             />
           ))}

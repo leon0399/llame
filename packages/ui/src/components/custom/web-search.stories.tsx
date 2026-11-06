@@ -506,3 +506,124 @@ export const StoredResultsWithoutAnswers: Story = {
     await expect(canvas.getAllByRole("list")).toHaveLength(1);
   },
 };
+
+const rerank = {
+  model: "jev-1.14",
+  order: ["p2", "p0", "p1"],
+  scores: { p2: 0.91, p0: 0.42, p1: 0.07 },
+  latencyMs: 412,
+  costUsd: 0.0007,
+};
+
+const rankedResults = [
+  resultsOutput.results[2],
+  resultsOutput.results[0],
+  resultsOutput.results[1],
+];
+
+/**
+ * A ranked call shows one badge with the served model, latency, and cost, and
+ * each row carries its judged score and card key.
+ *
+ * @summary for a search ranked by the decision model
+ */
+export const Ranked: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...resultsOutput,
+      results: rankedResults,
+      display: { rerank },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(
+      canvas.getByText("Ranked by jev-1.14 · 412 ms · $0.0007"),
+    ).toBeVisible();
+    await expect(canvas.getAllByText(/score/u)).toHaveLength(3);
+    await expect(canvas.getByText("#1 · p2 · score 0.91")).toBeVisible();
+    await expect(canvas.getByText("#3 · p1 · score 0.07")).toBeVisible();
+  },
+};
+
+/**
+ * When the model judged only some results, the judged rows show scores and the
+ * unjudged rows show none.
+ *
+ * @summary for a partly judged ranking
+ */
+export const RankedPartial: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...resultsOutput,
+      results: rankedResults,
+      display: { rerank: { ...rerank, scores: { p2: 0.91, p0: 0.42 } } },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(canvas.getAllByText(/score/u)).toHaveLength(2);
+    await expect(canvas.queryByText(/p1/u)).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * The record names every judged key, but only the rows the output holds show
+ * scores; no row appears for an omitted result.
+ *
+ * @summary for a record with more judged keys than rows
+ */
+export const RankedOmittedRows: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...resultsOutput,
+      results: rankedResults.slice(0, 1),
+      display: { rerank },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(canvas.getAllByText(/score/u)).toHaveLength(1);
+    await expect(canvas.getAllByRole("listitem")).toHaveLength(1);
+  },
+};
+
+/**
+ * A failed rank call keeps engine order, stores no record, and shows the
+ * failure note with the others.
+ *
+ * @summary for a search whose rank call failed
+ */
+export const RankUnavailable: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...resultsOutput,
+      notes: ["two engines timed out", "rerank: unavailable"],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(canvas.getByText(/\[rerank: unavailable\]/u)).toBeVisible();
+    await expect(canvas.queryByText(/Ranked by/u)).not.toBeInTheDocument();
+    await expect(canvas.queryByText(/score/u)).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * A part without a record shows no badge and no score.
+ *
+ * @summary for a search that was not ranked
+ */
+export const RankAbsent: Story = {
+  tags: ["ai-generated"],
+  args: { output: resultsOutput },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(canvas.queryByText(/Ranked by/u)).not.toBeInTheDocument();
+    await expect(canvas.queryByText(/score/u)).not.toBeInTheDocument();
+  },
+};

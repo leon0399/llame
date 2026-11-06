@@ -1,7 +1,9 @@
 "use client";
 
 import type { ReactElement, ReactNode } from "react";
+import { z } from "zod";
 
+import { Badge } from "@workspace/ui/components/badge";
 import {
   Tool,
   ToolContent,
@@ -171,5 +173,84 @@ export function ToolDetails({
         </li>
       ))}
     </ul>
+  );
+}
+
+const rankRecordSchema = z.object({
+  model: z.string(),
+  order: z.array(z.string()),
+  scores: z.record(z.string(), z.number()),
+  latencyMs: z.number(),
+  costUsd: z.number().nullable(),
+});
+
+/** What a ranked call stores under `display.rerank`. */
+export type RankRecord = z.infer<typeof rankRecordSchema>;
+
+/** A part's `display`: every `rerank` field is optional because a grep result
+ *  may store only `runLengths`, which is no rank record. A malformed display
+ *  reads as none. */
+const rankDisplayRecord = z.object({
+  rerank: z
+    .object({
+      ...rankRecordSchema.partial().shape,
+      runLengths: z.array(z.number().int().positive()).optional(),
+    })
+    .optional(),
+});
+
+export const rankDisplaySchema = z
+  .unknown()
+  .transform((value) => rankDisplayRecord.safeParse(value).data);
+
+export type RankDisplay = z.infer<typeof rankDisplaySchema>;
+
+/** The ranked call's record, or `undefined` for a part without one. */
+export function rankRecordOf(display: RankDisplay): RankRecord | undefined {
+  return rankRecordSchema.safeParse(display?.rerank).data;
+}
+
+/** The score of the judged item at `position` of the applied order, when the
+ *  record judged it. */
+export function rankScoreAt(
+  record: RankRecord | undefined,
+  position: number,
+): { key: string; score: number } | undefined {
+  const key = record?.order[position];
+  const score = key === undefined ? undefined : record?.scores[key];
+  return key === undefined || score === undefined ? undefined : { key, score };
+}
+
+/** One badge for a ranked part: the served model, latency, and cost. */
+export function ToolRankBadge({
+  record,
+}: {
+  record: RankRecord;
+}): ReactElement {
+  const cost =
+    record.costUsd === null ? "cost unknown" : `$${record.costUsd.toFixed(4)}`;
+  return (
+    <Badge variant="secondary" className="max-w-full">
+      <span className="truncate font-mono">
+        Ranked by {record.model} · {Math.round(record.latencyMs)} ms · {cost}
+      </span>
+    </Badge>
+  );
+}
+
+/** A judged item's score and the key of the run it belongs to. */
+export function ToolRankScore({
+  ordinal,
+  itemKey,
+  score,
+}: {
+  ordinal: number;
+  itemKey: string;
+  score: number;
+}): ReactElement {
+  return (
+    <Badge variant="outline" className="font-mono">
+      #{ordinal} · {itemKey} · score {score.toFixed(2)}
+    </Badge>
   );
 }
