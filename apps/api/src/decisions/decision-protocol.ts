@@ -41,22 +41,32 @@ export const DecisionAnswerSchema = z.object({
   noul: z.number().min(0).max(1),
 });
 
-const DecisionUsageSchema = z.object({
-  input_tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  output_tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-  /** Authoritative USD cost. Absent means unknown, never zero. */
-  cost: z.number().nonnegative().optional(),
-});
+const DecisionUsageSchema = z
+  .object({
+    input_tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    output_tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    /** Authoritative USD cost. Absent means unknown, never zero. */
+    cost: z.number().nonnegative().optional(),
+  })
+  .transform((usage): DecisionUsage => ({
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    // A reported wire cost is authoritative; no reported cost is unknown.
+    costUsd: usage.cost ?? null,
+  }));
 
 export const DecisionResponseSchema = z.object({
-  /** The id that answered, never the alias sent. */
-  model: z.string().min(1),
+  /** The id that answered, never the alias sent; printable ASCII only. */
+  model: z
+    .string()
+    .min(1)
+    .max(256)
+    .regex(/^[\x21-\x7E]+$/u),
   answers: z.record(z.string(), z.unknown()),
   usage: DecisionUsageSchema,
 });
 
 export type DecisionAnswer = z.infer<typeof DecisionAnswerSchema>;
-export type DecisionWireUsage = z.infer<typeof DecisionUsageSchema>;
 
 /** Normalized usage of one decision request. `costUsd` is null when unknown. */
 export type DecisionUsage = {
@@ -95,24 +105,3 @@ export type DecisionOutcome =
       readonly reason: DecisionFailureReason;
       readonly latencyMs: number;
     };
-
-/**
- * The wire body of one decision request. Pure: no credential, no endpoint, so
- * a test can assert the exact JSON a provider receives.
- */
-export function encodeDecisionRequest(
-  model: string,
-  state: DecisionState,
-  questions: DecisionQuestions,
-) {
-  return { model, state, questions };
-}
-
-/** A reported wire cost is authoritative; no reported cost is unknown. */
-export function toUsage(usage: DecisionWireUsage): DecisionUsage {
-  return {
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
-    costUsd: usage.cost ?? null,
-  };
-}

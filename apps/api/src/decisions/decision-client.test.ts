@@ -158,6 +158,45 @@ describe('decision client request', () => {
     );
     expect(calls[0]?.url).toBe('https://judge.example/v1/systemone');
   });
+
+  it('lets an operator header replace a client-set one, ignoring case', async () => {
+    const { calls, fetch } = scripted(() => json(okBody()));
+    await decide(
+      fetch,
+      {},
+      undefined,
+      provider({ headers: { Authorization: ['Bearer other'] } }),
+    );
+    const headers = z
+      .record(z.string(), z.string())
+      .parse(calls[0]?.init.headers);
+    const auth = Object.entries(headers).filter(
+      ([name]) => name.toLowerCase() === 'authorization',
+    );
+    expect(auth).toEqual([['Authorization', 'Bearer other']]);
+  });
+
+  it('refuses redirects without a second call', async () => {
+    let cancelled = false;
+    const { calls, fetch } = scripted(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { status: 307, headers: { location: 'https://evil.example/' } },
+        ),
+    );
+    await expect(decide(fetch)).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'rejected',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init.redirect).toBe('manual');
+    expect(cancelled).toBe(true);
+  });
 });
 
 describe('decision client answers', () => {
@@ -341,6 +380,51 @@ describe('decision client body bound', () => {
 });
 
 describe('decision client retries', () => {
+  it('retries when the body stream errors', async () => {
+    const { calls, fetch } = scripted((index) =>
+      index === 0
+        ? new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                controller.error(new Error('reset'));
+              },
+            }),
+          )
+        : json(okBody()),
+    );
+    await expect(decide(fetch)).resolves.toMatchObject({ status: 'answered' });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('rejects a served model id outside printable ASCII or over 256', async () => {
+    for (const model of ['has space', 'é', 'x'.repeat(257)]) {
+      const { fetch } = scripted(() => json(okBody({ model })));
+      await expect(decide(fetch)).resolves.toMatchObject({
+        status: 'unavailable',
+        reason: 'invalid_response',
+      });
+    }
+  });
+
+  it('reads an HTTP-date retry-after against the injected clock', async () => {
+    const now = Date.parse('2026-11-06T10:00:00Z');
+    const { fetch } = scripted((index) =>
+      index < 2
+        ? new Response('', {
+            status: 429,
+            headers: {
+              'retry-after': new Date(
+                now + (index === 0 ? 2000 : -5000),
+              ).toUTCString(),
+            },
+          })
+        : json(okBody()),
+    );
+    const { waits, sleep } = recordedSleep();
+    await decide(fetch, { sleep, now: () => now });
+    expect(waits).toEqual([2000, 0]);
+  });
+
   it('retries 503 and accepts the second response', async () => {
     const { calls, fetch } = scripted((index) =>
       index === 0 ? new Response('', { status: 503 }) : json(okBody()),
