@@ -16,7 +16,7 @@ MUST also be a member.
 
 #### Scenario: A padded credential also counts trimmed
 
-- **WHEN** a provider `key` resolves to `  sk-canary-7Qx2Lm9Vb4Rt8Wn3  `
+- **WHEN** a provider `key` resolves to `sk-canary-7Qx2Lm9Vb4Rt8Wn3` with two spaces at each end
 - **THEN** the set contains the padded value and `sk-canary-7Qx2Lm9Vb4Rt8Wn3`
 
 #### Scenario: The set never reaches a Machine or a remote host
