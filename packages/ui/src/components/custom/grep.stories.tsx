@@ -195,9 +195,8 @@ export const Ranked: Story = {
   args: { output: rankedOutput },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
-    await expect(
-      canvas.getByText("Ranked by jev-1.14 · 530 ms · $0.0037"),
-    ).toBeVisible();
+    await expect(canvas.getByText("Ranked by jev-1.14")).toBeVisible();
+    await expect(canvas.getByText("· 530 ms · $0.0037")).toBeVisible();
     await expect(canvas.getByText("#1 · p2 · score 0.81")).toBeVisible();
     await expect(canvas.getByText("#2 · p0 · score 0.40")).toBeVisible();
     await expect(canvas.getByText("#3 · p1 · score 0.05")).toBeVisible();
@@ -269,7 +268,7 @@ export const RankedOmittedRows: Story = {
     output: {
       ...rankedOutput,
       results: rankedOutput.results.slice(0, 1),
-      display: { rerank: { ...rerank, runLengths: [1, 2, 1] } },
+      display: { rerank },
     },
   },
   play: async ({ canvas, userEvent }) => {
@@ -307,11 +306,16 @@ export const SameFileRunsAfterReorder: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
-    await expect(
-      canvas.getAllByRole("group", { name: "Matches in src/a.ts" }),
-    ).toHaveLength(2);
-    await expect(canvas.getByText("#1 · p1 · score 0.90")).toBeVisible();
-    await expect(canvas.getByText("#2 · p0 · score 0.30")).toBeVisible();
+    const groups = canvas.getAllByRole("group", {
+      name: "Matches in src/a.ts",
+    });
+    await expect(groups).toHaveLength(2);
+    await expect(groups[0]?.closest("li")).toContainElement(
+      canvas.getByText("#1 · p1 · score 0.90"),
+    );
+    await expect(groups[1]?.closest("li")).toContainElement(
+      canvas.getByText("#2 · p0 · score 0.30"),
+    );
   },
 };
 
@@ -327,16 +331,21 @@ export const TruncatedFinalRun: Story = {
     output: {
       ...output,
       results: [
-        pass("src/c.ts:5-5", 5, "needle c"),
         pass("src/a.ts:10-10", 10, "needle a1"),
+        pass("src/a.ts:30-30", 30, "needle a2"),
       ],
-      display: { rerank: { ...rerank, runLengths: [1, 3, 1] } },
+      display: { rerank: { ...rerank, runLengths: [1, 3] } },
     },
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
-    await expect(canvas.getAllByRole("group")).toHaveLength(2);
-    await expect(canvas.getByText("#2 · p0 · score 0.40")).toBeVisible();
+    const groups = canvas.getAllByRole("group", {
+      name: "Matches in src/a.ts",
+    });
+    await expect(groups).toHaveLength(2);
+    await expect(groups[1]?.closest("li")).toContainElement(
+      canvas.getByText("#2 · p0 · score 0.40"),
+    );
   },
 };
 

@@ -538,12 +538,19 @@ export const Ranked: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
-    await expect(
-      canvas.getByText("Ranked by jev-1.14 · 412 ms · $0.0007"),
-    ).toBeVisible();
+    await expect(canvas.getByText("Ranked by jev-1.14")).toBeVisible();
+    await expect(canvas.getByText("· 412 ms · $0.0007")).toBeVisible();
     await expect(canvas.getAllByText(/score/u)).toHaveLength(3);
-    await expect(canvas.getByText("#1 · p2 · score 0.91")).toBeVisible();
-    await expect(canvas.getByText("#3 · p1 · score 0.07")).toBeVisible();
+    const rows = canvas.getAllByRole("listitem");
+    await expect(rows[0]).toContainElement(
+      canvas.getByText("#1 · p2 · score 0.91"),
+    );
+    await expect(rows[0]).toContainElement(
+      canvas.getByText("Tool calling guide"),
+    );
+    await expect(rows[2]).toContainElement(
+      canvas.getByText("#3 · p1 · score 0.07"),
+    );
   },
 };
 

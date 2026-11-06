@@ -10,7 +10,6 @@ import {
   SourceLines,
 } from "@workspace/ui/components/custom/source-lines";
 import {
-  type RankRecord,
   rankDisplaySchema,
   rankRecordOf,
   rankScoreAt,
@@ -53,14 +52,13 @@ const outputSchema = z.looseObject({
   /** `"unavailable"`: the rank call failed and the walk order stands. */
   ranking: z.string().optional(),
   /** A ranked call stores `display.rerank`; `runLengths` aligns with `order`. */
-  display: rankDisplaySchema.optional(),
+  display: rankDisplaySchema,
   notice: z.string().optional(),
   truncationNotice: z.string().optional(),
 });
 
 type GrepInput = z.infer<typeof inputSchema>;
 type GrepOutput = z.infer<typeof outputSchema>;
-type GrepPassage = GrepOutput["results"][number];
 
 /** Props for the dedicated `grep` tool row. */
 export type GrepToolProps = ToolPartProps;
@@ -103,39 +101,29 @@ function locatorParts(locator: string): LocatorParts {
  *  it. Passages past the lengths, or without them, continue a run only while
  *  the file stays the same and the start line rises. */
 function groupRuns(output: GrepOutput): Array<FileRun> {
-  const runs: Array<FileRun> = [];
-  const add = (run: FileRun | undefined, passage: GrepPassage): FileRun => {
-    const target = run ?? {
-      path: locatorParts(passage.locator).path,
-      lines: [],
-      matches: new Set<number>(),
-    };
-    target.lines.push(...parseNumberedLines(passage.content));
-    for (const line of passage.matches) target.matches.add(line);
-    return target;
-  };
-  let index = 0;
+  const explicit = new Set<number>();
+  let covered = 0;
   for (const length of output.display?.rerank?.runLengths ?? []) {
-    if (index >= output.results.length) break;
-    let run: FileRun | undefined;
-    for (const passage of output.results.slice(index, index + length))
-      run = add(run, passage);
-    if (run) runs.push(run);
-    index += length;
+    explicit.add(covered);
+    covered += length;
   }
+  const runs: Array<FileRun> = [];
   let previous: LocatorParts | undefined;
-  let run: FileRun | undefined;
-  for (const passage of output.results.slice(index)) {
+  output.results.forEach((passage, index) => {
     const parts = locatorParts(passage.locator);
-    if (run && previous?.path === parts.path && parts.start > previous.start) {
-      run = add(run, passage);
-    } else {
-      if (run) runs.push(run);
-      run = add(undefined, passage);
-    }
+    const opens =
+      index < covered
+        ? explicit.has(index)
+        : !(previous?.path === parts.path && parts.start > previous.start);
     previous = parts;
-  }
-  if (run) runs.push(run);
+    let run = runs.at(-1);
+    if (opens || !run) {
+      run = { path: parts.path, lines: [], matches: new Set<number>() };
+      runs.push(run);
+    }
+    run.lines.push(...parseNumberedLines(passage.content));
+    for (const line of passage.matches) run.matches.add(line);
+  });
   return runs;
 }
 
@@ -173,20 +161,14 @@ function GrepFile({
   rank,
 }: {
   file: FileRun;
-  rank: RunRank | undefined;
+  rank: ReturnType<typeof rankScoreAt>;
 }) {
   return (
     <li className="space-y-1">
       <p className="flex items-baseline justify-between gap-4 text-xs">
         <span className="break-all font-medium font-mono">{file.path}</span>
         <span className="flex shrink-0 items-baseline gap-2 text-muted-foreground">
-          {rank ? (
-            <ToolRankScore
-              ordinal={rank.ordinal}
-              itemKey={rank.key}
-              score={rank.score}
-            />
-          ) : null}
+          {rank ? <ToolRankScore {...rank} /> : null}
           {file.matches.size} {file.matches.size === 1 ? "match" : "matches"}
         </span>
       </p>
@@ -230,17 +212,6 @@ function grepDetailRows(
   ];
 }
 
-type RunRank = { key: string; score: number; ordinal: number };
-
-/** The score of the run at `index` of the applied order, with its ordinal. */
-function runRank(
-  record: RankRecord | undefined,
-  index: number,
-): RunRank | undefined {
-  const scored = rankScoreAt(record, index);
-  return scored && { ...scored, ordinal: index + 1 };
-}
-
 function GrepResult({ output }: { output: GrepOutput }) {
   const runs = groupRuns(output);
   const record = rankRecordOf(output.display);
@@ -269,7 +240,7 @@ function GrepResult({ output }: { output: GrepOutput }) {
               <GrepFile
                 file={run}
                 key={`${run.path}-${index}`}
-                rank={runRank(record, index)}
+                rank={rankScoreAt(record, index)}
               />
             ))}
           </ul>

@@ -6,7 +6,6 @@ import { z } from "zod";
 import type { ToolHeaderState } from "@workspace/ui/components/ai-elements/tool";
 import { cn } from "@workspace/ui/lib/utils";
 import {
-  type RankRecord,
   rankDisplaySchema,
   rankRecordOf,
   rankScoreAt,
@@ -40,7 +39,7 @@ const outputBaseSchema = {
   query: z.string(),
   notes: z.array(z.string()).optional(),
   /** A ranked call stores `display.rerank`. */
-  display: rankDisplaySchema.optional(),
+  display: rankDisplaySchema,
 };
 
 const answerSchema = z.object({
@@ -166,7 +165,7 @@ function ResultItem({
   Markdown,
 }: {
   result: WebSearchResult;
-  rank: { key: string; score: number; ordinal: number } | undefined;
+  rank: ReturnType<typeof rankScoreAt>;
   Markdown: ComponentType<{ children?: string }>;
 }) {
   const metadata = [
@@ -184,11 +183,7 @@ function ResultItem({
       />
       {rank ? (
         <p className="mt-1">
-          <ToolRankScore
-            ordinal={rank.ordinal}
-            itemKey={rank.key}
-            score={rank.score}
-          />
+          <ToolRankScore {...rank} />
         </p>
       ) : null}
       {metadata.length > 0 && (
@@ -254,13 +249,6 @@ function AttachedAnswers({
   ));
 }
 
-/** The score of the row at `index`: rows are the head of the applied order,
- *  so omitted results never get a row. */
-function resultRank(record: RankRecord | undefined, index: number) {
-  const scored = rankScoreAt(record, index);
-  return scored && { ...scored, ordinal: index + 1 };
-}
-
 function ResultsBody({
   output,
   Markdown,
@@ -268,7 +256,7 @@ function ResultsBody({
   output: WebSearchResultsOutput;
   Markdown: ComponentType<{ children?: string }>;
 }) {
-  const record: RankRecord | undefined = rankRecordOf(output.display);
+  const record = rankRecordOf(output.display);
   return (
     <div className="space-y-4">
       {record ? (
@@ -286,7 +274,7 @@ function ResultsBody({
             <ResultItem
               key={`${result.url}-${index}`}
               result={result}
-              rank={resultRank(record, index)}
+              rank={rankScoreAt(record, index)}
               Markdown={Markdown}
             />
           ))}

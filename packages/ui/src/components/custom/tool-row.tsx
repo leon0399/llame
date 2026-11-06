@@ -199,11 +199,10 @@ const rankDisplayRecord = z.object({
     .optional(),
 });
 
-export const rankDisplaySchema = z
-  .unknown()
-  .transform((value) => rankDisplayRecord.safeParse(value).data);
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- Zod's `.catch`, not a promise chain.
+export const rankDisplaySchema = rankDisplayRecord.optional().catch(undefined);
 
-export type RankDisplay = z.infer<typeof rankDisplaySchema>;
+type RankDisplay = z.infer<typeof rankDisplaySchema>;
 
 /** The ranked call's record, or `undefined` for a part without one. */
 export function rankRecordOf(display: RankDisplay): RankRecord | undefined {
@@ -211,14 +210,16 @@ export function rankRecordOf(display: RankDisplay): RankRecord | undefined {
 }
 
 /** The score of the judged item at `position` of the applied order, when the
- *  record judged it. */
+ *  record judged it, with the item's 1-based ordinal. */
 export function rankScoreAt(
   record: RankRecord | undefined,
   position: number,
-): { key: string; score: number } | undefined {
-  const key = record?.order[position];
-  const score = key === undefined ? undefined : record?.scores[key];
-  return key === undefined || score === undefined ? undefined : { key, score };
+): { itemKey: string; score: number; ordinal: number } | undefined {
+  const itemKey = record?.order[position];
+  const score = itemKey === undefined ? undefined : record?.scores[itemKey];
+  return itemKey === undefined || score === undefined
+    ? undefined
+    : { itemKey, score, ordinal: position + 1 };
 }
 
 /** One badge for a ranked part: the served model, latency, and cost. */
@@ -230,9 +231,10 @@ export function ToolRankBadge({
   const cost =
     record.costUsd === null ? "cost unknown" : `$${record.costUsd.toFixed(4)}`;
   return (
-    <Badge variant="secondary" className="max-w-full">
-      <span className="truncate font-mono">
-        Ranked by {record.model} · {Math.round(record.latencyMs)} ms · {cost}
+    <Badge variant="secondary" className="max-w-full font-mono">
+      <span className="truncate">Ranked by {record.model}</span>
+      <span className="shrink-0">
+        · {Math.round(record.latencyMs)} ms · {cost}
       </span>
     </Badge>
   );
