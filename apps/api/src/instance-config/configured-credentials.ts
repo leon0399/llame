@@ -122,8 +122,9 @@ export class ConfiguredCredentialCollector {
    * A URL's credentials: substitutions resolved inside its userinfo password
    * or query, its userinfo password at any nonblank length, its userinfo
    * username from 8 characters, and each query value under a credential-shaped
-   * name — each as written and percent-decoded, and never the whole URL. Spans
-   * are computed on the raw resolved string, not on a re-serialized `URL`.
+   * name — each as written, percent-decoded, and as WHATWG URL parsing
+   * transmits it, and never the whole URL. Spans are computed on the raw
+   * resolved string, not on a re-serialized `URL`.
    */
   addUrlMembers(result: InterpolationResult): void {
     const spans = urlCredentialSpans(result.value);
@@ -134,9 +135,11 @@ export class ConfiguredCredentialCollector {
 
   /**
    * A substitution resolved inside the userinfo password or the query, in the
-   * spelling written and its percent-decoded form: the URL may carry either
-   * (`secret%2Fcanary` travels as-is, `secret/canary` once a consumer decodes
-   * it). `:-` fallback text is not a secret.
+   * spelling written, its percent-decoded form, and the spelling WHATWG URL
+   * parsing transmits: the URL may carry any of them (`secret%2Fcanary`
+   * travels as-is, `secret/canary` once a consumer decodes it, and an ASCII
+   * tab, LF, or CR is dropped by the parser). `:-` fallback text is not a
+   * secret.
    */
   private addUrlSubstitutions(
     result: InterpolationResult,
@@ -150,9 +153,9 @@ export class ConfiguredCredentialCollector {
       ) {
         continue;
       }
-      this.addEncodedAndDecoded(substitution.value);
+      this.addUrlMember(substitution.value);
       for (const leaf of substitution.documentLeaves) {
-        this.addEncodedAndDecoded(leaf);
+        this.addUrlMember(leaf);
       }
     }
   }
@@ -181,6 +184,20 @@ export class ConfiguredCredentialCollector {
   }
 
   /**
+   * A URL member in the spellings a consumer sees: as written, percent-decoded,
+   * and — when it carries an ASCII tab, LF, or CR — the spelling WHATWG URL
+   * parsing transmits, which removes those characters anywhere in its input.
+   * Members that no URL parser reads keep their written spelling.
+   */
+  private addUrlMember(value: string, minimumLength?: number): void {
+    this.addEncodedAndDecoded(value, minimumLength);
+    const transmitted = value.replaceAll(/[\t\n\r]/gu, '');
+    if (transmitted !== value) {
+      this.addEncodedAndDecoded(transmitted, minimumLength);
+    }
+  }
+
+  /**
    * `POSTGRES_URL` is read outside the configuration file, so the loader never
    * interpolates it: the whole string, plus its password in both
    * percent-encoded and decoded spellings, is the member. The password comes
@@ -192,7 +209,7 @@ export class ConfiguredCredentialCollector {
     this.add(value);
     const spans = urlCredentialSpans(value);
     if (spans.password === undefined) return;
-    this.addEncodedAndDecoded(
+    this.addUrlMember(
       value.slice(spans.password.start, spans.password.end),
       INFERRED_CREDENTIAL_MIN_LENGTH,
     );
@@ -200,15 +217,13 @@ export class ConfiguredCredentialCollector {
 
   private addUserinfoMembers(rawUrl: string, spans: UrlCredentialSpans): void {
     if (spans.username !== undefined) {
-      this.addEncodedAndDecoded(
+      this.addUrlMember(
         rawUrl.slice(spans.username.start, spans.username.end),
         INFERRED_CREDENTIAL_MIN_LENGTH,
       );
     }
     if (spans.password !== undefined) {
-      this.addEncodedAndDecoded(
-        rawUrl.slice(spans.password.start, spans.password.end),
-      );
+      this.addUrlMember(rawUrl.slice(spans.password.start, spans.password.end));
     }
   }
 
@@ -223,7 +238,7 @@ export class ConfiguredCredentialCollector {
       const rawName = equals === -1 ? pair : pair.slice(0, equals);
       const rawValue = equals === -1 ? '' : pair.slice(equals + 1);
       const name = percentDecoded(rawName) ?? rawName;
-      if (isCredentialName(name)) this.addEncodedAndDecoded(rawValue);
+      if (isCredentialName(name)) this.addUrlMember(rawValue);
     }
   }
 }
@@ -243,13 +258,16 @@ function within(
 /**
  * The userinfo and query spans of an absolute URL, computed by scanning the
  * raw string so a resolved (possibly substituted) URL — and a `POSTGRES_URL`
- * `new URL` cannot parse — is read exactly as written. WHATWG, the loader's
- * validator, treats `https://host/`, `https:/host/`, and `https:host/` alike
- * for HTTP(S) (and `\` as `/`), so the authority starts after the scheme colon
- * plus any slash run rather than after a literal `://`.
+ * `new URL` cannot parse — is read exactly as written. A provider URL is
+ * trimmed when the loader stores it, but a remote MCP `url` is stored
+ * untrimmed, so leading whitespace is skipped here on the raw resolved string
+ * and spans stay in raw-string coordinates that match substitution spans.
+ * WHATWG, the loader's validator, treats `https://host/`, `https:/host/`, and
+ * `https:host/` alike for HTTP(S) (and `\` as `/`), so the authority starts
+ * after the scheme colon plus any slash run rather than after a literal `://`.
  */
 function urlCredentialSpans(url: string): UrlCredentialSpans {
-  const start = leadingWhitespaceLength(url);
+  const start = url.length - url.trimStart().length;
   const colon = schemeColon(url, start);
   if (colon === undefined) return {};
   const query = querySpan(url, colon + 1);
@@ -268,37 +286,6 @@ function urlCredentialSpans(url: string): UrlCredentialSpans {
     ...userinfoSpans(url, authorityStart, authorityEnd),
     ...(query !== undefined && { query }),
   };
-}
-
-/**
- * The number of leading whitespace characters. The loader trims a resolved URL
- * before it stores or validates it, but the scanner reads the raw resolved
- * string so substitution offsets still line up: a padded literal or `{env:…}`
- * value must not hide its scheme.
- */
-function leadingWhitespaceLength(url: string): number {
-  let index = 0;
-  while (index < url.length && isWhitespace(url.charCodeAt(index))) {
-    index += 1;
-  }
-  return index;
-}
-
-/** The ECMAScript `WhiteSpace`/`LineTerminator` set, which `trim()` applies. */
-function isWhitespace(code: number): boolean {
-  return (
-    code === 0x20 ||
-    (code >= 0x09 && code <= 0x0d) ||
-    code === 0xa0 ||
-    code === 0x16_80 ||
-    (code >= 0x20_00 && code <= 0x20_0a) ||
-    code === 0x20_28 ||
-    code === 0x20_29 ||
-    code === 0x20_2f ||
-    code === 0x20_5f ||
-    code === 0x30_00 ||
-    code === 0xfe_ff
-  );
 }
 
 /**

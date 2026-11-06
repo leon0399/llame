@@ -89,6 +89,21 @@ describe('ConfiguredCredentialCollector — URL members', () => {
     ).toEqual(['pw-canary', 'qs-canary']);
   });
 
+  it('adds the spelling WHATWG parsing transmits, without tab, LF, or CR', () => {
+    // `new URL` removes ASCII tab, LF, and CR anywhere in its input, so a
+    // consumer receives `pw-canarysecret` for a password written across a line.
+    expect(urlMembers('https://svc:pw-canary\nsecret@gw.example/v1')).toEqual([
+      'pw-canary\nsecret',
+      'pw-canarysecret',
+    ]);
+  });
+
+  it('strips tab and CR from a credential-shaped query value', () => {
+    expect(
+      urlMembers('https://gw.example/v1?apiKey=qs\tcanary\rsecret'),
+    ).toEqual(['qs\tcanary\rsecret', 'qscanarysecret']);
+  });
+
   it('reads a slashless http URL that begins with whitespace', () => {
     expect(urlMembers(' \thttp:svc:pw-canary@host/v1')).toEqual(['pw-canary']);
   });

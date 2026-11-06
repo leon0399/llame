@@ -5030,6 +5030,16 @@ describe('loadInstanceConfig — configured credential set', () => {
     },
   );
 
+  it('adds the spelling WHATWG URL parsing transmits for a literal remote MCP URL', () => {
+    // The JSON escape stores a real LF; `new URL` accepts it and removes it,
+    // so the server receives `canarysecret`.
+    const members = credentialsOf(
+      String.raw`{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp?apiKey=canary\nsecret" } } }`,
+    );
+
+    expect(members).toEqual(['canary\nsecret', 'canarysecret']);
+  });
+
   it('adds a credential field whole and never a substitution inside it', () => {
     const members = credentialsOf(
       '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "secret-prefix-{env:KEY_VERSION}-secret-suffix" }] }',
