@@ -24,6 +24,7 @@ import { type WorkspaceRootCell } from './workspace-path';
 import { type AttemptToolAdditions } from './attempt-tool-additions';
 import { type DerivedDecision } from './web-read/admission';
 import { type ModelClientFactory } from '../models/models.service';
+import { type DecisionJudge } from '../decisions/decisions.service';
 import { type ToolMediaStore } from '../media/tool-media-store';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { type ExecutorGit } from '../machines/executor-git.service';
@@ -196,6 +197,15 @@ export interface ToolContext {
    * `createClient` unset, and those engines then fail closed.
    */
   readonly modelClients?: Partial<ModelClientFactory>;
+  /**
+   * Trusted decision-lane judge for ranking a tool's own candidates, plus
+   * `protectText`, the exact-key replacement of the decision credential a
+   * ranked tool applies to source text before excerpts. Absent — or present
+   * without `judgeCandidates` — means the lane is not configured and the tool
+   * keeps its canonical order; a failure is never read as a negative judgment.
+   * A call shares this context's `abortSignal`.
+   */
+  readonly decisions?: Partial<DecisionJudge>;
   /**
    * Trusted effective per-attempt permission mode. Absent means default policy
    * evaluation.

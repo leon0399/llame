@@ -58,6 +58,9 @@ below state additional ordering where a change needs it.
 - [OpenCode Go](providers/opencode-go.md): `opencode-go`.
 - [LiteLLM gateway](providers/litellm-gateway.md): `openai-completions`
   entries for vLLM-served models, token usage, and reasoning effort.
+- [Decisions](decisions.md): the `system-one` provider type, the
+  `decisionModels[]` catalogue, its routes, the per-tool `rerank` block, and
+  what naming a model discloses.
 - [Horizontal scaling](scaling.md): API and worker topology, worker profiles,
   and capacity.
 - [Observability](observability.md): Sentry DSNs and environments per
