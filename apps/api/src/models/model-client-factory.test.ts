@@ -696,6 +696,7 @@ describe('createModelClient system-one guard (decision-rerank)', () => {
             headers: {},
           },
           model: { ...model, provider: 'decisions' },
+          credentials: [],
         },
         dependencies,
       ),
