@@ -85,8 +85,9 @@ excluding `:-` fallback text; for provider base URLs and the remote MCP
 `url`, substitutions whose resolved span lies in the userinfo password or
 query spans computed on that raw string, not on a re-serialized `URL`, and,
 from the same raw spans, the userinfo password and username and each query
-value under a credential-shaped name, as written, percent-decoded, and with
-ASCII tab, LF, and CR removed (the spelling WHATWG URL parsing transmits), so
+value under a credential-shaped name, as written, percent-decoded, and as
+WHATWG URL parsing serializes it (tab, LF, and CR removed, spaces and other
+characters percent-encoded), taken from a throwaway `new URL` per component, so
 a credential written literally or inside a whole-URL substitution is still a
 member; literal header values under a credential-shaped name; and, from the
 `env` the loader was given, `POSTGRES_URL`, its parsed password in both
