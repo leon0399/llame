@@ -1,0 +1,107 @@
+{
+  "tool": "web_search",
+  "query": "postgres RLS security definer function bypass search_path",
+  "objective": "Learn how SECURITY DEFINER functions interact with row-level security in PostgreSQL and how to use them safely",
+  "cards": [
+    {
+      "key": "p01",
+      "text": "[1] Row Level Security in SQL Server — learn.microsoft.com — Row-level security uses predicate functions and security policies to filter rows. Applies to SQL Server, not PostgreSQL.",
+      "relevant": false
+    },
+    {
+      "key": "p02",
+      "text": "[2] Spring Security: method security — docs.spring.io — Use @PreAuthorize to secure methods. The security definer concept is unrelated to Spring’s expression language.",
+      "relevant": false
+    },
+    {
+      "key": "p03",
+      "text": "[3] Definer vs invoker rights in Oracle PL/SQL — docs.oracle.com — AUTHID DEFINER procedures execute with the privileges of the owner. Oracle terminology, not Postgres.",
+      "relevant": false
+    },
+    {
+      "key": "p04",
+      "text": "[4] PostgreSQL: Documentation: CREATE FUNCTION (SECURITY DEFINER) — postgresql.org — SECURITY DEFINER specifies that the function is to be executed with the privileges of the user that owns it. Writing SECURITY DEFINER functions safely: set search_path.",
+      "relevant": true
+    },
+    {
+      "key": "p05",
+      "text": "[5] PostgreSQL tutorial: CREATE TABLE — postgresqltutorial.com — The CREATE TABLE statement creates a new table. Columns, constraints and defaults.",
+      "relevant": false
+    },
+    {
+      "key": "p06",
+      "text": "[6] Top 10 database security best practices — imperva.com — Encrypt data, apply least privilege, patch regularly and audit access. A generic overview.",
+      "relevant": false
+    },
+    {
+      "key": "p07",
+      "text": "[7] Row Security Policies — PostgreSQL — postgresql.org — Row security policies restrict, on a per-user basis, which rows can be returned by normal queries. Table owners and BYPASSRLS roles bypass policies; SECURITY DEFINER functions run as the owner.",
+      "relevant": true
+    },
+    {
+      "key": "p08",
+      "text": "[8] Multi-tenant data isolation patterns — aws.amazon.com — Silo, pool and bridge models for SaaS tenants; mentions row-level security among several mechanisms.",
+      "relevant": false
+    },
+    {
+      "key": "p09",
+      "text": "[9] How to use SECURITY DEFINER functions safely with RLS — supabase.com — Functions marked SECURITY DEFINER bypass row level security because they run as the function owner. Put them in a private schema and revoke EXECUTE from public.",
+      "relevant": true
+    },
+    {
+      "key": "p10",
+      "text": "[10] MySQL SQL SECURITY DEFINER — dev.mysql.com — MySQL stored programs have a SQL SECURITY characteristic: DEFINER or INVOKER. MySQL has no row-level security.",
+      "relevant": false
+    },
+    {
+      "key": "p11",
+      "text": "[11] Understanding GRANT and REVOKE in PostgreSQL — neon.tech — GRANT gives privileges on objects to roles; REVOKE removes them. Includes EXECUTE on functions.",
+      "relevant": false
+    },
+    {
+      "key": "p12",
+      "text": "[12] Postgres RLS and SECURITY DEFINER: avoiding policy recursion — dev.to — A policy that queries the same table recurses infinitely. Wrap the lookup in a SECURITY DEFINER function so the inner query skips RLS.",
+      "relevant": true
+    },
+    {
+      "key": "p13",
+      "text": "[13] Postgres roles explained — crunchydata.com — Roles, login attributes, inheritance and membership. Mentions superuser and BYPASSRLS attributes.",
+      "relevant": false
+    },
+    {
+      "key": "p14",
+      "text": "[14] PostGIS security definer functions — postgis.net — PostGIS installs functions into the public schema; some extension scripts use SECURITY DEFINER.",
+      "relevant": false
+    },
+    {
+      "key": "p15",
+      "text": "[15] search_path hijacking in SECURITY DEFINER functions (CVE write-up) — wiki.postgresql.org — Always SET search_path on a SECURITY DEFINER function; otherwise an attacker can shadow objects with their own schema.",
+      "relevant": true
+    },
+    {
+      "key": "p16",
+      "text": "[16] Securing Supabase edge functions — supabase.com — Edge functions run on Deno; verify JWTs and use the service role key only server-side.",
+      "relevant": false
+    },
+    {
+      "key": "p17",
+      "text": "[17] Row-level security in Snowflake — docs.snowflake.com — Row access policies are schema-level objects attached to tables or views. Snowflake-specific.",
+      "relevant": false
+    },
+    {
+      "key": "p18",
+      "text": "[18] What is a security definer view? — stackoverflow.com — Views run with the creator’s privileges by default. In Postgres 15 use security_invoker = true to evaluate RLS as the caller.",
+      "relevant": true
+    },
+    {
+      "key": "p19",
+      "text": "[19] Why is my RLS policy not applied for the table owner? — stackoverflow.com — Table owners bypass RLS unless FORCE ROW LEVEL SECURITY is set. Superusers and BYPASSRLS always bypass.",
+      "relevant": true
+    },
+    {
+      "key": "p20",
+      "text": "[20] Fixing \"infinite recursion detected in policy\" in Postgres — github.com — Reported when an RLS policy on table A selects from A. Use a SECURITY DEFINER helper function with a fixed search_path.",
+      "relevant": true
+    }
+  ]
+}

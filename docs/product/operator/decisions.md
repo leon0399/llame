@@ -174,3 +174,23 @@ accepted response's served id, or `null`), `cards`, `requests`, `judged`,
 `inputTokens`, `outputTokens`, `costUsd`, and `latencyMs`. Tokens and cost sum
 the accepted responses only; `costUsd` is `null` when any accepted response
 reports no cost or none was accepted.
+
+## Evaluating a model on labeled cases
+
+`apps/api/fixtures/ranking` holds hand-labeled cases of at most 40 cards: a
+synthetic retry search, real walks for `tenant-db.service.ts` and the permission
+evaluator, and an RLS / `SECURITY DEFINER` web search. Two commands compare
+models on them:
+
+```sh
+pnpm --filter api ranking:record [model-id ...]
+pnpm --filter api ranking:eval
+```
+
+`ranking:record` judges every case with each named `decisionModels[].id` (all of
+them without arguments) using the keys of your operator config, and writes
+`fixtures/ranking/answers/<case>.<model>.json`. `ranking:eval` makes no model
+call: it prints nDCG@5, MRR, latency, and cost for the canonical order and for
+every recorded answer. Without recorded answers it prints the canonical baseline
+only. Cards are small and few, so this measures ordering quality, not batching
+of large walks.

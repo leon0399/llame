@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-06
 
+- **Ranking kernel and labeled evaluation.** `rankCards` in
+  `apps/api/src/ranking` sorts judged cards by score (ties keep canonical
+  position), appends unjudged cards in canonical order, throws on an order that
+  is not a permutation, and reports `ranked`, `partial`, or `unavailable`; an
+  enclosing abort propagates. Four hand-labeled cases of at most 40 cards live in
+  `apps/api/fixtures/ranking`. `pnpm --filter api ranking:record` judges them
+  with live decision models and writes `answers/<case>.<model>.json`;
+  `pnpm --filter api ranking:eval` prints nDCG@5, MRR, latency, and cost for the
+  canonical order and each recorded model, offline. No tool ranks results yet.
+
 - **A decision lane for ranking.** `ToolContext.decisions` now carries
   `judgeCandidates` and `protectText`, built from the `decisionModels[]`
   catalogue; a call that names an id outside the catalogue, or any call on an

@@ -20,6 +20,7 @@
         "src/main.ts",
         "src/worker.ts",
         "src/generate-openapi.ts",
+        "src/ranking/*.cli.ts",
         "src/db/db.ts",
         "src/**/*.test.ts",
         "src/**/*.integration.test.ts",

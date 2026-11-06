@@ -1,0 +1,207 @@
+{
+  "tool": "grep",
+  "query": "set_config|app\\.current_user|row.level|runAs\\(|tenant",
+  "objective": "Find the service that opens the per-request transaction and sets the RLS user id",
+  "cards": [
+    {
+      "key": "p00",
+      "text": "src/app.controller.ts\n// Liveness probe — deliberately public (no data, no tenant surface).",
+      "relevant": false
+    },
+    {
+      "key": "p01",
+      "text": "src/auth/sessions.repository.ts\n* pre-authentication); expiry is a global fact, not tenant data.",
+      "relevant": false
+    },
+    {
+      "key": "p02",
+      "text": "src/chats/chat-admission.ts\nimport { type Db } from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p03",
+      "text": "src/chats/chat-creation-executors.ts\nimport { type Db } from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p04",
+      "text": "src/chats/chat-creation.service.ts\nimport { TenantDbService, type Db } from '../db/tenant-db.service';\nprivate readonly tenantDb: TenantDbService,\nreturn this.tenantDb.runAs(userId, async (tx) => {",
+      "relevant": false
+    },
+    {
+      "key": "p05",
+      "text": "src/chats/chats-search-scope.ts\nAND current_setting('app.current_user_id', true) = ${ownerUserId}",
+      "relevant": false
+    },
+    {
+      "key": "p06",
+      "text": "src/chats/chats.service.ts\nimport { TenantDbService, type Db } from '../db/tenant-db.service';\nprivate readonly tenantDb: TenantDbService,\nreturn this.tenantDb.runAs(userId, async (tx) => {",
+      "relevant": false
+    },
+    {
+      "key": "p07",
+      "text": "src/chats/follow-up-admission.service.ts\nTenantDbService,\ntype TenantRunner,\n} from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p08",
+      "text": "src/chats/messages-repository.ts\nimport { type Db } from '../db/tenant-db.service';\n* cannot read another tenant's messages. RLS remains the primary guarantee.\n* an insert whose `chat_id` is not owned by the current `app.current_user_id`, and",
+      "relevant": false
+    },
+    {
+      "key": "p09",
+      "text": "src/chats/run-creation.ts\nimport { type Db } from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p10",
+      "text": "src/compaction/compaction.service.ts\nimport { TenantDbService } from '../db/tenant-db.service';\nprivate readonly tenantDb: TenantDbService,\nconst checkpoint = await this.tenantDb.runAs(input.userId, (tx) =>",
+      "relevant": false
+    },
+    {
+      "key": "p11",
+      "text": "src/db/schema/chat-creation-records.ts\n* existing unique index. `FORCE ROW LEVEL SECURITY` is hand-appended in the\nusing: sql`owner_user_id = current_setting('app.current_user_id', true)`,",
+      "relevant": false
+    },
+    {
+      "key": "p12",
+      "text": "src/db/schema/machines-status.ts\n* tenant predicate of its own.\nusing: sql`current_setting('app.current_user_id', true) <> ''`,\n// per transaction by `set_config('app.machines_system', '1', true)` in",
+      "relevant": false
+    },
+    {
+      "key": "p13",
+      "text": "src/db/schema/personalization.ts\n// `FORCE ROW LEVEL SECURITY` (Drizzle cannot express it) — same as chats/0004,\nusing: sql`user_id = current_setting('app.current_user_id', true)`,\nwithCheck: sql`user_id = current_setting('app.current_user_id', true)`,",
+      "relevant": false
+    },
+    {
+      "key": "p14",
+      "text": "src/db/schema/repositories.ts\n* with `FORCE ROW LEVEL SECURITY` hand-appended in the migration — Drizzle\nusing: sql`owner_user_id = current_setting('app.current_user_id', true)`,\nusing: sql`owner_user_id = current_setting('app.current_user_id', true)`,",
+      "relevant": false
+    },
+    {
+      "key": "p15",
+      "text": "src/db/schema/tool-artifacts.ts\n* `FORCE ROW LEVEL SECURITY` (src/db/AGENTS.md P1); re-add FORCE if it is\nWHERE owner_user_id = current_setting('app.current_user_id', true)\nWHERE owner_user_id = current_setting('app.current_user_id', true)",
+      "relevant": false
+    },
+    {
+      "key": "p16",
+      "text": "src/db/tenant-db.service.ts\n* TenantDbService — per-request RLS-scoped transaction helper.\n* `app.current_user_id` transaction-locally (via set_config with is_local=true),\n* engaging PostgreSQL Row-Level Security for the duration.",
+      "relevant": true
+    },
+    {
+      "key": "p17",
+      "text": "src/identity/identity.service.ts\nimport { TenantDbService, type Db } from '../db/tenant-db.service';\nconstructor(private readonly tenantDb: TenantDbService) {}\nreturn this.tenantDb.runAs(input.userId, async (tx) => {",
+      "relevant": false
+    },
+    {
+      "key": "p18",
+      "text": "src/knowledge/knowledge-tool-candidate-resolver.ts\nimport { type Db } from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p19",
+      "text": "src/machines/machines-status.repository.ts\n* - READS for a request run under `runAs(userId)`, the only context the select\nimport { TenantDbService } from '../db/tenant-db.service';\nconst SYSTEM_MARKER = sql`select set_config('app.machines_system', '1', true)`;",
+      "relevant": false
+    },
+    {
+      "key": "p20",
+      "text": "src/media/media.service.ts\nTenantDbService,\ntype TenantRunner,\n} from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p21",
+      "text": "src/memory/memory.service.ts\nTenantDbService,\ntype TenantRunner,\n} from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p22",
+      "text": "src/personalization/personalization.controller.ts\n// tenant identity from a verified session (see ChatsModule's own note). The",
+      "relevant": false
+    },
+    {
+      "key": "p23",
+      "text": "src/projects/project-links.repository.ts\nimport { type Db } from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p24",
+      "text": "src/projects/projects.service.ts\nimport { TenantDbService, type Db } from '../db/tenant-db.service';\nconstructor(private readonly tenantDb: TenantDbService) {}\nreturn this.tenantDb.runAs(ownerUserId, (tx) =>",
+      "relevant": false
+    },
+    {
+      "key": "p25",
+      "text": "src/repositories/repositories.service.ts\nimport { TenantDbService } from '../db/tenant-db.service';\nconstructor(private readonly tenantDb: TenantDbService) {}\nreturn this.tenantDb.runAs(ownerUserId, (tx) =>",
+      "relevant": false
+    },
+    {
+      "key": "p26",
+      "text": "src/runs/run-dispatch.service.ts\nimport { TenantDbService } from '../db/tenant-db.service';\nprivate readonly tenantDb: TenantDbService,\nthis.tenantDb,",
+      "relevant": false
+    },
+    {
+      "key": "p27",
+      "text": "src/runs/runs-repository.ts\nimport { type Db } from '../db/tenant-db.service';\n* WITH CHECK: the run must belong to the current tenant); no read-back",
+      "relevant": false
+    },
+    {
+      "key": "p28",
+      "text": "src/runs/system-prompt-receipts.repository.ts\nimport { type Db } from '../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p29",
+      "text": "src/search/chat/canonical-search-matcher.ts\nimport type { Db } from '../../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p30",
+      "text": "src/search/embedding-binding-boot-check.service.ts\nimport { TenantDbService } from '../db/tenant-db.service';\n* else injects it): `InstanceConfigService`/`TenantDbService` are both\nprivate readonly tenantDb: TenantDbService,",
+      "relevant": false
+    },
+    {
+      "key": "p31",
+      "text": "src/search/operations/cli.ts\nimport { TenantDbService } from '../../db/tenant-db.service';\ntenantDb: app.get(TenantDbService),",
+      "relevant": false
+    },
+    {
+      "key": "p32",
+      "text": "src/search/operations/projection-coverage.ts\ntenantDb: ProjectionCoverageQueryRunner,\nconst rows = await tenantDb.runAsPublic((tx) =>",
+      "relevant": false
+    },
+    {
+      "key": "p33",
+      "text": "src/search/search-embed.worker.ts\nimport { type Db, TenantDbService } from '../db/tenant-db.service';\n* Tenancy: this runs inside the caller's `runAs(owner)`, so FORCE RLS\n* already hides every other tenant's rows; the explicit owner predicate is",
+      "relevant": false
+    },
+    {
+      "key": "p34",
+      "text": "src/search/search.module.ts\n* TenantDbService and the global InstanceConfigModule for InstanceConfigService)",
+      "relevant": false
+    },
+    {
+      "key": "p35",
+      "text": "src/titles/title.service.ts\nimport { TenantDbService } from '../db/tenant-db.service';\nprivate readonly tenantDb: TenantDbService,\nawait this.tenantDb.runAs(input.userId, (tx) =>",
+      "relevant": false
+    },
+    {
+      "key": "p36",
+      "text": "src/tools/artifacts/artifacts-repository.ts\nimport { type Db } from '../../db/tenant-db.service';",
+      "relevant": false
+    },
+    {
+      "key": "p37",
+      "text": "src/tools/bash.ts\nconst prior = await context.tenantDb.runAs(userId, (db) =>\nawait context.tenantDb.runAs(userId, async (db) => {",
+      "relevant": false
+    },
+    {
+      "key": "p38",
+      "text": "src/tools/native-files.ts\nconst prior = await context.tenantDb.runAs(userId, (db) =>\nawait context.tenantDb.runAs(userId, async (db) => {\nconst prior = await context.tenantDb.runAs(userId, (db) =>",
+      "relevant": false
+    },
+    {
+      "key": "p39",
+      "text": "src/tools/workspace-binding.ts\nreturn context.tenantDb.runAs(context.userId, (db) =>\nconst result = await context.tenantDb.runAs(context.userId, (db) =>",
+      "relevant": false
+    }
+  ]
+}
