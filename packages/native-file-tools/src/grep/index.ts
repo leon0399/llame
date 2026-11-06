@@ -47,6 +47,7 @@ export { runGrepScan } from "./scan";
 export { passageEndLine, passageStartLine } from "./passages";
 export { compareRel } from "./walk";
 export {
+  GREP_RANKING_UNAVAILABLE_LINE,
   REMAINDER_LINE_UNITS,
   grepArtifactLines,
   grepLeftOutUnits,
@@ -56,6 +57,7 @@ export {
   grepPassageBlockLines,
   grepPassageContinues,
   grepPassageUnits,
+  GREP_RANKING_UNITS,
   grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,

@@ -67,6 +67,7 @@ export const grepInputSchema = z.strictObject({
   literal: z.boolean().optional(),
   ignoreCase: z.boolean().optional(),
   limit: z.number().int().min(1).max(20).optional(),
+  objective: z.string().min(1).max(2000).optional(),
 });
 
 type GrepArguments = z.infer<typeof grepInputSchema>;
@@ -185,6 +186,7 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
     state,
     request.context,
     request.input.limit ?? GREP_LIMITS.filesPerPage,
+    request.input,
   );
 }
 

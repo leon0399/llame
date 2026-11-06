@@ -18,6 +18,7 @@ import {
   grepPassageBlockLines,
   grepPassageUnits,
   grepRemainderUnits,
+  GREP_RANKING_UNITS,
   grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,
@@ -46,20 +47,33 @@ import {
   type GrepArtifact,
   type PageState,
 } from './grep-page';
+import {
+  protectArtifact,
+  rankGrepRuns,
+  type GrepRankRequest,
+} from './grep-rerank';
 import { type ToolContext, type ToolResult } from './types';
 
 /**
  * The call's result: the whole result when it fits the inline bound, otherwise
  * the artifact plus its inline head. A Run that cannot read an artifact keeps
  * the head and states what it left out.
+ *
+ * With `tools.grep.rerank.model`, the decision key is first replaced in every
+ * passage, and a result that does not fit inline has its file runs ranked. That
+ * happens here and only here, after the walk settled its stop, counts, and
+ * warnings, so the inline head, the stored artifact text, its findings, and
+ * the remainder map all read one order.
  */
 export async function finishGrepCall(
   state: PageState,
   context: ToolContext,
   limit: number,
+  request: GrepRankRequest,
 ): Promise<ToolResult> {
   const artifact = state.artifact;
   dropDanglingCut(artifact);
+  protectPresentation(state, context);
   // UTF-16 units are at least a third of the UTF-8 bytes, so a larger
   // artifact cannot fit and needs no render.
   const withinReach =
@@ -70,6 +84,7 @@ export async function finishGrepCall(
     measureGrepRendering(pageResult(state)) <= GREP_LIMITS.pageCodeUnits
   )
     return pageResult(state);
+  await rankGrepRuns(context, state, request);
   const trailing = trailingUnits(state);
   const findings = grepArtifactFindings(artifact);
   const written = await storeGrepArtifact(state, context, findings);
@@ -82,6 +97,26 @@ export async function finishGrepCall(
     limit,
     trailing,
   });
+}
+
+/**
+ * Replace the configured decision key in received passages, unfinished file,
+ * and ignored directories, before any cut or measure. `ignored.seen` stays raw:
+ * it only dedupes.
+ */
+function protectPresentation(state: PageState, context: ToolContext): void {
+  const model = context.grepBounds?.rerank?.model;
+  const decisions = context.decisions;
+  if (model === undefined || decisions === undefined) return;
+  const protect = (text: string): string => decisions.protectText(model, text);
+  protectArtifact(state.artifact, protect);
+  if (state.unfinished !== undefined)
+    state.unfinished = protect(state.unfinished);
+  state.ignored.paths.splice(
+    0,
+    state.ignored.paths.length,
+    ...state.ignored.paths.map(protect),
+  );
 }
 
 /**
@@ -208,7 +243,7 @@ function inlineHead(
     // The inline part holds at most `limit` files; a later file waits in the
     // artifact.
     if (block.newRun && files >= limit) break;
-    const units = grepPassageUnits(results.at(-1), passage);
+    const units = grepPassageUnits(results.at(-1), passage, block.newRun);
     if (used + units <= budget) {
       results.push(passage);
       used += units;
@@ -301,6 +336,7 @@ function trailingUnits(state: PageState): number {
   const ignored = ignoredReportOf(state);
   return (
     grepWarningsUnits(state.warnings) +
+    (state.ranking === undefined ? 0 : GREP_RANKING_UNITS) +
     (ignored === undefined ? 0 : grepIgnoredUnits(ignored)) +
     (state.unfinished === undefined ? 0 : grepUnfinishedUnits(state.unfinished))
   );

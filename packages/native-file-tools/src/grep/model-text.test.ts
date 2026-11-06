@@ -2,6 +2,8 @@ import { spellGrepHostScopeLocator } from "./scope";
 import {
   grepArtifactLines,
   grepIgnoredUnits,
+  grepPassageUnits,
+  GREP_RANKING_UNITS,
   measureGrepRendering,
   renderGrepText,
 } from "./model-text";
@@ -419,6 +421,100 @@ describe("grep text rendering", () => {
     };
     expect(measureGrepRendering(result) - renderGrepText(result).length).toBe(
       6,
+    );
+  });
+});
+
+describe("ranked grep run boundaries", () => {
+  const x10 = passage("/x.ts:10-10", "10: a", [10]);
+  const y5 = passage("/y.ts:5-5", "5: b", [5]);
+  const x20 = passage("/x.ts:20-20", "20: c", [20]);
+  const headingsOf = (text: string) =>
+    text.split("\n").filter((line) => line.startsWith("## "));
+  const ranked = (runLengths: ReadonlyArray<number>) => ({
+    results: [x10, x20, y5],
+    complete: true,
+    display: { rerank: { runLengths } },
+  });
+
+  it("keeps same-file runs a reorder placed side by side apart", () => {
+    const text = renderGrepText(ranked([1, 1, 1]));
+    expect(headingsOf(text)).toEqual(["## /x.ts", "## /x.ts", "## /y.ts"]);
+    expect(grepArtifactLines(ranked([1, 1, 1]))).toEqual([
+      "## /x.ts",
+      "*10: a",
+      "## /x.ts",
+      "*20: c",
+      "## /y.ts",
+      "*5: b",
+    ]);
+  });
+
+  it("merges a run of several passages under one heading", () => {
+    const text = renderGrepText({
+      results: [x10, x20, y5],
+      complete: true,
+      display: { rerank: { runLengths: [2, 1] } },
+    });
+    expect(headingsOf(text)).toEqual(["## /x.ts", "## /y.ts"]);
+  });
+
+  it("consumes the lengths only through a truncated inline prefix", () => {
+    const text = renderGrepText({
+      results: [x10, x20],
+      complete: true,
+      display: { rerank: { runLengths: [1, 1, 3] } },
+    });
+    expect(headingsOf(text)).toEqual(["## /x.ts", "## /x.ts"]);
+  });
+
+  it("derives a boundary past the lengths from the pair", () => {
+    const text = renderGrepText({
+      results: [x10, x20],
+      complete: true,
+      display: { rerank: { runLengths: [1] } },
+    });
+    expect(headingsOf(text)).toEqual(["## /x.ts"]);
+  });
+
+  it("ignores malformed lengths and never renders the record", () => {
+    const text = renderGrepText({
+      results: [x10, x20],
+      complete: true,
+      display: { rerank: { runLengths: [0, "a"], model: "jev-test" } },
+    });
+    expect(text).not.toContain("jev-test");
+    expect(headingsOf(text)).toEqual(["## /x.ts"]);
+  });
+
+  it("measures a passage after an explicit boundary", () => {
+    const joined = grepPassageUnits(x10, x20, false);
+    const opened = grepPassageUnits(x10, x20, true);
+    expect(opened - joined).toBe("## /x.ts".length);
+  });
+});
+
+describe("grep ranking failure line", () => {
+  it("renders after the warnings and before the ignored line", () => {
+    const text = renderGrepText({
+      results: [passage("a.md:1-1", "1: a", [1])],
+      complete: false,
+      warnings: [{ kind: "deadline", count: 1 }],
+      ranking: "unavailable",
+      ignored: { count: 1, locators: ["/r/a"], atLeast: false },
+      unfinishedFile: "/r/big.md",
+    });
+    const lines = text.split("\n");
+    expect(lines.indexOf("[warnings: 1 deadline]")).toBe(2);
+    expect(lines[3]).toBe("[ranking unavailable; walk order]");
+    expect(lines[4]).toMatch(/^\[ignored /u);
+    expect(lines[5]).toBe("[not searched to the end: /r/big.md]");
+    expect(GREP_RANKING_UNITS).toBe(lines[3].length + 1);
+  });
+
+  it("renders no line without the field", () => {
+    expect(renderGrepText({ results: [], complete: true })).not.toContain(
+      "ranking",
     );
   });
 });

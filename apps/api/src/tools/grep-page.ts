@@ -43,6 +43,20 @@ function spellIgnoredLocator(locator: string): string {
     : spellGrepHostScopeLocator(locator);
 }
 
+/**
+ * What a ranked call stores under `display.rerank`: the model never sees it.
+ * `order` lists every run key in the applied order; `runLengths` gives each
+ * run's full passage count, aligned with `order`.
+ */
+export type GrepRerankRecord = {
+  readonly model: string;
+  readonly order: ReadonlyArray<string>;
+  readonly scores: Readonly<Record<string, number>>;
+  readonly latencyMs: number;
+  readonly costUsd: number | null;
+  readonly runLengths: ReadonlyArray<number>;
+};
+
 /** One passage's block in the artifact text. */
 type ArtifactBlock = {
   /** UTF-8 bytes of the block's lines, each with its line terminator. */
@@ -152,13 +166,43 @@ function appendBlock(artifact: GrepArtifact, passage: GrepPassage): boolean {
 function artifactBlock(
   previous: GrepPassage | undefined,
   passage: GrepPassage,
+  opens: boolean = !grepPassageContinues(previous, passage),
 ): ArtifactBlock {
-  const lines = grepPassageBlockLines(previous, passage, false);
+  const lines = grepPassageBlockLines(previous, passage, false, opens);
   return {
     bytes: lineBytes(lines),
     pieces: linePieces(lines),
-    newRun: !grepPassageContinues(previous, passage),
+    newRun: opens,
   };
+}
+
+/**
+ * Replace the artifact's passages, in the order given, with blocks rebuilt from
+ * explicit run boundaries: `opens[i]` marks the passage that starts a run. A
+ * reorder places runs of one file side by side, so the boundaries are never
+ * derived from the neighbouring pair.
+ */
+export function replaceArtifactPassages(
+  artifact: GrepArtifact,
+  results: ReadonlyArray<GrepPassage>,
+  opens: ReadonlyArray<boolean>,
+): void {
+  const blocks = results.map((passage, index) =>
+    artifactBlock(results[index - 1], passage, opens[index]),
+  );
+  artifact.results.splice(0, artifact.results.length, ...results);
+  artifact.blocks.splice(0, artifact.blocks.length, ...blocks);
+  artifact.lineBytes = blocks.reduce((total, block) => total + block.bytes, 0);
+}
+
+/** The passage counts of the artifact's runs, in order. */
+export function artifactRunLengths(artifact: GrepArtifact): Array<number> {
+  const lengths: Array<number> = [];
+  for (const block of artifact.blocks) {
+    if (block.newRun || lengths.length === 0) lengths.push(1);
+    else lengths[lengths.length - 1] += 1;
+  }
+  return lengths;
 }
 
 /** The UTF-8 bytes of rendered lines, each with its line terminator. */
@@ -217,6 +261,9 @@ export function grepArtifactText(artifact: GrepArtifact): string {
       notice: KNOWLEDGE_CONTENT_NOTICE,
     }),
     results: artifact.results,
+    // The artifact's own run boundaries, so a ranked order never merges two
+    // runs of one file that now sit side by side.
+    display: { rerank: { runLengths: artifactRunLengths(artifact) } },
   }).join('\n');
 }
 
@@ -237,6 +284,8 @@ export function grepArtifactFindings(
     if (block.newRun) {
       if (current !== undefined) findings.push(current);
       current = {
+        // The protected locator, deliberately: the decision key never reaches
+        // the database through findings.
         locators: [grepFileLocator(artifact.results[index].locator)],
         rule: 'allow_only',
         start,
@@ -277,6 +326,10 @@ export type PageState = {
   progressed: boolean;
   /** The file's locator a bound stopped the call inside before any progress. */
   unfinished: string | undefined;
+  /** Set when the rank call failed without an enclosing abort. */
+  ranking: 'unavailable' | undefined;
+  /** The display-only record of a rank call that ordered the runs. */
+  rerank: GrepRerankRecord | undefined;
   /** The excluded directories the `read` group admitted, in canonical order. */
   ignored: {
     readonly paths: Array<string>;
@@ -295,6 +348,8 @@ export function createPageState(options: GrepArtifactOptions): PageState {
     complete: true,
     progressed: false,
     unfinished: undefined,
+    ranking: undefined,
+    rerank: undefined,
     ignored: { paths: [], seen: new Set(), count: 0, atLeast: false },
   };
 }
@@ -452,6 +507,8 @@ export function pageResult(
     ...(state.unfinished !== undefined && {
       unfinishedFile: state.unfinished,
     }),
+    ...(state.ranking !== undefined && { ranking: state.ranking }),
+    ...(state.rerank !== undefined && { display: { rerank: state.rerank } }),
     ...(ignored !== undefined && { ignored }),
     ...(carriesKnowledgePassage(state.artifact.results) && {
       notice: KNOWLEDGE_CONTENT_NOTICE,
