@@ -1,6 +1,6 @@
 Track [#1065](https://github.com/leon0399/llame/issues/1065) and
 [#1098](https://github.com/leon0399/llame/issues/1098) and their PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking). Carry
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking). Carry
 forward the recorded proposal approval and recheck native blockers before
 starting; keep live status in the Project.
 
