@@ -55,10 +55,11 @@ export function loadRankingCases(): Array<RankingCase> {
 export function loadRecordedAnswers(
   caseName: string,
   dir: string = RANKING_ANSWERS_DIR,
+  listDir: (dir: string) => ReadonlyArray<string> = (target) =>
+    fs.readdirSync(target),
 ): Array<RecordedAnswer> {
   if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
+  return listDir(dir)
     .filter((file) => file.startsWith(`${caseName}.`) && file.endsWith('.json'))
     .sort()
     .map((file) => readJson(path.join(dir, file), recordedAnswerSchema));

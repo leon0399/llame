@@ -34,6 +34,24 @@ describe('loadRecordedAnswers', () => {
     ]);
   });
 
+  it('orders answers by file name whatever order the directory lists them', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ans-'));
+    for (const model of ['alpha', 'mid', 'zulu']) {
+      fs.writeFileSync(
+        path.join(dir, `case-a.${model}.json`),
+        JSON.stringify(answer(model, { a: 1 })),
+      );
+    }
+    const unsorted = () => [
+      'case-a.zulu.json',
+      'case-a.alpha.json',
+      'case-a.mid.json',
+    ];
+    expect(
+      loadRecordedAnswers('case-a', dir, unsorted).map((a) => a.model),
+    ).toEqual(['alpha', 'mid', 'zulu']);
+  });
+
   it('rejects an answer that does not match the recorded shape', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ans-'));
     fs.writeFileSync(path.join(dir, 'case-a.m.json'), '{"model":"m"}');
