@@ -7,7 +7,7 @@
 A `grep` text MUST render each run of consecutive passages of one file under
 one `## <locator>` line. That line MUST hold the file locator and no line
 range. Unless protected-key replacement changes the locator,
-`<locator>:<start>-<end>` MUST be a valid `read` argument.
+`<locator>:<start>-<end>` from a rendered line number MUST be a valid `read` argument.
 One blank line MUST separate the passages under one line. A
 capped twentieth passage MUST end with `[more passages in this file; read it
 to see them]`. A Knowledge notice MUST render first.
