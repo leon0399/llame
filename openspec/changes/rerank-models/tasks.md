@@ -30,7 +30,7 @@ and conforms it to the approved deltas.
 
 - [x] 1.1 Create `rerank-models/proposal` from `master`; write `proposal.md`, `design.md`, the four deltas, and this list; verify `pnpm exec openspec validate rerank-models --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`.
 - [x] 1.2 Run two independent adversarial reviews against code and canonical specs; verify each finding; commit the revision separately.
-- [ ] 1.3 Publish the draft PR with `$gh-stack`; self-review (SR); mark ready; run the GitHub review loop (GR); obtain Leo's approval of the published revision; update the Project.
+- [x] 1.3 Publish the draft PR with `$gh-stack`; self-review (SR); mark ready; run the GitHub review loop (GR); obtain Leo's approval of the published revision; update the Project.
 
 ## 2. impl
 
