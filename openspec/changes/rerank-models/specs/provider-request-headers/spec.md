@@ -4,7 +4,7 @@
 
 ### Requirement: Provider types supply default headers under the operator map
 
-Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex`, for `system-one`, and for `cohere-rerank`. The effective map MUST be the default map with the operator map laid over it key by key. The system compares names without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
+Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex`, `system-one`, and `cohere-rerank`. The effective map MUST be the default map with the operator map laid over it key by key. The system compares names without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
 
 #### Scenario: An entry without a map sends the default
 
@@ -40,9 +40,9 @@ Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{
 
 A header string MUST resolve `{env:…}` and `{path:…}` once at startup under
 the existing interpolation rules.
-For providers other than `system-one` and `cohere-rerank`, it MUST render `{session:id}` per request.
-For `system-one` and `cohere-rerank`, an authored `{session:id}` token MUST fail startup and
-name the provider id and header.
+It MUST render `{session:id}` per request, except for `system-one` and
+`cohere-rerank`: there an authored `{session:id}` MUST fail startup and name
+the provider id and header.
 Any other `{name:…}` token MUST fail startup and name the path.
 An empty render MUST send no operator or default value for that header.
 The system MUST NOT rescan interpolated output for `{session:id}`.
