@@ -39,7 +39,7 @@ map is server-only and SHALL NOT be returned by the models endpoint.
 
 ### Requirement: Provider types supply default headers under the operator map
 
-Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex` and for `system-one`. The effective map MUST be the default map with the operator map laid over it key by key. The system compares names without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
+Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex`, for `system-one`, and for `cohere-rerank`. The effective map MUST be the default map with the operator map laid over it key by key. The system compares names without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
 
 #### Scenario: An entry without a map sends the default
 
@@ -106,8 +106,8 @@ An operator string value SHALL replace any header llame's client sets under the 
 
 A header string MUST resolve `{env:…}` and `{path:…}` once at startup under
 the existing interpolation rules.
-For providers other than `system-one`, it MUST render `{session:id}` per request.
-For `system-one`, an authored `{session:id}` token MUST fail startup and
+For providers other than `system-one` and `cohere-rerank`, it MUST render `{session:id}` per request.
+For `system-one` and `cohere-rerank`, an authored `{session:id}` token MUST fail startup and
 name the provider id and header.
 Any other `{name:…}` token MUST fail startup and name the path.
 An empty render MUST send no operator or default value for that header.
@@ -184,11 +184,17 @@ credential").
 
 ### Requirement: A decision provider header cannot name the session
 
-An authored header value of a `system-one` entry MUST NOT contain
+An authored header value of a `system-one` or `cohere-rerank` entry MUST NOT contain
 `{session:id}`. Startup MUST fail and name the provider id and header name.
 
 #### Scenario: A decision provider header names the session
 
 - **WHEN** a `system-one` entry declares `"headers": { "X-Tag": "{session:id}" }`
+- **THEN** startup fails
+- **AND** the message names the provider id and the header `X-Tag`
+
+#### Scenario: A rerank provider header names the session
+
+- **WHEN** a `cohere-rerank` entry declares `"headers": { "X-Tag": "{session:id}" }`
 - **THEN** startup fails
 - **AND** the message names the provider id and the header `X-Tag`

@@ -18,7 +18,7 @@ Reasoning tokens MUST count as a subset of output, not as extra output.
 The aggregate MUST exclude compaction and title-generation requests.
 A hosted-search sub-request of a `web-search` model-hosted engine is not a
 model request of the attempt for this capability.
-A decision request from a tool's rank call is also not a model request of
+A decision or rerank request from a tool's rank call is also not a model request of
 the attempt for this capability.
 These sub-requests MUST NOT add usage, estimated cost, measured context size,
 reasoning count, or a completeness condition.
@@ -440,7 +440,7 @@ A published compaction's usage MUST remain a single-request receipt on its
 checkpoint message row.
 This capability MUST NOT record unpublished compaction requests or title-generation requests.
 It MUST NOT record hosted-search sub-requests of `web-search` model-hosted engines
-or tool rank requests to decision models.
+or tool rank requests to decision or rerank models.
 
 #### Scenario: A compaction keeps its own receipt
 
