@@ -16,7 +16,10 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
 import type { SystemOneProviderConfig } from '../instance-config/llame-config';
-import { type RequestHeaders } from '../models/request-headers';
+import {
+  type RequestHeaders,
+  type RequestHeaderTemplates,
+} from '../models/request-headers';
 import {
   DECISION_ATTEMPT_TIMEOUT_MS,
   DECISION_MAX_ATTEMPTS,
@@ -31,7 +34,7 @@ import {
 } from './decision-protocol';
 
 /** A body that failed mid-read: a transport failure, not a codec mismatch. */
-const READ_ERROR = Symbol('read_error');
+export const READ_ERROR = Symbol('read_error');
 
 const DECISION_BACKOFF_BASE_MS = 500;
 /** Backoff and a provider's `retry-after` never wait longer than this. */
@@ -95,13 +98,14 @@ type Accepted = {
   readonly usage: DecisionUsage;
 };
 
-type Failed = {
+export type Failed = {
   readonly kind: 'failed';
   readonly reason: DecisionFailureReason;
 };
 
-type AttemptResult =
-  | { readonly kind: 'answered'; readonly accepted: Accepted }
+/** One attempt's verdict: accepted, worth another try after `delayMs`, or final. */
+export type AttemptResult<T> =
+  | { readonly kind: 'answered'; readonly accepted: T }
   | {
       readonly kind: 'retry';
       readonly reason: DecisionFailureReason;
@@ -115,7 +119,11 @@ async function decide(
 ): Promise<DecisionOutcome> {
   const startedAt = wire.now();
   const latencyMs = () => Math.max(0, Math.round(wire.now() - startedAt));
-  const result = await runAttempts(wire, request);
+  const result = await runAttempts({
+    signal: request.signal,
+    sleep: wire.sleep,
+    attempt: (number) => attempt(wire, request, number),
+  });
   if (result.kind === 'failed') {
     return {
       status: 'unavailable',
@@ -131,21 +139,21 @@ async function decide(
  * request and after every wait, so nothing starts after an abort and an abort
  * surfaces as a rejection instead of ordinary unavailability.
  */
-async function runAttempts(
-  wire: DecisionWire,
-  request: DecisionRequest,
-): Promise<
-  { readonly kind: 'answered'; readonly accepted: Accepted } | Failed
-> {
+export async function runAttempts<T>(options: {
+  readonly signal?: AbortSignal;
+  readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  readonly attempt: (number: number) => Promise<AttemptResult<T>>;
+}): Promise<{ readonly kind: 'answered'; readonly accepted: T } | Failed> {
+  const { signal, sleep } = options;
   let lastReason: DecisionFailureReason = 'upstream_error';
   for (let number = 1; number <= DECISION_MAX_ATTEMPTS; number += 1) {
-    request.signal?.throwIfAborted();
-    const result = await attempt(wire, request, number);
-    request.signal?.throwIfAborted();
+    signal?.throwIfAborted();
+    const result = await options.attempt(number);
+    signal?.throwIfAborted();
     if (result.kind !== 'retry') return result;
     lastReason = result.reason;
     if (number === DECISION_MAX_ATTEMPTS) break;
-    await wire.sleep(result.delayMs, request.signal);
+    await sleep(result.delayMs, signal);
   }
   return { kind: 'failed', reason: lastReason };
 }
@@ -154,12 +162,11 @@ async function attempt(
   wire: DecisionWire,
   request: DecisionRequest,
   number: number,
-): Promise<AttemptResult> {
-  const timeout = AbortSignal.timeout(wire.attemptTimeoutMs);
-  const signal =
-    request.signal === undefined
-      ? timeout
-      : AbortSignal.any([request.signal, timeout]);
+): Promise<AttemptResult<Accepted>> {
+  const { timeout, signal } = attemptSignal(
+    wire.attemptTimeoutMs,
+    request.signal,
+  );
 
   let response: Response;
   try {
@@ -194,7 +201,7 @@ async function statusFailure(
   wire: DecisionWire,
   response: Response,
   number: number,
-): Promise<AttemptResult> {
+): Promise<AttemptResult<Accepted>> {
   const retryAfter = retryAfterMs(
     response.headers.get('retry-after'),
     wire.now,
@@ -245,7 +252,7 @@ async function readAccepted(
  * oversized or unterminated body never lands in memory and needs no
  * `Content-Length`.
  */
-async function readBoundedText(
+export async function readBoundedText(
   response: Response,
 ): Promise<string | typeof READ_ERROR | undefined> {
   const reader = response.body?.getReader();
@@ -275,10 +282,7 @@ async function readBoundedText(
  * ASCII case folding, as `withRequestHeaders` does.
  */
 function requestHeaders(provider: SystemOneProviderConfig): RequestHeaders {
-  const operator = Object.entries(provider.headers)
-    .map(([name, parts]) => [name, parts.join('')] as const)
-    // An empty render omits the header.
-    .filter(([, value]) => value.length > 0);
+  const operator = operatorHeaderEntries(provider.headers);
   const overridden = new Set(operator.map(([name]) => name.toLowerCase()));
   const base: RequestHeaders = {
     'content-type': 'application/json',
@@ -291,7 +295,31 @@ function requestHeaders(provider: SystemOneProviderConfig): RequestHeaders {
   ]);
 }
 
-function transportFailure(timeout: AbortSignal, number: number): AttemptResult {
+/** The operator's header templates rendered without a Chat; an empty render omits the header. */
+export function operatorHeaderEntries(
+  headers: RequestHeaderTemplates,
+): Array<readonly [string, string]> {
+  return Object.entries(headers)
+    .map(([name, parts]) => [name, parts.join('')] as const)
+    .filter(([, value]) => value.length > 0);
+}
+
+/** One attempt's timeout, and the signal that also follows the caller's. */
+export function attemptSignal(
+  timeoutMs: number,
+  caller: AbortSignal | undefined,
+) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return {
+    timeout,
+    signal: caller === undefined ? timeout : AbortSignal.any([caller, timeout]),
+  };
+}
+
+export function transportFailure(
+  timeout: AbortSignal,
+  number: number,
+): AttemptResult<never> {
   return {
     kind: 'retry',
     reason: timeout.aborted ? 'timeout' : 'upstream_error',
@@ -299,7 +327,7 @@ function transportFailure(timeout: AbortSignal, number: number): AttemptResult {
   };
 }
 
-function classifyStatus(status: number): DecisionFailureReason {
+export function classifyStatus(status: number): DecisionFailureReason {
   if (status === 408) return 'timeout';
   if (status === 429) return 'rate_limited';
   if (status >= 500) return 'upstream_error';
@@ -307,7 +335,7 @@ function classifyStatus(status: number): DecisionFailureReason {
   return 'rejected';
 }
 
-function backoffMs(number: number): number {
+export function backoffMs(number: number): number {
   return Math.min(
     DECISION_BACKOFF_BASE_MS * 2 ** (number - 1),
     DECISION_WAIT_CAP_MS,
@@ -315,7 +343,7 @@ function backoffMs(number: number): number {
 }
 
 /** `retry-after` as seconds or an HTTP date, capped at five seconds. */
-function retryAfterMs(
+export function retryAfterMs(
   value: string | null,
   now: () => number,
 ): number | undefined {
@@ -330,6 +358,9 @@ function retryAfterMs(
 }
 
 /** Waits `ms`; an abort ends the wait early and the caller rechecks its signal. */
-async function sleepFor(ms: number, signal?: AbortSignal): Promise<void> {
+export async function sleepFor(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
   await delay(ms, undefined, { signal }).catch(() => undefined);
 }

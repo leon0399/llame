@@ -1,7 +1,8 @@
 ---
-summary: "Enabling decision-model ranking: the system-one provider type, the decisionModels[] catalogue, the per-tool rerank block for web_search and grep, what naming a model discloses, and what a failure means"
+summary: "Enabling rank models: the system-one and cohere-rerank provider types, the decisionModels[] and rerankModels[] catalogues, the per-tool rerank block for web_search and grep, what naming a model discloses, cost, and what a failure means"
 read_when:
   - you are wiring a Jev / System One decision endpoint into llame
+  - you are wiring a Cohere, OpenRouter, Jina, or Infinity rerank endpoint into llame
   - you are enabling ranking of web_search or grep results
   - a decision call failed and you need to know whether the output changed
 behavior:
@@ -13,12 +14,15 @@ behavior:
 
 A decision model answers typed questions over one state in a single forward
 pass and returns probabilities instead of generated text. A tool uses it to
-rank its own candidates by asking one yes/no question per candidate. Nothing is
-enabled by default: without a `decisionModels[]` catalogue no client is built,
-no tool can name a model, and every tool keeps its canonical order.
+rank its own candidates by asking one yes/no question per candidate. A
+conventional **rerank model** (a Cohere-style cross-encoder) fills the same seat
+and returns one relevance score per candidate. Nothing is enabled by default:
+without either `decisionModels[]` or `rerankModels[]` no client is built, no
+tool can name a model, and every tool keeps its canonical order.
 
-Two layers, and they do not overlap. `decisionModels[]` is a **catalogue** of
-decision models: it says which providers and model ids exist. Each **tool**
+Two layers, and they do not overlap. `decisionModels[]` and `rerankModels[]`
+are **catalogues** of rank models: they say which providers and model ids
+exist. Each **tool**
 decides for itself whether it ranks and which catalogue entry judges it,
 through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`).
 
@@ -87,7 +91,94 @@ One client is built per catalogue id at boot, so two entries on two routes never
 share an endpoint. An absent or empty `decisionModels[]` array means no client
 exists at all, and every call names an id outside the catalogue.
 
-## 3. A tool opts in
+## 3. A provider of type `cohere-rerank`
+
+`type: "cohere-rerank"` speaks the Cohere v2 rerank wire: `POST {baseUrl}/rerank`
+with `model`, `query`, and `documents`, answered by `results` holding an
+`index` and a `relevance_score` for every document.
+
+- `baseUrl` is optional and defaults to `https://api.cohere.com/v2`. A
+  `baseUrl` that is present but resolves blank fails startup naming the field;
+  it never falls back to the default.
+- `key` is optional. A `key` that is absent or resolves blank makes the entry
+  **keyless**, which is valid only with an explicit `baseUrl`. A keyless entry
+  on the default Cohere URL fails startup naming `key`.
+- A keyless entry sends no `Authorization` header, and llame never reads
+  `COHERE_API_KEY` from the environment. An operator `headers` entry named
+  `Authorization` is still sent.
+- `accountId` is rejected. The type has an empty default header map, and an
+  authored `{session:id}` fails startup naming the provider and the header,
+  because a rank call has no Chat.
+- The type never serves a `models[]` or `embeddingModels[]` entry, and
+  `GET /api/v1/models` never lists a rerank model.
+
+| Route      | `baseUrl`                      | Model ids                                     | Status                               |
+| ---------- | ------------------------------ | --------------------------------------------- | ------------------------------------ |
+| OpenRouter | `https://openrouter.ai/api/v1` | `cohere/rerank-5-fast`, `cohere/rerank-5-pro` | Probed live (2026-11-07)             |
+| Cohere     | `https://api.cohere.com/v2`    | the model id Cohere serves                    | Compatible by wire shape, not probed |
+| Jina       | `https://api.jina.ai/v1`       | the model id Jina serves                      | Compatible by wire shape, not probed |
+| Infinity   | the server's own URL           | the model id the server serves                | Compatible by wire shape, not probed |
+
+Only OpenRouter was exercised against the live service. The others answer the
+same `results[{ index, relevance_score }]` shape according to their published
+clients; treat them as compatible, not verified. Voyage and TEI use other shapes
+and are not supported.
+
+Self-hosting needs no key: point `baseUrl` at the server and leave `key` out.
+
+```jsonc
+{
+  "providers": [
+    {
+      "id": "local-rerank",
+      "type": "cohere-rerank",
+      "baseUrl": "http://infinity:7997",
+    },
+  ],
+}
+```
+
+## 4. The rerank-model catalogue
+
+`rerankModels[]` is a sibling of `decisionModels[]`. A tool's `rerank.model`
+may name an id from either catalogue, so an id is unique across both: a blank
+or repeated id fails startup naming the array-index paths (for example
+`decisionModels[0].id` and `rerankModels[1].id`) and never the value. `id`,
+`provider`, and `model` accept `{env:…}` and `{path:…}` and must resolve
+nonblank. `provider` must name a `cohere-rerank` provider. `model` is sent
+verbatim.
+
+```jsonc
+{
+  "providers": [
+    {
+      "id": "openrouter-rerank",
+      "type": "cohere-rerank",
+      "key": "{env:OPENROUTER_API_KEY}",
+      "baseUrl": "https://openrouter.ai/api/v1",
+    },
+  ],
+  "rerankModels": [
+    {
+      "id": "rr-fast",
+      "provider": "openrouter-rerank",
+      "model": "cohere/rerank-5-fast",
+    },
+  ],
+}
+```
+
+The probability a decision model returns and the relevance score a reranker
+returns are different quantities. Both are stored as `display.rerank.scores`;
+a tool only sorts within one call, and nothing compares scores across backends.
+The reranker scores the objective (else the query) against the cards' texts,
+with the same key protection and card bound as a decision call. It carries no
+rubric. A request carries at most 1,000 cards; a larger call is split into
+requests sent at once, each with only its own cards. A request is accepted only
+when every card gets one finite score, and an unaccepted request leaves only its
+own cards unjudged, as a decision request does.
+
+## 5. A tool opts in
 
 A tool's rerank block names one catalogue id. **Presence enables ranking**:
 there is no `mode` and no `off` value, so removing the block is how a tool
@@ -108,9 +199,9 @@ stops ranking.
 }
 ```
 
-A `rerank.model` the catalogue does not define fails startup naming the path
-(`webSearch.rerank.model`, `tools.grep.rerank.model`), so a typo cannot silently
-rank with nothing.
+A `rerank.model` that neither `decisionModels[]` nor `rerankModels[]` defines
+fails startup naming the path (`webSearch.rerank.model`,
+`tools.grep.rerank.model`), so a typo cannot silently rank with nothing.
 
 ### What naming a model discloses
 
@@ -123,7 +214,7 @@ read: a finding that read admission refuses never becomes a card. Name a model
 only on a provider you accept that disclosure for.
 
 The one protection is exact-key replacement: complete occurrences of the
-decision provider's own resolved `key` in the query, objective, and candidate
+rank provider's own resolved `key` in the query, objective, and candidate
 text are replaced with `[REDACTED]` before a request is sent, and the ranked
 tools apply the same replacement to their returned text and locators. This is
 not a secret detector; it removes that one configured key and nothing else.
@@ -147,7 +238,7 @@ cost beside a result; the model never reads that record.
 
 ## Cost and failure
 
-A decision call never fails the tool call that asked. Each attempt times out
+A rank call (decision or rerank) never fails the tool call that asked. Each attempt times out
 after 10 seconds; transient failures (408, 429, 5xx, transport errors) are
 retried up to 3 attempts in total, with `retry-after` honoured up to 5 seconds.
 An exhausted retry, a bad key, or a rank naming a catalogue id with no client
@@ -160,10 +251,23 @@ tokens and cost are not counted.
 **Unavailable is not a negative judgment.** A model that could not answer says
 nothing about relevance. There is no fallback to a chat model.
 
-A request carries at most 256 cards with their yes/no questions; a larger batch
-is split into several requests sent at once, each carrying only its own cards.
-A failed request leaves only its own cards unjudged, and the call is
-unavailable only when every request failed.
+A decision request carries at most 256 cards with their yes/no questions; a
+rerank request carries at most 1,000 cards. A larger batch is split into several
+requests sent at once, each carrying only its own cards. A failed request leaves
+only its own cards unjudged, and the call is unavailable only when every request
+failed.
+
+A rerank response must score every card of its request exactly once, with a
+finite score. A skipped, repeated, or out-of-range index, a malformed body, a
+body over 1 MiB, or a served model id that contains the key makes that request
+unavailable. An attempt timeout is retried like any other transient failure.
+
+**Rerank cost.** A rerank request's cost is the `usage.cost` the wire reports
+(OpenRouter does; Cohere reports billed search units, not cost), else it is
+unknown, never zero and never computed from a price. Its token count is
+`usage.total_tokens`, else `usage.prompt_tokens`. `outputTokens` is `0`. A
+rerank call writes no Run usage record: like a decision call it is a side call
+(tracked in [#1592](https://github.com/leon0399/llame/issues/1592)).
 
 The tool's own deadline and the Run's cancellation also stop every request and
 every retry wait. Those are not ranking failures: the tool reports its timeout
@@ -173,7 +277,8 @@ Each call writes one `decision.completed` line with `tool`, `model` (the first
 accepted response's served id, or `null`), `cards`, `requests`, `judged`,
 `inputTokens`, `outputTokens`, `costUsd`, and `latencyMs`. Tokens and cost sum
 the accepted responses only; `costUsd` is `null` when any accepted response
-reports no cost or none was accepted.
+reports no cost or none was accepted, and a rerank call's `inputTokens` is
+`null` when any accepted response reports no count.
 
 ## Evaluating a model on labeled cases
 
@@ -187,7 +292,8 @@ pnpm --filter api ranking:record [model-id ...]
 pnpm --filter api ranking:eval
 ```
 
-`ranking:record` judges every case with each named `decisionModels[].id` (all of
+`ranking:record` judges every case with each named `decisionModels[].id` or
+`rerankModels[].id` (all of
 them without arguments) using the keys of your operator config, and writes
 `fixtures/ranking/answers/<case>.<model>.json`. `ranking:eval` makes no model
 call: it prints nDCG@5, MRR, latency, and cost for the canonical order and for

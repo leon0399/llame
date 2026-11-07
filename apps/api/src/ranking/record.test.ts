@@ -65,7 +65,7 @@ describe('selectModels', () => {
 
   it('rejects ids outside the catalogue and names the catalogue', () => {
     expect(() => selectModels(['m1'], ['x', 'm1', 'y'])).toThrow(
-      'Not in decisionModels[]: x, y. Catalogue: m1.',
+      'Not in decisionModels[] or rerankModels[]: x, y. Catalogue: m1.',
     );
     expect(() => selectModels(['m1', 'm2'], ['x'])).toThrow(
       'Catalogue: m1, m2.',
@@ -75,7 +75,7 @@ describe('selectModels', () => {
 
   it('rejects an empty catalogue with nothing requested', () => {
     expect(() => selectModels([], [])).toThrow(
-      'No decisionModels[] in the operator config to record.',
+      'No decisionModels[] or rerankModels[] in the operator config to record.',
     );
   });
 });

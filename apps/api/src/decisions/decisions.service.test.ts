@@ -8,6 +8,7 @@ import {
   type LlameConfig,
   type SystemOneProviderConfig,
 } from '../instance-config/llame-config';
+import { type CohereRerankProviderConfig } from '../instance-config/rerank-config';
 import { type InstanceConfigService } from '../instance-config/instance-config.service';
 import { createDecisionClient, type DecisionClient } from './decision-client';
 import {
@@ -16,9 +17,15 @@ import {
   type DecisionUsage,
 } from './decision-protocol';
 import {
+  type RerankClient,
+  type RerankOutcome,
+  type RerankRequest,
+} from './rerank-client';
+import {
   buildJudgeRequest,
   DecisionsService,
   judgeCandidatesWith,
+  judgeCandidatesWithReranker,
   RELEVANCE_NO,
   RELEVANCE_YES,
   UNTRUSTED_STATE_INSTRUCTION,
@@ -54,7 +61,7 @@ function input(
 }
 
 function usage(
-  inputTokens: number,
+  inputTokens: number | null,
   outputTokens: number,
   costUsd: number | null,
 ): DecisionUsage {
@@ -744,5 +751,342 @@ describe('DecisionsService', () => {
       'sk-another-secret-shape',
     );
     expect(service.protectText('ghost', KEY)).toBe(KEY);
+  });
+});
+
+function scoresFor(count: number, score = 0.5): Map<number, number> {
+  return new Map(Array.from({ length: count }, (_, index) => [index, score]));
+}
+
+function rerankAnswered(
+  count: number,
+  extra: {
+    model?: string;
+    inputTokens?: number | null;
+    costUsd?: number | null;
+  } = {},
+): RerankOutcome {
+  return {
+    status: 'answered',
+    model: extra.model ?? 'rerank-v5.0-fast',
+    scores: scoresFor(count),
+    usage: {
+      inputTokens: extra.inputTokens === undefined ? 100 : extra.inputTokens,
+      outputTokens: 0,
+      costUsd: extra.costUsd === undefined ? 0.001 : extra.costUsd,
+    },
+    latencyMs: 10,
+  };
+}
+
+function rerankFailing(reason: 'timeout' | 'rejected'): RerankOutcome {
+  return { status: 'unavailable', reason, latencyMs: 30 };
+}
+
+function rerankClientOf(
+  respond: (request: RerankRequest, index: number) => RerankOutcome,
+): RerankClient & { readonly requests: Array<RerankRequest> } {
+  const requests: Array<RerankRequest> = [];
+  return {
+    requests,
+    rerank: (request) => {
+      requests.push(request);
+      return Promise.resolve(respond(request, requests.length - 1));
+    },
+  };
+}
+
+describe('judgeCandidatesWithReranker', () => {
+  it('sends the objective as the query and the card texts in card order', async () => {
+    const client = rerankClientOf((request) =>
+      rerankAnswered(request.documents.length),
+    );
+
+    const judgement = await judgeCandidatesWithReranker(
+      client,
+      input({ objective: 'find the retry budget' }),
+      { logger: SILENT },
+    );
+
+    expect(client.requests).toHaveLength(1);
+    expect(client.requests[0]).toEqual({
+      query: 'find the retry budget',
+      documents: ['card text 0', 'card text 1'],
+    });
+    expect([...(judgement.probabilities ?? [])]).toEqual([
+      ['c0', 0.5],
+      ['c1', 0.5],
+    ]);
+  });
+
+  it('sends the query when the caller has no objective, and carries no rubric', async () => {
+    const client = rerankClientOf((request) =>
+      rerankAnswered(request.documents.length),
+    );
+
+    await judgeCandidatesWithReranker(client, input(), { logger: SILENT });
+
+    expect(client.requests[0]?.query).toBe('postgres row level security');
+    expect(JSON.stringify(client.requests)).not.toContain(RUBRIC);
+  });
+
+  it('replaces the key in the query and cards before the cut', async () => {
+    const client = rerankClientOf((request) =>
+      rerankAnswered(request.documents.length),
+    );
+
+    await judgeCandidatesWithReranker(
+      client,
+      input({
+        query: `q ${KEY}`,
+        cards: [{ key: 'only', text: `0123${KEY}` }],
+        cardBound: 8,
+      }),
+      { logger: SILENT, protectedValues: PROTECTED },
+    );
+
+    expect(JSON.stringify(client.requests)).not.toContain(KEY);
+    expect(client.requests[0]).toEqual({
+      query: 'q [REDACTED]',
+      documents: ['0123[RED'],
+    });
+  });
+
+  it('splits 1,500 cards into 1,000 and 500, sent together', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const requests: Array<RerankRequest> = [];
+    const client: RerankClient = {
+      rerank: async (request) => {
+        requests.push(request);
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await Promise.resolve();
+        inFlight -= 1;
+        return rerankAnswered(request.documents.length);
+      },
+    };
+
+    const judgement = await judgeCandidatesWithReranker(
+      client,
+      input({ cards: cards(1500) }),
+      { logger: SILENT },
+    );
+
+    expect(requests.map((request) => request.documents.length)).toEqual([
+      1000, 500,
+    ]);
+    expect(requests[1]?.documents[0]).toBe('card text 1000');
+    expect(peak).toBe(2);
+    expect(judgement.probabilities?.size).toBe(1500);
+    expect(judgement.unanswered).toEqual([]);
+  });
+
+  it('scores a later request by its own indices offset into the call', async () => {
+    const client = rerankClientOf((request, index) => ({
+      ...rerankAnswered(request.documents.length),
+      scores: new Map(
+        request.documents.map((_, position) => [position, index + 0.25]),
+      ),
+    }));
+
+    const judgement = await judgeCandidatesWithReranker(
+      client,
+      input({ cards: cards(1001) }),
+      { logger: SILENT },
+    );
+
+    expect(judgement.probabilities?.get('c999')).toBe(0.25);
+    expect(judgement.probabilities?.get('c1000')).toBe(1.25);
+  });
+
+  it('leaves only the failed request unjudged', async () => {
+    const client = rerankClientOf((request, index) =>
+      index === 0
+        ? rerankAnswered(request.documents.length)
+        : rerankFailing('timeout'),
+    );
+
+    const judgement = await judgeCandidatesWithReranker(
+      client,
+      input({ cards: cards(1500) }),
+      { logger: SILENT },
+    );
+
+    expect(judgement.status).toBe('answered');
+    expect(judgement.probabilities?.size).toBe(1000);
+    expect(judgement.unanswered).toEqual(
+      cards(1500)
+        .slice(1000)
+        .map((card) => card.key),
+    );
+  });
+
+  it('names the first accepted response in request order as the model', async () => {
+    const client = rerankClientOf((request, index) =>
+      rerankAnswered(request.documents.length, {
+        model: index === 0 ? 'rerank-v5.0-fast' : 'rerank-v5.0-pro',
+      }),
+    );
+
+    const judgement = await judgeCandidatesWithReranker(
+      client,
+      input({ cards: cards(1500) }),
+      { logger: SILENT },
+    );
+
+    expect(judgement.model).toBe('rerank-v5.0-fast');
+  });
+
+  it('sums the cost apart from the count when only one request reports a count', async () => {
+    const lines: Array<UnknownRecord> = [];
+    const client = rerankClientOf((request, index) =>
+      rerankAnswered(request.documents.length, {
+        inputTokens: index === 0 ? 10 : null,
+        costUsd: index + 1,
+      }),
+    );
+
+    const judgement = await judgeCandidatesWithReranker(
+      client,
+      input({ cards: cards(1500) }),
+      { logger: { info: (payload) => lines.push(payload) } },
+    );
+
+    expect(judgement.usage).toEqual({
+      inputTokens: null,
+      outputTokens: 0,
+      costUsd: 3,
+    });
+    expect(lines[0]).toMatchObject({
+      requests: 2,
+      inputTokens: null,
+      outputTokens: 0,
+      costUsd: 3,
+    });
+  });
+
+  it('writes the one log line with the OpenRouter usage', async () => {
+    const lines: Array<UnknownRecord> = [];
+    const client = rerankClientOf((request) =>
+      rerankAnswered(request.documents.length, {
+        inputTokens: 2139,
+        costUsd: 0.00004278,
+      }),
+    );
+
+    await judgeCandidatesWithReranker(client, input(), {
+      logger: { info: (payload) => lines.push(payload) },
+    });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      event: 'decision.completed',
+      status: 'answered',
+      model: 'rerank-v5.0-fast',
+      inputTokens: 2139,
+      outputTokens: 0,
+      costUsd: 0.00004278,
+    });
+  });
+});
+
+describe('DecisionsService rerank catalogue', () => {
+  const RERANK_PROVIDER: CohereRerankProviderConfig = {
+    id: 'rerank',
+    type: 'cohere-rerank',
+    key: KEY,
+    baseUrl: 'https://openrouter.ai/api/v1',
+    headers: {},
+  };
+
+  function rerankConfig(
+    provider: CohereRerankProviderConfig = RERANK_PROVIDER,
+  ): Pick<InstanceConfigService, 'config'> {
+    return {
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        providers: [provider],
+        rerankModels: [
+          {
+            id: 'rr-fast',
+            provider: provider.id,
+            model: 'cohere/rerank-5-fast',
+          },
+        ],
+      },
+    };
+  }
+
+  function stubRerankFetch(responseModel: string) {
+    const bodies: Array<string> = [];
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (_url, init) => {
+        bodies.push(await new Response(init?.body).text());
+        return new Response(
+          JSON.stringify({
+            model: responseModel,
+            results: [{ index: 0, relevance_score: 0.9 }],
+            usage: { total_tokens: 7, cost: 0.01 },
+          }),
+        );
+      });
+    return { bodies, spy };
+  }
+
+  it('routes a rerank id to the rerank wire and protects the key in every field', async () => {
+    const { bodies, spy } = stubRerankFetch('cohere/rerank-v5.0-fast');
+    const service = new DecisionsService(rerankConfig());
+
+    const judgement = await service.judgeCandidates(
+      input({
+        model: 'rr-fast',
+        query: KEY,
+        cards: [{ key: 'only', text: `leak ${KEY}` }],
+      }),
+    );
+    spy.mockRestore();
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toContain(KEY);
+    expect(JSON.parse(bodies[0] ?? '{}')).toEqual({
+      model: 'cohere/rerank-5-fast',
+      query: '[REDACTED]',
+      documents: ['leak [REDACTED]'],
+    });
+    expect(judgement).toMatchObject({
+      status: 'answered',
+      model: 'cohere/rerank-v5.0-fast',
+      usage: { inputTokens: 7, outputTokens: 0, costUsd: 0.01 },
+    });
+    expect(judgement.probabilities?.get('only')).toBe(0.9);
+    expect(JSON.stringify(judgement)).not.toContain(KEY);
+  });
+
+  it('serves a keyless rerank entry with nothing to protect', async () => {
+    const { bodies, spy } = stubRerankFetch('infinity-model');
+    const service = new DecisionsService(
+      rerankConfig({
+        ...RERANK_PROVIDER,
+        key: null,
+        baseUrl: 'http://infinity:7997',
+      }),
+    );
+
+    const judgement = await service.judgeCandidates(
+      input({ model: 'rr-fast', cards: [{ key: 'only', text: 'text' }] }),
+    );
+    spy.mockRestore();
+
+    expect(bodies).toHaveLength(1);
+    expect(judgement.status).toBe('answered');
+    expect(service.protectText('rr-fast', 'text')).toBe('text');
+  });
+
+  it('protects the rerank key through protectText', () => {
+    const service = new DecisionsService(rerankConfig());
+
+    expect(service.protectText('rr-fast', `a ${KEY}`)).toBe('a [REDACTED]');
   });
 });

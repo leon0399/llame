@@ -68,9 +68,12 @@ export const DecisionResponseSchema = z.object({
 
 export type DecisionAnswer = z.infer<typeof DecisionAnswerSchema>;
 
-/** Normalized usage of one decision request. `costUsd` is null when unknown. */
+/**
+ * Normalized usage of one rank request. `costUsd` is null when unknown, and
+ * `inputTokens` is null when a rerank response reports no count.
+ */
 export type DecisionUsage = {
-  readonly inputTokens: number;
+  readonly inputTokens: number | null;
   readonly outputTokens: number;
   readonly costUsd: number | null;
 };

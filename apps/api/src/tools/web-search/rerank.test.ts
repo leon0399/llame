@@ -22,7 +22,9 @@ import {
   type DecisionJudge,
   type JudgeCandidatesInput,
   judgeCandidatesWith,
+  DecisionsService,
 } from '../../decisions/decisions.service';
+import { BUILT_IN_DEFAULTS } from '../../instance-config/llame-config';
 import { type WebSearchConfig } from '../../instance-config/web-search-config';
 import { ArtifactsRepository } from '../artifacts/artifacts-repository';
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
@@ -945,5 +947,109 @@ describe('which sources keep the whole merged set', () => {
       call,
     );
     expect(writtenTitles()).toHaveLength(20);
+  });
+});
+
+describe('ranking with a rerank model', () => {
+  const RERANK_KEY = 'rerank-key-fixture';
+
+  function rerankContext(overrides: Partial<ToolContext> = {}): ToolContext {
+    const decisions = new DecisionsService({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        providers: [
+          {
+            id: 'rerank',
+            type: 'cohere-rerank',
+            key: RERANK_KEY,
+            baseUrl: 'https://openrouter.ai/api/v1',
+            headers: {},
+          },
+        ],
+        rerankModels: [
+          { id: 'rr-fast', provider: 'rerank', model: 'cohere/rerank-5-fast' },
+        ],
+      },
+    });
+    const webSearch: WebSearchConfig = {
+      engines: [],
+      chain: [],
+      rerank: { model: 'rr-fast' },
+    };
+    return testContext({ decisions, webSearch, ...overrides });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sorts twenty results by score before the inline cut and stores the served model', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        Response.json({
+          model: 'cohere/rerank-v5.0-fast',
+          results: Array.from({ length: 20 }, (_unused, index) => ({
+            index,
+            relevance_score: index / 100,
+          })),
+          usage: { total_tokens: 2139, cost: 0.00004278 },
+        }),
+      ),
+    );
+
+    const result = await spillWebSearchResult(
+      rerankContext(),
+      source(results(20)),
+      { ...inlineCall, objective: 'find the thing' },
+    );
+
+    expect(titles(result)).toEqual(
+      Array.from({ length: 10 }, (_unused, i) => `Title ${19 - i}`),
+    );
+    const stored = record(result);
+    expect(stored?.model).toBe('cohere/rerank-v5.0-fast');
+    expect(Object.keys(stored?.scores ?? {})).toHaveLength(20);
+    expect(stored?.costUsd).toBe(0.00004278);
+    expect(writtenTitles()).toHaveLength(20);
+  });
+
+  it('keeps engine order and adds one note after a failed rerank request', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() =>
+        Promise.resolve(new Response('', { status: 422 })),
+      );
+
+    const result = await spillWebSearchResult(
+      rerankContext(),
+      source(results(20)),
+      inlineCall,
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(titles(result)).toEqual(results(10).map((item) => item.title));
+    expect(outputOf(result).notes).toEqual(['rerank: unavailable']);
+    expect(record(result)).toBeUndefined();
+  });
+
+  it('settles with the runner timeout when the deadline passes during the request', async () => {
+    const controller = new AbortController();
+    const timeout = new DOMException('tool timeout', 'TimeoutError');
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      const { promise, reject } = Promise.withResolvers<Response>();
+      init?.signal?.addEventListener('abort', () => {
+        reject(new DOMException('aborted', 'AbortError'));
+      });
+      controller.abort(timeout);
+      return promise;
+    });
+
+    await expect(
+      spillWebSearchResult(
+        rerankContext({ abortSignal: controller.signal }),
+        source(results(20)),
+        inlineCall,
+      ),
+    ).rejects.toMatchObject({ name: 'TimeoutError' });
   });
 });

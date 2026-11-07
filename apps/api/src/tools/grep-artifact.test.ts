@@ -36,10 +36,12 @@ import {
   type KnowledgeWalkOpen,
 } from '../knowledge/knowledge-filesystem';
 import {
+  DecisionsService,
   type CandidateJudgement,
   type DecisionJudge,
   type JudgeCandidatesInput,
 } from '../decisions/decisions.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { finishGrepCall } from './grep-artifact';
 import { rankGrepRuns } from './grep-rerank';
@@ -1231,6 +1233,148 @@ describe('grep rerank', () => {
     ).rejects.toMatchObject({ name: 'TimeoutError' });
     expect(seen).toBe(controller.signal);
     expect(state.ranking).toBeUndefined();
+  });
+
+  describe('with a rerank model', () => {
+    const RERANK_KEY = 'rerank-key-fixture';
+    const rerankBounds = { ...BOUNDS, rerank: { model: 'rr-fast' } };
+    const threeRuns = () =>
+      stateOf([
+        longPassage('/a.ts', 1),
+        longPassage('/b.ts', 1),
+        longPassage('/c.ts', 1),
+      ]);
+
+    function rerankLane(): DecisionsService {
+      return new DecisionsService({
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          providers: [
+            {
+              id: 'rerank',
+              type: 'cohere-rerank',
+              key: RERANK_KEY,
+              baseUrl: 'https://openrouter.ai/api/v1',
+              headers: {},
+            },
+          ],
+          rerankModels: [
+            {
+              id: 'rr-fast',
+              provider: 'rerank',
+              model: 'cohere/rerank-5-fast',
+            },
+          ],
+        },
+      });
+    }
+
+    const rerankedContext = (extra?: Partial<ToolContext>) =>
+      contextOf({
+        decisions: rerankLane(),
+        grepBounds: rerankBounds,
+        ...extra,
+      });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('ranks the runs by the rerank scores and stores the served model', async () => {
+      const bodies: Array<string> = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        bodies.push(await new Response(init?.body).text());
+        return Response.json({
+          model: 'cohere/rerank-v5.0-fast',
+          results: [
+            { index: 0, relevance_score: 0.1 },
+            { index: 1, relevance_score: 0.3 },
+            { index: 2, relevance_score: 0.9 },
+          ],
+          usage: { total_tokens: 2139, cost: 0.00004278 },
+        });
+      });
+
+      const result = await finishGrepCall(
+        threeRuns(),
+        rerankedContext(),
+        20,
+        ASK,
+      );
+
+      expect(bodies).toHaveLength(1);
+      expect(JSON.parse(bodies[0] ?? '{}')).toMatchObject({
+        model: 'cohere/rerank-5-fast',
+        query: 'needle',
+      });
+      expect({ ...rerankOf(result), latencyMs: 0 }).toEqual({
+        model: 'cohere/rerank-v5.0-fast',
+        order: ['p2', 'p1', 'p0'],
+        scores: { p0: 0.1, p1: 0.3, p2: 0.9 },
+        latencyMs: 0,
+        costUsd: 0.00004278,
+        runLengths: [1, 1, 1],
+      });
+      expect(headings(artifactText())).toEqual([
+        '## /c.ts',
+        '## /b.ts',
+        '## /a.ts',
+      ]);
+    });
+
+    it('keeps walk order and says so after a failed rerank request', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(() =>
+          Promise.resolve(new Response('', { status: 422 })),
+        );
+
+      const result = await finishGrepCall(
+        threeRuns(),
+        rerankedContext(),
+        20,
+        ASK,
+      );
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(success(result).ranking).toBe('unavailable');
+      expect(result).not.toHaveProperty('display');
+      expect(headings(artifactText())).toEqual([
+        '## /a.ts',
+        '## /b.ts',
+        '## /c.ts',
+      ]);
+      expect(renderToolResultText('grep', result)).toContain(
+        '[ranking unavailable; walk order]',
+      );
+    });
+
+    it('settles with the runner timeout when the deadline passes during the request', async () => {
+      const controller = new AbortController();
+      const timeout = new DOMException('tool timeout', 'TimeoutError');
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((_url, init) => {
+          const { promise, reject } = Promise.withResolvers<Response>();
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('aborted', 'AbortError'));
+          });
+          controller.abort(timeout);
+          return promise;
+        });
+      const state = threeRuns();
+
+      await expect(
+        finishGrepCall(
+          state,
+          rerankedContext({ abortSignal: controller.signal }),
+          20,
+          ASK,
+        ),
+      ).rejects.toMatchObject({ name: 'TimeoutError' });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(state.ranking).toBeUndefined();
+    });
   });
 
   it('makes no decision call for a state with no file runs', async () => {

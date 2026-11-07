@@ -700,8 +700,6 @@ describe('createModelClient system-one guard (decision-rerank)', () => {
         },
         dependencies,
       ),
-    ).toThrow(
-      'Provider "decisions" is a System One decision provider, not a model client',
-    );
+    ).toThrow('Provider "decisions" is a rank provider, not a model client');
   });
 });

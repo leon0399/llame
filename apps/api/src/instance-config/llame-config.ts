@@ -13,6 +13,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import type { MachinesConfig, RawMachinesConfig } from './machines-config';
+import type * as Rerank from './rerank-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type {
   RawToolRerankConfig,
@@ -128,7 +129,9 @@ export type SystemOneProviderConfig = {
  * destination fixed in llame's code, from a required `key` and no endpoint
  * field of its own; `system-one` speaks the System One decision wire for the
  * experimental `decisionModels[]` catalogue, from a required `key` and a
- * required `baseUrl`, and never serves a `models[]` entry.
+ * required `baseUrl`, and never serves a `models[]` entry; `cohere-rerank` speaks the
+ * Cohere Rerank v2 wire for the experimental `rerankModels[]` catalogue and
+ * never serves a `models[]` or `embeddingModels[]` entry.
  * This set is strict-closed on purpose — a schema that advertised a `type`
  * it cannot execute would fail at request time instead of at the offending
  * config path.
@@ -139,7 +142,8 @@ export type ProviderConfig =
   | AnthropicMessagesProviderConfig
   | OpenAICodexProviderConfig
   | OpenCodeGoProviderConfig
-  | SystemOneProviderConfig;
+  | SystemOneProviderConfig
+  | Rerank.CohereRerankProviderConfig;
 
 /**
  * Resolved private Streamable HTTP server configuration. `protectedValues`
@@ -294,7 +298,8 @@ export type RawProviderEntry =
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       baseUrl: string | null;
       headers?: Record<string, string | null>;
-    };
+    }
+  | Rerank.RawCohereRerankProviderEntry;
 
 /**
  * One entry of the decision-model catalogue: the model a tool's rerank block
@@ -586,6 +591,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   models?: Array<RawModelEntry>;
   embeddingModels?: Array<RawEmbeddingModelEntry>;
   decisionModels?: Array<RawDecisionModelEntry>;
+  rerankModels?: Array<Rerank.RerankModelConfig>;
   search?: RawSearchConfig;
   webSearch?: RawWebSearchConfig;
 }
@@ -818,6 +824,8 @@ export type LlameConfig = {
    * own usage and never folded into a Run's message usage aggregate.
    */
   decisionModels?: ReadonlyArray<DecisionModelConfig>;
+  /** Optional conventional-reranker catalogue; shares the rank seat with `decisionModels`. */
+  rerankModels?: ReadonlyArray<Rerank.RerankModelConfig>;
   /**
    * Per-corpus search settings (chat-search-embeddings, design D6). `chats`
    * is the only corpus this change embeds.

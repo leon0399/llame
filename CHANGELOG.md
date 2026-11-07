@@ -1,5 +1,24 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-07
+
+- **Rerank models in the rank seat.** A new `cohere-rerank` provider type
+  serves the Cohere v2 `/rerank` wire (Cohere, OpenRouter, and
+  Jina- or Infinity-compatible servers) through `@ai-sdk/cohere`. `key` and
+  `baseUrl` are optional; `baseUrl` defaults to `https://api.cohere.com/v2`,
+  and a keyless entry for a self-hosted reranker needs an explicit `baseUrl`,
+  sends no `Authorization` header, and never reads `COHERE_API_KEY`. The type
+  has no default headers and refuses `{session:id}`. A new `rerankModels[]`
+  catalogue (`id`, `provider`, `model`, each interpolated) shares one id
+  namespace with `decisionModels[]`, never appears in `GET /api/v1/models`,
+  and is named by `webSearch.rerank.model` and `tools.grep.rerank.model` like a
+  decision model. A call is split into requests of at most 1,000 cards sent at
+  once, with the decision lane's attempt timeout, retries, `retry-after` cap,
+  key protection, and failure rules; a response must score every card once with
+  a finite score, and its body is capped at 1 MiB. Cost is the wire's
+  `usage.cost`, else unknown. `ranking:record` and `ranking:eval` accept
+  rerank model ids.
+
 # 2026-11-06
 
 - **Rank badge and scores in the `grep` and `web_search` parts.** A part whose

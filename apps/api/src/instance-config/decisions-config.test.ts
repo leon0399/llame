@@ -310,7 +310,7 @@ describe('per-tool rerank config', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'webSearch.rerank.model: does not reference any configured decisionModels[].id',
+        'webSearch.rerank.model: does not reference any configured decisionModels[].id or rerankModels[].id',
       ),
     );
   });
@@ -320,7 +320,7 @@ describe('per-tool rerank config', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'tools.grep.rerank.model: does not reference any configured decisionModels[].id',
+        'tools.grep.rerank.model: does not reference any configured decisionModels[].id or rerankModels[].id',
       ),
     );
   });
@@ -329,7 +329,7 @@ describe('per-tool rerank config', () => {
     configWith(undefined, { grep: { rerank: { model: 'opencode' } } });
 
     expect(() => loadInstanceConfig()).toThrow(
-      'tools.grep.rerank.model: does not reference any configured decisionModels[].id',
+      'tools.grep.rerank.model: does not reference any configured decisionModels[].id or rerankModels[].id',
     );
   });
 
