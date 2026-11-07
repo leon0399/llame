@@ -87,6 +87,43 @@ One client is built per catalogue id at boot, so two entries on two routes never
 share an endpoint. An absent or empty `decisionModels[]` array means no client
 exists at all, and every call names an id outside the catalogue.
 
+### A conventional reranker in the same seat (experimental)
+
+`rerankModels[]` is a second catalogue for the same rank seat. A tool's
+`rerank.model` may name an id from either catalogue; the stored record
+(`display.rerank.scores`) is the same. Ids are unique across both catalogues.
+A reranker entry needs a provider of `type: "cohere"`: it posts to
+`{baseUrl}/rerank` (the Cohere v2 wire) with a bearer `key`; `baseUrl` is
+optional and defaults to `https://api.cohere.com/v2`. OpenRouter serves the same
+wire at `https://openrouter.ai/api/v1` with the models `cohere/rerank-5-fast`
+and `cohere/rerank-5-pro`.
+
+```jsonc
+{
+  "providers": [
+    {
+      "id": "openrouter-rerank",
+      "type": "cohere",
+      "key": "{env:OPENROUTER_API_KEY}",
+      "baseUrl": "https://openrouter.ai/api/v1",
+    },
+  ],
+  "rerankModels": [
+    {
+      "id": "rr-fast",
+      "provider": "openrouter-rerank",
+      "model": "cohere/rerank-5-fast",
+    },
+  ],
+}
+```
+
+The reranker scores the objective (else the query) against each card in one
+request (split at 1000 cards), with the same key protection and card bound. Its
+relevance scores are recorded as `display.rerank.scores`; a card it does not
+score keeps canonical order. A `cohere` provider never serves a `models[]` or
+`embeddingModels[]` entry.
+
 ## 3. A tool opts in
 
 A tool's rerank block names one catalogue id. **Presence enables ranking**:
@@ -187,7 +224,8 @@ pnpm --filter api ranking:record [model-id ...]
 pnpm --filter api ranking:eval
 ```
 
-`ranking:record` judges every case with each named `decisionModels[].id` (all of
+`ranking:record` judges every case with each named `decisionModels[].id` or
+`rerankModels[].id` (all of
 them without arguments) using the keys of your operator config, and writes
 `fixtures/ranking/answers/<case>.<model>.json`. `ranking:eval` makes no model
 call: it prints nDCG@5, MRR, latency, and cost for the canonical order and for

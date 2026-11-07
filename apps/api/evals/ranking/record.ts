@@ -1,8 +1,9 @@
 /**
  * `pnpm --filter api ranking:record [model-id ...]` — judge every labeled case
- * in `fixtures/ranking` with live decision models from the operator config and
+ * in `fixtures/ranking` with live rank models from the operator config and
  * write `fixtures/ranking/answers/<case>.<model>.json`. With no argument it
- * records every `decisionModels[].id`. Needs the provider keys the config
+ * records every `decisionModels[].id` and `rerankModels[].id`. Needs the
+ * provider keys the config
  * names; `ranking:eval` then replays the answers offline.
  */
 import { config } from 'dotenv';
@@ -19,9 +20,10 @@ config({ path: '.env.local' });
 
 async function main(): Promise<void> {
   const instanceConfig = { config: loadInstanceConfig() };
-  const catalogue = (instanceConfig.config.decisionModels ?? []).map(
-    (entry) => entry.id,
-  );
+  const catalogue = [
+    ...(instanceConfig.config.decisionModels ?? []),
+    ...(instanceConfig.config.rerankModels ?? []),
+  ].map((entry) => entry.id);
   const models = selectModels(catalogue, process.argv.slice(2));
   await recordAll(
     new DecisionsService(instanceConfig),

@@ -346,14 +346,15 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own; \"system-one\" speaks the System One decision wire (POST {baseUrl}/systemone) for the experimental `decisionModels[]` catalog, from a required `key` and a required `baseUrl`, and never serves a `models[]` entry. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own; \"system-one\" speaks the System One decision wire (POST {baseUrl}/systemone) for the experimental `decisionModels[]` catalog, from a required `key` and a required `baseUrl`, and never serves a `models[]` entry; \"cohere\" speaks the Cohere Rerank v2 wire (POST {baseUrl}/rerank, default https://api.cohere.com/v2; OpenRouter is https://openrouter.ai/api/v1) for the experimental `rerankModels[]` catalog, from a required `key` and an optional `baseUrl`, and never serves a `models[]` or `embeddingModels[]` entry. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
       "enum": [
         "openai-responses",
         "openai-completions",
         "anthropic-messages",
         "openai-codex",
         "opencode-go",
-        "system-one"
+        "system-one",
+        "cohere"
       ]
     },
     "providerEntry": {
@@ -371,7 +372,7 @@
         "billing": { "$ref": "#/$defs/billingMode" },
         "key": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error. Required (and nonblank after interpolation) for `type: \"openai-codex\"`, `type: \"opencode-go\"`, and `type: \"system-one\"`, whose upstreams authenticate every request; such an entry fails startup naming the entry and the field rather than loading keyless."
+          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error. Required (and nonblank after interpolation) for `type: \"openai-codex\"`, `type: \"opencode-go\"`, `type: \"system-one\"`, and `type: \"cohere\"`, whose upstreams authenticate every request; such an entry fails startup naming the entry and the field rather than loading keyless."
         },
         "baseUrl": {
           "$ref": "#/$defs/nullableString",
@@ -424,6 +425,13 @@
             "required": ["key", "baseUrl"],
             "properties": { "accountId": false }
           }
+        },
+        {
+          "if": { "properties": { "type": { "const": "cohere" } } },
+          "then": {
+            "required": ["key"],
+            "properties": { "accountId": false }
+          }
         }
       ]
     },
@@ -447,6 +455,26 @@
         }
       }
     },
+    "rerankModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One entry of the rerank-model catalogue (a conventional cross-encoder reranker such as Cohere Rerank). Referenced by id from a tool's `rerank` block, exactly like a decision model; ids are unique across `decisionModels[]` and `rerankModels[]` together. Every field accepts `{env:...}` and `{path:...}` interpolation and must resolve nonblank; the loader reports a blank value at its `rerankModels[<index>]` path.",
+      "required": ["id", "provider", "model"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique catalogue id, referenced by `webSearch.rerank.model` or `tools.grep.rerank.model` (boot failure if blank or duplicated, also against `decisionModels[].id`)."
+        },
+        "provider": {
+          "type": "string",
+          "description": "A `providers[].id` whose `type` is \"cohere\" (boot failure otherwise)."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model id sent verbatim on the wire, e.g. \"rerank-v3.5\" on the Cohere API or \"cohere/rerank-5-fast\" through OpenRouter."
+        }
+      }
+    },
     "toolRerank": {
       "type": "object",
       "additionalProperties": false,
@@ -455,7 +483,7 @@
       "properties": {
         "model": {
           "type": "string",
-          "description": "A `decisionModels[].id` (boot failure if blank or unknown)."
+          "description": "A `decisionModels[].id` or `rerankModels[].id` (boot failure if blank or unknown)."
         }
       }
     },
@@ -739,6 +767,11 @@
       "type": "array",
       "description": "Optional System One decision-model catalogue (experimental). Absent means no decision model exists: no client is built and every tool keeps its canonical order. It is a catalogue only — each entry names one `providers[]` entry of `type: \"system-one\"`, the model it answers with, and an id that is unique; those references and id uniqueness are checked at startup, because the JSON Schema cannot express them. A tool reranks through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names a catalogue id. Decision calls are side calls: they are logged, never folded into a Run's message usage. See docs/product/operator/decisions.md.",
       "items": { "$ref": "#/$defs/decisionModel" }
+    },
+    "rerankModels": {
+      "type": "array",
+      "description": "Optional conventional-reranker catalogue (experimental). Each entry names one `providers[]` entry of `type: \"cohere\"` and the model it scores with. A tool's `rerank.model` may name an entry of either this array or `decisionModels[]`; the stored record (`display.rerank.scores`) is the same. Absent means no reranker exists.",
+      "items": { "$ref": "#/$defs/rerankModel" }
     },
     "search": {
       "type": "object",

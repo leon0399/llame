@@ -120,6 +120,17 @@
     //   "key": "{env:OPENROUTER_API_KEY}",
     //   "baseUrl": "https://openrouter.ai/api/v1"
     // },
+
+    // A Cohere Rerank v2 endpoint (experimental rank seat). It serves the
+    // `rerankModels[]` catalogue, never a models[] or embeddingModels[]
+    // entry. The key is required; `baseUrl` is optional and defaults to
+    // https://api.cohere.com/v2. OpenRouter serves the same wire.
+    // {
+    //   "id": "openrouter-rerank",
+    //   "type": "cohere",
+    //   "key": "{env:OPENROUTER_API_KEY}",
+    //   "baseUrl": "https://openrouter.ai/api/v1"
+    // },
   ],
 
   // Executable model catalog. Each provider must name a providers[].id.
@@ -561,6 +572,27 @@
   //     "id": "jev-openrouter",
   //     "provider": "openrouter-decisions",
   //     "model": "~typesafe/jev-latest",
+  //   },
+  // ],
+
+  // Optional conventional-reranker catalogue (experimental): a Cohere Rerank
+  // cross-encoder in the SAME rank seat as a decision model. Each entry needs
+  // an `id` unique across `decisionModels[]` and `rerankModels[]`, and a
+  // `provider` of type "cohere". A tool's `rerank.model` may name either
+  // kind, and the stored record (`display.rerank.scores`) has the same shape.
+  // Via OpenRouter the model ids are "cohere/rerank-5-fast" and
+  // "cohere/rerank-5-pro". Record both with
+  // `pnpm --filter api ranking:record rr-fast rr-pro`.
+  // "rerankModels": [
+  //   {
+  //     "id": "rr-fast",
+  //     "provider": "openrouter-rerank",
+  //     "model": "cohere/rerank-5-fast",
+  //   },
+  //   {
+  //     "id": "rr-pro",
+  //     "provider": "openrouter-rerank",
+  //     "model": "cohere/rerank-5-pro",
   //   },
   // ],
 

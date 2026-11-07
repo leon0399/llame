@@ -32,6 +32,10 @@ import {
   type SystemOneProviderConfig,
   type DecisionModelConfig,
   type RawDecisionModelEntry,
+  type CohereProviderConfig,
+  type RerankModelConfig,
+  type RawRerankModelEntry,
+  COHERE_DEFAULT_BASE_URL,
   type RawProviderEntry,
   type RawInstanceConfig,
   type RawMcpServerEntry,
@@ -369,7 +373,7 @@ function resolveToolRerank(
   const model = requireNonBlankString(`${configPath}.model`, rerank.model, env);
   if (!decisionModelIds.has(model)) {
     throw new InstanceConfigError(
-      `${configPath}.model: does not reference any configured decisionModels[].id`,
+      `${configPath}.model: does not reference any configured decisionModels[].id or rerankModels[].id`,
     );
   }
   return { model };
@@ -609,12 +613,19 @@ export function loadInstanceConfig(
   // The catalogue resolves first: `tools.grep.rerank` and `webSearch.rerank`
   // name a catalogue id, and that reference is checked while resolving them.
   const decisionModels = resolveDecisionModels(raw, env, providersById);
+  const rerankModels = resolveRerankModels(
+    raw,
+    env,
+    providersById,
+    decisionModels,
+  );
   const { embeddingModels, search, webSearch, tools } = resolveSearchSettings(
     raw,
     { env, credentials },
     providersById,
     models,
     decisionModels,
+    rerankModels,
   );
 
   const config: LlameConfig = {
@@ -626,6 +637,7 @@ export function loadInstanceConfig(
     models,
     embeddingModels,
     ...(decisionModels !== undefined && { decisionModels }),
+    ...(rerankModels !== undefined && { rerankModels }),
     search,
     ...(webSearch !== undefined && { webSearch }),
   };
@@ -672,9 +684,13 @@ function resolveSearchSettings(
   providersById: ReadonlyMap<string, ProviderConfig>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
   decisionModels: ReadonlyArray<DecisionModelConfig> | undefined,
+  rerankModels: ReadonlyArray<RerankModelConfig> | undefined,
 ) {
+  // A tool's `rerank.model` names an id of either rank catalogue.
   const decisionModelIds = new Set(
-    decisionModels?.map((entry) => entry.id) ?? [],
+    [...(decisionModels ?? []), ...(rerankModels ?? [])].map(
+      (entry) => entry.id,
+    ),
   );
   const tools = resolveToolsConfig(raw, { env, credentials }, decisionModelIds);
   const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
@@ -745,6 +761,74 @@ function resolveDecisionModel(
   if (provider.type !== 'system-one') {
     throw new InstanceConfigError(
       `${base}.provider: provider has type "${provider.type}", not "system-one"`,
+    );
+  }
+  const model = requireNonBlankString(`${base}.model`, entry.model, env);
+  return { id, provider: providerId, model };
+}
+
+/**
+ * Resolve the optional `rerankModels[]` catalogue, the conventional-reranker
+ * sibling of `decisionModels[]`. Ids are unique across BOTH catalogues because
+ * a tool's `rerank.model` names one id and the seat resolves it. Every
+ * `provider` must exist AND be of `type: 'cohere'`. Diagnostics use
+ * array-index paths and never print a resolved value.
+ */
+function resolveRerankModels(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+  decisionModels: ReadonlyArray<DecisionModelConfig> | undefined,
+): ReadonlyArray<RerankModelConfig> | undefined {
+  const entries = raw?.rerankModels;
+  if (entries === undefined) return undefined;
+
+  const decisionIndexById = new Map(
+    (decisionModels ?? []).map((entry, index) => [entry.id, index]),
+  );
+  const indexById = new Map<string, number>();
+  return entries.map((entry, index) => {
+    const base = `rerankModels[${index}]`;
+    const id = requireNonBlankString(`${base}.id`, entry.id, env);
+    const decisionIndex = decisionIndexById.get(id);
+    if (decisionIndex !== undefined) {
+      throw new InstanceConfigError(
+        `decisionModels[${decisionIndex}].id and ${base}.id: duplicate rank model id`,
+      );
+    }
+    const firstIndex = indexById.get(id);
+    if (firstIndex !== undefined) {
+      throw new InstanceConfigError(
+        `rerankModels[${firstIndex}].id and ${base}.id: duplicate rerank model id`,
+      );
+    }
+    indexById.set(id, index);
+    return resolveRerankModel(entry, id, base, env, providersById);
+  });
+}
+
+/** One catalogue entry: its provider is a `cohere` entry and its model is nonblank. */
+function resolveRerankModel(
+  entry: RawRerankModelEntry,
+  id: string,
+  base: string,
+  env: NodeJS.ProcessEnv,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+): RerankModelConfig {
+  const providerId = requireNonBlankString(
+    `${base}.provider`,
+    entry.provider,
+    env,
+  );
+  const provider = providersById.get(providerId);
+  if (provider === undefined) {
+    throw new InstanceConfigError(
+      `${base}.provider: does not reference any configured providers[].id`,
+    );
+  }
+  if (provider.type !== 'cohere') {
+    throw new InstanceConfigError(
+      `${base}.provider: provider has type "${provider.type}", not "cohere"`,
     );
   }
   const model = requireNonBlankString(`${base}.model`, entry.model, env);
@@ -2374,6 +2458,8 @@ const DEFAULT_PROVIDER_HEADERS: Readonly<
   // A decision call has no Chat session: the lane sends no session header,
   // and the operator may still add literal ones.
   'system-one': {},
+  // A rerank call has no Chat session either.
+  cohere: {},
 };
 
 const PROVIDER_HEADER_TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9_-]*):([^{}]*)\}/gu;
@@ -2479,11 +2565,11 @@ function resolveProviderHeaders(
     if (rawValue === null) continue;
     const configPath = `${headersPath}.${name}`;
     if (
-      type === 'system-one' &&
+      (type === 'system-one' || type === 'cohere') &&
       rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN).length > 1
     ) {
       throw new InstanceConfigError(
-        `${configPath}: a system-one provider has no Chat session, so {session:id} is not allowed`,
+        `${configPath}: a ${type} provider has no Chat session, so {session:id} is not allowed`,
       );
     }
     headers[name] = resolveProviderHeaderValue(rawValue, name, configPath, {
@@ -2523,6 +2609,8 @@ function resolveProviders(
         return resolveOpenCodeGoProvider(entry, { env, credentials });
       case 'system-one':
         return resolveSystemOneProvider(entry, { env, credentials });
+      case 'cohere':
+        return resolveCohereProvider(entry, { env, credentials });
       default: {
         // Unreachable while the JSON Schema's `providerType` enum stays in
         // sync with the cases above (assertValidRaw rejects any other `type`
@@ -2725,6 +2813,39 @@ function resolveSystemOneProvider(
 }
 
 /**
+ * Rerank variant (experimental): `key` is schema-required and must survive
+ * interpolation nonblank. `baseUrl` is optional — omission or `null` selects
+ * the Cohere API — but fail-closed when present, so a configured endpoint that
+ * resolves blank never silently pairs the credential with api.cohere.com.
+ */
+function resolveCohereProvider(
+  entry: Extract<RawProviderEntry, { type: 'cohere' }>,
+  { env, credentials }: LoaderContext,
+): CohereProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
+    key: requireNonBlankString(
+      `providers[${entry.id}].key`,
+      entry.key,
+      env,
+      credentials.onSecret,
+    ),
+    baseUrl:
+      resolveOptionalNonBlankString({
+        configPath: `providers[${entry.id}].baseUrl`,
+        raw: entry.baseUrl,
+        env,
+      }) ?? COHERE_DEFAULT_BASE_URL,
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
+      env,
+      credentials,
+    }),
+  };
+}
+
+/**
  * Resolve a setting that is schema-required and must survive interpolation
  * nonblank — the Codex credentials, the Go subscription key, and the
  * completions `baseUrl`. The error names the config path, never the resolved
@@ -2898,9 +3019,11 @@ function assertValidModelEntry(
       `models[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
     );
   }
-  if (provider.type === 'system-one') {
+  if (provider.type === 'system-one' || provider.type === 'cohere') {
     throw new InstanceConfigError(
-      `models[${entry.id}].provider: provider "${entry.provider}" has type "system-one", which serves decisionModels[] only`,
+      provider.type === 'cohere'
+        ? `models[${entry.id}].provider: provider "${entry.provider}" has type "cohere", which serves rerankModels[] only`
+        : `models[${entry.id}].provider: provider "${entry.provider}" has type "system-one", which serves decisionModels[] only`,
     );
   }
   return provider;

@@ -11,6 +11,11 @@ import { loadPackagedTemplate } from '../prompts/template-engine';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { createDecisionClient, type DecisionClient } from './decision-client';
 import {
+  createRerankClient,
+  type RerankClient,
+  type RerankOutcome,
+} from './rerank-client';
+import {
   type DecisionAnswer,
   type DecisionFailureReason,
   type DecisionOutcome,
@@ -343,7 +348,9 @@ async function decideSafely(
 type AnsweredOutcome = Extract<DecisionOutcome, { status: 'answered' }>;
 
 /** Accepted usage only; cost is null if any accepted cost is unknown. */
-function sumAccepted(answered: ReadonlyArray<AnsweredOutcome>): DecisionUsage {
+function sumAccepted(
+  answered: ReadonlyArray<{ readonly usage: DecisionUsage }>,
+): DecisionUsage {
   let inputTokens = 0;
   let outputTokens = 0;
   let costUsd: number | null = 0;
@@ -409,6 +416,133 @@ function firstFailureReason(
   return 'upstream_error';
 }
 
+/** One reranker request carries at most this many documents (Cohere's cap). */
+export const RERANK_MAX_DOCUMENTS_PER_REQUEST = 1000;
+
+/**
+ * Judge a batch of candidates through one conventional reranker. The seat's
+ * contract is the decision lane's: card text is key-protected over its FULL
+ * length and only then cut to `cardBound`; the query text is the objective
+ * when present, else the query (a reranker has no rubric, so `rubric` is
+ * unused); relevance scores stand in for probabilities, and a card the
+ * reranker did not score is unanswered. Batches over 1000 documents split
+ * into parallel requests. Failure and abort semantics match
+ * `judgeCandidatesWith`.
+ */
+export async function judgeCandidatesWithReranker(
+  client: RerankClient,
+  input: JudgeCandidatesInput,
+  options: JudgeOptions = {},
+): Promise<CandidateJudgement> {
+  input.abortSignal?.throwIfAborted();
+  if (input.cards.length === 0) {
+    return logged(
+      input,
+      0,
+      unavailableJudgement(input, 'no_candidates'),
+      options.logger,
+    );
+  }
+
+  const protectedValues = options.protectedValues ?? [];
+  const protect = (text: string) =>
+    redactProtectedString(text, protectedValues);
+  const query = protect(input.objective ?? input.query);
+  const documents = input.cards.map((card) =>
+    cutStringAtCodePointBoundary(protect(card.text), input.cardBound),
+  );
+  const starts: Array<number> = [];
+  for (
+    let start = 0;
+    start < documents.length;
+    start += RERANK_MAX_DOCUMENTS_PER_REQUEST
+  ) {
+    starts.push(start);
+  }
+  const outcomes = await Promise.all(
+    starts.map((start) =>
+      rerankSafely(client, {
+        query,
+        documents: documents.slice(
+          start,
+          start + RERANK_MAX_DOCUMENTS_PER_REQUEST,
+        ),
+        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+      }),
+    ),
+  );
+  const judgement = logged(
+    input,
+    starts.length,
+    mergeRerankOutcomes(input, starts, outcomes),
+    options.logger,
+  );
+  input.abortSignal?.throwIfAborted();
+  return judgement;
+}
+
+/** Ask the reranker, tolerating a client that throws; an abort lands here as `unavailable` too. */
+async function rerankSafely(
+  client: RerankClient,
+  request: Parameters<RerankClient['rerank']>[0],
+): Promise<RerankOutcome> {
+  try {
+    return await client.rerank(request);
+  } catch {
+    return { status: 'unavailable', reason: 'upstream_error', latencyMs: 0 };
+  }
+}
+
+/**
+ * Merge the chunk outcomes in request order: an answered chunk contributes
+ * its scores (document index within the chunk plus the chunk's start) and
+ * usage; a failed chunk leaves only its own cards unjudged.
+ */
+function mergeRerankOutcomes(
+  input: JudgeCandidatesInput,
+  starts: ReadonlyArray<number>,
+  outcomes: ReadonlyArray<RerankOutcome>,
+): CandidateJudgement {
+  const latencyMs = Math.max(
+    0,
+    ...outcomes.map((outcome) => outcome.latencyMs),
+  );
+  const answered = outcomes.flatMap((outcome, chunk) =>
+    outcome.status === 'answered'
+      ? [{ ...outcome, start: starts[chunk] ?? 0 }]
+      : [],
+  );
+  const first = answered[0];
+  if (first === undefined) {
+    const failed = outcomes.find((outcome) => outcome.status === 'unavailable');
+    return unavailableJudgement(
+      input,
+      failed?.status === 'unavailable' ? failed.reason : 'upstream_error',
+      latencyMs,
+    );
+  }
+
+  const scored = new Map<number, number>();
+  for (const { scores, start } of answered) {
+    for (const [index, score] of scores) scored.set(start + index, score);
+  }
+  const probabilities = new Map<string, number>();
+  const unanswered: Array<string> = [];
+  input.cards.forEach((card, index) => {
+    const score = scored.get(index);
+    if (score === undefined) unanswered.push(card.key);
+    else probabilities.set(card.key, score);
+  });
+  return {
+    status: 'answered',
+    probabilities,
+    unanswered,
+    usage: sumAccepted(answered),
+    model: first.model,
+    latencyMs,
+  };
+}
+
 function logPayload(
   input: JudgeCandidatesInput,
   requests: number,
@@ -433,17 +567,22 @@ function logPayload(
 }
 
 type CatalogueEntry = {
-  readonly client: DecisionClient;
+  readonly judge: (
+    input: JudgeCandidatesInput,
+    protectedValues: ReadonlyArray<string>,
+  ) => Promise<CandidateJudgement>;
   readonly protectedValues: ReadonlyArray<string>;
 };
 
 /**
- * The configured decision models. One client per catalogue id is built once at
- * boot; an absent or empty `decisionModels[]` means every call fails closed
- * with `unavailable`. The boot loader has already proved each entry's provider
- * exists, is `system-one`, and that ids are unique, so a missing entry here can
- * only mean a caller named an id outside the catalogue, which also fails
- * closed. No chat model ever answers in place of a decision model.
+ * The configured rank models: `decisionModels[]` (System One) and
+ * `rerankModels[]` (Cohere Rerank) behind one seat. One client per catalogue
+ * id is built once at boot; an absent or empty catalogue means every call
+ * fails closed with `unavailable`. The boot loader has already proved each
+ * entry's provider exists with the right type and that ids are unique across
+ * both catalogues, so a missing entry here can only mean a caller named an id
+ * outside them, which also fails closed. No chat model ever answers in place
+ * of a rank model.
  */
 @Injectable()
 export class DecisionsService implements DecisionJudge {
@@ -454,13 +593,28 @@ export class DecisionsService implements DecisionJudge {
     instanceConfig: Pick<InstanceConfigService, 'config'>,
   ) {
     const entries = new Map<string, CatalogueEntry>();
-    for (const entry of instanceConfig.config.decisionModels ?? []) {
-      const provider = instanceConfig.config.providers.find(
+    const { config } = instanceConfig;
+    for (const entry of config.decisionModels ?? []) {
+      const provider = config.providers.find(
         (candidate) => candidate.id === entry.provider,
       );
       if (provider?.type !== 'system-one') continue;
+      const client = createDecisionClient(provider, entry.model);
       entries.set(entry.id, {
-        client: createDecisionClient(provider, entry.model),
+        judge: (input, protectedValues) =>
+          judgeCandidatesWith(client, input, { protectedValues }),
+        protectedValues: normalizeProtectedValues([provider.key]),
+      });
+    }
+    for (const entry of config.rerankModels ?? []) {
+      const provider = config.providers.find(
+        (candidate) => candidate.id === entry.provider,
+      );
+      if (provider?.type !== 'cohere') continue;
+      const client = createRerankClient(provider, entry.model);
+      entries.set(entry.id, {
+        judge: (input, protectedValues) =>
+          judgeCandidatesWithReranker(client, input, { protectedValues }),
         protectedValues: normalizeProtectedValues([provider.key]),
       });
     }
@@ -475,9 +629,7 @@ export class DecisionsService implements DecisionJudge {
       input.abortSignal?.throwIfAborted();
       return logged(input, 0, unavailableJudgement(input, 'unknown_model'));
     }
-    return judgeCandidatesWith(entry.client, input, {
-      protectedValues: entry.protectedValues,
-    });
+    return entry.judge(input, entry.protectedValues);
   }
 
   protectText(model: string, text: string): string {

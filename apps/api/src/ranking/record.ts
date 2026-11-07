@@ -24,12 +24,14 @@ export function selectModels(
   const unknown = requested.filter((id) => !catalogue.includes(id));
   if (unknown.length > 0) {
     throw new Error(
-      `Not in decisionModels[]: ${unknown.join(', ')}. Catalogue: ${catalogue.join(', ') || '(empty)'}.`,
+      `Not in decisionModels[] or rerankModels[]: ${unknown.join(', ')}. Catalogue: ${catalogue.join(', ') || '(empty)'}.`,
     );
   }
   const models = requested.length > 0 ? [...requested] : [...catalogue];
   if (models.length === 0) {
-    throw new Error('No decisionModels[] in the operator config to record.');
+    throw new Error(
+      'No decisionModels[] or rerankModels[] in the operator config to record.',
+    );
   }
   return models;
 }

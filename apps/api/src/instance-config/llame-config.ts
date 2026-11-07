@@ -114,6 +114,26 @@ export type SystemOneProviderConfig = {
 };
 
 /**
+ * A Cohere Rerank v2 endpoint (experimental rerank seat): `POST
+ * {baseUrl}/rerank` through `@ai-sdk/cohere`. OpenRouter serves the same wire
+ * at `https://openrouter.ai/api/v1`. The operator may omit `baseUrl`, which
+ * selects Cohere's own API; `key` is required. An entry of this type never
+ * serves a `models[]` or `embeddingModels[]` entry: a reranker is not a chat
+ * or embedding client.
+ */
+export type CohereProviderConfig = {
+  id: string;
+  billing?: BillingMode;
+  type: 'cohere';
+  key: string;
+  baseUrl: string;
+  headers: RequestHeaderTemplates;
+};
+
+/** The Cohere API's own base URL, used when a `cohere` entry omits `baseUrl`. */
+export const COHERE_DEFAULT_BASE_URL = 'https://api.cohere.com/v2';
+
+/**
  * Executable provider client implementations (providers-and-models-as-code,
  * #167). `type` names the wire API the entry speaks — never inferred from
  * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
@@ -128,7 +148,9 @@ export type SystemOneProviderConfig = {
  * destination fixed in llame's code, from a required `key` and no endpoint
  * field of its own; `system-one` speaks the System One decision wire for the
  * experimental `decisionModels[]` catalogue, from a required `key` and a
- * required `baseUrl`, and never serves a `models[]` entry.
+ * required `baseUrl`, and never serves a `models[]` entry; `cohere` speaks the
+ * Cohere Rerank v2 wire for the experimental `rerankModels[]` catalogue and
+ * never serves a `models[]` or `embeddingModels[]` entry.
  * This set is strict-closed on purpose — a schema that advertised a `type`
  * it cannot execute would fail at request time instead of at the offending
  * config path.
@@ -139,7 +161,8 @@ export type ProviderConfig =
   | AnthropicMessagesProviderConfig
   | OpenAICodexProviderConfig
   | OpenCodeGoProviderConfig
-  | SystemOneProviderConfig;
+  | SystemOneProviderConfig
+  | CohereProviderConfig;
 
 /**
  * Resolved private Streamable HTTP server configuration. `protectedValues`
@@ -294,7 +317,37 @@ export type RawProviderEntry =
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       baseUrl: string | null;
       headers?: Record<string, string | null>;
+    }
+  | {
+      id: string;
+      type: 'cohere';
+      billing?: BillingMode;
+      /** Schema-required for this branch; may still be `null`/blank after interpolation. */
+      key: string | null;
+      /** Optional: omission or `null` selects the Cohere API. */
+      baseUrl?: string | null;
+      headers?: Record<string, string | null>;
     };
+
+/**
+ * One entry of the rerank-model catalogue: a conventional cross-encoder that
+ * fills the same rank seat as a decision model. `provider` must be a
+ * `providers[]` entry of `type: 'cohere'` and `model` is sent verbatim on the
+ * wire (e.g. `rerank-v3.5`, or `cohere/rerank-5-fast` via OpenRouter). Ids are
+ * unique across `decisionModels[]` and `rerankModels[]` together.
+ */
+export type RerankModelConfig = {
+  readonly id: string;
+  readonly provider: string;
+  readonly model: string;
+};
+
+/** The still-uninterpolated `rerankModels[]` entry once schema-validated. */
+export type RawRerankModelEntry = {
+  id: string;
+  provider: string;
+  model: string;
+};
 
 /**
  * One entry of the decision-model catalogue: the model a tool's rerank block
@@ -586,6 +639,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   models?: Array<RawModelEntry>;
   embeddingModels?: Array<RawEmbeddingModelEntry>;
   decisionModels?: Array<RawDecisionModelEntry>;
+  rerankModels?: Array<RawRerankModelEntry>;
   search?: RawSearchConfig;
   webSearch?: RawWebSearchConfig;
 }
@@ -818,6 +872,8 @@ export type LlameConfig = {
    * own usage and never folded into a Run's message usage aggregate.
    */
   decisionModels?: ReadonlyArray<DecisionModelConfig>;
+  /** Optional conventional-reranker catalogue; shares the rank seat with `decisionModels`. */
+  rerankModels?: ReadonlyArray<RerankModelConfig>;
   /**
    * Per-corpus search settings (chat-search-embeddings, design D6). `chats`
    * is the only corpus this change embeds.
