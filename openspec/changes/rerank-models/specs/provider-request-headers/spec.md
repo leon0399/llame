@@ -4,7 +4,7 @@
 
 ### Requirement: Provider types supply default headers under the operator map
 
-Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex`, `system-one`, and `cohere-rerank`. The effective map MUST be the default map with the operator map laid over it key by key. The system compares names without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
+Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex`, `system-one`, and `cohere-rerank`. The effective map MUST be the default map with the operator map laid over it key by key. Names compare without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
 
 #### Scenario: An entry without a map sends the default
 
