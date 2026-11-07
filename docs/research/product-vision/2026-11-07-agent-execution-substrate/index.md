@@ -12,5 +12,8 @@ tree (F2) and background jobs (F3) that subagents
 - [Background jobs and subagent lifecycle](./background-jobs-and-subagents.md) —
   job registries, result delivery, cancellation cascades, bounds, untrusted
   child output, and durable parent suspension options.
+- [Agent communication and bots](./agent-communication.md) — parent and child
+  messaging, addressing and envelopes, steering, reading other sessions as
+  recall, and bot identity and triggers.
 - [llame baseline](./llame-baseline.md) — the shipped Run, queue, tool, usage,
   Chat and permission contracts these foundations change.
