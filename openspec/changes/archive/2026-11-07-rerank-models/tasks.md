@@ -2,7 +2,7 @@
 
 Track [#1434](https://github.com/leon0399/llame/issues/1434) and the PRs of
 this change through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation
 waits for Leo's approval of the published proposal.
 
 ## Delivery stack
@@ -45,10 +45,10 @@ and conforms it to the approved deltas.
 
 ## 3. finalize
 
-- [ ] 3.1 Create `rerank-models/finalize` from `impl` with `$gh-stack` before any sync write.
+- [x] 3.1 Create `rerank-models/finalize` from `impl` with `$gh-stack` before any sync write.
 - [x] 3.2 Run `$openspec-sync-specs`; verify `pnpm exec openspec validate --specs --strict` and `--all --strict`.
-- [ ] 3.3 Confirm every task above is checked and `gh pr view` closing references list #1434 on the impl PR.
-- [ ] 3.4 Run `$openspec-archive-change`; verify `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`.
+- [x] 3.3 Confirm every task above is checked and `gh pr view` closing references list #1434 on the impl PR.
+- [x] 3.4 Run `$openspec-archive-change`; verify `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`.
 
 ## Workflow follow-up
 
