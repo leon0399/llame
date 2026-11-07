@@ -41,7 +41,7 @@ and conforms it to the approved deltas.
 - [x] 2.5 Route the rank seat by catalog kind so both tools rank with either backend; reuse the decision-lane failure merge, log line, and key protection; verify a tool-level test for each tool with a rerank model, a failed request, and the enclosing timeout.
 - [x] 2.6 `ranking:record` and `ranking:eval` accept rerank model ids; record `rr-fast` and `rr-pro` answers with live keys; post the `ranking:eval` table on the PR.
 - [x] 2.7 Update `docs/product/operator/decisions.md` (rank models: decision and rerank, the compatibility list, keyless self-hosting, cost), the config example, and the dated CHANGELOG entry.
-- [ ] 2.8 Run api lint, typecheck, focused unit tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish; SR with multi-agent local reviews; ready; GR; update the Project.
+- [x] 2.8 Run api lint, typecheck, focused unit tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish; SR with multi-agent local reviews; ready; GR; update the Project.
 
 ## 3. finalize
 
