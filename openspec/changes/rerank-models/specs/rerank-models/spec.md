@@ -15,8 +15,9 @@ A `providers[]` entry of `type: "cohere-rerank"` MUST serve the Cohere v2
 rerank wire. Each request MUST go to `POST {baseUrl}/rerank`. The request body
 MUST hold `model`, `query`, and `documents`. When the entry has a `key`, each
 request MUST carry it as a bearer token. A keyless entry MUST send no
-`Authorization` header unless its operator header map sets one. The client MUST NOT read a credential from the process
-environment.
+`Authorization` header unless its operator header map sets one. Each request
+MUST carry the entry's effective header map. The client MUST NOT read a
+credential from the process environment.
 
 #### Scenario: A rerank provider is configured
 
@@ -166,8 +167,8 @@ a finite nonnegative number.
 
 #### Scenario: One of two requests reports no count
 
-- **WHEN** a call has two accepted requests and only the first reports `usage.total_tokens`
-- **THEN** the log line holds `inputTokens: null` and `costUsd: null`
+- **WHEN** two accepted responses hold `usage: { total_tokens: 10, cost: 1 }` and `usage: { cost: 2 }`
+- **THEN** the log line holds `inputTokens: null` and `costUsd: 3`
 
 #### Scenario: Cohere reports no cost
 
