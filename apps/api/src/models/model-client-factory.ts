@@ -92,11 +92,11 @@ function buildClient(
       return createOpenCodeGoClient(provider, model, userAgent, dependencies);
     case 'system-one':
     case 'cohere-rerank':
-      // A decision provider is deliberately NOT a `ModelClient`: a System One
-      // call returns typed probabilities in one forward pass, with its own
-      // usage shape, and never streams. Startup already rejects a `models[]`
-      // entry that names one, so this guard only fails loudly on an
-      // impossible runtime binding.
+      // A rank provider (System One decision or Cohere-wire rerank) is
+      // deliberately NOT a `ModelClient`: it returns one score per card with
+      // its own usage shape and never streams. Startup already rejects a
+      // `models[]` entry that names one, so this guard only fails loudly on
+      // an impossible runtime binding.
       throw new Error(
         `Provider "${provider.id}" is a rank provider, not a model client`,
       );
