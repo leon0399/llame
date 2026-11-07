@@ -121,15 +121,24 @@
     //   "baseUrl": "https://openrouter.ai/api/v1"
     // },
 
-    // A Cohere Rerank v2 endpoint (experimental rank seat). It serves the
+    // A Cohere v2 rerank endpoint (experimental rank seat). It serves the
     // `rerankModels[]` catalogue, never a models[] or embeddingModels[]
-    // entry. The key is required; `baseUrl` is optional and defaults to
-    // https://api.cohere.com/v2. OpenRouter serves the same wire.
+    // entry. `baseUrl` is optional and defaults to https://api.cohere.com/v2;
+    // OpenRouter serves the same wire. `key` is optional only with an
+    // explicit `baseUrl`: a self-hosted Infinity or Jina-compatible server
+    // may run keyless, and a keyless entry sends no Authorization header
+    // unless `headers` sets one. The type has no default headers and refuses
+    // {session:id}.
     // {
     //   "id": "openrouter-rerank",
-    //   "type": "cohere",
+    //   "type": "cohere-rerank",
     //   "key": "{env:OPENROUTER_API_KEY}",
     //   "baseUrl": "https://openrouter.ai/api/v1"
+    // },
+    // {
+    //   "id": "local-rerank",
+    //   "type": "cohere-rerank",
+    //   "baseUrl": "http://infinity:7997"
     // },
   ],
 
@@ -575,13 +584,14 @@
   //   },
   // ],
 
-  // Optional conventional-reranker catalogue (experimental): a Cohere Rerank
-  // cross-encoder in the SAME rank seat as a decision model. Each entry needs
-  // an `id` unique across `decisionModels[]` and `rerankModels[]`, and a
-  // `provider` of type "cohere". A tool's `rerank.model` may name either
-  // kind, and the stored record (`display.rerank.scores`) has the same shape.
-  // Via OpenRouter the model ids are "cohere/rerank-5-fast" and
-  // "cohere/rerank-5-pro". Record both with
+  // Optional rerank-model catalogue (experimental): a conventional reranker
+  // in the SAME rank seat as a decision model. Each entry needs an `id` unique
+  // across `decisionModels[]` and `rerankModels[]`, a `provider` of type
+  // "cohere-rerank", and a `model` sent verbatim. All three accept {env:…}
+  // and {path:…}. A tool's `rerank.model` may name either kind, and the
+  // stored record (`display.rerank.scores`) has the same shape. The catalogue
+  // never appears in GET /api/v1/models. Via OpenRouter the model ids are
+  // "cohere/rerank-5-fast" and "cohere/rerank-5-pro". Record both with
   // `pnpm --filter api ranking:record rr-fast rr-pro`.
   // "rerankModels": [
   //   {

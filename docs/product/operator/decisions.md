@@ -1,7 +1,8 @@
 ---
-summary: "Enabling decision-model ranking: the system-one provider type, the decisionModels[] catalogue, the per-tool rerank block for web_search and grep, what naming a model discloses, and what a failure means"
+summary: "Enabling rank models: the system-one and cohere-rerank provider types, the decisionModels[] and rerankModels[] catalogues, the per-tool rerank block for web_search and grep, what naming a model discloses, cost, and what a failure means"
 read_when:
   - you are wiring a Jev / System One decision endpoint into llame
+  - you are wiring a Cohere, OpenRouter, Jina, or Infinity rerank endpoint into llame
   - you are enabling ranking of web_search or grep results
   - a decision call failed and you need to know whether the output changed
 behavior:
@@ -50,60 +51,49 @@ never serves a `models[]` or `embeddingModels[]` entry, and
 
 Routes verified on 2026-11-05 (same request and response JSON on each):
 
-| Route      | `baseUrl`                      | Model ids                                   |
-| ---------- | ------------------------------ | ------------------------------------------- |
-| OpenRouter | `https://openrouter.ai/api/v1` | `typesafe/jev-1.14`, `~typesafe/jev-latest` |
-| OpenCode   | `https://opencode.ai/zen/v1`   | `jev-1.13`, `jev-1.13-free`                 |
-| TypeSafe   | `https://api.typesafe.ai/v1`   | `jev-latest`, `jev-1.14.0`                  |
+| Route      | `baseUrl`                      | Model ids                                     | Status                   |
+| ---------- | ------------------------------ | --------------------------------------------- | ------------------------ |
+| Cohere     | `https://api.cohere.com/v2`    | `rerank-v3.5`                                 | Probed live (2026-11-07) |
+| OpenRouter | `https://openrouter.ai/api/v1` | `cohere/rerank-5-fast`, `cohere/rerank-5-pro` | Probed live (2026-11-07) |
+| Jina       | `https://api.jina.ai/v1`       | the model id Jina serves                      | Compatible by shape      |
+| Infinity   | the server's own URL           | the model id the server serves                | Compatible by shape      |
 
-An alias is not a revision: the response reports the model that answered, and
-that id is what the log line records. Pin a versioned id when you compare
-results over time.
+Cohere and OpenRouter were exercised against the live service. Jina and
+Infinity answer the same `results[{ index, relevance_score }]` shape according
+to their published clients; they were not measured, so treat them as
+compatible, not verified. Voyage and TEI use other shapes and are not
+supported.
 
-## 2. The decision-model catalogue
+Self-hosting needs no key: point `baseUrl` at the server and leave `key` out.
 
 ```jsonc
 {
-  "decisionModels": [
+  "providers": [
     {
-      "id": "jev-openrouter",
-      "provider": "openrouter-decisions",
-      "model": "~typesafe/jev-latest",
+      "id": "local-rerank",
+      "type": "cohere-rerank",
+      "baseUrl": "http://infinity:7997",
     },
   ],
 }
 ```
 
-| Field      | Meaning                                                                                   |
-| ---------- | ----------------------------------------------------------------------------------------- |
-| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.         |
-| `provider` | A `providers[].id` of type `system-one`. An unknown id, or any other type, fails startup. |
-| `model`    | Model id sent verbatim on the wire.                                                       |
+### The rerank-model catalogue
 
-There is no price field. A request's cost is the cost the wire reports; a wire
-that reports none is recorded as unknown, never as zero.
-
-One client is built per catalogue id at boot, so two entries on two routes never
-share an endpoint. An absent or empty `decisionModels[]` array means no client
-exists at all, and every call names an id outside the catalogue.
-
-### A conventional reranker in the same seat (experimental)
-
-`rerankModels[]` is a second catalogue for the same rank seat. A tool's
-`rerank.model` may name an id from either catalogue; the stored record
-(`display.rerank.scores`) is the same. Ids are unique across both catalogues.
-A reranker entry needs a provider of `type: "cohere"`: it posts to
-`{baseUrl}/rerank` (the Cohere v2 wire) with a bearer `key`; `baseUrl` is
-optional and defaults to `https://api.cohere.com/v2`. OpenRouter serves the same
-wire at `https://openrouter.ai/api/v1` with the models `cohere/rerank-5-fast`
-and `cohere/rerank-5-pro`.
+`rerankModels[]` is a sibling of `decisionModels[]`. A tool's `rerank.model`
+may name an id from either catalogue, so an id is unique across both: a blank
+or repeated id fails startup naming the array-index paths (for example
+`decisionModels[0].id` and `rerankModels[1].id`) and never the value. `id`,
+`provider`, and `model` accept `{env:…}` and `{path:…}` and must resolve
+nonblank. `provider` must name a `cohere-rerank` provider. `model` is sent
+verbatim.
 
 ```jsonc
 {
   "providers": [
     {
       "id": "openrouter-rerank",
-      "type": "cohere",
+      "type": "cohere-rerank",
       "key": "{env:OPENROUTER_API_KEY}",
       "baseUrl": "https://openrouter.ai/api/v1",
     },
@@ -118,13 +108,14 @@ and `cohere/rerank-5-pro`.
 }
 ```
 
-The reranker scores the objective (else the query) against each card in one
-request (split at 1000 cards), with the same key protection and card bound. Its
-relevance scores are recorded as `display.rerank.scores`; a card it does not
-score keeps canonical order. A `cohere` provider never serves a `models[]` or
-`embeddingModels[]` entry.
+The reranker scores the objective (else the query) against the cards' texts,
+with the same key protection and card bound as a decision call. It carries no
+rubric. A request carries at most 1,000 cards; a larger call is split into
+requests sent at once, each with only its own cards. A request is accepted only
+when every card gets one finite score, and an unaccepted request leaves only its
+own cards unjudged, as a decision request does.
 
-## 3. A tool opts in
+## 4. A tool opts in
 
 A tool's rerank block names one catalogue id. **Presence enables ranking**:
 there is no `mode` and no `off` value, so removing the block is how a tool
@@ -145,9 +136,9 @@ stops ranking.
 }
 ```
 
-A `rerank.model` the catalogue does not define fails startup naming the path
-(`webSearch.rerank.model`, `tools.grep.rerank.model`), so a typo cannot silently
-rank with nothing.
+A `rerank.model` that neither `decisionModels[]` nor `rerankModels[]` defines
+fails startup naming the path (`webSearch.rerank.model`,
+`tools.grep.rerank.model`), so a typo cannot silently rank with nothing.
 
 ### What naming a model discloses
 
@@ -160,7 +151,7 @@ read: a finding that read admission refuses never becomes a card. Name a model
 only on a provider you accept that disclosure for.
 
 The one protection is exact-key replacement: complete occurrences of the
-decision provider's own resolved `key` in the query, objective, and candidate
+rank provider's own resolved `key` in the query, objective, and candidate
 text are replaced with `[REDACTED]` before a request is sent, and the ranked
 tools apply the same replacement to their returned text and locators. This is
 not a secret detector; it removes that one configured key and nothing else.
@@ -184,7 +175,7 @@ cost beside a result; the model never reads that record.
 
 ## Cost and failure
 
-A decision call never fails the tool call that asked. Each attempt times out
+A rank call (decision or rerank) never fails the tool call that asked. Each attempt times out
 after 10 seconds; transient failures (408, 429, 5xx, transport errors) are
 retried up to 3 attempts in total, with `retry-after` honoured up to 5 seconds.
 An exhausted retry, a bad key, or a rank naming a catalogue id with no client
@@ -197,10 +188,23 @@ tokens and cost are not counted.
 **Unavailable is not a negative judgment.** A model that could not answer says
 nothing about relevance. There is no fallback to a chat model.
 
-A request carries at most 256 cards with their yes/no questions; a larger batch
-is split into several requests sent at once, each carrying only its own cards.
-A failed request leaves only its own cards unjudged, and the call is
-unavailable only when every request failed.
+A decision request carries at most 256 cards with their yes/no questions; a
+rerank request carries at most 1,000 cards. A larger batch is split into several
+requests sent at once, each carrying only its own cards. A failed request leaves
+only its own cards unjudged, and the call is unavailable only when every request
+failed.
+
+A rerank response must score every card of its request exactly once, with a
+finite score. A skipped, repeated, or out-of-range index, a malformed body, a
+body over 1 MiB, or a served model id that contains the key makes that request
+unavailable. An attempt timeout is retried like any other transient failure.
+
+**Rerank cost.** A rerank request's cost is the `usage.cost` the wire reports
+(OpenRouter does; Cohere reports billed search units, not cost), else it is
+unknown, never zero and never computed from a price. Its token count is
+`usage.total_tokens`, else `usage.prompt_tokens`. `outputTokens` is `0`. A
+rerank call writes no Run usage record: like a decision call it is a side call
+(tracked in [#1592](https://github.com/leon0399/llame/issues/1592)).
 
 The tool's own deadline and the Run's cancellation also stop every request and
 every retry wait. Those are not ranking failures: the tool reports its timeout
@@ -210,7 +214,8 @@ Each call writes one `decision.completed` line with `tool`, `model` (the first
 accepted response's served id, or `null`), `cards`, `requests`, `judged`,
 `inputTokens`, `outputTokens`, `costUsd`, and `latencyMs`. Tokens and cost sum
 the accepted responses only; `costUsd` is `null` when any accepted response
-reports no cost or none was accepted.
+reports no cost or none was accepted, and a rerank call's `inputTokens` is
+`null` when any accepted response reports no count.
 
 ## Evaluating a model on labeled cases
 

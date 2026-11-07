@@ -8,6 +8,7 @@ import {
   type DecisionModelConfig,
   type ProviderConfig,
 } from '../instance-config/llame-config';
+import type { RerankModelConfig } from '../instance-config/rerank-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
 import { createModelClient } from './model-client-factory';
 import type { createOpenAICompletionsModelClient } from './openai-completions-model-client';
@@ -152,6 +153,7 @@ function createService(overrides: {
   models?: Array<SystemModelCatalogEntry>;
   providers?: Array<ProviderConfig>;
   decisionModels?: Array<DecisionModelConfig>;
+  rerankModels?: Array<RerankModelConfig>;
 }): ModelsService {
   const instanceConfig: InstanceConfigReader & ProductIdentityReader = {
     productUserAgent: USER_AGENT,
@@ -165,6 +167,9 @@ function createService(overrides: {
       models: overrides.models ?? CATALOG,
       ...(overrides.decisionModels !== undefined && {
         decisionModels: overrides.decisionModels,
+      }),
+      ...(overrides.rerankModels !== undefined && {
+        rerankModels: overrides.rerankModels,
       }),
     },
   };
@@ -236,6 +241,35 @@ describe('ModelsService', () => {
     );
     expect(JSON.stringify(response)).not.toContain('jev-1.1');
     expect(JSON.stringify(response)).not.toContain('decision-key');
+  });
+
+  it('lists no rerank model and keeps a chat model that shares a rerank id', () => {
+    const [chatModel] = CATALOG;
+    const service = createService({
+      defaultModelId: chatModel.id,
+      providers: [
+        DEFAULT_PROVIDER,
+        {
+          id: 'rerank',
+          type: 'cohere-rerank',
+          key: 'rerank-key',
+          baseUrl: 'https://rerank.example/v2',
+          headers: {},
+        },
+      ],
+      rerankModels: [
+        { id: chatModel.id, provider: 'rerank', model: 'rerank-v5.0-fast' },
+        { id: 'rerank-only', provider: 'rerank', model: 'rerank-v5.0-pro' },
+      ],
+    });
+
+    const response = service.getAvailableModels();
+
+    expect(response.models.map((model) => model.id)).toEqual(
+      CATALOG.map((model) => model.id),
+    );
+    expect(JSON.stringify(response)).not.toContain('rerank-v5.0');
+    expect(JSON.stringify(response)).not.toContain('rerank-key');
   });
 
   it('publishes a manually declared Codex model without provider credentials or invented pricing', () => {

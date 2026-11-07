@@ -91,7 +91,7 @@ function buildClient(
     case 'opencode-go':
       return createOpenCodeGoClient(provider, model, userAgent, dependencies);
     case 'system-one':
-    case 'cohere':
+    case 'cohere-rerank':
       // A decision provider is deliberately NOT a `ModelClient`: a System One
       // call returns typed probabilities in one forward pass, with its own
       // usage shape, and never streams. Startup already rejects a `models[]`

@@ -1,25 +1,41 @@
 /**
- * The conventional-reranker client for the rank seat (experimental): one
- * Cohere Rerank v2 request per call through the AI SDK's `rerank()`, bounded
- * retries, and the same failure vocabulary as the System One client so
- * the seat treats both alike.
+ * The conventional-reranker client for the rank seat: one Cohere v2 `/rerank`
+ * request per call through the AI SDK's `rerank()`, with the decision
+ * client's attempt loop, backoff, and `retry-after` cap, and the same failure
+ * vocabulary, so the seat treats both backends alike.
+ *
+ * Failure posture matches `createDecisionClient`: `rerank` never throws for a
+ * provider problem. Only an abort of the caller's signal rejects. The SDK
+ * runs one attempt per try (`maxRetries: 0`) because its own loop honours
+ * `retry-after` for 60 s, retries 409, and never retries a timeout.
  */
 
 import {
   APICallError,
-  InvalidResponseDataError,
   JSONParseError,
   RetryError,
   TypeValidationError,
   rerank,
+  type RerankResult,
 } from 'ai';
 import { createCohere } from '@ai-sdk/cohere';
+import type { RerankingModelV3 } from '@ai-sdk/provider';
 import { z } from 'zod';
 
-import type { CohereProviderConfig } from '../instance-config/llame-config';
+import type { CohereRerankProviderConfig } from '../instance-config/rerank-config';
+import {
+  READ_ERROR,
+  backoffMs,
+  classifyStatus,
+  readBoundedText,
+  retryAfterMs,
+  runAttempts,
+  sleepFor,
+  transportFailure,
+  type AttemptResult,
+} from './decision-client';
 import {
   DECISION_ATTEMPT_TIMEOUT_MS,
-  DECISION_MAX_ATTEMPTS,
   type DecisionFailureReason,
   type DecisionUsage,
 } from './decision-protocol';
@@ -34,9 +50,9 @@ export type RerankRequest = {
 export type RerankOutcome =
   | {
       readonly status: 'answered';
-      /** The served model id when the response names one, else the configured slug. */
+      /** The served model id when the response names one, else the catalog model. */
       readonly model: string;
-      /** Document index → relevance score. Unlisted documents are unscored. */
+      /** Document index to relevance score, one entry per document. */
       readonly scores: ReadonlyMap<number, number>;
       readonly usage: DecisionUsage;
       readonly latencyMs: number;
@@ -57,172 +73,306 @@ type FetchLike = (
 ) => Promise<Response>;
 
 export type RerankClientDependencies = {
+  /** Test seam; production uses the global fetch. */
   readonly fetch?: FetchLike;
+  /** Test seam; production waits for real. Settles early when `signal` aborts. */
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Test seam for latency measurement. */
   readonly now?: () => number;
+  readonly attemptTimeoutMs?: number;
+};
+
+type Accepted = {
+  readonly model: string;
+  readonly scores: ReadonlyMap<number, number>;
+  readonly usage: DecisionUsage;
+};
+
+/** Everything one client needs, resolved once from config and dependencies. */
+type RerankWire = {
+  readonly model: RerankingModelV3;
+  readonly modelId: string;
+  /** The resolved credential; a served model id must not contain it. */
+  readonly key: string | null;
+  readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  readonly now: () => number;
+  readonly attemptTimeoutMs: number;
+};
+
+/** A 2xx body the client refuses to parse: over the byte bound or absent. */
+class UnreadableResponseError extends Error {}
+
+/**
+ * Create the rerank client for one configured `cohere-rerank` provider and one
+ * model. The base URL is the operator's (or Cohere's); the `/rerank` path is
+ * the SDK's.
+ */
+export function createRerankClient(
+  provider: CohereRerankProviderConfig,
+  modelId: string,
+  dependencies: RerankClientDependencies = {},
+): RerankClient {
+  const wire: RerankWire = {
+    model: createCohere({
+      // Always explicit, so the SDK never reads COHERE_API_KEY.
+      apiKey: provider.key ?? '',
+      baseURL: provider.baseUrl,
+      headers: requestHeaders(provider),
+      fetch: boundedFetch(
+        dependencies.fetch ?? ((input, init) => fetch(input, init)),
+      ),
+    }).reranking(modelId),
+    modelId,
+    key: provider.key,
+    sleep: dependencies.sleep ?? sleepFor,
+    now: dependencies.now ?? Date.now,
+    attemptTimeoutMs:
+      dependencies.attemptTimeoutMs ?? DECISION_ATTEMPT_TIMEOUT_MS,
+  };
+  return { rerank: (request) => rerankWith(wire, request) };
+}
+
+async function rerankWith(
+  wire: RerankWire,
+  request: RerankRequest,
+): Promise<RerankOutcome> {
+  const startedAt = wire.now();
+  const latencyMs = () => Math.max(0, Math.round(wire.now() - startedAt));
+  const result = await runAttempts({
+    signal: request.signal,
+    sleep: wire.sleep,
+    attempt: (number) => attempt(wire, request, number),
+  });
+  if (result.kind === 'failed') {
+    return {
+      status: 'unavailable',
+      reason: result.reason,
+      latencyMs: latencyMs(),
+    };
+  }
+  return { status: 'answered', ...result.accepted, latencyMs: latencyMs() };
+}
+
+async function attempt(
+  wire: RerankWire,
+  request: RerankRequest,
+  number: number,
+): Promise<AttemptResult<Accepted>> {
+  const timeout = AbortSignal.timeout(wire.attemptTimeoutMs);
+  const signal =
+    request.signal === undefined
+      ? timeout
+      : AbortSignal.any([request.signal, timeout]);
+  try {
+    const result = await rerank({
+      model: wire.model,
+      query: request.query,
+      documents: [...request.documents],
+      maxRetries: 0,
+      abortSignal: signal,
+    });
+    const accepted = accept(wire, request.documents.length, result);
+    return accepted === undefined
+      ? { kind: 'failed', reason: 'invalid_response' }
+      : { kind: 'answered', accepted };
+  } catch (error) {
+    return attemptFailure(error, { wire, timeout, number });
+  }
+}
+
+/**
+ * Check what the SDK does not: every document scored once, by an integer
+ * index in range, with a finite score; a served id that does not carry the
+ * key; and the usage the wire reports.
+ */
+function accept(
+  wire: RerankWire,
+  count: number,
+  result: RerankResult<string>,
+): Accepted | undefined {
+  const scores = new Map<number, number>();
+  for (const { originalIndex, score } of result.ranking) {
+    const valid =
+      Number.isInteger(originalIndex) &&
+      originalIndex >= 0 &&
+      originalIndex < count &&
+      !scores.has(originalIndex) &&
+      Number.isFinite(score);
+    if (!valid) return undefined;
+    scores.set(originalIndex, score);
+  }
+  if (scores.size !== count) return undefined;
+
+  const body = WireBodySchema.safeParse(result.response.body);
+  const served = body.success ? body.data.model : undefined;
+  if (served !== undefined && wire.key !== null && served.includes(wire.key)) {
+    return undefined;
+  }
+  return {
+    model:
+      served !== undefined && PRINTABLE_ID.test(served) ? served : wire.modelId,
+    scores,
+    usage: usageOf(body.success ? body.data.usage : undefined),
+  };
+}
+
+/** A served id that is printable ASCII and short enough to log and display. */
+const PRINTABLE_ID = /^[\x21-\x7E]{1,256}$/u;
+
+const COUNT = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const COST = z.number().nonnegative();
+
+/** A field that is either valid under `schema` or unknown, never an error. */
+function lenient<T extends z.ZodType>(schema: T) {
+  return z
+    .unknown()
+    .transform((value): z.output<T> | undefined => {
+      const parsed = schema.safeParse(value);
+      return parsed.success ? parsed.data : undefined;
+    })
+    .optional();
+}
+
+/**
+ * The fields read from the raw body. OpenRouter reports
+ * `usage.{prompt_tokens,total_tokens,cost}`; Cohere only billed search units.
+ * A missing or malformed field is unknown, never zero, and never an error.
+ */
+const WireBodySchema = z.looseObject({
+  model: lenient(z.string().min(1)),
+  usage: lenient(
+    z.looseObject({
+      total_tokens: lenient(COUNT),
+      prompt_tokens: lenient(COUNT),
+      cost: lenient(COST),
+    }),
+  ),
+});
+
+function usageOf(
+  usage: z.infer<typeof WireBodySchema>['usage'],
+): DecisionUsage {
+  return {
+    inputTokens: usage?.total_tokens ?? usage?.prompt_tokens ?? null,
+    outputTokens: 0,
+    costUsd: usage?.cost ?? null,
+  };
+}
+
+type FailedAttempt = {
+  readonly wire: RerankWire;
+  readonly timeout: AbortSignal;
+  readonly number: number;
 };
 
 /**
- * Usage is read defensively from the raw body: OpenRouter reports
- * `usage.{prompt_tokens,total_tokens,cost}`, Cohere only billed search units.
- * Anything absent or malformed is unknown, never an error.
+ * Classify one failed attempt. The SDK reports a 2xx body it cannot parse as
+ * an `APICallError` that keeps the 2xx status, so that is a codec mismatch,
+ * not a rejection. Anything unrecognised is a transport failure.
  */
-const nonNegative = z.number().nonnegative().optional().catch(undefined);
-const RerankBodySchema = z.object({
-  model: z
-    .string()
-    .min(1)
-    .max(256)
-    .regex(/^[\x21-\x7E]+$/u)
-    .optional()
-    .catch(undefined),
-  usage: z
-    .object({
-      prompt_tokens: nonNegative,
-      input_tokens: nonNegative,
-      total_tokens: nonNegative,
-      cost: nonNegative,
-    })
-    .optional()
-    .catch(undefined),
-});
+function attemptFailure(
+  error: unknown,
+  failed: FailedAttempt,
+): AttemptResult<never> {
+  const { timeout, number } = failed;
+  if (timeout.aborted) return transportFailure(timeout, number);
+  const cause = RetryError.isInstance(error) ? error.lastError : error;
+  if (APICallError.isInstance(cause)) {
+    return statusFailure(cause, failed);
+  }
+  if (
+    cause instanceof UnreadableResponseError ||
+    TypeValidationError.isInstance(cause) ||
+    JSONParseError.isInstance(cause)
+  ) {
+    return { kind: 'failed', reason: 'invalid_response' };
+  }
+  return transportFailure(timeout, number);
+}
 
-function readBody(body: unknown): {
-  model: string | undefined;
-  usage: DecisionUsage;
-} {
-  const parsed = RerankBodySchema.safeParse(body);
-  const model = parsed.success ? parsed.data.model : undefined;
-  const usage = parsed.success ? parsed.data.usage : undefined;
+function statusFailure(
+  error: APICallError,
+  { wire, number }: FailedAttempt,
+): AttemptResult<never> {
+  const { statusCode } = error;
+  if (statusCode === undefined) {
+    return {
+      kind: 'retry',
+      reason: 'upstream_error',
+      delayMs: backoffMs(number),
+    };
+  }
+  if (statusCode >= 200 && statusCode < 300) {
+    return { kind: 'failed', reason: 'invalid_response' };
+  }
+  const reason = classifyStatus(statusCode);
+  if (reason === 'rejected') return { kind: 'failed', reason };
   return {
-    model,
-    usage: {
-      inputTokens: Math.round(
-        usage?.prompt_tokens ?? usage?.input_tokens ?? usage?.total_tokens ?? 0,
-      ),
-      outputTokens: 0,
-      costUsd: usage?.cost ?? null,
-    },
+    kind: 'retry',
+    reason,
+    delayMs:
+      retryAfterMs(error.responseHeaders?.['retry-after'] ?? null, wire.now) ??
+      backoffMs(number),
   };
 }
 
 /**
- * Each HTTP attempt gets its own timeout, as the System One client does.
- * OpenRouter's `/rerank` answers the Cohere v2 shape without Cohere's `meta`
- * field, which `@ai-sdk/cohere` requires (as `z.any()`, so any value passes);
- * an absent `meta` is filled with `null` before the SDK parses the body.
+ * Bound and repair what the SDK reads. A redirect would carry the credential
+ * to another host, so it is not followed. A failed response keeps its status
+ * and headers but not its body. A successful body streams under the decision
+ * lane's byte bound. OpenRouter and Infinity omit Cohere's `meta`, which
+ * `@ai-sdk/cohere` requires, so an absent `meta` is filled with `null` on a
+ * successful JSON body (vercel/ai#24699).
  */
-function withAttemptTimeout(fetchImpl: FetchLike | undefined): FetchLike {
+function boundedFetch(fetchImpl: FetchLike): FetchLike {
   return async (input, init) => {
-    const timeout = AbortSignal.timeout(DECISION_ATTEMPT_TIMEOUT_MS);
-    const signal =
-      init?.signal === undefined || init.signal === null
-        ? timeout
-        : AbortSignal.any([init.signal, timeout]);
-    const response = await (fetchImpl ?? fetch)(input, { ...init, signal });
-    if (!response.ok) return response;
-    const text = await response.text();
-    return new Response(withMeta(text), {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
+    const response = await fetchImpl(input, { ...init, redirect: 'manual' });
+    const headers = new Headers(response.headers);
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return new Response(null, { status: response.status, headers });
+    }
+    const text = await readBoundedText(response);
+    if (text === READ_ERROR) throw new Error('response body read failed');
+    if (text === undefined) throw new UnreadableResponseError();
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    return new Response(withMeta(text), { status: response.status, headers });
   };
 }
 
 function withMeta(text: string): string {
+  let body: unknown;
   try {
-    const body: unknown = JSON.parse(text);
-    if (typeof body !== 'object' || body === null || 'meta' in body) {
-      return text;
-    }
-    return JSON.stringify({ ...body, meta: null });
+    body = JSON.parse(text);
   } catch {
     return text;
   }
-}
-
-function operatorHeaders(
-  provider: CohereProviderConfig,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(provider.headers)
-      .map(([name, parts]) => [name, parts.join('')] as const)
-      // An empty render omits the header.
-      .filter(([, value]) => value.length > 0),
-  );
+  const object = z.looseObject({}).safeParse(body);
+  if (!object.success || 'meta' in object.data) return text;
+  return JSON.stringify({ ...object.data, meta: null });
 }
 
 /**
- * Create the rerank client for one configured `cohere` provider and one model
- * slug. The base URL is the operator's (or Cohere's); the `/rerank` path is
- * the SDK's.
+ * The operator's header map rendered without a Chat session. A keyless entry,
+ * or one whose operator sets an `Authorization` header in another letter
+ * case, masks the SDK's `Bearer` default with `undefined`, so an operator
+ * `Authorization` is the only one sent.
  */
-export function createRerankClient(
-  provider: CohereProviderConfig,
-  modelId: string,
-  dependencies: RerankClientDependencies = {},
-): RerankClient {
-  const now = dependencies.now ?? Date.now;
-  const model = createCohere({
-    apiKey: provider.key,
-    baseURL: provider.baseUrl,
-    headers: operatorHeaders(provider),
-    fetch: withAttemptTimeout(dependencies.fetch),
-  }).reranking(modelId);
-
-  return {
-    async rerank(request) {
-      const startedAt = now();
-      try {
-        const result = await rerank({
-          model,
-          query: request.query,
-          documents: [...request.documents],
-          maxRetries: DECISION_MAX_ATTEMPTS - 1,
-          ...(request.signal !== undefined && { abortSignal: request.signal }),
-        });
-        const body = readBody(result.response.body);
-        const scores = new Map<number, number>();
-        for (const { originalIndex, score } of result.ranking) {
-          if (Number.isFinite(score)) scores.set(originalIndex, score);
-        }
-        return {
-          status: 'answered',
-          model: body.model ?? modelId,
-          scores,
-          usage: body.usage,
-          latencyMs: now() - startedAt,
-        };
-      } catch (error) {
-        return {
-          status: 'unavailable',
-          reason: failureReason(error),
-          latencyMs: now() - startedAt,
-        };
-      }
-    },
-  };
-}
-
-function failureReason(error: unknown): DecisionFailureReason {
-  if (RetryError.isInstance(error)) return failureReason(error.lastError);
-  if (APICallError.isInstance(error)) return statusReason(error.statusCode);
-  if (
-    TypeValidationError.isInstance(error) ||
-    JSONParseError.isInstance(error) ||
-    InvalidResponseDataError.isInstance(error)
-  ) {
-    return 'invalid_response';
-  }
-  if (error instanceof Error && error.name === 'TimeoutError') return 'timeout';
-  return 'upstream_error';
-}
-
-function statusReason(status: number | undefined): DecisionFailureReason {
-  if (status === undefined) return 'upstream_error';
-  if (status === 408) return 'timeout';
-  if (status === 429) return 'rate_limited';
-  if (status >= 500) return 'upstream_error';
-  // 400/401/402/403/404/413/422: a bad key, no credit, or a bad request.
-  return 'rejected';
+function requestHeaders(
+  provider: CohereRerankProviderConfig,
+): Record<string, string> {
+  const operator = Object.entries(provider.headers)
+    .map(([name, parts]) => [name, parts.join('')] as const)
+    // An empty render omits the header.
+    .filter(([, value]) => value.length > 0);
+  const masksBearer =
+    provider.key === null ||
+    operator.some(([name]) => name.toLowerCase() === 'authorization');
+  // The SDK spreads this map over its own defaults and drops `undefined`.
+  return Object.assign(
+    {},
+    masksBearer ? { Authorization: undefined } : {},
+    Object.fromEntries(operator),
+  );
 }

@@ -14,6 +14,7 @@ import {
   createRerankClient,
   type RerankClient,
   type RerankOutcome,
+  type RerankRequest,
 } from './rerank-client';
 import {
   type DecisionAnswer,
@@ -344,18 +345,18 @@ async function decideSafely(
   }
 }
 
-/** One `answered` request of a batch's outcomes. */
-type AnsweredOutcome = Extract<DecisionOutcome, { status: 'answered' }>;
-
-/** Accepted usage only; cost is null if any accepted cost is unknown. */
+/** Accepted usage only; a count or cost is null if any accepted one is unknown. */
 function sumAccepted(
   answered: ReadonlyArray<{ readonly usage: DecisionUsage }>,
 ): DecisionUsage {
-  let inputTokens = 0;
+  let inputTokens: number | null = 0;
   let outputTokens = 0;
   let costUsd: number | null = 0;
   for (const { usage } of answered) {
-    inputTokens += usage.inputTokens;
+    inputTokens =
+      inputTokens === null || usage.inputTokens === null
+        ? null
+        : inputTokens + usage.inputTokens;
     outputTokens += usage.outputTokens;
     costUsd =
       costUsd === null || usage.costUsd === null
@@ -408,7 +409,7 @@ function mergeOutcomes(
 }
 
 function firstFailureReason(
-  outcomes: ReadonlyArray<DecisionOutcome>,
+  outcomes: ReadonlyArray<DecisionOutcome | RerankOutcome>,
 ): DecisionFailureReason {
   for (const outcome of outcomes) {
     if (outcome.status === 'unavailable') return outcome.reason;
@@ -443,48 +444,68 @@ export async function judgeCandidatesWithReranker(
       options.logger,
     );
   }
-
-  const protectedValues = options.protectedValues ?? [];
-  const protect = (text: string) =>
-    redactProtectedString(text, protectedValues);
-  const query = protect(input.objective ?? input.query);
-  const documents = input.cards.map((card) =>
-    cutStringAtCodePointBoundary(protect(card.text), input.cardBound),
-  );
-  const starts: Array<number> = [];
-  for (
-    let start = 0;
-    start < documents.length;
-    start += RERANK_MAX_DOCUMENTS_PER_REQUEST
-  ) {
-    starts.push(start);
-  }
+  const requests = buildRerankRequests(input, options.protectedValues ?? []);
   const outcomes = await Promise.all(
-    starts.map((start) =>
-      rerankSafely(client, {
-        query,
-        documents: documents.slice(
-          start,
-          start + RERANK_MAX_DOCUMENTS_PER_REQUEST,
-        ),
-        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
-      }),
-    ),
+    requests.map((request) => rerankSafely(client, request)),
   );
   const judgement = logged(
     input,
-    starts.length,
-    mergeRerankOutcomes(input, starts, outcomes),
+    requests.length,
+    mergeRerankOutcomes(input, outcomes),
     options.logger,
   );
   input.abortSignal?.throwIfAborted();
   return judgement;
 }
 
+/** The query and card texts after key replacement and the card cut, in chunks. */
+function buildRerankRequests(
+  input: JudgeCandidatesInput,
+  protectedValues: ReadonlyArray<string>,
+): Array<RerankRequest> {
+  const protect = (text: string) =>
+    redactProtectedString(text, protectedValues);
+  const query = protect(input.objective ?? input.query);
+  const documents = input.cards.map((card) =>
+    cutStringAtCodePointBoundary(protect(card.text), input.cardBound),
+  );
+  const requests: Array<RerankRequest> = [];
+  for (
+    let start = 0;
+    start < documents.length;
+    start += RERANK_MAX_DOCUMENTS_PER_REQUEST
+  ) {
+    requests.push({
+      query,
+      documents: documents.slice(
+        start,
+        start + RERANK_MAX_DOCUMENTS_PER_REQUEST,
+      ),
+      ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+    });
+  }
+  return requests;
+}
+
+/** Each answered chunk's scores, keyed by card index across the whole call. */
+function scoresByCardIndex(
+  outcomes: ReadonlyArray<RerankOutcome>,
+): Map<number, number> {
+  const scored = new Map<number, number>();
+  outcomes.forEach((outcome, chunk) => {
+    if (outcome.status !== 'answered') return;
+    const start = chunk * RERANK_MAX_DOCUMENTS_PER_REQUEST;
+    for (const [index, score] of outcome.scores) {
+      scored.set(start + index, score);
+    }
+  });
+  return scored;
+}
+
 /** Ask the reranker, tolerating a client that throws; an abort lands here as `unavailable` too. */
 async function rerankSafely(
   client: RerankClient,
-  request: Parameters<RerankClient['rerank']>[0],
+  request: RerankRequest,
 ): Promise<RerankOutcome> {
   try {
     return await client.rerank(request);
@@ -500,34 +521,23 @@ async function rerankSafely(
  */
 function mergeRerankOutcomes(
   input: JudgeCandidatesInput,
-  starts: ReadonlyArray<number>,
   outcomes: ReadonlyArray<RerankOutcome>,
 ): CandidateJudgement {
   const latencyMs = Math.max(
     0,
     ...outcomes.map((outcome) => outcome.latencyMs),
   );
-  const answered = outcomes.flatMap((outcome, chunk) =>
-    outcome.status === 'answered'
-      ? [{ ...outcome, start: starts[chunk] ?? 0 }]
-      : [],
+  const answered = outcomes.flatMap((outcome) =>
+    outcome.status === 'answered' ? [outcome] : [],
   );
   const first = answered[0];
   if (first === undefined) {
-    const failed = outcomes.find((outcome) => outcome.status === 'unavailable');
-    return unavailableJudgement(
-      input,
-      failed?.status === 'unavailable' ? failed.reason : 'upstream_error',
-      latencyMs,
-    );
+    return unavailableJudgement(input, firstFailureReason(outcomes), latencyMs);
   }
 
-  const scored = new Map<number, number>();
-  for (const { scores, start } of answered) {
-    for (const [index, score] of scores) scored.set(start + index, score);
-  }
   const probabilities = new Map<string, number>();
   const unanswered: Array<string> = [];
+  const scored = scoresByCardIndex(outcomes);
   input.cards.forEach((card, index) => {
     const score = scored.get(index);
     if (score === undefined) unanswered.push(card.key);
@@ -610,12 +620,14 @@ export class DecisionsService implements DecisionJudge {
       const provider = config.providers.find(
         (candidate) => candidate.id === entry.provider,
       );
-      if (provider?.type !== 'cohere') continue;
+      if (provider?.type !== 'cohere-rerank') continue;
       const client = createRerankClient(provider, entry.model);
       entries.set(entry.id, {
         judge: (input, protectedValues) =>
           judgeCandidatesWithReranker(client, input, { protectedValues }),
-        protectedValues: normalizeProtectedValues([provider.key]),
+        protectedValues: normalizeProtectedValues(
+          provider.key === null ? [] : [provider.key],
+        ),
       });
     }
     this.entries = entries;

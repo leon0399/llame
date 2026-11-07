@@ -30,7 +30,7 @@ function loadInstanceConfig(env: NodeJS.ProcessEnv = {}) {
 
 const COHERE_PROVIDER = {
   id: 'openrouter-rerank',
-  type: 'cohere',
+  type: 'cohere-rerank',
   key: 'rr-test-key',
   baseUrl: 'https://openrouter.ai/api/v1',
 };
@@ -48,13 +48,13 @@ const RERANK_MODEL = {
   model: 'cohere/rerank-5-fast',
 };
 
-describe('cohere provider config', () => {
+describe('cohere-rerank provider config', () => {
   it('resolves key, baseUrl, and no default headers', () => {
     writeConfig({ providers: [COHERE_PROVIDER] });
 
     expect(loadInstanceConfig().providers[0]).toEqual({
       id: 'openrouter-rerank',
-      type: 'cohere',
+      type: 'cohere-rerank',
       key: 'rr-test-key',
       baseUrl: 'https://openrouter.ai/api/v1',
       headers: {},
@@ -63,7 +63,7 @@ describe('cohere provider config', () => {
 
   it('defaults baseUrl to the Cohere API', () => {
     writeConfig({
-      providers: [{ id: 'c', type: 'cohere', key: 'k' }],
+      providers: [{ id: 'c', type: 'cohere-rerank', key: 'k' }],
     });
 
     expect(loadInstanceConfig().providers[0]).toMatchObject({
@@ -71,22 +71,61 @@ describe('cohere provider config', () => {
     });
   });
 
-  it('requires a key', () => {
-    writeConfig({ providers: [{ id: 'c', type: 'cohere' }] });
-
-    expect(() => loadInstanceConfig()).toThrow(/key/u);
-  });
-
-  it('fails startup when the key interpolates to empty', () => {
+  it('resolves key and baseUrl through interpolation', () => {
     writeConfig({
-      providers: [{ id: 'c', type: 'cohere', key: '{env:NOT_SET_RR_KEY:-}' }],
+      providers: [
+        {
+          id: 'c',
+          type: 'cohere-rerank',
+          key: '{env:RR_KEY}',
+          baseUrl: '{env:RR_URL}',
+        },
+      ],
     });
 
-    expect(() => loadInstanceConfig()).toThrow(
-      new InstanceConfigError(
-        'providers[c].key: must resolve to a nonblank string',
-      ),
-    );
+    expect(
+      loadInstanceConfig({ RR_KEY: 'k1', RR_URL: 'https://rr.example/v2' })
+        .providers[0],
+    ).toMatchObject({ key: 'k1', baseUrl: 'https://rr.example/v2' });
+  });
+
+  it('loads a keyless entry with an explicit baseUrl', () => {
+    writeConfig({
+      providers: [
+        {
+          id: 'infinity',
+          type: 'cohere-rerank',
+          baseUrl: 'http://infinity:7997',
+        },
+        {
+          id: 'blank-key',
+          type: 'cohere-rerank',
+          key: '{env:NOT_SET_RR_KEY:-}',
+          baseUrl: 'http://infinity:7997',
+        },
+      ],
+    });
+
+    expect(loadInstanceConfig().providers).toMatchObject([
+      { id: 'infinity', key: null, baseUrl: 'http://infinity:7997' },
+      { id: 'blank-key', key: null, baseUrl: 'http://infinity:7997' },
+    ]);
+  });
+
+  it('fails a keyless entry on the default endpoint naming the entry and key', () => {
+    writeConfig({ providers: [{ id: 'c', type: 'cohere-rerank' }] });
+
+    expect(() => loadInstanceConfig()).toThrow(/providers\[c\]\.key/u);
+  });
+
+  it('fails startup when the key interpolates to empty without a baseUrl', () => {
+    writeConfig({
+      providers: [
+        { id: 'c', type: 'cohere-rerank', key: '{env:NOT_SET_RR_KEY:-}' },
+      ],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(/providers\[c\]\.key/u);
   });
 
   it('fails startup when a present baseUrl interpolates to empty', () => {
@@ -94,27 +133,56 @@ describe('cohere provider config', () => {
       providers: [
         {
           id: 'c',
-          type: 'cohere',
+          type: 'cohere-rerank',
           key: 'k',
           baseUrl: '{env:NOT_SET_RR_URL:-}',
         },
       ],
     });
 
-    expect(() => loadInstanceConfig()).toThrow(/providers\[c\]\.baseUrl/u);
+    expect(() => loadInstanceConfig()).toThrow(
+      new InstanceConfigError(
+        'providers[c].baseUrl: must resolve to a nonblank string',
+      ),
+    );
   });
 
-  it('rejects {session:id} in a header', () => {
+  it('rejects an accountId naming the entry and field', () => {
+    writeConfig({
+      providers: [{ ...COHERE_PROVIDER, accountId: 'acct' }],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(/accountId/u);
+  });
+
+  it('gives the type an empty default header map and keeps billing', () => {
+    writeConfig({
+      providers: [
+        {
+          ...COHERE_PROVIDER,
+          billing: 'subscription',
+          headers: { 'X-Tag': 'rr' },
+        },
+      ],
+    });
+
+    expect(loadInstanceConfig().providers[0]).toMatchObject({
+      billing: 'subscription',
+      headers: { 'X-Tag': ['rr'] },
+    });
+  });
+
+  it('rejects an authored {session:id} header naming the provider and header', () => {
     writeConfig({
       providers: [{ ...COHERE_PROVIDER, headers: { 'X-Tag': '{session:id}' } }],
     });
 
     expect(() => loadInstanceConfig()).toThrow(
-      /a cohere provider has no Chat session/u,
+      /providers\[openrouter-rerank\]\.headers\.X-Tag: a cohere-rerank provider has no Chat session/u,
     );
   });
 
-  it('fails a models[] entry naming a cohere provider', () => {
+  it('fails a models[] entry naming a cohere-rerank provider', () => {
     writeConfig({
       providers: [COHERE_PROVIDER],
       models: [
@@ -128,11 +196,11 @@ describe('cohere provider config', () => {
     });
 
     expect(() => loadInstanceConfig()).toThrow(
-      /models\[chat-on-rerank\]\.provider: .*"cohere"/u,
+      /models\[chat-on-rerank\]\.provider: .*"cohere-rerank"/u,
     );
   });
 
-  it('fails an embeddingModels[] entry naming a cohere provider', () => {
+  it('fails an embeddingModels[] entry naming a cohere-rerank provider', () => {
     writeConfig({
       providers: [COHERE_PROVIDER],
       embeddingModels: [
@@ -146,7 +214,7 @@ describe('cohere provider config', () => {
     });
 
     expect(() => loadInstanceConfig()).toThrow(
-      /embeddingModels\[embed-on-rerank\]\.provider: .*"cohere"/u,
+      /embeddingModels\[embed-on-rerank\]\.provider: .*"cohere-rerank"/u,
     );
   });
 });
@@ -164,7 +232,78 @@ describe('rerankModels config', () => {
     expect(loadInstanceConfig().rerankModels).toEqual([RERANK_MODEL]);
   });
 
-  it('rejects a provider that is not a cohere entry', () => {
+  it('resolves id, provider, and model through interpolation', () => {
+    writeConfig({
+      providers: [COHERE_PROVIDER],
+      rerankModels: [
+        {
+          id: '{env:RR_ID}',
+          provider: '{env:RR_PROVIDER}',
+          model: '{env:RR_MODEL}',
+        },
+      ],
+    });
+
+    expect(
+      loadInstanceConfig({
+        RR_ID: 'rr-fast',
+        RR_PROVIDER: 'openrouter-rerank',
+        RR_MODEL: 'cohere/rerank-5-fast',
+      }).rerankModels,
+    ).toEqual([RERANK_MODEL]);
+  });
+
+  it('rejects a blank model naming its array-index path', () => {
+    writeConfig({
+      providers: [COHERE_PROVIDER],
+      rerankModels: [{ ...RERANK_MODEL, model: '{env:NOT_SET_RR_MODEL:-}' }],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(
+      new InstanceConfigError(
+        'rerankModels[0].model: must resolve to a nonblank string',
+      ),
+    );
+  });
+
+  it('rejects a blank id naming its array-index path', () => {
+    writeConfig({
+      providers: [COHERE_PROVIDER],
+      rerankModels: [
+        RERANK_MODEL,
+        { ...RERANK_MODEL, id: '{env:NOT_SET_RR_ID:-}' },
+      ],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(
+      new InstanceConfigError(
+        'rerankModels[1].id: must resolve to a nonblank string',
+      ),
+    );
+  });
+
+  it('names both paths and no value when an interpolated id repeats', () => {
+    writeConfig({
+      providers: [COHERE_PROVIDER, SYSTEM_ONE_PROVIDER],
+      decisionModels: [
+        { id: '{env:SHARED_ID}', provider: 'decisions', model: 'jev' },
+      ],
+      rerankModels: [{ ...RERANK_MODEL, id: '{env:SHARED_ID}' }],
+    });
+
+    let message = '';
+    try {
+      loadInstanceConfig({ SHARED_ID: 'sk-secret-looking-id' });
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+
+    expect(message).toContain('decisionModels[0].id');
+    expect(message).toContain('rerankModels[0].id');
+    expect(message).not.toContain('sk-secret-looking-id');
+  });
+
+  it('rejects a provider that is not a cohere-rerank entry', () => {
     writeConfig({
       providers: [SYSTEM_ONE_PROVIDER],
       rerankModels: [{ ...RERANK_MODEL, provider: 'decisions' }],
@@ -172,7 +311,7 @@ describe('rerankModels config', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'rerankModels[0].provider: provider has type "system-one", not "cohere"',
+        'rerankModels[0].provider: provider has type "system-one", not "cohere-rerank"',
       ),
     );
   });
@@ -190,7 +329,7 @@ describe('rerankModels config', () => {
     );
   });
 
-  it('rejects a decision model naming a cohere provider', () => {
+  it('rejects a decision model naming a cohere-rerank provider', () => {
     writeConfig({
       providers: [COHERE_PROVIDER],
       decisionModels: [{ ...RERANK_MODEL, id: 'd' }],
@@ -198,7 +337,7 @@ describe('rerankModels config', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
-        'decisionModels[0].provider: provider has type "cohere", not "system-one"',
+        'decisionModels[0].provider: provider has type "cohere-rerank", not "system-one"',
       ),
     );
   });
