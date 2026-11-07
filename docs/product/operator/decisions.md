@@ -14,12 +14,15 @@ behavior:
 
 A decision model answers typed questions over one state in a single forward
 pass and returns probabilities instead of generated text. A tool uses it to
-rank its own candidates by asking one yes/no question per candidate. Nothing is
-enabled by default: without a `decisionModels[]` catalogue no client is built,
-no tool can name a model, and every tool keeps its canonical order.
+rank its own candidates by asking one yes/no question per candidate. A
+conventional **rerank model** (a Cohere-style cross-encoder) fills the same seat
+and returns one relevance score per candidate. Nothing is enabled by default:
+without either `decisionModels[]` or `rerankModels[]` no client is built, no
+tool can name a model, and every tool keeps its canonical order.
 
-Two layers, and they do not overlap. `decisionModels[]` is a **catalogue** of
-decision models: it says which providers and model ids exist. Each **tool**
+Two layers, and they do not overlap. `decisionModels[]` and `rerankModels[]`
+are **catalogues** of rank models: they say which providers and model ids
+exist. Each **tool**
 decides for itself whether it ranks and which catalogue entry judges it,
 through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`).
 
@@ -51,18 +54,75 @@ never serves a `models[]` or `embeddingModels[]` entry, and
 
 Routes verified on 2026-11-05 (same request and response JSON on each):
 
-| Route      | `baseUrl`                      | Model ids                                     | Status                   |
-| ---------- | ------------------------------ | --------------------------------------------- | ------------------------ |
-| Cohere     | `https://api.cohere.com/v2`    | `rerank-v3.5`                                 | Probed live (2026-11-07) |
-| OpenRouter | `https://openrouter.ai/api/v1` | `cohere/rerank-5-fast`, `cohere/rerank-5-pro` | Probed live (2026-11-07) |
-| Jina       | `https://api.jina.ai/v1`       | the model id Jina serves                      | Compatible by shape      |
-| Infinity   | the server's own URL           | the model id the server serves                | Compatible by shape      |
+| Route      | `baseUrl`                      | Model ids                                   |
+| ---------- | ------------------------------ | ------------------------------------------- |
+| OpenRouter | `https://openrouter.ai/api/v1` | `typesafe/jev-1.14`, `~typesafe/jev-latest` |
+| OpenCode   | `https://opencode.ai/zen/v1`   | `jev-1.13`, `jev-1.13-free`                 |
+| TypeSafe   | `https://api.typesafe.ai/v1`   | `jev-latest`, `jev-1.14.0`                  |
 
-Cohere and OpenRouter were exercised against the live service. Jina and
-Infinity answer the same `results[{ index, relevance_score }]` shape according
-to their published clients; they were not measured, so treat them as
-compatible, not verified. Voyage and TEI use other shapes and are not
-supported.
+An alias is not a revision: the response reports the model that answered, and
+that id is what the log line records. Pin a versioned id when you compare
+results over time.
+
+## 2. The decision-model catalogue
+
+```jsonc
+{
+  "decisionModels": [
+    {
+      "id": "jev-openrouter",
+      "provider": "openrouter-decisions",
+      "model": "~typesafe/jev-latest",
+    },
+  ],
+}
+```
+
+| Field      | Meaning                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.         |
+| `provider` | A `providers[].id` of type `system-one`. An unknown id, or any other type, fails startup. |
+| `model`    | Model id sent verbatim on the wire.                                                       |
+
+There is no price field. A request's cost is the cost the wire reports; a wire
+that reports none is recorded as unknown, never as zero.
+
+One client is built per catalogue id at boot, so two entries on two routes never
+share an endpoint. An absent or empty `decisionModels[]` array means no client
+exists at all, and every call names an id outside the catalogue.
+
+## 3. A provider of type `cohere-rerank`
+
+`type: "cohere-rerank"` speaks the Cohere v2 rerank wire: `POST {baseUrl}/rerank`
+with `model`, `query`, and `documents`, answered by `results` holding an
+`index` and a `relevance_score` for every document.
+
+- `baseUrl` is optional and defaults to `https://api.cohere.com/v2`. A
+  `baseUrl` that is present but resolves blank fails startup naming the field;
+  it never falls back to the default.
+- `key` is optional. A `key` that is absent or resolves blank makes the entry
+  **keyless**, which is valid only with an explicit `baseUrl`. A keyless entry
+  on the default Cohere URL fails startup naming `key`.
+- A keyless entry sends no `Authorization` header, and llame never reads
+  `COHERE_API_KEY` from the environment. An operator `headers` entry named
+  `Authorization` is still sent.
+- `accountId` is rejected. The type has an empty default header map, and an
+  authored `{session:id}` fails startup naming the provider and the header,
+  because a rank call has no Chat.
+- The type never serves a `models[]` or `embeddingModels[]` entry, and
+  `GET /api/v1/models` never lists a rerank model.
+
+| Route      | `baseUrl`                      | Model ids                                     | Status                               |
+| ---------- | ------------------------------ | --------------------------------------------- | ------------------------------------ |
+| OpenRouter | `https://openrouter.ai/api/v1` | `cohere/rerank-5-fast`, `cohere/rerank-5-pro` | Probed live (2026-11-07)             |
+| Cohere     | `https://api.cohere.com/v2`    | the model id Cohere serves                    | Compatible by wire shape, not probed |
+| Jina       | `https://api.jina.ai/v1`       | the model id Jina serves                      | Compatible by wire shape, not probed |
+| Infinity   | the server's own URL           | the model id the server serves                | Compatible by wire shape, not probed |
+
+Only OpenRouter was exercised against the live service. The others answer the
+same `results[{ index, relevance_score }]` shape according to their published
+clients; treat them as compatible, not verified. Voyage and TEI use other shapes
+and are not supported.
 
 Self-hosting needs no key: point `baseUrl` at the server and leave `key` out.
 
@@ -78,7 +138,7 @@ Self-hosting needs no key: point `baseUrl` at the server and leave `key` out.
 }
 ```
 
-### The rerank-model catalogue
+## 4. The rerank-model catalogue
 
 `rerankModels[]` is a sibling of `decisionModels[]`. A tool's `rerank.model`
 may name an id from either catalogue, so an id is unique across both: a blank
@@ -108,6 +168,9 @@ verbatim.
 }
 ```
 
+The probability a decision model returns and the relevance score a reranker
+returns are different quantities. Both are stored as `display.rerank.scores`;
+a tool only sorts within one call, and nothing compares scores across backends.
 The reranker scores the objective (else the query) against the cards' texts,
 with the same key protection and card bound as a decision call. It carries no
 rubric. A request carries at most 1,000 cards; a larger call is split into
@@ -115,7 +178,7 @@ requests sent at once, each with only its own cards. A request is accepted only
 when every card gets one finite score, and an unaccepted request leaves only its
 own cards unjudged, as a decision request does.
 
-## 4. A tool opts in
+## 5. A tool opts in
 
 A tool's rerank block names one catalogue id. **Presence enables ranking**:
 there is no `mode` and no `off` value, so removing the block is how a tool

@@ -7,7 +7,7 @@
 
 /** Resolved rerank settings of one tool. */
 export type ToolRerankConfig = {
-  /** A `decisionModels[].id`; the boot loader proves it exists. */
+  /** A `decisionModels[].id` or `rerankModels[].id`; the boot loader proves it exists. */
   readonly model: string;
 };
 

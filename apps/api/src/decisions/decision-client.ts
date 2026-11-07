@@ -16,7 +16,10 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
 import type { SystemOneProviderConfig } from '../instance-config/llame-config';
-import { type RequestHeaders } from '../models/request-headers';
+import {
+  type RequestHeaders,
+  type RequestHeaderTemplates,
+} from '../models/request-headers';
 import {
   DECISION_ATTEMPT_TIMEOUT_MS,
   DECISION_MAX_ATTEMPTS,
@@ -160,11 +163,10 @@ async function attempt(
   request: DecisionRequest,
   number: number,
 ): Promise<AttemptResult<Accepted>> {
-  const timeout = AbortSignal.timeout(wire.attemptTimeoutMs);
-  const signal =
-    request.signal === undefined
-      ? timeout
-      : AbortSignal.any([request.signal, timeout]);
+  const { timeout, signal } = attemptSignal(
+    wire.attemptTimeoutMs,
+    request.signal,
+  );
 
   let response: Response;
   try {
@@ -280,10 +282,7 @@ export async function readBoundedText(
  * ASCII case folding, as `withRequestHeaders` does.
  */
 function requestHeaders(provider: SystemOneProviderConfig): RequestHeaders {
-  const operator = Object.entries(provider.headers)
-    .map(([name, parts]) => [name, parts.join('')] as const)
-    // An empty render omits the header.
-    .filter(([, value]) => value.length > 0);
+  const operator = operatorHeaderEntries(provider.headers);
   const overridden = new Set(operator.map(([name]) => name.toLowerCase()));
   const base: RequestHeaders = {
     'content-type': 'application/json',
@@ -294,6 +293,27 @@ function requestHeaders(provider: SystemOneProviderConfig): RequestHeaders {
     ...Object.entries(base).filter(([name]) => !overridden.has(name)),
     ...operator,
   ]);
+}
+
+/** The operator's header templates rendered without a Chat; an empty render omits the header. */
+export function operatorHeaderEntries(
+  headers: RequestHeaderTemplates,
+): Array<readonly [string, string]> {
+  return Object.entries(headers)
+    .map(([name, parts]) => [name, parts.join('')] as const)
+    .filter(([, value]) => value.length > 0);
+}
+
+/** One attempt's timeout, and the signal that also follows the caller's. */
+export function attemptSignal(
+  timeoutMs: number,
+  caller: AbortSignal | undefined,
+) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return {
+    timeout,
+    signal: caller === undefined ? timeout : AbortSignal.any([caller, timeout]),
+  };
 }
 
 export function transportFailure(

@@ -10,29 +10,26 @@
  * `retry-after` for 60 s, retries 409, and never retries a timeout.
  */
 
-import {
-  APICallError,
-  JSONParseError,
-  RetryError,
-  TypeValidationError,
-  rerank,
-  type RerankResult,
-} from 'ai';
+import { APICallError, rerank, type RerankResult } from 'ai';
 import { createCohere } from '@ai-sdk/cohere';
 import type { RerankingModelV3 } from '@ai-sdk/provider';
+import { isRecord } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
 import type { CohereRerankProviderConfig } from '../instance-config/rerank-config';
 import {
   READ_ERROR,
+  attemptSignal,
   backoffMs,
   classifyStatus,
+  operatorHeaderEntries,
   readBoundedText,
   retryAfterMs,
   runAttempts,
   sleepFor,
   transportFailure,
   type AttemptResult,
+  type DecisionClientDependencies,
 } from './decision-client';
 import {
   DECISION_ATTEMPT_TIMEOUT_MS,
@@ -42,7 +39,7 @@ import {
 
 export type RerankRequest = {
   readonly query: string;
-  readonly documents: ReadonlyArray<string>;
+  readonly documents: Array<string>;
   /** The enclosing call's cancellation and deadline. */
   readonly signal?: AbortSignal;
 };
@@ -72,14 +69,12 @@ type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-export type RerankClientDependencies = {
-  /** Test seam; production uses the global fetch. */
+/** The decision client's test seams, with the wider `fetch` the SDK calls. */
+export type RerankClientDependencies = Omit<
+  DecisionClientDependencies,
+  'fetch'
+> & {
   readonly fetch?: FetchLike;
-  /** Test seam; production waits for real. Settles early when `signal` aborts. */
-  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
-  /** Test seam for latency measurement. */
-  readonly now?: () => number;
-  readonly attemptTimeoutMs?: number;
 };
 
 type Accepted = {
@@ -158,18 +153,20 @@ async function attempt(
   request: RerankRequest,
   number: number,
 ): Promise<AttemptResult<Accepted>> {
-  const timeout = AbortSignal.timeout(wire.attemptTimeoutMs);
-  const signal =
-    request.signal === undefined
-      ? timeout
-      : AbortSignal.any([request.signal, timeout]);
+  const { timeout, signal } = attemptSignal(
+    wire.attemptTimeoutMs,
+    request.signal,
+  );
   try {
     const result = await rerank({
       model: wire.model,
       query: request.query,
-      documents: [...request.documents],
+      documents: request.documents,
       maxRetries: 0,
       abortSignal: signal,
+      // Sentry's AI integration would otherwise record every card text
+      // (`ai.documents`) on a span; `isEnabled: false` is honoured by both.
+      experimental_telemetry: { isEnabled: false },
     });
     const accepted = accept(wire, request.documents.length, result);
     return accepted === undefined
@@ -219,10 +216,7 @@ function accept(
 /** A served id that is printable ASCII and short enough to log and display. */
 const PRINTABLE_ID = /^[\x21-\x7E]{1,256}$/u;
 
-const COUNT = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-const COST = z.number().nonnegative();
-
-/** A field that is either valid under `schema` or unknown, never an error. */
+/** A field that is valid under `schema` or unknown, never an error. */
 function lenient<T extends z.ZodType>(schema: T) {
   return z
     .unknown()
@@ -233,6 +227,8 @@ function lenient<T extends z.ZodType>(schema: T) {
     .optional();
 }
 
+const COUNT = lenient(z.number().int().min(0).max(Number.MAX_SAFE_INTEGER));
+
 /**
  * The fields read from the raw body. OpenRouter reports
  * `usage.{prompt_tokens,total_tokens,cost}`; Cohere only billed search units.
@@ -242,9 +238,9 @@ const WireBodySchema = z.looseObject({
   model: lenient(z.string().min(1)),
   usage: lenient(
     z.looseObject({
-      total_tokens: lenient(COUNT),
-      prompt_tokens: lenient(COUNT),
-      cost: lenient(COST),
+      total_tokens: COUNT,
+      prompt_tokens: COUNT,
+      cost: lenient(z.number().nonnegative()),
     }),
   ),
 });
@@ -276,15 +272,8 @@ function attemptFailure(
 ): AttemptResult<never> {
   const { timeout, number } = failed;
   if (timeout.aborted) return transportFailure(timeout, number);
-  const cause = RetryError.isInstance(error) ? error.lastError : error;
-  if (APICallError.isInstance(cause)) {
-    return statusFailure(cause, failed);
-  }
-  if (
-    cause instanceof UnreadableResponseError ||
-    TypeValidationError.isInstance(cause) ||
-    JSONParseError.isInstance(cause)
-  ) {
+  if (APICallError.isInstance(error)) return statusFailure(error, failed);
+  if (error instanceof UnreadableResponseError) {
     return { kind: 'failed', reason: 'invalid_response' };
   }
   return transportFailure(timeout, number);
@@ -348,31 +337,22 @@ function withMeta(text: string): string {
   } catch {
     return text;
   }
-  const object = z.looseObject({}).safeParse(body);
-  if (!object.success || 'meta' in object.data) return text;
-  return JSON.stringify({ ...object.data, meta: null });
+  if (!isRecord(body) || 'meta' in body) return text;
+  return JSON.stringify({ ...body, meta: null });
 }
 
 /**
- * The operator's header map rendered without a Chat session. A keyless entry,
- * or one whose operator sets an `Authorization` header in another letter
- * case, masks the SDK's `Bearer` default with `undefined`, so an operator
- * `Authorization` is the only one sent.
+ * The operator's header map rendered without a Chat session. A keyless entry
+ * masks the SDK's empty `Bearer` default with `undefined`. The SDK spreads
+ * the operator map over its defaults and normalises names to lower case, so an
+ * operator `Authorization` of any letter case wins.
  */
 function requestHeaders(
   provider: CohereRerankProviderConfig,
 ): Record<string, string> {
-  const operator = Object.entries(provider.headers)
-    .map(([name, parts]) => [name, parts.join('')] as const)
-    // An empty render omits the header.
-    .filter(([, value]) => value.length > 0);
-  const masksBearer =
-    provider.key === null ||
-    operator.some(([name]) => name.toLowerCase() === 'authorization');
-  // The SDK spreads this map over its own defaults and drops `undefined`.
   return Object.assign(
     {},
-    masksBearer ? { Authorization: undefined } : {},
-    Object.fromEntries(operator),
+    provider.key === null ? { Authorization: undefined } : {},
+    Object.fromEntries(operatorHeaderEntries(provider.headers)),
   );
 }

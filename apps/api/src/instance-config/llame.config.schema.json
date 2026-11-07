@@ -815,7 +815,7 @@
         },
         "rerank": {
           "$ref": "#/$defs/toolRerank",
-          "description": "Optional ranking of this call's results by a `decisionModels[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
+          "description": "Optional ranking of this call's results by a rank model, named by a `decisionModels[].id` or `rerankModels[].id`. Absent means the tool never asks a rank model. See docs/product/operator/decisions.md."
         }
       }
     },
@@ -1046,7 +1046,7 @@
             },
             "rerank": {
               "$ref": "#/$defs/toolRerank",
-              "description": "Optional ranking of the walk's file runs by a `decisionModels[]` entry. Absent means the tool never asks a decision model. See docs/product/operator/decisions.md."
+              "description": "Optional ranking of the walk's file runs by a rank model, named by a `decisionModels[].id` or `rerankModels[].id`. Absent means the tool never asks a rank model. See docs/product/operator/decisions.md."
             }
           }
         },

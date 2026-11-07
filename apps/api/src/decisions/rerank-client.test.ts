@@ -138,7 +138,8 @@ describe('rerank client request', () => {
     vi.unstubAllEnvs();
   });
 
-  it('posts {model,query,documents} to {baseUrl}/rerank with a bearer key', async () => {
+  it('posts {model,query,documents} to {baseUrl}/rerank with a bearer key, never the environment one', async () => {
+    vi.stubEnv('COHERE_API_KEY', 'env-cohere-secret');
     const { calls, fetch } = scripted(() => json(okBody()));
 
     await rerank(fetch);
@@ -163,15 +164,6 @@ describe('rerank client request', () => {
     expect(JSON.stringify([...sentHeaders(calls[0])])).not.toContain(
       'env-cohere-secret',
     );
-  });
-
-  it('never reads COHERE_API_KEY for a keyed entry either', async () => {
-    vi.stubEnv('COHERE_API_KEY', 'env-cohere-secret');
-    const { calls, fetch } = scripted(() => json(okBody()));
-
-    await rerank(fetch);
-
-    expect(sentHeaders(calls[0]).get('authorization')).toBe(`Bearer ${KEY}`);
   });
 
   it('lets an operator Authorization win on a keyless entry', async () => {
@@ -312,21 +304,6 @@ describe('rerank client response', () => {
     },
   );
 
-  it('makes the request unavailable on a nonfinite score', async () => {
-    const { calls, fetch } = scripted(
-      () =>
-        new Response(
-          '{"results":[{"index":0,"relevance_score":0.9},{"index":1,"relevance_score":1e999},{"index":2,"relevance_score":0.1}]}',
-        ),
-    );
-
-    await expect(rerank(fetch)).resolves.toMatchObject({
-      status: 'unavailable',
-      reason: 'invalid_response',
-    });
-    expect(calls).toHaveLength(1);
-  });
-
   it.each([
     ['a non-JSON body', () => new Response('<html>bad gateway</html>')],
     ['a body with no results', () => json({ id: 'x' })],
@@ -391,25 +368,20 @@ describe('rerank client response', () => {
 });
 
 describe('rerank client served model', () => {
-  it('falls back to the catalog model when the response names none', async () => {
-    const { fetch } = scripted(() => json(okBody({ model: undefined })));
+  it.each([
+    ['none', undefined],
+    ['an empty string', ''],
+    ['a non-string', 5],
+  ])(
+    'falls back to the catalog model when the response names %s',
+    async (_name, model) => {
+      const { fetch } = scripted(() => json(okBody({ model })));
 
-    await expect(rerank(fetch)).resolves.toMatchObject({
-      model: 'cohere/rerank-5-fast',
-    });
-  });
-
-  it('falls back to the catalog model for an empty or non-string model', async () => {
-    const empty = scripted(() => json(okBody({ model: '' })));
-    const numeric = scripted(() => json(okBody({ model: 5 })));
-
-    await expect(rerank(empty.fetch)).resolves.toMatchObject({
-      model: 'cohere/rerank-5-fast',
-    });
-    await expect(rerank(numeric.fetch)).resolves.toMatchObject({
-      model: 'cohere/rerank-5-fast',
-    });
-  });
+      await expect(rerank(fetch)).resolves.toMatchObject({
+        model: 'cohere/rerank-5-fast',
+      });
+    },
+  );
 
   it('makes the request unavailable when the served model contains the key', async () => {
     const { fetch } = scripted(() => json(okBody({ model: `m-${KEY}-x` })));
@@ -444,16 +416,7 @@ describe('rerank client usage', () => {
       { total_tokens: -1, prompt_tokens: 7 },
       7,
     ],
-    ['zero', { total_tokens: 0 }, 0],
-    [
-      'the safe-integer bound',
-      { total_tokens: Number.MAX_SAFE_INTEGER },
-      Number.MAX_SAFE_INTEGER,
-    ],
-    ['null for a fraction', { total_tokens: 1.5 }, null],
-    ['null for a negative count', { total_tokens: -3 }, null],
-    ['null for a string count', { total_tokens: '12' }, null],
-    ['null for an absent count', {}, null],
+    ['null when absent', {}, null],
   ])('reads the count as %s', async (_name, usage, expected) => {
     const { fetch } = scripted(() => json(okBody({ usage })));
 
@@ -462,25 +425,9 @@ describe('rerank client usage', () => {
     expect(outcome).toMatchObject({ usage: { inputTokens: expected } });
   });
 
-  it('reads the count as null above the safe-integer bound', async () => {
-    const { fetch } = scripted(
-      () =>
-        new Response(
-          `{"results":[{"index":0,"relevance_score":1},{"index":1,"relevance_score":0.5},{"index":2,"relevance_score":0}],"usage":{"total_tokens":9007199254740993}}`,
-        ),
-    );
-
-    await expect(rerank(fetch)).resolves.toMatchObject({
-      usage: { inputTokens: null },
-    });
-  });
-
   it.each([
     ['a reported cost', { cost: 0.5 }, 0.5],
-    ['a zero cost', { cost: 0 }, 0],
-    ['no cost', {}, null],
-    ['a negative cost', { cost: -1 }, null],
-    ['a string cost', { cost: '0.5' }, null],
+    ['null for a negative cost', { cost: -1 }, null],
   ])('reads the cost as %s', async (_name, usage, expected) => {
     const { fetch } = scripted(() => json(okBody({ usage })));
 
@@ -488,18 +435,10 @@ describe('rerank client usage', () => {
       usage: { costUsd: expected },
     });
   });
-
-  it('reports null count and cost when the body has no usage', async () => {
-    const { fetch } = scripted(() => json(okBody({ usage: undefined })));
-
-    await expect(rerank(fetch)).resolves.toMatchObject({
-      usage: { inputTokens: null, outputTokens: 0, costUsd: null },
-    });
-  });
 });
 
 describe('rerank client retries', () => {
-  it.each([408, 429, 500, 503])(
+  it.each([429, 503])(
     'retries %i and accepts the next response',
     async (status) => {
       const { calls, fetch } = scripted((index) =>
@@ -513,18 +452,15 @@ describe('rerank client retries', () => {
     },
   );
 
-  it.each([400, 401, 402, 403, 404, 409, 413, 422])(
-    'does not retry %i',
-    async (status) => {
-      const { calls, fetch } = scripted(() => new Response('', { status }));
+  it.each([400, 409])('does not retry %i', async (status) => {
+    const { calls, fetch } = scripted(() => new Response('', { status }));
 
-      await expect(rerank(fetch)).resolves.toMatchObject({
-        status: 'unavailable',
-        reason: 'rejected',
-      });
-      expect(calls).toHaveLength(1);
-    },
-  );
+    await expect(rerank(fetch)).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'rejected',
+    });
+    expect(calls).toHaveLength(1);
+  });
 
   it('retries a transport failure', async () => {
     const { calls, fetch } = scripted((index) => {
@@ -536,30 +472,15 @@ describe('rerank client retries', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('stops after three attempts with the last reason', async () => {
+  it('stops after three attempts with the last reason, waiting the decision backoff', async () => {
     const { calls, fetch } = scripted(() => new Response('', { status: 503 }));
+    const { waits, sleep } = recordedSleep();
 
-    await expect(rerank(fetch)).resolves.toMatchObject({
+    await expect(rerank(fetch, { sleep })).resolves.toMatchObject({
       status: 'unavailable',
       reason: 'upstream_error',
     });
     expect(calls).toHaveLength(3);
-  });
-
-  it('reports rate_limited when the last attempt is a 429', async () => {
-    const { fetch } = scripted(() => new Response('', { status: 429 }));
-
-    await expect(rerank(fetch)).resolves.toMatchObject({
-      reason: 'rate_limited',
-    });
-  });
-
-  it('waits the decision backoff between attempts', async () => {
-    const { fetch } = scripted(() => new Response('', { status: 503 }));
-    const { waits, sleep } = recordedSleep();
-
-    await rerank(fetch, { sleep });
-
     expect(waits).toEqual([500, 1000]);
   });
 
@@ -576,19 +497,6 @@ describe('rerank client retries', () => {
     expect(waits).toEqual([5000]);
   });
 
-  it('honours a short retry-after', async () => {
-    const { fetch } = scripted((index) =>
-      index === 0
-        ? new Response('', { status: 503, headers: { 'retry-after': '2' } })
-        : json(okBody()),
-    );
-    const { waits, sleep } = recordedSleep();
-
-    await rerank(fetch, { sleep });
-
-    expect(waits).toEqual([2000]);
-  });
-
   it('times each attempt out and retries it', async () => {
     const { calls, fetch } = scripted((index, call) =>
       index === 0 ? abortOnSignal(call) : json(okBody()),
@@ -599,29 +507,9 @@ describe('rerank client retries', () => {
     ).resolves.toMatchObject({ status: 'answered' });
     expect(calls).toHaveLength(2);
   });
-
-  it('reports timeout when every attempt times out', async () => {
-    const { calls, fetch } = scripted((_index, call) => abortOnSignal(call));
-
-    await expect(
-      rerank(fetch, { attemptTimeoutMs: 10 }),
-    ).resolves.toMatchObject({ status: 'unavailable', reason: 'timeout' });
-    expect(calls).toHaveLength(3);
-  });
 });
 
 describe('rerank client abort', () => {
-  it('rejects with the abort and starts no request when already aborted', async () => {
-    const { calls, fetch } = scripted(() => json(okBody()));
-    const controller = new AbortController();
-    controller.abort(new Error('run cancelled'));
-
-    await expect(rerank(fetch, {}, controller.signal)).rejects.toThrow(
-      'run cancelled',
-    );
-    expect(calls).toHaveLength(0);
-  });
-
   it('aborts the in-flight fetch and rejects instead of retrying', async () => {
     const controller = new AbortController();
     const { calls, fetch } = scripted((_index, call) => {

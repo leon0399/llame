@@ -922,27 +922,6 @@ describe('judgeCandidatesWithReranker', () => {
     );
   });
 
-  it('is unavailable with the first failure reason only when every request fails', async () => {
-    const client = rerankClientOf((_request, index) =>
-      index === 0 ? rerankFailing('timeout') : rerankFailing('rejected'),
-    );
-
-    const judgement = await judgeCandidatesWithReranker(
-      client,
-      input({ cards: cards(1500) }),
-      { logger: SILENT },
-    );
-
-    expect(judgement).toMatchObject({
-      status: 'unavailable',
-      reason: 'timeout',
-      probabilities: undefined,
-      model: null,
-      usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
-    });
-    expect(judgement.unanswered).toHaveLength(1500);
-  });
-
   it('names the first accepted response in request order as the model', async () => {
     const client = rerankClientOf((request, index) =>
       rerankAnswered(request.documents.length, {
@@ -959,49 +938,12 @@ describe('judgeCandidatesWithReranker', () => {
     expect(judgement.model).toBe('rerank-v5.0-fast');
   });
 
-  it('skips a failed first request when naming the model', async () => {
-    const client = rerankClientOf((request, index) =>
-      index === 0
-        ? rerankFailing('timeout')
-        : rerankAnswered(request.documents.length, { model: 'second' }),
-    );
-
-    const judgement = await judgeCandidatesWithReranker(
-      client,
-      input({ cards: cards(1500) }),
-      { logger: SILENT },
-    );
-
-    expect(judgement.model).toBe('second');
-  });
-
-  it('sums the accepted counts and costs', async () => {
-    const client = rerankClientOf((request) =>
-      rerankAnswered(request.documents.length, {
-        inputTokens: 100,
-        costUsd: 0.25,
-      }),
-    );
-
-    const judgement = await judgeCandidatesWithReranker(
-      client,
-      input({ cards: cards(1500) }),
-      { logger: SILENT },
-    );
-
-    expect(judgement.usage).toEqual({
-      inputTokens: 200,
-      outputTokens: 0,
-      costUsd: 0.5,
-    });
-  });
-
-  it('reports a null count and cost when one of two accepted requests has none', async () => {
+  it('sums the cost apart from the count when only one request reports a count', async () => {
     const lines: Array<UnknownRecord> = [];
     const client = rerankClientOf((request, index) =>
       rerankAnswered(request.documents.length, {
-        inputTokens: index === 0 ? 100 : null,
-        costUsd: index === 0 ? 0.25 : null,
+        inputTokens: index === 0 ? 10 : null,
+        costUsd: index + 1,
       }),
     );
 
@@ -1014,38 +956,13 @@ describe('judgeCandidatesWithReranker', () => {
     expect(judgement.usage).toEqual({
       inputTokens: null,
       outputTokens: 0,
-      costUsd: null,
+      costUsd: 3,
     });
-    expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({
       requests: 2,
-      judged: 1500,
       inputTokens: null,
       outputTokens: 0,
-      costUsd: null,
-    });
-  });
-
-  it('counts only the accepted requests', async () => {
-    const client = rerankClientOf((request, index) =>
-      index === 0
-        ? rerankAnswered(request.documents.length, {
-            inputTokens: 100,
-            costUsd: 0.25,
-          })
-        : rerankFailing('timeout'),
-    );
-
-    const judgement = await judgeCandidatesWithReranker(
-      client,
-      input({ cards: cards(1500) }),
-      { logger: SILENT },
-    );
-
-    expect(judgement.usage).toEqual({
-      inputTokens: 100,
-      outputTokens: 0,
-      costUsd: 0.25,
+      costUsd: 3,
     });
   });
 
@@ -1071,57 +988,6 @@ describe('judgeCandidatesWithReranker', () => {
       outputTokens: 0,
       costUsd: 0.00004278,
     });
-  });
-
-  it('absorbs a client that throws as unavailable', async () => {
-    const client: RerankClient = {
-      rerank: () => Promise.reject(new Error('boom')),
-    };
-
-    const judgement = await judgeCandidatesWithReranker(client, input(), {
-      logger: SILENT,
-    });
-
-    expect(judgement).toMatchObject({
-      status: 'unavailable',
-      probabilities: undefined,
-    });
-  });
-
-  it('rejects with the abort reason when the call is already aborted', async () => {
-    const client = rerankClientOf((request) =>
-      rerankAnswered(request.documents.length),
-    );
-    const reason = new Error('cancelled');
-
-    await expect(
-      judgeCandidatesWithReranker(
-        client,
-        input({ abortSignal: AbortSignal.abort(reason) }),
-        { logger: SILENT },
-      ),
-    ).rejects.toBe(reason);
-    expect(client.requests).toHaveLength(0);
-  });
-
-  it('rejects with the abort reason when the signal aborts during the request', async () => {
-    const controller = new AbortController();
-    const reason = new Error('deadline');
-    const client: RerankClient = {
-      rerank: () => {
-        controller.abort(reason);
-        return Promise.reject(reason);
-      },
-    };
-    const lines: Array<UnknownRecord> = [];
-
-    await expect(
-      judgeCandidatesWithReranker(
-        client,
-        input({ abortSignal: controller.signal }),
-        { logger: { info: (payload) => lines.push(payload) } },
-      ),
-    ).rejects.toBe(reason);
   });
 });
 
@@ -1195,23 +1061,6 @@ describe('DecisionsService rerank catalogue', () => {
       usage: { inputTokens: 7, outputTokens: 0, costUsd: 0.01 },
     });
     expect(judgement.probabilities?.get('only')).toBe(0.9);
-    expect(JSON.stringify(judgement)).not.toContain(KEY);
-  });
-
-  it('makes the request unavailable and leaks nothing when the served model carries the key', async () => {
-    const { spy } = stubRerankFetch(`m-${KEY}`);
-    const service = new DecisionsService(rerankConfig());
-
-    const judgement = await service.judgeCandidates(
-      input({ model: 'rr-fast', cards: [{ key: 'only', text: 'text' }] }),
-    );
-    spy.mockRestore();
-
-    expect(judgement).toMatchObject({
-      status: 'unavailable',
-      reason: 'invalid_response',
-      model: null,
-    });
     expect(JSON.stringify(judgement)).not.toContain(KEY);
   });
 

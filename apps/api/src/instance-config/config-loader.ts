@@ -31,7 +31,6 @@ import {
   type ProviderConfig,
   type SystemOneProviderConfig,
   type DecisionModelConfig,
-  type RawDecisionModelEntry,
   type RawProviderEntry,
   type RawInstanceConfig,
   type RawMcpServerEntry,
@@ -735,18 +734,26 @@ function resolveDecisionModels(
       );
     }
     indexById.set(id, index);
-    return resolveDecisionModel(entry, id, base, env, providersById);
+    return resolveRankModel(
+      entry,
+      { id, base },
+      { providerType: 'system-one', env, providersById },
+    );
   });
 }
 
-/** One catalogue entry: its provider is a `system-one` entry and its model is nonblank. */
-function resolveDecisionModel(
-  entry: RawDecisionModelEntry,
-  id: string,
-  base: string,
-  env: NodeJS.ProcessEnv,
-  providersById: ReadonlyMap<string, ProviderConfig>,
-): DecisionModelConfig {
+/** One catalogue entry: its provider has the catalogue's `type` and its model is nonblank. */
+function resolveRankModel(
+  entry: RerankModelConfig,
+  position: { readonly id: string; readonly base: string },
+  catalogue: {
+    readonly providerType: ProviderConfig['type'];
+    readonly env: NodeJS.ProcessEnv;
+    readonly providersById: ReadonlyMap<string, ProviderConfig>;
+  },
+): RerankModelConfig {
+  const { id, base } = position;
+  const { providerType, env, providersById } = catalogue;
   const providerId = requireNonBlankString(
     `${base}.provider`,
     entry.provider,
@@ -758,9 +765,9 @@ function resolveDecisionModel(
       `${base}.provider: does not reference any configured providers[].id`,
     );
   }
-  if (provider.type !== 'system-one') {
+  if (provider.type !== providerType) {
     throw new InstanceConfigError(
-      `${base}.provider: provider has type "${provider.type}", not "system-one"`,
+      `${base}.provider: provider has type "${provider.type}", not "${providerType}"`,
     );
   }
   const model = requireNonBlankString(`${base}.model`, entry.model, env);
@@ -783,56 +790,28 @@ function resolveRerankModels(
   const entries = raw?.rerankModels;
   if (entries === undefined) return undefined;
 
-  const decisionIndexById = new Map(
-    (decisionModels ?? []).map((entry, index) => [entry.id, index]),
+  const pathById = new Map(
+    (decisionModels ?? []).map((entry, index) => [
+      entry.id,
+      `decisionModels[${index}].id`,
+    ]),
   );
-  const indexById = new Map<string, number>();
   return entries.map((entry, index) => {
     const base = `rerankModels[${index}]`;
     const id = requireNonBlankString(`${base}.id`, entry.id, env);
-    const decisionIndex = decisionIndexById.get(id);
-    if (decisionIndex !== undefined) {
+    const firstPath = pathById.get(id);
+    if (firstPath !== undefined) {
       throw new InstanceConfigError(
-        `decisionModels[${decisionIndex}].id and ${base}.id: duplicate rank model id`,
+        `${firstPath} and ${base}.id: duplicate rank model id`,
       );
     }
-    const firstIndex = indexById.get(id);
-    if (firstIndex !== undefined) {
-      throw new InstanceConfigError(
-        `rerankModels[${firstIndex}].id and ${base}.id: duplicate rerank model id`,
-      );
-    }
-    indexById.set(id, index);
-    return resolveRerankModel(entry, id, base, env, providersById);
+    pathById.set(id, `${base}.id`);
+    return resolveRankModel(
+      entry,
+      { id, base },
+      { providerType: 'cohere-rerank', env, providersById },
+    );
   });
-}
-
-/** One catalogue entry: its provider is a `cohere-rerank` entry and its model is nonblank. */
-function resolveRerankModel(
-  entry: RerankModelConfig,
-  id: string,
-  base: string,
-  env: NodeJS.ProcessEnv,
-  providersById: ReadonlyMap<string, ProviderConfig>,
-): RerankModelConfig {
-  const providerId = requireNonBlankString(
-    `${base}.provider`,
-    entry.provider,
-    env,
-  );
-  const provider = providersById.get(providerId);
-  if (provider === undefined) {
-    throw new InstanceConfigError(
-      `${base}.provider: does not reference any configured providers[].id`,
-    );
-  }
-  if (provider.type !== 'cohere-rerank') {
-    throw new InstanceConfigError(
-      `${base}.provider: provider has type "${provider.type}", not "cohere-rerank"`,
-    );
-  }
-  const model = requireNonBlankString(`${base}.model`, entry.model, env);
-  return { id, provider: providerId, model };
 }
 
 function resolveKnowledge(
@@ -3027,10 +3006,10 @@ function assertValidModelEntry(
     );
   }
   if (provider.type === 'system-one' || provider.type === 'cohere-rerank') {
+    const serves =
+      provider.type === 'cohere-rerank' ? 'rerankModels[]' : 'decisionModels[]';
     throw new InstanceConfigError(
-      provider.type === 'cohere-rerank'
-        ? `models[${entry.id}].provider: provider "${entry.provider}" has type "cohere-rerank", which serves rerankModels[] only`
-        : `models[${entry.id}].provider: provider "${entry.provider}" has type "system-one", which serves decisionModels[] only`,
+      `models[${entry.id}].provider: provider "${entry.provider}" has type "${provider.type}", which serves ${serves} only`,
     );
   }
   return provider;

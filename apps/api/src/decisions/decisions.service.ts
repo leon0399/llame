@@ -77,7 +77,7 @@ export type JudgeCandidate = {
 
 export type JudgeCandidatesInput = {
   /**
-   * A `decisionModels[].id`: the catalogue entry whose client judges this
+   * A `decisionModels[].id` or `rerankModels[].id`: the catalogue entry whose client judges this
    * call. The tool reads it from its own `rerank` block.
    */
   readonly model: string;
@@ -129,7 +129,7 @@ export type CandidateJudgement = {
 
 /**
  * The capability tools receive as `ToolContext.decisions`. Absent means no
- * decision model is configured, and a tool keeps its canonical order. A tool
+ * rank model is configured, and a tool keeps its canonical order. A tool
  * that ranks names its own catalogue id on every call; an id with no client
  * fails closed like an absent lane.
  */
@@ -246,6 +246,50 @@ export async function judgeCandidatesWith(
   options: JudgeOptions = {},
 ): Promise<CandidateJudgement> {
   input.abortSignal?.throwIfAborted();
+  const send = (request: DecisionRequest) => client.decide(request);
+  return judgeRequests(input, options, send, () => {
+    const { wireCards, requests } = buildRequests(
+      input,
+      options.protectedValues ?? [],
+    );
+    return {
+      requests,
+      scoreOf: (outcomes) => {
+        const answers: Record<string, DecisionAnswer> = {};
+        for (const outcome of outcomes) {
+          if (outcome.status === 'answered' && 'answers' in outcome) {
+            Object.assign(answers, outcome.answers);
+          }
+        }
+        return (index) => {
+          const wireKey = wireCards[index]?.key;
+          return wireKey === undefined ? undefined : answers[wireKey]?.noul;
+        };
+      },
+    };
+  });
+}
+
+/** One rank request in flight, whichever backend answers it. */
+type RankOutcome = DecisionOutcome | RerankOutcome;
+
+/** Where each card's score sits in the answered outcomes; absent means unjudged. */
+type ScoreLookup = (cardIndex: number) => number | undefined;
+
+/**
+ * The shared call: nothing is sent for zero cards, every request is in flight
+ * at once, the call writes its one log line, and a signal that aborted
+ * rethrows its reason only after that line.
+ */
+async function judgeRequests<R>(
+  input: JudgeCandidatesInput,
+  options: JudgeOptions,
+  send: (request: R) => Promise<RankOutcome>,
+  plan: () => {
+    readonly requests: ReadonlyArray<R>;
+    readonly scoreOf: (outcomes: ReadonlyArray<RankOutcome>) => ScoreLookup;
+  },
+): Promise<CandidateJudgement> {
   if (input.cards.length === 0) {
     return logged(
       input,
@@ -254,18 +298,14 @@ export async function judgeCandidatesWith(
       options.logger,
     );
   }
-
-  const { wireCards, requests } = buildRequests(
-    input,
-    options.protectedValues ?? [],
-  );
+  const { requests, scoreOf } = plan();
   const outcomes = await Promise.all(
-    requests.map((request) => decideSafely(client, request)),
+    requests.map((request) => sendSafely(() => send(request))),
   );
   const judgement = logged(
     input,
     requests.length,
-    mergeOutcomes(input, wireCards, outcomes),
+    mergeOutcomes(input, outcomes, scoreOf(outcomes)),
     options.logger,
   );
   input.abortSignal?.throwIfAborted();
@@ -329,17 +369,16 @@ function buildRequests(
 }
 
 /**
- * Ask the client, tolerating one that throws: the client's own contract is
+ * Ask a client, tolerating one that throws: a client's own contract is
  * never-throw for provider problems, and this keeps a broken double from
  * failing the tool call. An abort lands here too, as `unavailable`: the caller
  * logs the call's one line first and then rethrows the signal's reason.
  */
-async function decideSafely(
-  client: DecisionClient,
-  request: DecisionRequest,
-): Promise<DecisionOutcome> {
+async function sendSafely(
+  call: () => Promise<RankOutcome>,
+): Promise<RankOutcome> {
   try {
-    return await client.decide(request);
+    return await call();
   } catch {
     return { status: 'unavailable', reason: 'upstream_error', latencyMs: 0 };
   }
@@ -368,13 +407,13 @@ function sumAccepted(
 
 /**
  * Merge the request outcomes, in request order. An answered request
- * contributes its answers and usage; a failed one leaves only its own cards
+ * contributes its scores and usage; a failed one leaves only its own cards
  * unjudged. Latency is the slowest request's, because they run together.
  */
 function mergeOutcomes(
   input: JudgeCandidatesInput,
-  wireCards: ReadonlyArray<WireCard>,
-  outcomes: ReadonlyArray<DecisionOutcome>,
+  outcomes: ReadonlyArray<RankOutcome>,
+  scoreOf: ScoreLookup,
 ): CandidateJudgement {
   const latencyMs = Math.max(
     0,
@@ -388,15 +427,12 @@ function mergeOutcomes(
     return unavailableJudgement(input, firstFailureReason(outcomes), latencyMs);
   }
 
-  const answers: Record<string, DecisionAnswer> = {};
-  for (const outcome of answered) Object.assign(answers, outcome.answers);
   const probabilities = new Map<string, number>();
   const unanswered: Array<string> = [];
   input.cards.forEach((card, index) => {
-    const wireKey = wireCards[index]?.key;
-    const answer = wireKey === undefined ? undefined : answers[wireKey];
-    if (answer === undefined) unanswered.push(card.key);
-    else probabilities.set(card.key, answer.noul);
+    const score = scoreOf(index);
+    if (score === undefined) unanswered.push(card.key);
+    else probabilities.set(card.key, score);
   });
   return {
     status: 'answered',
@@ -409,7 +445,7 @@ function mergeOutcomes(
 }
 
 function firstFailureReason(
-  outcomes: ReadonlyArray<DecisionOutcome | RerankOutcome>,
+  outcomes: ReadonlyArray<RankOutcome>,
 ): DecisionFailureReason {
   for (const outcome of outcomes) {
     if (outcome.status === 'unavailable') return outcome.reason;
@@ -436,26 +472,14 @@ export async function judgeCandidatesWithReranker(
   options: JudgeOptions = {},
 ): Promise<CandidateJudgement> {
   input.abortSignal?.throwIfAborted();
-  if (input.cards.length === 0) {
-    return logged(
-      input,
-      0,
-      unavailableJudgement(input, 'no_candidates'),
-      options.logger,
-    );
-  }
-  const requests = buildRerankRequests(input, options.protectedValues ?? []);
-  const outcomes = await Promise.all(
-    requests.map((request) => rerankSafely(client, request)),
-  );
-  const judgement = logged(
-    input,
-    requests.length,
-    mergeRerankOutcomes(input, outcomes),
-    options.logger,
-  );
-  input.abortSignal?.throwIfAborted();
-  return judgement;
+  const send = (request: RerankRequest) => client.rerank(request);
+  return judgeRequests(input, options, send, () => ({
+    requests: buildRerankRequests(input, options.protectedValues ?? []),
+    scoreOf: (outcomes) => {
+      const scored = scoresByCardIndex(outcomes);
+      return (index) => scored.get(index);
+    },
+  }));
 }
 
 /** The query and card texts after key replacement and the card cut, in chunks. */
@@ -489,68 +513,17 @@ function buildRerankRequests(
 
 /** Each answered chunk's scores, keyed by card index across the whole call. */
 function scoresByCardIndex(
-  outcomes: ReadonlyArray<RerankOutcome>,
+  outcomes: ReadonlyArray<RankOutcome>,
 ): Map<number, number> {
   const scored = new Map<number, number>();
   outcomes.forEach((outcome, chunk) => {
-    if (outcome.status !== 'answered') return;
+    if (outcome.status !== 'answered' || !('scores' in outcome)) return;
     const start = chunk * RERANK_MAX_DOCUMENTS_PER_REQUEST;
     for (const [index, score] of outcome.scores) {
       scored.set(start + index, score);
     }
   });
   return scored;
-}
-
-/** Ask the reranker, tolerating a client that throws; an abort lands here as `unavailable` too. */
-async function rerankSafely(
-  client: RerankClient,
-  request: RerankRequest,
-): Promise<RerankOutcome> {
-  try {
-    return await client.rerank(request);
-  } catch {
-    return { status: 'unavailable', reason: 'upstream_error', latencyMs: 0 };
-  }
-}
-
-/**
- * Merge the chunk outcomes in request order: an answered chunk contributes
- * its scores (document index within the chunk plus the chunk's start) and
- * usage; a failed chunk leaves only its own cards unjudged.
- */
-function mergeRerankOutcomes(
-  input: JudgeCandidatesInput,
-  outcomes: ReadonlyArray<RerankOutcome>,
-): CandidateJudgement {
-  const latencyMs = Math.max(
-    0,
-    ...outcomes.map((outcome) => outcome.latencyMs),
-  );
-  const answered = outcomes.flatMap((outcome) =>
-    outcome.status === 'answered' ? [outcome] : [],
-  );
-  const first = answered[0];
-  if (first === undefined) {
-    return unavailableJudgement(input, firstFailureReason(outcomes), latencyMs);
-  }
-
-  const probabilities = new Map<string, number>();
-  const unanswered: Array<string> = [];
-  const scored = scoresByCardIndex(outcomes);
-  input.cards.forEach((card, index) => {
-    const score = scored.get(index);
-    if (score === undefined) unanswered.push(card.key);
-    else probabilities.set(card.key, score);
-  });
-  return {
-    status: 'answered',
-    probabilities,
-    unanswered,
-    usage: sumAccepted(answered),
-    model: first.model,
-    latencyMs,
-  };
 }
 
 function logPayload(
@@ -577,10 +550,7 @@ function logPayload(
 }
 
 type CatalogueEntry = {
-  readonly judge: (
-    input: JudgeCandidatesInput,
-    protectedValues: ReadonlyArray<string>,
-  ) => Promise<CandidateJudgement>;
+  readonly judge: (input: JudgeCandidatesInput) => Promise<CandidateJudgement>;
   readonly protectedValues: ReadonlyArray<string>;
 };
 
@@ -602,32 +572,31 @@ export class DecisionsService implements DecisionJudge {
     @Inject(InstanceConfigService)
     instanceConfig: Pick<InstanceConfigService, 'config'>,
   ) {
-    const entries = new Map<string, CatalogueEntry>();
     const { config } = instanceConfig;
+    const providers = new Map(config.providers.map((p) => [p.id, p]));
+    const entries = new Map<string, CatalogueEntry>();
     for (const entry of config.decisionModels ?? []) {
-      const provider = config.providers.find(
-        (candidate) => candidate.id === entry.provider,
-      );
+      const provider = providers.get(entry.provider);
       if (provider?.type !== 'system-one') continue;
       const client = createDecisionClient(provider, entry.model);
+      const protectedValues = normalizeProtectedValues([provider.key]);
       entries.set(entry.id, {
-        judge: (input, protectedValues) =>
+        judge: (input) =>
           judgeCandidatesWith(client, input, { protectedValues }),
-        protectedValues: normalizeProtectedValues([provider.key]),
+        protectedValues,
       });
     }
     for (const entry of config.rerankModels ?? []) {
-      const provider = config.providers.find(
-        (candidate) => candidate.id === entry.provider,
-      );
+      const provider = providers.get(entry.provider);
       if (provider?.type !== 'cohere-rerank') continue;
       const client = createRerankClient(provider, entry.model);
+      const protectedValues = normalizeProtectedValues(
+        provider.key === null ? [] : [provider.key],
+      );
       entries.set(entry.id, {
-        judge: (input, protectedValues) =>
+        judge: (input) =>
           judgeCandidatesWithReranker(client, input, { protectedValues }),
-        protectedValues: normalizeProtectedValues(
-          provider.key === null ? [] : [provider.key],
-        ),
+        protectedValues,
       });
     }
     this.entries = entries;
@@ -641,7 +610,7 @@ export class DecisionsService implements DecisionJudge {
       input.abortSignal?.throwIfAborted();
       return logged(input, 0, unavailableJudgement(input, 'unknown_model'));
     }
-    return entry.judge(input, entry.protectedValues);
+    return entry.judge(input);
   }
 
   protectText(model: string, text: string): string {
