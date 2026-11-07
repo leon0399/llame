@@ -200,7 +200,7 @@ MUST be a nonblank operator-chosen string that is unique in the array.
 `type` MUST select the client implementation and the wire API it speaks. The
 schema MUST close `type` to the set of executable provider types:
 `openai-responses`, `openai-completions`, `anthropic-messages`,
-`openai-codex`, `opencode-go`, and `system-one`.
+`openai-codex`, `opencode-go`, `system-one`, and `cohere-rerank`.
 
 `openai-responses` MUST execute the Responses wire through `@ai-sdk/openai`.
 `openai-completions` MUST execute the Chat Completions wire through
@@ -209,7 +209,8 @@ wire through `@ai-sdk/anthropic`. `openai-codex` MUST use the Codex
 subscription backend. `opencode-go` MUST use the OpenCode Go subscription
 gateway. That gateway MUST execute the Chat Completions wire at an endpoint
 fixed in llame's code. `system-one` MUST execute the System One decision wire
-at `{baseUrl}/systemone`.
+at `{baseUrl}/systemone`. `cohere-rerank` MUST execute the Cohere v2 rerank
+wire at `{baseUrl}/rerank` through `@ai-sdk/cohere`.
 
 The `openai-responses` variant MUST accept `{ id, type, key?, baseUrl?,
 billing?, headers? }`, and `baseUrl` MUST default to the OpenAI API. The
@@ -227,6 +228,13 @@ The `system-one` variant MUST accept `{ id, type, key, baseUrl, billing?, header
 It MUST reject `accountId`. Its `key` and `baseUrl` MUST be strings with
 `{env:…}` or `{path:…}` interpolation that resolve nonblank. The variant
 MUST NOT load as keyless.
+
+The `cohere-rerank` variant MUST accept `{ id, type, key?, baseUrl?, billing?,
+headers? }`, and `baseUrl` MUST default to `https://api.cohere.com/v2`. It MUST
+reject `accountId`. Its `key` and `baseUrl` MUST accept `{env:…}` and
+`{path:…}`. A `key` that resolves to empty MUST mark it keyless. A keyless
+entry MUST set `baseUrl`. A present `baseUrl` that resolves blank MUST fail
+startup and name the field.
 
 For `openai-responses`, `openai-completions`, and `anthropic-messages`, `key`
 and `baseUrl` MUST be strings with `{env:…}` or `{path:…}` interpolation. A
@@ -358,6 +366,17 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 - **WHEN** the file defines a `type: "system-one"` provider that also sets `accountId`
 - **THEN** startup fails and names the offending configuration path
 - **AND** the entry does not load
+
+#### Scenario: A rerank provider with an account id fails startup
+
+- **WHEN** the file defines a `type: "cohere-rerank"` provider that also sets `accountId`
+- **THEN** startup fails and names the entry and `accountId`
+
+#### Scenario: A rerank provider base URL resolves blank
+
+- **WHEN** a `cohere-rerank` entry sets `baseUrl` to `{env:RERANK_URL:-}` and the variable is unset
+- **THEN** startup fails and names the entry and `baseUrl`
+- **AND** no request goes to the default Cohere URL
 
 ### Requirement: Model catalog configuration
 
@@ -1573,7 +1592,7 @@ negative number, a fraction, or an unknown field MUST fail startup and name the
 configuration path.
 
 The optional `rerank` object MUST accept one field, `model`. `model` MUST name
-a `decisionModels[].id` and MUST resolve nonblank. An absent `rerank`
+a `decisionModels[].id` or a `rerankModels[].id` and MUST resolve nonblank. An absent `rerank`
 object MUST mean no ranking. An unknown id or a blank `model` MUST fail startup
 and name `tools.grep.rerank.model`.
 
@@ -1604,7 +1623,7 @@ and name `tools.grep.rerank.model`.
 
 #### Scenario: An unknown grep rerank model fails startup
 
-- **WHEN** the file sets `tools.grep.rerank.model` to an id that `decisionModels[]` does not define
+- **WHEN** the file sets `tools.grep.rerank.model` to an id that neither `decisionModels[]` nor `rerankModels[]` defines
 - **THEN** startup fails and names `tools.grep.rerank.model`
 - **AND** no walk ranks its results
 
@@ -1618,6 +1637,11 @@ and name `tools.grep.rerank.model`.
 
 - **WHEN** the file sets no `tools.grep.rerank` object
 - **THEN** startup succeeds and every `grep` call keeps walk order
+
+#### Scenario: The grep rerank block names a rerank model
+
+- **WHEN** the file sets `tools.grep.rerank.model` to an id in `rerankModels[]`
+- **THEN** startup succeeds and `grep` can rank its file runs with that rerank model
 
 ### Requirement: Operator configuration bounds tool-result artifacts
 
@@ -1918,7 +1942,7 @@ opaque id MUST remain eligible for that endpoint.
 ### Requirement: Web search rerank configuration
 
 The optional `webSearch.rerank` object MUST accept one field, `model`. `model`
-MUST name a `decisionModels[].id` and MUST resolve nonblank. An absent
+MUST name a `decisionModels[].id` or a `rerankModels[].id` and MUST resolve nonblank. An absent
 `rerank` object MUST mean no ranking. An unknown id or a blank `model` MUST
 fail startup and name `webSearch.rerank.model`.
 
@@ -1929,7 +1953,7 @@ fail startup and name `webSearch.rerank.model`.
 
 #### Scenario: An unknown web search rerank model fails startup
 
-- **WHEN** the file sets `webSearch.rerank.model` to an id that `decisionModels[]` does not define
+- **WHEN** the file sets `webSearch.rerank.model` to an id that neither `decisionModels[]` nor `rerankModels[]` defines
 - **THEN** startup fails and names `webSearch.rerank.model`
 - **AND** no call ranks its results
 
@@ -1944,10 +1968,15 @@ fail startup and name `webSearch.rerank.model`.
 - **WHEN** the file sets no `webSearch.rerank` object
 - **THEN** startup succeeds and every `web_search` result keeps engine order
 
+#### Scenario: The web search rerank block names a rerank model
+
+- **WHEN** the file sets `webSearch.rerank.model` to an id in `rerankModels[]`
+- **THEN** startup succeeds and `web_search` can rank the results of its calls with that rerank model
+
 ### Requirement: A model entry cannot name a decision provider
 
 A `models[]` entry or an `embeddingModels[]` entry MUST NOT name a provider of
-`type: "system-one"`. Startup MUST fail and name `models[<id>].provider` or
+`type: "system-one"` or `type: "cohere-rerank"`. Startup MUST fail and name `models[<id>].provider` or
 `embeddingModels[<id>].provider` and the provider type.
 
 #### Scenario: A chat model names a decision provider
@@ -1961,3 +1990,13 @@ A `models[]` entry or an `embeddingModels[]` entry MUST NOT name a provider of
 - **WHEN** an `embeddingModels[]` entry sets `provider` to a `system-one` provider
 - **THEN** startup fails and names `embeddingModels[<id>].provider` and the type `system-one`
 - **AND** no partial catalog applies
+
+#### Scenario: A chat model names a rerank provider
+
+- **WHEN** a `models[]` entry sets `provider` to a `cohere-rerank` provider
+- **THEN** startup fails and names `models[<id>].provider` and the type `cohere-rerank`
+
+#### Scenario: An embedding model names a rerank provider
+
+- **WHEN** an `embeddingModels[]` entry sets `provider` to a `cohere-rerank` provider
+- **THEN** startup fails and names `embeddingModels[<id>].provider` and the type `cohere-rerank`
