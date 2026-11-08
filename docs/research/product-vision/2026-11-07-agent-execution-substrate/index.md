@@ -15,5 +15,8 @@ tree (F2) and background jobs (F3) that subagents
 - [Agent communication and bots](./agent-communication.md) — parent and child
   messaging, addressing and envelopes, steering, reading other sessions as
   recall, and bot identity and triggers.
+- [oh-my-pi yield and agent messaging](./oh-my-pi-yield-and-messaging.md) —
+  the validated terminal result, steering and asides, reply deadlock checks,
+  and parked-agent revival.
 - [llame baseline](./llame-baseline.md) — the shipped Run, queue, tool, usage,
   Chat and permission contracts these foundations change.
