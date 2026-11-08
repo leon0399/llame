@@ -76,8 +76,8 @@ Assumptions that follow from those decisions but were not asked:
   the silent pre-evaluation of an instruction import. The model sees the
   outcome as the "not permitted" line.
 - `read` must be in `tools.allowed`, as for instruction loading.
-- A same-root re-entry with an unchanged repository adds no `git` item; silence
-  means the last item still holds.
+- An entry to the root that is already bound, with an unchanged repository, adds
+  no `git` item; silence means the last item still holds.
 - The Session details route uses the same 20-path bound as the model.
 - A configured clean filter, such as Git LFS, can run during `git status`,
   also in `read-only` mode. The removal guard has the same exposure today.
@@ -94,9 +94,9 @@ Please confirm each:
   ref, not by `FETCH_HEAD`. `FETCH_HEAD` is per worktree, so every
   llame-created worktree would say "never fetched" while its upstream refs are
   fresh. With no reflog the snapshot says "update time unknown".
-- V3, grilling D17: git stops after 3 s on the executor, and the whole
-  observation stops after 5 s, so a Machine round trip and session setup are
-  bounded too.
+- V3, grilling D17: the `git` item and the owner route give `git.state` 3 s,
+  and the whole observation stops after 5 s, so a Machine round trip and session
+  setup are bounded too. The removal guard keeps the 10 s default.
 - V4, A3: a Machine search that reaches the registered root says "git state
   unavailable: no repository inside the registered root"; a git directory,
   common directory, or alternate outside the roots says "git state

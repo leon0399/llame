@@ -150,7 +150,7 @@ path, puts paths under the root first, keeps git's order inside each group, and
 returns at most `limit` entries plus `omitted`. Submodule paths share the
 bound after changed paths.
 
-The model-facing deadline is 3 s on the executor (`timeoutMs`). The removal
+The `git` item and the owner route pass `timeoutMs: 3000`. The removal
 guard passes the existing 10 s default. The 5 s whole-observation deadline
 belongs to the snapshot service (D6).
 
@@ -292,7 +292,7 @@ fold git state into the `workspace` snapshot (grilling D6).
 ### D8: The tool result stays literal
 
 `boundResult` does not change. Git state reaches the model only as a `git`
-item (V6). An unchanged same-root re-entry adds no item, so silence means the
+item (V6). An entry to the root that is already bound adds no item when nothing changed, so silence means the
 last item still holds. #1623 moves the skill list, MCP server states, and root
 narration to the same shape.
 
@@ -320,7 +320,7 @@ CHANGELOG line ships with the Session details layer that makes it visible.
 
 ## Risks / Trade-offs
 
-- [Every turn waits on git] -> 3 s executor and 5 s total limits, concurrent
+- [Every turn waits on git] -> 3 s `git.state` limit for model and route calls and a 5 s total limit, concurrent
   with other preparation, absence line on timeout.
 - [A cold cache on a huge repository times out once] -> the next turn tells the
   real state; the item says it timed out.
@@ -361,6 +361,10 @@ None that change the specs or the stack. The Session details refresh cadence
 beyond open and focus can change after use.
 
 ## Revision history
+
+- **v6 (2026-11-08):** Swept the v5 wording into V3, D2, D8, the risk list, and the
+  proposal assumption; the "+N more" line now appears whenever a path is omitted, not only
+  above 20 paths.
 
 - **v5 (2026-11-08):** PR review clarifications after approval, no design change: the
   3 s `git.state` limit applies to the `git` item and the owner route (the removal guard

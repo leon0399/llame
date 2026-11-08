@@ -243,8 +243,8 @@ snapshot.
 
 ### Requirement: The snapshot states each omission
 
-Above 20 paths, the snapshot MUST end the list with "+N more not listed; run
-`git status`." with the count of other paths. Untracked directories MUST appear
+When the snapshot omits a path, it MUST end the list with "+N more not listed;
+run `git status`." with the count of omitted paths. Untracked directories MUST appear
 as one entry. The snapshot MUST say: "Ignored files are not listed; their
 absence here does not mean they do not exist."
 
