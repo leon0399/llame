@@ -32,7 +32,6 @@
  * caller's shell.
  */
 
-import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { isRecord } from '@workspace/runtime-safety';
 import { waitFor } from '../testing/support';
@@ -144,13 +143,11 @@ describeIfDb(
         'the run to start executing',
       );
 
-      // Mirrors RunsController.updateRun's cancel path exactly: stamp
-      // cancel_requested_at, then abort the in-process controller.
+      // Mirrors RunsController.updateRun's cancel path: the repository stamps
+      // cancel_requested_at and sends it to the worker's run-control listener.
       await harness.tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).requestCancel(seed.runId, userId),
       );
-      const aborts = harness.moduleRef.get(RunAbortRegistry, { strict: false });
-      aborts.abort(seed.runId);
 
       const cancelled = await waitFor(
         async () => {

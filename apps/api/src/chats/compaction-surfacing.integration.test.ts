@@ -18,7 +18,6 @@ import { type Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import {
   createCompactionCheckpointPart,
   readCheckpointText,
@@ -164,7 +163,6 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
     beforeAll(() => {
       chatsService = new ChatsService(
         tenantDb,
-        new RunAbortRegistry(),
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),

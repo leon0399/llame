@@ -34,6 +34,7 @@ import {
 } from '../db/schema';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type Db } from '../db/tenant-db.service';
+import { notifyRunControl } from './run-control';
 import {
   markFinishedPredicate,
   markFinishedUpdate,
@@ -450,9 +451,9 @@ export class RunsRepository {
 
   /**
    * Request cancellation (#48): stamps cancel_requested_at atomically, only on
-   * a run that is not already terminal and not already cancel-requested.
-   * Returns the updated run, or undefined when the guard (or scope) missed —
-   * the caller disambiguates terminal vs. missing with a follow-up read.
+   * a run that is not already terminal and not already cancel-requested, and
+   * sends it on the run-control channel (on commit). Returns undefined when the
+   * guard (or scope) missed — the caller reads again to tell why.
    */
   async requestCancel(runId: string, userId: string): Promise<Run | undefined> {
     const [updated] = await this.db
@@ -468,6 +469,9 @@ export class RunsRepository {
       )
       .returning();
 
+    if (updated) {
+      await notifyRunControl(this.db, { runId, kind: 'cancel' });
+    }
     return updated;
   }
 

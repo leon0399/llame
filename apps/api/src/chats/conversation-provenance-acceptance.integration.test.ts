@@ -21,7 +21,6 @@ import {
 } from '../runs/worker-harness';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { executeConversationRead } from '../tools/conversation-read';
 import { SearchIndexService } from '../search/search-index.service';
 
@@ -452,9 +451,6 @@ describe('conversation provenance acceptance — queued lexical search and canon
     await harness.tenantDb.runAs(ownerA, (tx) =>
       new RunsRepository(tx).requestCancel(seed.runId, ownerA),
     );
-    harness.moduleRef
-      .get(RunAbortRegistry, { strict: false })
-      .abort(seed.runId);
 
     await waitFor(
       async () =>

@@ -31,7 +31,6 @@ import {
 } from './fork-copy';
 import { citedArtifacts, copyCitedArtifacts } from './fork-artifacts';
 import { RunsRepository } from '../runs/runs-repository';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { pgErrorCode } from '../db/pg-error';
 import {
   toSharedChatResponse,
@@ -84,7 +83,6 @@ function sharedForkRows(
 export class ChatsService {
   constructor(
     private readonly tenantDb: TenantDbService,
-    private readonly aborts: RunAbortRegistry,
     @Inject(SearchReindexDispatchService)
     private readonly reindexDispatch: ChatReindexDispatcher,
     @Inject(SearchEmbedDispatchService)
@@ -464,8 +462,8 @@ export class ChatsService {
 
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
     return this.tenantDb.runAs(userId, async (tx) => {
-      // Cancel an in-flight run FIRST: stamp cancel_requested_at and abort the
-      // in-process controller, so the provider stream stops (real token spend +
+      // Cancel an in-flight run FIRST: stamp cancel_requested_at and send it on the
+      // run-control channel (on commit), so the provider stream stops (real token spend +
       // a burst of FK-violation log noise on each post-cascade event append)
       // instead of running until the deadman timeout. Reuses the stop path.
       //
@@ -478,7 +476,6 @@ export class ChatsService {
       const active = await runsRepo.findActiveByChatId(chatId, userId);
       if (active) {
         await runsRepo.requestCancel(active.id, userId);
-        this.aborts.abort(active.id);
       }
       return new ChatsRepository(tx).deleteById(chatId, userId);
     });

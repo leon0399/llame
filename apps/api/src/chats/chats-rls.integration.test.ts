@@ -44,7 +44,6 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { PromptImportPartsRepository } from './prompt-import-parts.repository';
 import { SessionsRepository } from '../auth/sessions.repository';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { isRecord } from '@workspace/runtime-safety';
 import { ChatsService } from './chats.service';
 import { createCompactionCheckpointPart } from './context-item-producers';
@@ -956,7 +955,6 @@ describeIfDb(
       db = drizzle(sql, { schema });
       svc = new ChatsService(
         new TenantDbService(db),
-        new RunAbortRegistry(),
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),

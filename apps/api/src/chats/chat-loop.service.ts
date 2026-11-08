@@ -31,7 +31,6 @@ import {
   creationInProgress,
   tryCreationTransactionLock,
 } from './chat-creation-lock';
-import { RunAbortRegistry, type RunAborter } from '../runs/run-abort-registry';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
   RunStreamBridgeService,
@@ -60,7 +59,6 @@ import { createRunForMessage } from './run-creation';
 export type AcceptedRun = {
   runId: string;
   userMessage: RunUserMessage;
-  supersededRunIds: Array<string>;
   chatId: string;
   userId: string;
   modelId: string;
@@ -128,7 +126,6 @@ export type ChatMessageStream = Pick<
 type PersistUserMessageAndRunResult = {
   runId: string;
   userMessage: RunUserMessage;
-  supersededRunIds: Array<string>;
 };
 
 /**
@@ -172,8 +169,6 @@ export class ChatLoopService {
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(RunStreamBridgeService)
     private readonly bridge: RunStreamResponder,
-    @Inject(RunAbortRegistry)
-    private readonly aborts: RunAborter,
     @Inject(RunDispatchService)
     private readonly dispatch: RunDispatcher,
     @Inject(MediaService)
@@ -281,10 +276,7 @@ export class ChatLoopService {
     if ('delivery' in admitted) {
       throw new ConflictException('Message id already exists');
     }
-    const { runId, userMessage, supersededRunIds } = admitted;
-    for (const supersededRunId of supersededRunIds) {
-      this.aborts.abort(supersededRunId);
-    }
+    const { runId, userMessage } = admitted;
     await this.dispatch.dispatch({
       runId,
       chatId: input.chatId,
@@ -309,10 +301,7 @@ export class ChatLoopService {
   }
 
   /**
-   * Post-persistence side effects for a just-accepted run: abort any
-   * in-process model call a superseded retry left running (after the tx
-   * committed, so the superseded run is already terminally cancelled — first
-   * writer wins), dispatch the durable execution (#50 — queue mechanics and
+   * Post-persistence side effects for a just-accepted run: dispatch the durable execution (#50 — queue mechanics and
    * enqueue-failure handling live in RunDispatchService), and answer with the
    * run-event stream bridge. The HTTP connection is a viewport onto the
    * durable run — closing it does not kill the turn. No inline index here:
@@ -320,10 +309,6 @@ export class ChatLoopService {
    * orphaned user-only turn (failed run) is caught by the discovery sweep.
    */
   async finalizeAcceptedRun(input: AcceptedRun): Promise<ChatMessageStream> {
-    for (const supersededRunId of input.supersededRunIds) {
-      this.aborts.abort(supersededRunId);
-    }
-
     await this.dispatch.dispatch({
       runId: input.runId,
       chatId: input.chatId,
@@ -393,16 +378,11 @@ export class ChatLoopService {
       // the user message, so a message can never exist without its execution
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
-      const { run, supersededRunIds } = await createRunForMessage(
-        tx,
-        input,
-        userMessage,
-      );
+      const { run } = await createRunForMessage(tx, input, userMessage);
 
       return {
         runId: run.id,
         userMessage: toRunUserMessage(userMessage),
-        supersededRunIds,
       };
     });
   }

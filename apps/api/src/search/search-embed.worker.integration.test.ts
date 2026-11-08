@@ -37,7 +37,6 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { ChatsService } from '../chats/chats.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   BUILT_IN_DEFAULTS,
@@ -932,7 +931,6 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
 
       const chats = new ChatsService(
         tenantDb,
-        new RunAbortRegistry(),
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),

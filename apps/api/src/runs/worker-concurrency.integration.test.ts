@@ -348,9 +348,6 @@ describeIfDb(
         // ChatLoopService while the run is genuinely executing (not just
         // queued) — the API-level guarantee the design attributes to the
         // same datastore constraint.
-        const aborts = harness.moduleRef.get(RunAbortRegistry, {
-          strict: false,
-        });
         const bridge: RunStreamResponder = {
           createUiMessageStreamResponse: vi.fn(),
         };
@@ -362,7 +359,6 @@ describeIfDb(
           harness.models,
           instanceConfig,
           bridge,
-          aborts,
           harness.dispatch,
           new MediaService(harness.tenantDb),
         );

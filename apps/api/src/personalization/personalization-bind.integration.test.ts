@@ -19,7 +19,6 @@ import { type ModelSelectionValidator } from '../models/models.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { MessagesRepository } from '../chats/chats-repository';
 import { isTextPart } from '../chats/context-builder';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunsRepository } from '../runs/runs-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { PersonalizationService } from './personalization.service';
@@ -162,7 +161,6 @@ describeIfDb('personalization binds per run', () => {
       models,
       { config: BUILT_IN_DEFAULTS },
       { createUiMessageStreamResponse: () => new Response(null) },
-      new RunAbortRegistry(),
       {
         dispatch: () => Promise.resolve(),
         jobState: () => Promise.resolve('absent'),

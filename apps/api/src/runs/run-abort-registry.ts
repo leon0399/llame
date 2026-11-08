@@ -6,40 +6,50 @@ export type RunAbortRegistrar = Pick<
   'register' | 'unregister'
 >;
 
-/** The chat send path's view: abort a superseded run by id (#268). */
-export type RunAborter = Pick<RunAbortRegistry, 'abort'>;
-
 /**
- * In-process abort registry for in-flight runs (#48).
+ * Registry of the in-flight runs this process executes (#48).
  *
- * The fast path for cancellation while the API and worker share a process:
- * the worker registers an AbortController per executing run; the cancel
- * endpoint aborts it directly. The durable source of truth is always
- * runs.cancel_requested_at — when the worker moves to its own process, this
- * registry's abort() simply stops finding entries and the worker honors the
- * DB flag instead (at pickup; mid-flight via LISTEN/NOTIFY later).
+ * The worker registers an AbortController per executing run, with the run's
+ * owner so a later control message is confirmed in that owner's tenant scope.
+ * Nothing aborts a controller directly from a request: every cancel path
+ * records the cancellation and sends it on the `llame_run_control` channel, and
+ * the control listener of the executing process calls abort() — one path for
+ * every topology (design D6).
  */
 @Injectable()
 export class RunAbortRegistry {
-  private readonly controllers = new Map<string, AbortController>();
+  private readonly entries = new Map<
+    string,
+    { controller: AbortController; userId: string }
+  >();
 
-  register(runId: string): AbortController {
+  register(runId: string, userId: string): AbortController {
     const controller = new AbortController();
-    this.controllers.set(runId, controller);
+    this.entries.set(runId, { controller, userId });
     return controller;
   }
 
   unregister(runId: string): void {
-    this.controllers.delete(runId);
+    this.entries.delete(runId);
+  }
+
+  /** The owner of a run executing in this process. */
+  ownerOf(runId: string): string | undefined {
+    return this.entries.get(runId)?.userId;
+  }
+
+  /** Every run executing in this process, with its owner. */
+  executing(): Array<{ runId: string; userId: string }> {
+    return [...this.entries].map(([runId, { userId }]) => ({ runId, userId }));
   }
 
   /** Abort an in-flight run if it executes in this process. Returns whether it did. */
   abort(runId: string): boolean {
-    const controller = this.controllers.get(runId);
-    if (!controller) {
+    const entry = this.entries.get(runId);
+    if (!entry) {
       return false;
     }
-    controller.abort();
+    entry.controller.abort();
     return true;
   }
 }

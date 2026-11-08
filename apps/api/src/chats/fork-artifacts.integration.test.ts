@@ -21,7 +21,6 @@ import { readArtifact } from '../tools/artifacts/artifact-reader';
 import { writeToolArtifact } from '../tools/artifacts/artifact-writer';
 import { ChatsService } from './chats.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const d = TEST_DB_URL ? describe : describe.skip;
@@ -43,7 +42,6 @@ d('fork artifact copy', () => {
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
     service = new ChatsService(
       tenantDb,
-      new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),

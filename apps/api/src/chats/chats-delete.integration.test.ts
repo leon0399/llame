@@ -20,7 +20,7 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { RUN_CONTROL_CHANNEL } from '../runs/run-control';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -112,20 +112,28 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
       }),
     );
 
-    const aborts = new RunAbortRegistry();
-    const abortSpy = vi.spyOn(aborts, 'abort');
+    const control: Array<string> = [];
+    const listener = await sql.listen(RUN_CONTROL_CHANNEL, (raw) =>
+      control.push(raw),
+    );
     const service = new ChatsService(
       tenantDb,
-      aborts,
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
     );
 
-    const deleted = await service.deleteChat(a, chat);
+    let deleted: boolean;
+    try {
+      deleted = await service.deleteChat(a, chat);
+      await vi.waitFor(() => expect(control).toHaveLength(1));
+    } finally {
+      await listener.unlisten();
+    }
     expect(deleted).toBe(true);
-    // The active run was aborted (in-process signal) before the cascade removed it.
-    expect(abortSpy).toHaveBeenCalledWith(runId);
+    // The cancellation was sent on the run-control channel, delivered on
+    // commit, so the process executing the run stops it.
+    expect(JSON.parse(control[0])).toEqual({ runId, kind: 'cancel' });
     const [{ n }] =
       await sql`SELECT count(*)::int AS n FROM runs WHERE id = ${runId}`;
     expect(n).toBe(0);

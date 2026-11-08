@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
+- **Cancelling a Run now stops it in a dedicated worker.** A cancel request,
+  a deleted Chat, and a superseded Run now reach the process that executes the
+  Run, so the model request or tool call in flight stops there too. Before, only
+  a worker in the same process as the API stopped; a dedicated worker kept
+  running until the next step end. Each cancel path records the cancellation and
+  sends it on the `llame_run_control` Postgres channel in the same transaction.
+  Every process that consumes `runs` listens on that channel, checks the
+  recorded cancellation as the Run's owner before it aborts, and re-checks the
+  Runs it executes after every reconnect. This closes #207.
+
 - **Steer a live Run through the API.** An owner can send a message with
   `delivery: "steer"` while a Run is live. The API answers 202 with a pending
   item, and the Run delivers it at its next step end or final answer, as one
@@ -18,6 +28,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `GET /api/v1/chats/:id/stream` replays only the current segment. Continue and
   Regenerate on the latest turn name the delivered message.
 
+- **Segment preparation (internal machinery).** The attempt of a delivered
+  message now prepares its turn as the first dispatch of that message. It
+  authors its own temporal item and model-switch check, activates `$skill`
+  mentions, resolves prompt imports, and skips compaction, which runs only
+  before the first model step of a Run. A retry inside a later segment appends
+  to what that segment already stored. The kept parts of a Continue Run and the
+  notice and reply guard of a Regenerate Run apply to the first segment only.
+  Usage completeness counts only the attempts after the latest delivery, so a
+  reply that a steer closed is complete, a reclaimed segment is still
+  incomplete, and a Regenerate Run's second segment no longer inherits the
+  replaced-usage mark. A steer delivery writes the first-epoch digest and
+  skill-catalog baselines when it closes the first reply of a Chat's first Run,
+  and the Chat title comes from the message that created the Run. Nothing
+  admits `steer` yet, so no user-visible behavior changes.
+
 - **Run segments (internal machinery).** A live Run can now deliver pending
   `steer` and `interrupt` items. Nothing admits them yet: `steer` still gets
   400, so no user-visible behavior changes. A Run stops a model call at a step
@@ -33,21 +58,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the replies of earlier segments unchanged, and a write in an earlier segment
   no longer blocks it. A cancellation recorded after a delivery ends the Run
   before the next request. Model clients accept a `stopWhenExtra` condition.
-
-- **Segment preparation (internal machinery).** The attempt of a delivered
-  message now prepares its turn as the first dispatch of that message. It
-  authors its own temporal item and model-switch check, activates `$skill`
-  mentions, resolves prompt imports, and skips compaction, which runs only
-  before the first model step of a Run. A retry inside a later segment appends
-  to what that segment already stored. The kept parts of a Continue Run and the
-  notice and reply guard of a Regenerate Run apply to the first segment only.
-  Usage completeness counts only the attempts after the latest delivery, so a
-  reply that a steer closed is complete, a reclaimed segment is still
-  incomplete, and a Regenerate Run's second segment no longer inherits the
-  replaced-usage mark. A steer delivery writes the first-epoch digest and
-  skill-catalog baselines when it closes the first reply of a Chat's first Run,
-  and the Chat title comes from the message that created the Run. Nothing
-  admits `steer` yet, so no user-visible behavior changes.
 
 - **Session details shows the live git state of the bound repository.** The
   Repository block replaces the stored branch with the live branch (or the

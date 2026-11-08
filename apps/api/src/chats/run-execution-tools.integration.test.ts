@@ -157,7 +157,6 @@ import { type InRunContextProducer } from '../runs/in-run-context-items';
 
 import { createInstructionsProducer } from '../instructions/instructions-producer';
 import { ChatsService } from './chats.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -6792,7 +6791,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
         // item included — so the fork's effective history names the files.
         const chats = new ChatsService(
           tenantDb,
-          new RunAbortRegistry(),
           noopReindexDispatch(),
           noopEmbedDispatch(),
           noopQueryEmbedder(),

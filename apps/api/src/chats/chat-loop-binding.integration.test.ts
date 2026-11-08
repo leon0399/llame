@@ -30,7 +30,6 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type RunAborter } from '../runs/run-abort-registry';
 import {
   type MemorySettingsBindingResolver,
   type ResolvedMemorySettings,
@@ -546,7 +545,6 @@ describe('ChatLoopService accept/worker context binding', () => {
     const bridge: RunStreamResponder = {
       createUiMessageStreamResponse: vi.fn(() => new Response()),
     };
-    const aborts: RunAborter = { abort: vi.fn() };
     const dispatcher: RunDispatcher = {
       dispatch,
       jobState: () => Promise.resolve('absent'),
@@ -588,7 +586,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       modelsService,
       instanceConfig,
       bridge,
-      aborts,
       dispatcher,
       new MediaService(tenantDb),
     );

@@ -31,7 +31,6 @@ import { withoutProviderMetadataPayload } from '../chats/provider-metadata-egres
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
-import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { isTerminalRunStatus } from './run-status';
@@ -74,7 +73,6 @@ export class RunsController {
   constructor(
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
-    private readonly aborts: RunAbortRegistry,
   ) {}
 
   @Get(':id')
@@ -120,9 +118,10 @@ export class RunsController {
 
   /**
    * Cancellation (#48) as a resource PATCH — `{status: 'cancelled'}` is the
-   * only client-writable transition. Stamps cancel_requested_at (the durable,
-   * cross-process signal: a queued run is settled at pickup) and aborts the
-   * in-process controller when the run is executing here (mid-flight stop).
+   * only client-writable transition. Stamps cancel_requested_at (the durable
+   * signal: a queued run is settled at pickup) and sends it on the run-control
+   * channel in the same transaction, so the process executing the run stops it
+   * mid-flight in any topology.
    * Idempotent: re-cancelling an already cancel-requested run returns 200.
    */
   @Patch(':id')
@@ -145,7 +144,6 @@ export class RunsController {
     );
 
     if (requested) {
-      this.aborts.abort(id);
       return toRunResponse(requested);
     }
 

@@ -21,6 +21,7 @@ import { RunDispatchService } from './run-dispatch.service';
 import { RunExecutionService } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsModule } from './runs.module';
+import { RunControlListenerService } from './run-control-listener.service';
 import { RunsWorkerService } from './runs-worker.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
 import { IN_RUN_CONTEXT_PRODUCER } from './in-run-context-items';
@@ -72,6 +73,7 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
         new WorkspaceMcpClients(operator, { connector }),
     },
     RunsWorkerService,
+    RunControlListenerService,
     RunStreamBridgeService,
     RunDispatchService,
     {
