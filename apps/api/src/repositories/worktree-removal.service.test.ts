@@ -354,7 +354,7 @@ describe('WorktreeRemovalService', () => {
       code: 'worktree_not_clean',
       status: 409,
       message:
-        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+        'The worktree has no usable upstream and its HEAD is not the recorded base commit.',
     });
     expect(existsSync(directory)).toBe(true);
   });
@@ -371,7 +371,7 @@ describe('WorktreeRemovalService', () => {
       code: 'worktree_not_clean',
       status: 409,
       message:
-        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+        'The worktree has no usable upstream and its HEAD is not the recorded base commit.',
     });
     expect(existsSync(directory)).toBe(true);
   });
@@ -391,7 +391,7 @@ describe('WorktreeRemovalService', () => {
       code: 'worktree_not_clean',
       status: 409,
       message:
-        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+        'The worktree has no usable upstream and its HEAD is not the recorded base commit.',
     });
     expect(existsSync(directory)).toBe(true);
     expect(deleteCheckout).not.toHaveBeenCalled();
@@ -433,7 +433,7 @@ describe('WorktreeRemovalService', () => {
       code: 'worktree_not_clean',
       status: 409,
       message:
-        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+        'The worktree has no usable upstream and its HEAD is not the recorded base commit.',
     });
     expect(existsSync(directory)).toBe(true);
     expect(deleteCheckout).not.toHaveBeenCalled();

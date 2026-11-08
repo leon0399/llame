@@ -103,7 +103,7 @@ export class WorktreeRemovalService {
     ) {
       throw repositoryFailure(
         'worktree_not_clean',
-        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+        'The worktree has no usable upstream and its HEAD is not the recorded base commit.',
       );
     }
     if (upstream !== null && upstream.ahead !== null && upstream.ahead > 0) {
