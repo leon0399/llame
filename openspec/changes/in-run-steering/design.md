@@ -47,8 +47,8 @@ with `ai@6.0.256`.
 - **Live.** One `LISTEN llame_changes` connection per API process
   (`apps/api/src/live/change-listener.ts`). Triggers are hand-written migrations
   (`20261016125611_live_change_notify.sql`). Payloads are ids only.
-- **Stream.** `RunStreamBridge` replays a Run's events into one AI SDK UI message and takes an
-  `afterSequence` cursor (`runs/run-stream-bridge.ts:459-462`). The web re-attaches to a Run whose
+- **Stream.** `RunStreamBridge` replays a Run's events into one AI SDK UI message from sequence 0
+  (`runs/run-stream-bridge.ts:419-423`); its poll loop has a private cursor (`:459-462`). The web re-attaches to a Run whose
   stream ended while it still executes (`use-chat-history-sync.ts:72-74`).
 - **Web.** `chat-composer.tsx:112-115` swaps Send for Stop while a Run streams, and
   `use-chat-conversation.ts:103-107` drops Enter. Context items render only for a fixed producer
@@ -109,30 +109,50 @@ row lock:
 
 An `interrupt` item, or a `PATCH` to `interrupt`, sends `NOTIFY llame_run_control` in the same
 transaction; Postgres delivers it on commit. `GET`, `PATCH`, and `DELETE` under
-`/api/v1/chats/:chatId/deliveries` are conditional updates `WHERE state = 'pending'`; zero rows
-give 409. A `PATCH` on an idle Chat promotes the item into a Run in the same transaction (the
+`/api/v1/chats/:chatId/deliveries` are conditional updates `WHERE chat_id = :chatId AND state =
+'pending'`; zero rows give 409. A `PATCH` on an idle Chat promotes the item into a Run in the same transaction (the
 promotion path of D5).
 
 ### D3: A segment is a new attempt with its own `streamText` call
 
 A delivery moves `runs.message_id` to the delivered message and writes a fresh `activeAttemptId`
-in the delivery transaction. The executor then runs attempt preparation for that message as it
-does after a claim: prompt and receipt, the compaction check, accepted-turn items, prompt imports,
-`$skill` activation, and the first dispatch, which creates the reply `in_reply_to` the delivered
-message. Rules scoped to an attempt (usage, reasoning tokens, stream metrics, receipts, the
-settler window start) then hold per segment without new code.
+in the delivery transaction. It appends no `run.started`, so native admission, which keys on the
+latest `run.started` (`native-files-repository.ts:23-34`), keeps the claim's delivery sequence.
+The executor then prepares the new attempt for that message: prompt and receipt, accepted-turn
+items, prompt imports, `$skill` activation, and the first dispatch, which creates the reply
+`in_reply_to` the delivered message. Every attempt, including a crash retry, reads the Run's
+current `message_id` from the Run row, not the user message in the job payload. That removes the
+salvage-branch failure: a retry in segment 3 dispatches for the segment-3 message.
 
-Every attempt, including a crash retry, reads the Run's current `message_id` from the Run row, not
-the user message in the job payload. That removes the salvage-branch failure: a retry in segment 3
-dispatches for the segment-3 message, whose reply is not completed.
+The attempt machinery needs these changes to work per segment:
 
-`executeRun` keeps its signature. It returns a result whose `consumeStream()` drains every segment
-and resolves only when the Run is terminal, so the worker contract and the 319 test call sites keep
-their shape. `ModelStreamInput` gains a `stopWhenExtra` predicate that each client ORs into its own
-`stopWhen`; the SDK awaits async predicates (`ai` `dist/index.mjs:4221`), after the step's tool
-calls settle. The predicate runs one indexed owner-scoped query for pending `steer` and
-`interrupt` items. In `onFinish`, a `finishReason` of `tool-calls` with a pending item means a
-segment end: the executor runs D4 instead of `finishRun`.
+- **First dispatch or retry.** Accepted-turn producers decide "first dispatch" from
+  `runs.turn_tool_availability` today (`run-execution.service.ts:5321-5322`). The decision moves
+  to "a `model.requested` exists after the latest `run.delivered`". Baseline queries that join
+  `runs.message_id` with `seq <` read the Run of an earlier reply through the reply's usage `runId`
+  instead, so they still see the Run's earlier segments.
+- **Follow-up state.** `loadContinueState` and the Regenerate notice apply only when no
+  `run.delivered` exists, so only the first segment seeds the kept parts.
+- **Compaction.** Pre-step compaction planning runs only for attempts of the first segment. A
+  segment start or a retry in a later segment skips it.
+- **Completeness.** `run.delivered` carries the new `attemptId`. The completeness check counts only
+  receipts of attempts after the latest `run.delivered`, so a segment attempt does not mark the
+  final reply incomplete.
+- **Baselines.** The delivery transaction writes the first-epoch baselines (`recencyDigest`
+  initialization, `skillCatalogFreeze`) that `finishRun` writes for a completed first Run, when the
+  closed reply is the first segment of the Chat's first Run.
+- **Title.** Title generation reads the message of `run.created`, not the Run's current message.
+
+`executeRun` keeps its signature. It returns a result, built on `wrapStreamTextResult`, whose
+`consumeStream()` drains every segment and resolves only when the Run is terminal. The worker
+contract and the 319 test call sites keep their shape. `ModelStreamInput` gains a `stopWhenExtra`
+predicate that each client, the scripted client included, ORs into its own `stopWhen`; the SDK
+awaits async predicates after the step's tool calls settle (`ai` `dist/index.mjs:4221-4226`). The
+predicate runs one owner-scoped query for pending `steer` and `interrupt` items and for
+`cancel_requested_at`, so a lost cancel signal is also found at a step end. In `onFinish`, a stop
+that this predicate caused is a segment end: the executor runs D4 instead of `finishRun`. When D4
+finds no pending item (the owner withdrew it), the executor sends the next request in the same
+segment with another `streamText` call over the same reply.
 
 Rejected: injecting steers as in-Run context items on the running reply. The owner's words would
 be assistant parts, a crash reset would delete them, and search and forks would not see an owner
@@ -140,12 +160,15 @@ message.
 
 ### D4: Delivery is one fenced transaction
 
-The delivery transaction locks the chat row and fences `activeAttemptId`. It finalizes the current
-reply: status `completed` for a steer, `aborted` with `complete: false` for an interrupt. The
+The delivery transaction first updates the Run row, fenced by `activeAttemptId` and by
+`cancel_requested_at IS NULL`, then locks the chat row. This is the order of the terminal
+transaction and of chat deletion: Run row, then chat row (`run-execution.service.ts:4827-4831`,
+`chats/chats.service.ts:466-482`). A miss on the cancel fence leaves the items pending, and the
+cancellation then moves them to the queue. The transaction finalizes the current reply: status `completed` for a steer, `aborted` with `complete: false` for an interrupt. The
 segment usage is published as a run event before `run.delivered`. It then inserts the user row
 (next `seq`, `senderUserId` = owner, a new id) and marks the items `delivered` with that id. It
 moves `runs.message_id`, writes the new attempt id, and appends `run.delivered` with
-`{messageId, deliveryIds, cause, stoppedCalls}`.
+`{messageId, deliveryIds, cause, stoppedCalls, attemptId}`.
 
 A crash before commit leaves items `pending`; the retried attempt reads history through the Run's
 current message and delivers them at its first boundary. A crash after commit finds the delivered
@@ -156,30 +179,44 @@ One `run.delivered` type with `cause` covers grilling D12's "new event types".
 
 ### D5: Completion and promotion share the terminal transaction
 
-The completing transaction locks the chat row, then checks for pending `steer` and `interrupt`
-items. If any exist it runs D4 and the loop continues. Admission takes the same lock, so a steer
+The completing transaction updates the Run row, then locks the chat row, then checks for pending
+`steer` and `interrupt` items. If any exist it runs D4 and the loop continues. Admission takes the same lock, so a steer
 is either seen by the completion or admitted after it into an idle Chat. Otherwise the transaction
 marks the Run `completed`, takes the lowest-`position` `queue` item, validates its settings like a
 send, inserts its user row with the item id, creates its Run, and enqueues it after commit under
 the fail-fast rule of `durable-runs`. An item that no longer validates stays pending.
 
 `RunsRepository.markFinished` moves pending `steer` and `interrupt` items to `queue`, with
-positions below the current minimum, whenever it writes `failed`, `cancelled`, or `expired`. Every
-terminal writer (admission expiry, claim-time transitions, `finishRunInTransaction`, the reply
-finalizer, `settleCancelledBeforeStart`, `expireDeadLetteredRun`, `failRunTransactionally`) goes
-through it. The paused state is derived, not stored.
+positions below the current minimum, whenever it writes `failed`, `cancelled`, or `expired`. It
+updates the Run row, then takes the chat-row lock before the move, so an admission that read the
+Run as live commits its item first and the move sees it. Every terminal writer (admission expiry,
+claim-time transitions, `finishRunInTransaction`, the reply finalizer,
+`settleCancelledBeforeStart`, `expireDeadLetteredRun`, `failRunTransactionally`, and
+`cancelActiveRunsForMessage`, which today bypasses it) goes through it. The paused state is
+derived, not stored.
+
+The salvage branch is a completion like any other. When its completion check finds pending items,
+it runs D4 and the attempt continues the segment loop instead of throwing `RunNotRunnableError`.
+
+Promotion validates the stored model, effort, and permission mode against the current catalog and
+`tools.permissionModes`. Media were resolved and owner-checked at admission and stay owner-scoped,
+so the worker does not need `MediaService`.
 
 ### D6: A run-control channel reaches the executing worker
 
 Each process whose job-queue profile consumes `runs` (`concurrencyFor('runs') !== null`, which
 includes an API process that runs Runs) holds one postgres.js `LISTEN llame_run_control`
 connection, built like `PostgresChangeListener`. The payload is `{runId, kind}` with `kind`
-`interrupt` or `cancel`. The abort registry stores `{controller, segmentController, userId}`. A
-`cancel` aborts the Run controller; an `interrupt` aborts the segment controller. On every
+`interrupt` or `cancel`. The abort registry stores `{controller, segmentController, userId}`. The payload is a pointer: the
+listener confirms `cancel_requested_at` or a pending `interrupt` item in the owner's tenant scope
+before it acts. A `cancel` aborts the Run controller. An `interrupt` aborts the segment controller
+only while a model request or a tool call is in flight; otherwise the item waits for the next step
+end or final answer, as a steer does. On every
 (re)connect the listener re-reads, in each owner's tenant scope, the cancellation and pending
 interrupts of the Runs it executes. The step-end query of D3 also finds interrupts, which bounds
-a lost signal to one step. Cancel switches from in-process `aborts.abort` to the channel, which
-closes #207.
+a lost signal to one step. Every cancel path switches from in-process `aborts.abort` to the channel:
+`PATCH /runs/:id`, chat deletion (`chats/chats.service.ts:479-481`), and superseded-Run aborts
+(`chats/chat-loop.service.ts:253`, `:291`). This closes #207.
 
 Rejected: a polled flag (seconds of latency and one query per Run per tick); in-process only
 (Interrupt degrades to Steer in a dedicated-worker deployment).
@@ -199,7 +236,8 @@ every other tool. The attempt tool binding gives each dynamic MCP tool `cancel`.
 4. It settles each open call once, with `providerMetadata.llame.interrupted`:
    - a `read_only` call: `cancelled` with the spec text;
    - `bash`: the `bash-execution` cancellation result (known exit status or `outcome_unknown`);
-   - an MCP call with a recorded `native.attempt` of operation `mcp`: `unknownMcpExecution`;
+   - an MCP call with a recorded `native.attempt` of operation `mcp`: `unknownMcpExecution`, with a
+     recorded `native.result`, so a later retry does not see an unsettled attempt;
    - a call that never started: `cancelled` with the not-executed text.
 5. It runs D4 with cause `interrupt` and the stopped `bash` and MCP calls in `stoppedCalls`.
 
@@ -207,16 +245,17 @@ The next segment's dispatch authors the `interrupted` item from the `run.deliver
 accepted-turn producer, first in precedence. `background` is a reserved enum value with no
 implementation; #1051 adds it.
 
-### D8: The collector knows which reasoning part is open
+### D8: The projection drops reasoning with no later part
 
-`stream-parts.ts` gains an explicit `onReasoningEnd(id)` for every client, from the SDK's
-`reasoning-end` part, with or without metadata. The collector marks a reasoning part closed on that
-event. On an interrupt, each reasoning part that is not closed gets
-`providerMetadata.llame.interrupted: true`. The `turn-replay` projection omits a part with that
-marker, and omits a reasoning part with no later kept part in an interrupted reply (the
-`reasoning-output` rule). OpenAI Responses needs an output item after each reasoning item, which
-the second rule keeps. A tool call is a stored part only after the SDK emits the complete call, so
-incomplete arguments never reach storage.
+The rule needs no open-or-closed signal from the stream, which the Chat Completions wire does not
+give (`openai-completions-model-client.ts:345-366` routes reasoning through `onChunk`, which
+carries no `reasoning-end`). An interrupt stops the stream, so the cut reasoning part is the last
+part of the reply. In a reply whose usage status is `aborted` from an interrupt, the `turn-replay`
+projection omits each reasoning part that has no later kept part. That covers the cut part and a
+completed reasoning item with nothing after it, which OpenAI Responses rejects. The collector
+still marks the cut part with `providerMetadata.llame.interrupted: true` for the transcript. A tool
+call is a stored part only after the SDK emits the complete call, so incomplete arguments never
+reach storage.
 
 A live probe against the Anthropic Messages API must accept a request that keeps a signed block of
 an interrupted reply and drops the open one, before the `interrupt` layer relies on it.
@@ -224,8 +263,8 @@ an interrupted reply and drops the open one, before the `interrupt` layer relies
 ### D9: The UI stream covers one segment
 
 `RunStreamBridge` ends the current UI message at `run.delivered` with a `data-run-delivered`
-part (`{messageId}`) and `finish`. The resume path passes the sequence of the latest
-`run.delivered` as `afterSequence`. The web adopts history on that part, then attaches the resume
+part (`{messageId}`) and `finish`. `createUiMessageStreamResponse` gains a start-sequence
+parameter, and the resume path passes the sequence of the latest `run.delivered`. The web adopts history on that part, then attaches the resume
 stream for the next segment. The `start` frame keeps the Run id, so cancel keeps working.
 
 ### D10: Live pending items use the change hub
@@ -238,8 +277,9 @@ and `live-protocol.ts` are regenerated.
 
 The Send control becomes a `ButtonGroup` with a `DropdownMenu` while a Run is active: Steer
 (Enter), Interrupt, Queue (Mod+Enter, `aria-keyshortcuts`). The pending stack renders rows from
-`GET /deliveries` plus live updates, with achromatic `rounded-md` rows per `DESIGN.md`. Edit is
-`DELETE`; the response fills the composer, and the next send uses a new message id. Stop and Esc
+`GET /deliveries` plus live updates, with achromatic `rounded-md` rows per `DESIGN.md`. A delivery send is a plain
+`fetch` to the messages route, outside the `useChat` transport, because its answer is 202 JSON.
+Edit is `DELETE`; the response fills the composer, and the next send uses a new message id. Stop and Esc
 `PATCH` the first pending steer to `interrupt` when one exists, otherwise they send the cancel
 request. `message-visibility.ts` gains a renderer for the `interrupted` producer. Turn actions
 follow `latestRun.messageId`, which a delivery moves.
@@ -250,9 +290,9 @@ follow `latestRun.messageId`, which a delivery moves.
   its own user row, and the Run's `message_id` always names the current one; the proposal lists
   each reading of an unchanged requirement, and the `steer` layer tests Continue and Regenerate on
   a delivered message.
-- [A segment attempt can compact mid-Run, which rewrites the prefix of a thinking block] →
-  `anthropic-messages-provider` already sends the drop-on-prefix-mismatch instruction for this
-  case.
+- [A long steered Run can outgrow the context window, because a segment start does not compact]
+  → It then fails with the provider's error, as a long tool loop does today. Segment compaction is
+  a follow-up that needs the compaction specs changed together.
 - [A lost NOTIFY delays an interrupt until the next step end] → Reconnect re-reads state; the item
   is never lost. A long `bash` call without a step end still waits for its call timeout then.
 - [The Anthropic probe fails for kept signed blocks] → Fall back to the OpenCode rule (no
@@ -262,8 +302,8 @@ follow `latestRun.messageId`, which a delivery moves.
   the call timeout and usually take milliseconds to seconds.
 - [Steering makes Runs longer] → Each segment reports its own usage; the owner sees the cost per
   reply.
-- [The segment layer is large] → It is split from steer admission (see tasks.md); re-measure at
-  each boundary.
+- [The segment and interrupt work is large] → Each is split into two layers (see tasks.md);
+  re-measure at each boundary.
 
 ## Migration Plan
 
@@ -279,6 +319,17 @@ and is reviewed in the `web` layer's Storybook stories.
 
 ## Revision history
 
+- **v3 (2026-11-08):** Round 2 (spec consistency 3 P1 / 12 P2; feasibility 5 P1 / 10 P2 / 6 P3;
+  no P0). Accepted: follow-up rules only in the first segment (turn-actions delta); per-segment
+  first-dispatch detection, baseline lookups, completeness by `run.delivered.attemptId`, title,
+  and baselines listed as real code changes; no compaction at a segment start (compaction delta
+  dropped); execution ceiling from the claim (durable-runs delta); `$skill` and prompt-import
+  deltas; withdrawal race continues the segment; Run-then-chat lock order; cancel fence in D4;
+  `markFinished` move under the chat lock and `cancelActiveRunsForMessage` routed through it;
+  salvage continues; interrupt signal only with work in flight; listener checks state in the owner
+  scope; all cancel paths on the channel; recorded `native.result` for stopped MCP calls; D8
+  without `onReasoningEnd`; bridge start-sequence parameter; fetch for delivery sends; `chat_id`
+  filter; settings-only promotion validation; layer splits. Rejected: none.
 - **v2 (2026-11-08):** Round 1 (spec consistency 13 P1 / 15 P2; feasibility 9 P1 / 9 P2; no P0).
   Accepted: each segment is a new attempt for the delivered message and moves `runs.message_id`
   (fixes the finalizer, salvage, follow-up, and usage findings); MODIFIED deltas for the final

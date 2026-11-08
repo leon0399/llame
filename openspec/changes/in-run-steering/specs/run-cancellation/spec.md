@@ -20,7 +20,8 @@ Run that is deleted together with its Chat leaves no Run to settle, and this req
 apply to it.
 
 A Run settled `cancelled` before its model request is recorded as sent (`model.requested`) MUST
-persist no assistant message. A Run cancelled after that point MUST persist its assistant turn
+persist no assistant message. After a delivery of `run-steering`, this applies to the current
+segment: the delivered message then gets no reply, and earlier replies do not change. A Run cancelled after that point MUST persist its assistant turn
 with the output observed before the cancellation, as `durable-runs` specifies for partial output.
 When the Run observed no output, that turn MUST have no parts. The Run MUST settle the tool calls
 that are open at the cancellation as `tool-calling` specifies. This capability does not specify
@@ -120,3 +121,9 @@ answer and carry no frame. This applies also to the Chat of another owner.
 - **WHEN** a Run delivered one steer, and the owner then resumes the Chat
 - **THEN** the resume stream replays only the events after that delivery
 - **AND** the transcript shows the first segment from the history of the Chat
+
+#### Scenario: A cancellation after a delivery leaves the earlier reply
+
+- **WHEN** a Run delivers a steer, and a cancellation is recorded before the first request of the next segment
+- **THEN** the Run is settled `cancelled`, and the delivered message gets no reply
+- **AND** the reply of the first segment does not change

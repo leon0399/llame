@@ -82,9 +82,13 @@ Assumptions that follow from those decisions but that the grilling did not ask:
   acts.
 - `Steer now` or `Interrupt now` on a paused item when no Run is active starts a Run with that
   item.
-- Each segment is a new attempt of the Run for the delivered message. It prepares like the first
-  attempt of a Run: the compaction check, accepted-turn context items, prompt imports, and
-  `$skill` activations run for the delivered message.
+- Each segment is a new attempt of the Run for the delivered message. It prepares its accepted
+  turn like the first attempt of a Run: context items, prompt imports, and `$skill` activations
+  run for the delivered message. A segment start runs no compaction check; a long steered Run can
+  outgrow its context window and fail, as a long tool loop can today.
+- A follow-up Run applies its Continue or Regenerate rules only to its first segment.
+- A delivery does not restart `runs.timeoutSeconds` or the execution ceiling.
+- The title of a new Chat comes from its first message, even when its first Run takes a steer.
 - When a run-control notification is lost, the worker finds the interrupt at its next step
   boundary at the latest, so the item is delivered as a steer would be.
 
@@ -110,39 +114,53 @@ Assumptions that follow from those decisions but that the grilling did not ask:
 - `durable-runs`: `Every message executes as a durable, resumable run` (a delivered message
   executes inside the live Run); `One in-flight run per chat (single-flight)` (a send with a
   delivery mode is admitted as a pending item); `Final assistant-message projection preserves
-  replay order` (each segment has its own reply, and finalizers act only on the current one).
+  replay order` (each segment has its own reply, and finalizers act only on the current one);
+  `A run never stays stuck, enforced without a cross-tenant reaper` (the execution ceiling counts
+  from the claim, not from a segment attempt).
 - `run-cancellation`: `A recorded cancellation settles the Run as cancelled` (cancellation
-  reaches a worker in another process); `The Run stream identifies its Run at acceptance` (a
-  stream covers one segment, and a resume replays the current segment).
+  reaches a worker in another process; the no-reply rule applies to the current segment); `The
+  Run stream identifies its Run at acceptance` (a stream covers one segment, and a resume replays
+  the current segment).
 - `tool-calling`: `Multi-step tool-calling run loop` (the step cap counts per segment);
   `No mid-run tool-state checkpointing (read-only slice; write-tool landmine)` (a retry restarts
   the current segment, and only a native attempt of that segment stops the Run).
 - `context-injection`: `Co-occurring items have a total author-time order` (adds the
   `interrupted` producer, first in the order).
 - `run-usage-accounting`: `Usage records whether it is complete` (a reply that a steer closed is
-  complete, and only attempts for the same message count); `Compaction uses the final request's
-  size, not the aggregate` (the trigger runs before each segment).
+  complete, and only attempts for the same message count).
 - `reasoning-output`: `Earlier reasoning replays only for the model that produced it` (the
-  segments of one Run replay their reasoning like one turn; an interrupted reply drops the cut
-  part and a part with no later part).
+  segments of one Run replay their reasoning like one turn; an interrupted reply drops each
+  reasoning part with no later part).
+- `turn-actions`: `The Continue Run log starts with the kept parts` (only the first segment of a
+  Continue Run starts from the kept parts).
+- `agent-skills`: `Explicit mentions load skills before the first model request` and
+  `prompt-imports`: `Prompt imports persist as one preceding rail item` (a delivered message
+  activates its skills and imports before the first request of its segment).
 
 Deliberately unchanged, with the reading this change relies on. Each segment is an attempt of
 the Run for the message of that segment, so rules that are scoped to one attempt hold per segment.
 
 - `durable-runs` `Run claiming and completion are crash-safe`: a delivery assigns a fresh
   `activeAttemptId` in the fenced delivery transaction. Every rule for attempt-owned events,
-  superseded workers, and native effect admission applies to that attempt.
+  superseded workers, and native effect admission applies to that attempt. Native admission keys
+  on the latest `run.started`, which a delivery does not append.
 - `run-usage-accounting` `Message usage aggregates every model request of its attempt`,
   `Reasoning tokens are known only when every request reported them`, `Stream performance
   metrics are recorded additively`, `Every terminal assistant turn keeps its known usage`, and
   `Live and reloaded usage agree`: "the attempt" is the attempt of one segment.
+- `run-usage-accounting` `Compaction uses the final request's size, not the aggregate`,
+  `model-system-prompts` `Compaction publishes a summary-only checkpoint before the Run's first
+  model step`, and the compaction rules of `available-models`, `media-attachments`, and
+  `context-injection`: compaction stays before the first model step of the Run. A segment start
+  runs no compaction check.
 - `context-injection` `Server-authored context is injected as discrete items on one rail`: "the
   triggering user message" of a segment attempt is the message of the Run, which a delivery moves
-  to the delivered message.
+  to the delivered message. The accepted-turn items of a segment are attached items of that
+  message, not in-Run items.
 - `tool-calling` `Cooperative cancellation reaches tool execution` and `Termination settles
   in-flight tool activity`: they cover Run termination. An interrupt is not a termination, and
   `run-steering` gives it its own settlement rules.
-- `turn-actions` (all requirements): a delivery makes the delivered message the message of the
+- `turn-actions` (other requirements): a delivery makes the delivered message the message of the
   Run, so `latestRun.messageId` names it, and "the latest Run of the message" is that Run.
 - `anthropic-messages-provider` `Thinking blocks are persisted and replayed complete and
   unmodified`: its pruning rule defers to the model rule of `reasoning-output`, which this change

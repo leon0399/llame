@@ -26,7 +26,8 @@ partial unique index over non-terminal Runs, not with application checks only. W
 in-flight Run, a different message for that Chat MUST get a conflict (409) when the send names no
 `delivery` mode. A send that names a `delivery` mode MUST become a pending item under
 `run-steering`, and it MUST NOT create a Run. A chat send that names a message id that already has
-a Run MUST get a conflict as a duplicate. A chat send never makes a second Run for one message.
+a Run MUST get a conflict as a duplicate. The id of an item of `run-steering` is the one exception,
+and that capability answers it. A chat send never makes a second Run for one message.
 Only a follow-up Run from `turn-actions` can add a Run to a message that has a Run. A follow-up
 request MUST pass the same admission as a new message. When a worker stops during execution, the
 `job-queue` substrate MUST recover or expire its Run (worker-death recovery or dead-letter).
@@ -157,6 +158,7 @@ attempt. From then on, the assistant message of the Run is the reply to the deli
 dispatch transaction of the first request of that attempt MUST create it. A finalizer MUST act
 only on that reply. It MUST NOT change the reply of an earlier segment. Its rebuild window, and the
 full event log of the Run in the rules above, MUST start after the latest `run.delivered` event.
+The kept parts of a Continue Run belong only to its first segment.
 
 Owner-facing reads are chat history, public share, the sources of shared-Chat and owner forks, and
 the chat-list preview. They MUST omit an assistant message whose usage status is `running`. The
@@ -299,3 +301,86 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 
 - **WHEN** the worker dies in the second segment after one tool step, and a settler without the collector finalizes the Run
 - **THEN** the reply of the second segment holds only the parts of the events after the latest `run.delivered`
+
+### Requirement: A run never stays stuck, enforced without a cross-tenant reaper
+
+A Run MUST NOT stay non-terminal without end. Its liveness MUST be enforced with **no
+cross-tenant scan**. Each liveness action runs in process on the worker of the Run or in the tenant
+scope of the Run owner. A Run that keeps its progress MUST have **no default limit** on its
+duration or step count. It ends when the model answers, when the owner cancels it, or by one of
+the mechanisms below. These mechanisms cover the failure modes:
+
+- **Optional in-process time budget**: the operator can configure `runs.timeoutSeconds`. A Run
+  that exceeds that wall-clock budget while its worker is alive MUST be aborted in process. It
+  MUST be recorded as a terminal `run.expired`, which is different from a `run.cancelled` that the
+  user requests. Without a configured budget, no wall-clock budget applies.
+- **Execution ceiling**: the worker of the Run MUST end a Run that still executes 23 hours 55
+  minutes after the worker claimed it. It MUST record a terminal `run.expired` whose message names
+  the execution ceiling, not a configured budget. The ceiling MUST come before the declared job
+  duration of the `runs` queue (per `job-queue`). Thus the queue never fails a live Run because of
+  its age, and never executes it again from its start. A delivery of `run-steering` starts a new
+  attempt but does not restart the budget or the ceiling.
+- **Model stream idle watchdog**: the worker reads the streamed response of a model. A request can
+  give no streamed part for 300 seconds after it is sent, or for 300 seconds after its previous
+  part. The worker MUST then abort it and record the Run as terminally failed. The error code
+  `model_stream_idle` MUST be on the error of the Run and in its `run.failed` event. The watchdog
+  MUST measure only the time that the worker waits on the response of the model. The time of tool
+  execution MUST never count. The watchdog MUST NOT send the request again.
+- **Worker-death recovery**: the worker of the Run can die or hang and stop its liveness signal.
+  The `job-queue` substrate MUST then detect the job of the Run as stalled (see its native
+  worker-liveness requirement) and retry it. Thus a healthy worker executes the Run again, and the
+  Run is not orphaned. A second execution is safe, because claim and completion are crash-safe
+  (single-flight, first-writer-wins).
+- **Tenant-scoped terminal expiry**: the job of a Run can use all its retries. The Run MUST then
+  be settled to a terminal `run.expired` state in the tenant scope of the Run owner. The dead-letter path of the
+  queue does this with no cross-tenant scan.
+
+There MUST be no application-level liveness poll and no "deadman" job per Run. The native queue
+heartbeat drives the detection of a dead worker.
+
+#### Scenario: A progressing run has no default time limit
+
+- **WHEN** no wall-clock budget is configured
+- **AND** a Run keeps its model and tool progress for longer than the default job expiry of the substrate
+- **THEN** the Run continues until the model answers
+- **AND** it does not expire, and it does not execute again from its start
+
+#### Scenario: An overrunning run is aborted in-process
+
+- **WHEN** the operator configured a wall-clock budget, and a Run exceeds it while its worker is alive
+- **THEN** the worker aborts it in process and records a terminal `run.expired`
+- **AND** no separate liveness job takes part
+
+#### Scenario: A run reaching the execution ceiling ends before the queue expires it
+
+- **WHEN** a Run still executes 23 hours 55 minutes after the worker claimed it
+- **THEN** the worker records a terminal `run.expired` whose message names the execution ceiling
+- **AND** the queue does not fail or retry the job
+
+#### Scenario: A stalled model stream fails the run
+
+- **WHEN** a model request gives no streamed part for 300 seconds, before its first part or between two parts
+- **THEN** the worker aborts the request and records the Run as terminally failed with error code `model_stream_idle`
+- **AND** the parts observed before the stall stay in the record of the Run, and the request is not sent again
+
+#### Scenario: A long tool call does not trip the stream watchdog
+
+- **WHEN** a tool call executes for longer than 300 seconds between two model requests
+- **THEN** the stream watchdog does not fire, and the next model request starts with a new 300-second window
+
+#### Scenario: A dead worker's run is recovered, not orphaned
+
+- **WHEN** the worker that executes a Run dies during the Run
+- **THEN** the queue detects the stalled job and retries it, and a healthy worker executes the Run again
+- **AND** the Run does not stay non-terminal without end
+
+#### Scenario: Retry exhaustion expires the run in-tenant
+
+- **WHEN** the job of a Run uses all its retries, for example because it kills its worker each time
+- **THEN** the dead-letter path settles it to a terminal `run.expired` in the tenant scope of the owner
+- **AND** the path makes no cross-tenant scan
+
+#### Scenario: A delivery does not restart the execution ceiling
+
+- **WHEN** a Run claimed 23 hours ago delivers a steer
+- **THEN** the worker ends the Run 23 hours 55 minutes after the claim, during the new segment

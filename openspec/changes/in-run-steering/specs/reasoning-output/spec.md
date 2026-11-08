@@ -8,8 +8,8 @@ Run completed. Otherwise the system MUST omit the part and its provider metadata
 Within one turn, and in the kept parts of a Continue Run, a reasoning part MUST
 replay on the model of its Run. The segments of one Run are one turn for this rule,
 also before the Run completes. In a reply that an interrupt closed, the part that
-the interrupt cut MUST NOT replay. A part with no later kept part in that reply
-MUST NOT replay either. The system MUST NOT select reasoning parts by
+the interrupt cut MUST NOT replay. A reasoning part with no later kept part in that
+reply MUST NOT replay either. The system MUST NOT select reasoning parts by
 their content or their age.
 
 #### Scenario: The same model keeps earlier reasoning

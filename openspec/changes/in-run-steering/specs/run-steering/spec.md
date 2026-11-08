@@ -1,8 +1,8 @@
 ## Purpose
 
-Defines how a message that arrives while a Run is active reaches that Run or the next Run: the
-per-Chat delivery queue, the steer, interrupt, and queue delivery modes, the segments of a Run,
-the settlement of work that an interrupt stops, and the owner's controls for pending items.
+Defines how a message that arrives during a live Run reaches that Run or the next Run. It covers
+the per-Chat delivery queue, the steer, interrupt, and queue modes, and the segments of a Run. It
+also covers the work that an interrupt stops, and the owner's controls for pending items.
 
 ## ADDED Requirements
 
@@ -209,14 +209,57 @@ new attempt of the Run for that message in the same worker, with no new claim.
 
 ### Requirement: A segment attempt prepares its own accepted turn
 
-The attempt of a segment MUST prepare its request as the first attempt of a Run prepares it for
-its user message. This includes the compaction check and the accepted-turn context items. Prompt
-imports and `$skill` mentions in a delivered message MUST take effect.
+The attempt of a segment MUST prepare its accepted turn as the first attempt of a Run prepares it
+for its user message. This includes the accepted-turn context items. Prompt imports and `$skill`
+mentions in a delivered message MUST take effect. The compaction check MUST run only before the
+first model step of the Run, not at a segment start.
 
 #### Scenario: A steer with a skill mention
 
 - **WHEN** a delivered steer names `$pdf` and the skill is available
 - **THEN** the delivered message carries a `skill-activation` item before the steer text
+
+#### Scenario: A segment start does not compact
+
+- **WHEN** the reply of the first segment reports a final-request size above the compaction threshold, and a steer starts a second segment
+- **THEN** no compaction runs before the first model request of the second segment
+
+### Requirement: A follow-up Run applies its follow-up rules to its first segment only
+
+The kept parts of a Continue Run and the `regenerate` notice of a Regenerate Run MUST apply only to
+the first segment of that Run. A later segment MUST start from history through its delivered
+message, as a segment of any Run does.
+
+#### Scenario: A steer inside a Continue Run
+
+- **WHEN** the owner steers a Continue Run after its first step
+- **THEN** the reply of the delivered message does not hold the kept parts of the source reply
+- **AND** the request of the second segment carries the kept parts once, in the first segment reply
+
+#### Scenario: Regenerate on a delivered message
+
+- **WHEN** the latest Run delivered a steer and failed, and the owner regenerates the latest turn
+- **THEN** the Regenerate Run answers the delivered message and replaces only the reply of that message
+
+### Requirement: A delivery does not restart the time limits of the Run
+
+The wall-clock budget `runs.timeoutSeconds` and the execution ceiling MUST count from the claim of
+the Run by its worker. A delivery MUST NOT restart either of them.
+
+#### Scenario: A long steered Run reaches its budget
+
+- **WHEN** the budget is one hour, and a Run takes a steer after 50 minutes
+- **THEN** the Run expires one hour after the claim, during its second segment
+
+### Requirement: A Chat title comes from the first message of its first Run
+
+When the first Run of a Chat generates the Chat title, the title MUST come from the first message
+of that Run. A delivered message MUST NOT replace it as the title source.
+
+#### Scenario: A steer in the first Run
+
+- **WHEN** the first Run of a new Chat delivers a steer, and then completes
+- **THEN** the title comes from the first message of the Chat
 
 ### Requirement: A steer closes its segment reply as completed
 
@@ -246,6 +289,26 @@ segments.
 - **WHEN** the worker dies in the third segment of a Run, and the queue retries the Run
 - **THEN** the retry sends history through the user message of the third segment
 - **AND** the replies of the first two segments do not change
+
+### Requirement: A step end with nothing to deliver continues the segment
+
+The Run can stop a step for a pending item that is gone at the delivery. The Run MUST then send the
+next model request in the same segment. It MUST NOT complete.
+
+#### Scenario: A withdrawal after the step end
+
+- **WHEN** the Run stops a step for a pending steer, and the owner withdraws the steer before the delivery
+- **THEN** the Run sends the next model request in the same segment and does not complete
+
+### Requirement: A delivery does not happen after a cancellation
+
+A delivery MUST NOT happen when a cancellation of the Run is recorded. The items MUST stay pending,
+and the pause rule then applies to them.
+
+#### Scenario: A cancellation and a steer at one boundary
+
+- **WHEN** a cancellation is recorded, and its signal has not yet reached the worker at a step end with a pending steer
+- **THEN** the steer is not delivered, and it becomes a queue item when the Run ends `cancelled`
 
 ### Requirement: A delivered item reaches the model exactly once
 
@@ -306,8 +369,9 @@ or change an item to `steer` or `interrupt`.
 ### Requirement: A mode change on a paused item starts a Run
 
 The owner can change a pending item to `steer` or `interrupt` while the Chat has no non-terminal
-Run. The API MUST then store that item as a user message. It MUST start a Run for it with the
-settings of the item.
+Run. The API MUST then store that item as a user message with the id of the item. It MUST start a
+Run for it with the settings of the item. When a send cannot use those settings, the API MUST
+answer with the error of a chat send, and the item MUST stay pending.
 
 #### Scenario: Steer now on a paused item
 
@@ -376,7 +440,8 @@ call MUST settle as `outcome_unknown`.
 
 Each call MUST settle once. A tool rejection that the interrupt signal causes MUST NOT settle the
 call as `execution_failed`. The stored result MUST carry a marker that an interrupt settled it.
-The live stream and a reload MUST show the same outcome.
+The live stream and a reload MUST show the same outcome. A stopped call with a recorded native
+attempt MUST get a recorded native result.
 
 #### Scenario: A late tool result does not replace the settlement
 
