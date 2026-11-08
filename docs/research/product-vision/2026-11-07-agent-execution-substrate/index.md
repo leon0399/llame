@@ -18,5 +18,7 @@ tree (F2) and background jobs (F3) that subagents
 - [oh-my-pi yield and agent messaging](./oh-my-pi-yield-and-messaging.md) —
   the validated terminal result, steering and asides, reply deadlock checks,
   and parked-agent revival.
+- [Child agents across conversation forks](./children-across-forks.md) —
+  whether forks list, message, copy, share or detach existing children.
 - [llame baseline](./llame-baseline.md) — the shipped Run, queue, tool, usage,
   Chat and permission contracts these foundations change.
