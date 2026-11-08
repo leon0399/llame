@@ -960,4 +960,57 @@ describe("stateRepository admission", () => {
       observe(directory, { confine: () => true }),
     ).resolves.toMatchObject({ type: "git_failed" });
   });
+
+  /** The `.git` file, or a `commondir` beside it, as git and the parser would
+   *  read different paths from it. Neither may reach a git process. */
+  async function refusedBeforeGit(
+    prepare: (directory: string, inside: string) => void,
+  ) {
+    const directory = tempDirectory();
+    const inside = join(directory, "inside");
+    mkdirSync(join(directory, "outside"));
+    mkdirSync(inside);
+    prepare(directory, inside);
+    const log = join(tempDirectory(), "argv.log");
+
+    const result = await withGitShim(
+      `echo "$@" >> '${log}'\nexec "$REAL_GIT" "$@"`,
+      () => observe(directory, { confine: (path) => path.startsWith(inside) }),
+    );
+
+    expect(result).toMatchObject({
+      status: "error",
+      type: "outside_registered_root",
+    });
+    expect(existsSync(log)).toBe(false);
+  }
+
+  it("refuses a .git file whose gitdir holds a NUL byte", async () => {
+    await refusedBeforeGit((directory) => {
+      writeFileSync(join(directory, ".git"), "gitdir: inside\0/outside\n");
+    });
+  });
+
+  it("refuses a .git file whose value runs over a line break", async () => {
+    await refusedBeforeGit((directory) => {
+      writeFileSync(join(directory, ".git"), "gitdir: inside\nb\n");
+    });
+    await refusedBeforeGit((directory) => {
+      writeFileSync(join(directory, ".git"), "gitdir: inside\r\nb");
+    });
+  });
+
+  it("refuses a commondir that holds a NUL byte", async () => {
+    await refusedBeforeGit((directory, inside) => {
+      writeFileSync(join(directory, ".git"), "gitdir: inside\n");
+      writeFileSync(join(inside, "commondir"), "x\0../outside\n");
+    });
+  });
+
+  it("refuses a commondir that holds a second line", async () => {
+    await refusedBeforeGit((directory, inside) => {
+      writeFileSync(join(directory, ".git"), "gitdir: inside\n");
+      writeFileSync(join(inside, "commondir"), "../outside\nsecond\n");
+    });
+  });
 });

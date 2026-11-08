@@ -39,15 +39,37 @@ export async function realPath(path: string): Promise<string | undefined> {
   }
 }
 
+type RepositoryFailure = {
+  readonly failure: "no_git_directory" | "unconfinable";
+};
+
+const UNCONFINABLE = { failure: "unconfinable" } as const;
+const NO_GIT_DIRECTORY = { failure: "no_git_directory" } as const;
+
+/**
+ * The one value of a file git reads as a path: the text without its single
+ * trailing line break. A NUL byte or a further line break makes git and this
+ * parser read different paths, so such a file has no value.
+ */
+function singleLine(text: string): string | undefined {
+  const body = text.replace(/\r?\n$/u, "");
+  return /[\0\r\n]/u.test(body) ? undefined : body;
+}
+
 /** The git directory: the entry itself, or the target of a `gitdir:` file. */
 async function gitDirectory(
   gitEntry: string,
   kind: "directory" | "file",
-): Promise<string | undefined> {
-  if (kind === "directory") return gitEntry;
+): Promise<{ readonly path: string } | RepositoryFailure> {
+  if (kind === "directory") return { path: gitEntry };
   const text = await readText(gitEntry);
-  const target = /^gitdir:[ \t]*(.+?)[ \t]*$/mu.exec(text ?? "")?.[1];
-  return target === undefined ? undefined : resolve(dirname(gitEntry), target);
+  if (text === undefined) return NO_GIT_DIRECTORY;
+  const line = singleLine(text);
+  if (line === undefined) return UNCONFINABLE;
+  const target = /^gitdir:[ \t]*(.+?)[ \t]*$/u.exec(line)?.[1];
+  return target === undefined
+    ? NO_GIT_DIRECTORY
+    : { path: resolve(dirname(gitEntry), target) };
 }
 
 /** The lines of an `alternates` file: blank lines and comments are skipped. */
@@ -92,9 +114,7 @@ async function alternates(
  *  file that names no git directory, or a path that cannot be confined. */
 export type RepositoryDirectories =
   | { readonly directories: Array<string> }
-  | { readonly failure: "no_git_directory" | "unconfinable" };
-
-const UNCONFINABLE = { failure: "unconfinable" } as const;
+  | RepositoryFailure;
 
 /**
  * Every directory the repository's data lives in, as real paths: the git
@@ -106,10 +126,12 @@ export async function repositoryDirectories(
   kind: "directory" | "file",
 ): Promise<RepositoryDirectories> {
   const named = await gitDirectory(gitEntry, kind);
-  if (named === undefined) return { failure: "no_git_directory" };
-  const gitDir = await realPath(named);
+  if ("failure" in named) return named;
+  const gitDir = await realPath(named.path);
   if (gitDir === undefined) return UNCONFINABLE;
-  const common = (await readText(join(gitDir, "commondir")))?.trim();
+  const commonText = await readText(join(gitDir, "commondir"));
+  const common = commonText === undefined ? "" : singleLine(commonText)?.trim();
+  if (common === undefined) return UNCONFINABLE;
   const commonDir = await realPath(common ? resolve(gitDir, common) : gitDir);
   if (commonDir === undefined) return UNCONFINABLE;
   const objects = await realPath(join(commonDir, "objects"));
