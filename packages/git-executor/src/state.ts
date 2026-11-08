@@ -2,15 +2,21 @@ import { dirname, posix } from "node:path";
 
 import {
   absoluteGitPath,
+  gitFailure,
   DEFAULT_GIT_TIMEOUT_MS,
   processFailure,
   withGit,
   type GitCallOptions,
   type GitRunner,
 } from "./invocation";
-import { parseRemoteRecords } from "./inspect";
+import { parseRemoteRecords, type Step } from "./inspect";
 import { absoluteLocateInput, locateNearest } from "./locate";
-import { detectOperation, repositoryDirectories } from "./repository-files";
+import {
+  detectOperation,
+  OPERATION_PATHS,
+  realPath,
+  repositoryDirectories,
+} from "./repository-files";
 import type { GitProcessResult } from "./run";
 import {
   layoutPaths,
@@ -44,8 +50,6 @@ export type StateInput = {
   /** `false` for a path outside the registered roots. */
   readonly confine?: (path: string) => boolean;
 };
-
-type Step<T> = T | GitFailure;
 
 const HEAD_MODULES = "HEAD:.gitmodules";
 
@@ -82,6 +86,7 @@ async function submodulePaths(
   const paths = await configValues(git, [
     "--blob",
     HEAD_MODULES,
+    "--no-includes",
     "--get-regexp",
     String.raw`^submodule\..*\.path$`,
   ]);
@@ -102,6 +107,7 @@ async function upstreamTime(
     "--date=unix",
     "--format=%gd",
     name,
+    "--",
   ]);
   return result.status === "ok" ? reflogTime(result.stdout) : failure(result);
 }
@@ -145,15 +151,6 @@ async function recentCommits(
   return log.status === "ok" ? parseCommits(log.stdout) : failure(log);
 }
 
-const OPERATION_PATHS = [
-  "MERGE_HEAD",
-  "rebase-merge",
-  "rebase-apply",
-  "CHERRY_PICK_HEAD",
-  "REVERT_HEAD",
-  "BISECT_LOG",
-] as const;
-
 async function operationInProgress(
   git: GitRunner,
 ): Promise<Step<GitStateSuccess["operation"]>> {
@@ -163,31 +160,12 @@ async function operationInProgress(
     ...OPERATION_PATHS.flatMap((name) => ["--git-path", name]),
   ]);
   if (located.status !== "ok") return failure(located);
-  const [
-    mergeHead = "",
-    rebaseMerge = "",
-    rebaseApply = "",
-    cherryPickHead = "",
-    revertHead = "",
-    bisectLog = "",
-  ] = located.stdout.split("\n");
-  return detectOperation({
-    mergeHead,
-    rebaseMerge,
-    rebaseApply,
-    cherryPickHead,
-    revertHead,
-    bisectLog,
-  });
+  const lines = located.stdout.split("\n");
+  return detectOperation((name) => lines[OPERATION_PATHS.indexOf(name)] ?? "");
 }
 
 function isFailure<T>(value: Step<T>): value is GitFailure {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    "status" in value
-  );
+  return typeof value === "object" && value !== null && "status" in value;
 }
 
 type Facts = {
@@ -235,7 +213,7 @@ async function observe(
   ]);
   if (status.status !== "ok") return failure(status);
   if (status.truncated) {
-    return { status: "error", type: "output_bound", stderr: "" };
+    return gitFailure("output_bound");
   }
   const parsed = parseStatus(status.stdout);
   const facts = await gatherFacts(git, parsed);
@@ -258,6 +236,39 @@ async function observe(
   };
 }
 
+/** The refusal of a repository whose directories leave the registered roots,
+ *  or `undefined` when all of them stay inside. */
+async function confinementFailure(
+  located: { readonly gitEntry: string; readonly kind: "directory" | "file" },
+  confine: (path: string) => boolean,
+): Promise<GitFailure | undefined> {
+  const found = await repositoryDirectories(located.gitEntry, located.kind);
+  if ("failure" in found) {
+    return found.failure === "no_git_directory"
+      ? gitFailure("git_failed", "The .git file does not name a git directory.")
+      : gitFailure("outside_registered_root");
+  }
+  return found.directories.every(confine)
+    ? undefined
+    : gitFailure("outside_registered_root");
+}
+
+/** The real path git is pinned to. GIT_CEILING_DIRECTORIES is a
+ *  colon-separated list: a colon in the parent would split the ceiling and let
+ *  discovery walk past the entry. */
+async function pinnableDirectory(toplevel: string): Promise<Step<string>> {
+  const real = await realPath(toplevel);
+  if (real === undefined) {
+    return gitFailure("git_failed", "The repository directory is gone.");
+  }
+  return dirname(real).includes(":")
+    ? gitFailure(
+        "git_failed",
+        "The parent of the repository directory has a colon in its path.",
+      )
+    : real;
+}
+
 export async function stateRepository(
   input: StateInput,
   options: GitCallOptions = {},
@@ -274,29 +285,19 @@ export async function stateRepository(
   });
   if (located.status === "error") return located;
   if (located.gitEntry !== entry.path) {
-    return { status: "error", type: "git_entry_changed", stderr: "" };
+    return gitFailure("git_entry_changed");
   }
 
   if (input.confine !== undefined) {
-    const directories = await repositoryDirectories(
-      located.gitEntry,
-      located.kind,
-    );
-    if (directories === undefined) {
-      return {
-        status: "error",
-        type: "git_failed",
-        stderr: "The .git file does not name a git directory.",
-      };
-    }
-    if (!directories.every(input.confine)) {
-      return { status: "error", type: "outside_registered_root", stderr: "" };
-    }
+    const refused = await confinementFailure(located, input.confine);
+    if (refused !== undefined) return refused;
   }
 
   const toplevel = dirname(located.gitEntry);
+  const entryDirectory = await pinnableDirectory(toplevel);
+  if (isFailure(entryDirectory)) return entryDirectory;
   return withGit(
-    toplevel,
+    entryDirectory,
     { timeoutMs, signal: options.signal, pinned: true },
     (git) => observe(git, { ...input, path: checked.path }, toplevel),
   );

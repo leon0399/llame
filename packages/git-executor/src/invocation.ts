@@ -50,25 +50,32 @@ export function gitPrefixArguments(
 
 /**
  * The prefix of a call pinned to one git entry: the same overrides, plus no
- * signature program from `git log`, and the entry's own directory as both the
- * working directory and the work tree, so `core.worktree` is ignored. The
- * environment's ceiling stops discovery at that directory; see {@link withGit}.
+ * signature program from `git log`, no bare repository found by discovery
+ * (`R/HEAD` plus `R/commondir` would otherwise pass for one), and the entry's
+ * own directory as both the working directory and the work tree, so
+ * `core.worktree` is ignored. The environment's ceiling stops discovery at that
+ * directory; see {@link withGit}.
  */
 function pinnedPrefixArguments(
   hooksDirectory: string,
   entryDirectory: string,
 ): Array<string> {
   return [
-    "-c",
-    `core.hooksPath=${hooksDirectory}`,
-    "-c",
-    "core.fsmonitor=false",
+    ...gitPrefixArguments(hooksDirectory, entryDirectory),
+    `--work-tree=${entryDirectory}`,
     "-c",
     "log.showSignature=false",
-    "-C",
-    entryDirectory,
-    `--work-tree=${entryDirectory}`,
+    "-c",
+    "safe.bareRepository=explicit",
   ];
+}
+
+/** A typed failure with the text git wrote, if any. */
+export function gitFailure(
+  type: Extract<GitFailure, { readonly stderr: string }>["type"],
+  stderr = "",
+): GitFailure {
+  return { status: "error", type, stderr };
 }
 
 /** The refusal a caller value earns before git starts. */
@@ -109,7 +116,7 @@ export function processFailure(
       : NOT_A_REPOSITORY.test(stderr)
         ? "not_a_repository"
         : "git_failed";
-  return { status: "error", type, stderr };
+  return gitFailure(type, stderr);
 }
 
 /**
@@ -139,6 +146,7 @@ export async function withGit<T>(
       timeoutMs: endsAt - Date.now(),
       signal: options.signal,
       ceiling,
+      noLazyFetch: options.pinned,
     });
   try {
     return await work(git);

@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import type { GitStateSuccess } from "@workspace/machine-protocol";
@@ -10,7 +10,8 @@ import type { GitStateSuccess } from "@workspace/machine-protocol";
  * progress.
  */
 
-const MAX_ALTERNATE_DEPTH = 5;
+/** A longer chain of alternates is refused, not followed. */
+const MAX_ALTERNATE_CHAIN = 64;
 
 async function readText(path: string): Promise<string | undefined> {
   try {
@@ -26,6 +27,15 @@ async function exists(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** The real path, or `undefined` for one that does not exist. */
+export async function realPath(path: string): Promise<string | undefined> {
+  try {
+    return await realpath(path);
+  } catch {
+    return undefined;
   }
 }
 
@@ -48,47 +58,65 @@ async function alternateLines(
   return (text ?? "")
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line !== "" && !line.startsWith("#"))
-    .map((line) => resolve(objectsDirectory, line));
+    .filter((line) => line !== "" && !line.startsWith("#"));
 }
 
-/** Each alternate object directory, followed to its own alternates. */
+/**
+ * Each alternate object directory, followed to its own alternates, as real
+ * paths. `undefined` when one cannot be judged: a line git would C-unquote
+ * (it starts with `"`), a directory that does not exist, or a chain longer
+ * than the cap.
+ */
 async function alternates(
   objectsDirectory: string,
   seen: Set<string>,
   depth: number,
-): Promise<Array<string>> {
+): Promise<Array<string> | undefined> {
+  if (depth > MAX_ALTERNATE_CHAIN) return undefined;
   const found: Array<string> = [];
-  for (const alternate of await alternateLines(objectsDirectory)) {
+  for (const line of await alternateLines(objectsDirectory)) {
+    if (line.startsWith('"')) return undefined;
+    const alternate = await realPath(resolve(objectsDirectory, line));
+    if (alternate === undefined) return undefined;
     if (seen.has(alternate)) continue;
     seen.add(alternate);
     found.push(alternate);
-    if (depth < MAX_ALTERNATE_DEPTH) {
-      found.push(...(await alternates(alternate, seen, depth + 1)));
-    }
+    const nested = await alternates(alternate, seen, depth + 1);
+    if (nested === undefined) return undefined;
+    found.push(...nested);
   }
   return found;
 }
 
+/** The directories of a repository, or why they cannot be listed: a `.git`
+ *  file that names no git directory, or a path that cannot be confined. */
+export type RepositoryDirectories =
+  | { readonly directories: Array<string> }
+  | { readonly failure: "no_git_directory" | "unconfinable" };
+
+const UNCONFINABLE = { failure: "unconfinable" } as const;
+
 /**
- * Every directory the repository's data lives in: the git directory, the
- * common directory, and the alternate object directories. `undefined` when a
- * `.git` file does not name a git directory.
+ * Every directory the repository's data lives in, as real paths: the git
+ * directory, the common directory, `objects`, and the alternate object
+ * directories.
  */
 export async function repositoryDirectories(
   gitEntry: string,
   kind: "directory" | "file",
-): Promise<Array<string> | undefined> {
-  const gitDir = await gitDirectory(gitEntry, kind);
-  if (gitDir === undefined) return undefined;
+): Promise<RepositoryDirectories> {
+  const named = await gitDirectory(gitEntry, kind);
+  if (named === undefined) return { failure: "no_git_directory" };
+  const gitDir = await realPath(named);
+  if (gitDir === undefined) return UNCONFINABLE;
   const common = (await readText(join(gitDir, "commondir")))?.trim();
-  const commonDir = common ? resolve(gitDir, common) : gitDir;
-  const objects = join(commonDir, "objects");
-  return [
-    gitDir,
-    commonDir,
-    ...(await alternates(objects, new Set([objects]), 1)),
-  ];
+  const commonDir = await realPath(common ? resolve(gitDir, common) : gitDir);
+  if (commonDir === undefined) return UNCONFINABLE;
+  const objects = await realPath(join(commonDir, "objects"));
+  if (objects === undefined) return UNCONFINABLE;
+  const found = await alternates(objects, new Set([objects]), 1);
+  if (found === undefined) return UNCONFINABLE;
+  return { directories: [gitDir, commonDir, objects, ...found] };
 }
 
 type Operation = {
@@ -116,34 +144,44 @@ async function withSteps(
   return operation;
 }
 
+/** The paths `rev-parse --git-path` locates, in the order it is asked. */
+export const OPERATION_PATHS = [
+  "MERGE_HEAD",
+  "rebase-merge",
+  "rebase-apply",
+  "CHERRY_PICK_HEAD",
+  "REVERT_HEAD",
+  "BISECT_LOG",
+] as const;
+
+export type OperationPath = (typeof OPERATION_PATHS)[number];
+
 /**
  * The operation in progress, from `rev-parse --git-path` locations in this
  * order: `rebase-merge`, `rebase-apply`, merge, cherry-pick, revert, bisect.
+ * `located` gives the absolute path of one of {@link OPERATION_PATHS}.
  */
-export async function detectOperation(paths: {
-  readonly mergeHead: string;
-  readonly rebaseMerge: string;
-  readonly rebaseApply: string;
-  readonly cherryPickHead: string;
-  readonly revertHead: string;
-  readonly bisectLog: string;
-}): Promise<Operation | null> {
-  if (await exists(paths.rebaseMerge)) {
-    return withSteps("rebase", paths.rebaseMerge, "msgnum", "end");
+export async function detectOperation(
+  located: (name: OperationPath) => string,
+): Promise<Operation | null> {
+  const rebaseMerge = located("rebase-merge");
+  if (await exists(rebaseMerge)) {
+    return withSteps("rebase", rebaseMerge, "msgnum", "end");
   }
-  if (await exists(paths.rebaseApply)) {
-    return (await exists(join(paths.rebaseApply, "applying")))
+  const rebaseApply = located("rebase-apply");
+  if (await exists(rebaseApply)) {
+    return (await exists(join(rebaseApply, "applying")))
       ? { kind: "am" }
-      : withSteps("rebase", paths.rebaseApply, "next", "last");
+      : withSteps("rebase", rebaseApply, "next", "last");
   }
-  const markers: ReadonlyArray<readonly [string, Operation["kind"]]> = [
-    [paths.mergeHead, "merge"],
-    [paths.cherryPickHead, "cherry-pick"],
-    [paths.revertHead, "revert"],
-    [paths.bisectLog, "bisect"],
+  const markers: ReadonlyArray<readonly [OperationPath, Operation["kind"]]> = [
+    ["MERGE_HEAD", "merge"],
+    ["CHERRY_PICK_HEAD", "cherry-pick"],
+    ["REVERT_HEAD", "revert"],
+    ["BISECT_LOG", "bisect"],
   ];
-  for (const [path, kind] of markers) {
-    if (await exists(path)) return { kind };
+  for (const [name, kind] of markers) {
+    if (await exists(located(name))) return { kind };
   }
   return null;
 }

@@ -16,29 +16,18 @@ import { gitEnvironment } from "./env";
 const STDERR_BOUND = 4096;
 const STDOUT_BOUND = 1_048_576;
 
+/** What a git process wrote. */
+type GitOutput = {
+  readonly stdout: string;
+  readonly stderr: string;
+  /** The standard output exceeded its bound and was cut. */
+  readonly truncated: boolean;
+};
+
 export type GitProcessResult =
-  | {
-      readonly status: "ok";
-      readonly stdout: string;
-      readonly stderr: string;
-      /** The standard output exceeded its bound and was cut. */
-      readonly truncated: boolean;
-    }
-  | {
-      readonly status: "failed";
-      readonly exitCode: number;
-      readonly stdout: string;
-      readonly stderr: string;
-      /** The standard output exceeded its bound and was cut. */
-      readonly truncated: boolean;
-    }
-  | {
-      readonly status: "timed_out";
-      readonly stdout: string;
-      readonly stderr: string;
-      /** The standard output exceeded its bound and was cut. */
-      readonly truncated: boolean;
-    };
+  | ({ readonly status: "ok" } & GitOutput)
+  | ({ readonly status: "failed"; readonly exitCode: number } & GitOutput)
+  | ({ readonly status: "timed_out" } & GitOutput);
 
 type CollectedOutput = {
   readonly push: (chunk: Buffer) => void;
@@ -62,6 +51,10 @@ function collect(limit: number): CollectedOutput {
   let truncated = false;
   return {
     push: (chunk) => {
+      if (length >= limit) {
+        truncated = true;
+        return;
+      }
       const decoded = decoder.write(chunk);
       const text = decoded.slice(0, limit - length);
       truncated ||= text.length < decoded.length;
@@ -76,11 +69,7 @@ function collect(limit: number): CollectedOutput {
 function exitOutcome(
   timedOut: boolean,
   code: number | null,
-  output: {
-    readonly stdout: string;
-    readonly stderr: string;
-    readonly truncated: boolean;
-  },
+  output: GitOutput,
 ): GitProcessResult {
   if (timedOut) return { status: "timed_out", ...output };
   return code === 0
@@ -159,6 +148,8 @@ export function runGitProcess(
     readonly signal?: AbortSignal;
     /** Added to the fixed environment as `GIT_CEILING_DIRECTORIES`. */
     readonly ceiling?: string;
+    /** Sets `GIT_NO_LAZY_FETCH`: a partial clone's read must not fetch. */
+    readonly noLazyFetch?: boolean;
   },
 ): Promise<GitProcessResult> {
   const { promise, resolve } = Promise.withResolvers<GitProcessResult>();
@@ -174,7 +165,7 @@ export function runGitProcess(
     truncated: stdout.truncated(),
   });
   const child = spawn("git", args, {
-    env: gitEnvironment(options.ceiling),
+    env: gitEnvironment(options),
     // Its own process group, so the deadline can end the git children too; see
     // {@link killProcessGroup}. The pipes keep the call tied to the child.
     detached: true,

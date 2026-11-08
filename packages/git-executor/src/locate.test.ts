@@ -65,6 +65,32 @@ describe("locateRepository", () => {
     });
   });
 
+  it("stops at a ceiling written with a trailing slash or a .. segment", async () => {
+    const outer = initRepository(tempDirectory());
+    const root = join(outer, "root");
+    const sub = join(root, "sub");
+    mkdirSync(sub, { recursive: true });
+
+    for (const ceiling of [`${root}/`, join(sub, "..")]) {
+      await expect(
+        locateRepository({ path: sub, ceiling }),
+      ).resolves.toMatchObject({
+        status: "error",
+        type: "no_repository_in_root",
+      });
+    }
+  });
+
+  it("normalizes the path before walking", async () => {
+    const root = initRepository(tempDirectory());
+    const sub = join(root, "sub");
+    mkdirSync(sub);
+
+    await expect(
+      locateRepository({ path: `${sub}/../sub/`, ceiling: root }),
+    ).resolves.toMatchObject({ status: "ok", gitEntry: join(root, ".git") });
+  });
+
   it("finds an entry in the ceiling directory itself", async () => {
     const root = initRepository(tempDirectory());
     const sub = join(root, "sub");

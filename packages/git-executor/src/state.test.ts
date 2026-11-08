@@ -5,11 +5,13 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 
 import { locateRepository } from "./locate";
+import { addWorktree } from "./worktrees";
 import { stateRepository, type StateInput } from "./state";
 import {
   cleanupRepositories,
@@ -109,11 +111,13 @@ function divergedRepository() {
   const directory = repositoryWithCommit();
   runGit(directory, ["checkout", "--quiet", "-b", "other"]);
   writeFileSync(join(directory, "shared.txt"), "other\n");
-  runGit(directory, ["add", "shared.txt"]);
+  writeFileSync(join(directory, "shared two.txt"), "other\n");
+  runGit(directory, ["add", "shared.txt", "shared two.txt"]);
   runGit(directory, ["commit", "--quiet", "--message", "other side"]);
   runGit(directory, ["checkout", "--quiet", "main"]);
   writeFileSync(join(directory, "shared.txt"), "main\n");
-  runGit(directory, ["add", "shared.txt"]);
+  writeFileSync(join(directory, "shared two.txt"), "main\n");
+  runGit(directory, ["add", "shared.txt", "shared two.txt"]);
   runGit(directory, ["commit", "--quiet", "--message", "main side"]);
   return directory;
 }
@@ -181,6 +185,40 @@ describe("stateRepository fields", () => {
     const result = await observed(directory);
 
     expect(result.entries).toEqual([{ xy: "??", path: "a file name.txt" }]);
+  });
+
+  it("returns an untracked path that holds a newline exactly", async () => {
+    const directory = repositoryWithCommit();
+    writeFileSync(join(directory, "two\nlines.txt"), "x\n");
+
+    const result = await observed(directory);
+
+    expect(result.entries).toEqual([{ xy: "??", path: "two\nlines.txt" }]);
+  });
+
+  it("reports a rename from outside the root with a ../ source", async () => {
+    const directory = repositoryWithCommit();
+    mkdirSync(join(directory, "sub"));
+    runGit(directory, ["mv", "README.md", "sub/moved.md"]);
+
+    const result = await observed(join(directory, "sub"));
+
+    expect(result.entries).toEqual([
+      { xy: "R ", path: "moved.md", from: "../README.md" },
+    ]);
+  });
+
+  it("reads status headers only from the leading records", async () => {
+    const directory = initRepository(tempDirectory());
+    commitFile(directory, "# branch.head evil");
+    runGit(directory, ["mv", "# branch.head evil", "renamed.txt"]);
+
+    const result = await observed(directory);
+
+    expect(result.branch).toBe("main");
+    expect(result.entries).toEqual([
+      { xy: "R ", path: "renamed.txt", from: "# branch.head evil" },
+    ]);
   });
 
   it("reports a detached HEAD", async () => {
@@ -254,11 +292,15 @@ describe("stateRepository upstream", () => {
   });
 
   it("has no update time when the upstream ref has no reflog", async () => {
-    const { directory, remote } = trackedRepository();
+    const { remote } = trackedRepository();
     const clone = join(tempDirectory(), "clone");
     runGit(tempDirectory(), ["clone", "--quiet", remote, clone]);
+    const log = join(tempDirectory(), "argv.log");
 
-    const result = await observed(clone);
+    const result = await withGitShim(
+      `echo "$@" >> '${log}'\nexec "$REAL_GIT" "$@"`,
+      () => observed(clone),
+    );
 
     expect(result.upstream).toEqual({
       name: "origin/main",
@@ -267,7 +309,10 @@ describe("stateRepository upstream", () => {
       behind: 0,
       updatedAt: null,
     });
-    expect(directory).not.toBe(clone);
+    // The date is empty because the reflog read ran and found nothing.
+    expect(readFileSync(log, "utf8")).toMatch(
+      / reflog show .* origin\/main --$/mu,
+    );
   });
 
   it("lets a linked worktree see the main clone's fetch", async () => {
@@ -310,6 +355,22 @@ describe("stateRepository upstream", () => {
       ahead: null,
       behind: null,
       updatedAt: null,
+    });
+  });
+
+  it("reads the upstream reflog when a tracked file has the upstream's name", async () => {
+    const { directory, remote } = trackedRepository();
+    pushFromElsewhere(remote);
+    gitWith(directory, ["fetch", "--quiet"], {
+      GIT_COMMITTER_DATE: "1700000000 +0000",
+    });
+    mkdirSync(join(directory, "origin"));
+    commitFile(directory, "origin/main");
+
+    const result = await observed(directory);
+
+    expect(result.upstream).toMatchObject({
+      updatedAt: "2023-11-14T22:13:20.000Z",
     });
   });
 
@@ -358,15 +419,18 @@ describe("stateRepository operations", () => {
     expect(result.detached).toBe(true);
   });
 
-  it("reports a merge conflict with one conflicted path", async () => {
+  it("reports a merge conflict with each conflicted path", async () => {
     const directory = divergedRepository();
     gitStderr(directory, ["merge", "--no-edit", "other"]);
 
     const result = await observed(directory);
 
     expect(result.operation).toEqual({ kind: "merge" });
-    expect(result.counts).toMatchObject({ conflicted: 1 });
-    expect(result.entries).toEqual([{ xy: "AA", path: "shared.txt" }]);
+    expect(result.counts).toMatchObject({ conflicted: 2 });
+    expect(result.entries).toEqual([
+      { xy: "AA", path: "shared two.txt" },
+      { xy: "AA", path: "shared.txt" },
+    ]);
   });
 
   it("reports an am session as am, not as a rebase", async () => {
@@ -552,6 +616,85 @@ describe("stateRepository pinning and refusals", () => {
     }
   });
 
+  it("refuses a bare repository that an invalid .git entry would hand to discovery", async () => {
+    const outside = repositoryWithCommit();
+    const subject = runGit(outside, ["log", "-1", "--format=%s"]).trim();
+    const directory = tempDirectory();
+    mkdirSync(join(directory, ".git"));
+    writeFileSync(join(directory, "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(directory, "commondir"), join(outside, ".git"));
+
+    const result = await observe(directory);
+
+    expect(result).toMatchObject({ status: "error", type: "git_failed" });
+    expect(JSON.stringify(result)).not.toContain(subject);
+  });
+
+  it("sets GIT_NO_LAZY_FETCH for every state process but not for a worktree add", async () => {
+    const directory = repositoryWithCommit();
+    const log = join(tempDirectory(), "env.log");
+    const shim = `echo "lazy=${"$"}{GIT_NO_LAZY_FETCH-unset} $*" >> '${log}'\nexec "$REAL_GIT" "$@"`;
+
+    await withGitShim(shim, async () => {
+      await observed(directory);
+      await addWorktree({
+        source: directory,
+        branch: "llame/lazy",
+        directory: join(tempDirectory(), "lazy"),
+      });
+    });
+
+    const lines = readFileSync(log, "utf8").trim().split("\n");
+    const state = lines.filter((line) => line.includes("safe.bareRepository"));
+    const added = lines.filter((line) => line.includes("worktree add"));
+    expect(state.length).toBeGreaterThan(0);
+    expect(state.every((line) => line.startsWith("lazy=1 "))).toBe(true);
+    expect(added.length).toBeGreaterThan(0);
+    expect(added.every((line) => line.startsWith("lazy=unset "))).toBe(true);
+  });
+
+  it("refuses before git when the parent path holds a colon", async () => {
+    const parent = join(tempDirectory(), "p:x");
+    initRepository(parent);
+    commitFile(parent, "README.md");
+    const nested = join(parent, "R");
+    mkdirSync(join(nested, ".git"), { recursive: true });
+    const marker = join(tempDirectory(), "started");
+
+    const result = await withGitShim(`touch '${marker}'; exit 99`, () =>
+      observe(nested),
+    );
+
+    expect(result).toMatchObject({ status: "error", type: "git_failed" });
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("observes its own repository through a symlinked workspace path", async () => {
+    const directory = repositoryWithCommit();
+    const link = join(tempDirectory(), "link");
+    symlinkSync(directory, link);
+
+    const result = await observed(link);
+
+    expect(result).toMatchObject({ toplevel: link, branch: "main" });
+  });
+
+  it("lists submodules when the committed .gitmodules includes another file", async () => {
+    const outside = join(tempDirectory(), "outside.cfg");
+    writeFileSync(outside, '[submodule "evil"]\n\tpath = leaked\n');
+    const directory = repositoryWithCommit();
+    writeFileSync(
+      join(directory, ".gitmodules"),
+      `[include]\n\tpath = ${outside}\n[submodule "lib"]\n\tpath = lib\n\turl = ./lib\n`,
+    );
+    runGit(directory, ["add", ".gitmodules"]);
+    runGit(directory, ["commit", "--quiet", "--message", "modules"]);
+
+    const result = await observed(directory);
+
+    expect(result.submodules).toEqual(["lib"]);
+  });
+
   it("refuses a repository of another user and runs no filter from it", async () => {
     const directory = repositoryWithCommit();
     const marker = join(tempDirectory(), "filter-ran");
@@ -728,6 +871,79 @@ describe("stateRepository admission", () => {
     await expect(
       observe(directory, { confine: inside }),
     ).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it("refuses an alternate line it cannot unquote", async () => {
+    const directory = repositoryWithCommit();
+    const objects = join(directory, ".git", "objects");
+    mkdirSync(join(objects, '"x"'));
+    mkdirSync(join(objects, "info"), { recursive: true });
+    writeFileSync(join(objects, "info", "alternates"), '"x"\n');
+
+    await expect(
+      observe(directory, { confine: (path) => path.startsWith(directory) }),
+    ).resolves.toEqual({
+      status: "error",
+      type: "outside_registered_root",
+      stderr: "",
+    });
+  });
+
+  it("follows a chain of alternates past six links to an outside one", async () => {
+    const directory = repositoryWithCommit();
+    const outside = tempDirectory();
+    const links = Array.from({ length: 6 }, (_, index) =>
+      join(directory, `chain-${index}`),
+    );
+    const next = [...links.slice(1), outside];
+    mkdirSync(join(directory, ".git", "objects", "info"), { recursive: true });
+    writeFileSync(
+      join(directory, ".git", "objects", "info", "alternates"),
+      `${links[0]}\n`,
+    );
+    for (const [index, link] of links.entries()) {
+      mkdirSync(join(link, "info"), { recursive: true });
+      writeFileSync(join(link, "info", "alternates"), `${next[index]}\n`);
+    }
+    const inside = (path: string) => path.startsWith(directory);
+
+    await expect(
+      observe(directory, { confine: inside }),
+    ).resolves.toMatchObject({ type: "outside_registered_root" });
+  });
+
+  it("refuses an alternate chain longer than the cap, even inside the root", async () => {
+    const directory = repositoryWithCommit();
+    const links = Array.from({ length: 70 }, (_, index) =>
+      join(directory, `chain-${index}`),
+    );
+    mkdirSync(join(directory, ".git", "objects", "info"), { recursive: true });
+    writeFileSync(
+      join(directory, ".git", "objects", "info", "alternates"),
+      `${links[0]}\n`,
+    );
+    for (const [index, link] of links.entries()) {
+      mkdirSync(join(link, "info"), { recursive: true });
+      const target = links[index + 1];
+      if (target !== undefined) {
+        writeFileSync(join(link, "info", "alternates"), `${target}\n`);
+      }
+    }
+
+    await expect(
+      observe(directory, { confine: (path) => path.startsWith(directory) }),
+    ).resolves.toMatchObject({ type: "outside_registered_root" });
+  });
+
+  it("refuses a gitdir reached through a symlink that leaves the root", async () => {
+    const directory = tempDirectory();
+    const elsewhere = initRepository(tempDirectory());
+    symlinkSync(elsewhere, join(directory, "link"));
+    writeFileSync(join(directory, ".git"), "gitdir: link/.git\n");
+
+    await expect(
+      observe(directory, { confine: (path) => path.startsWith(directory) }),
+    ).resolves.toMatchObject({ type: "outside_registered_root" });
   });
 
   it("follows the gitdir of a .git file for the confinement", async () => {

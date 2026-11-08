@@ -48,7 +48,8 @@ function parseHeaders(records: ReadonlyArray<string>): Header {
   let upstream: string | null = null;
   let ab: Header["ab"] = null;
   for (const record of records) {
-    if (!record.startsWith("# ")) continue;
+    // Headers lead the output; a later `# ` is a path, never a header.
+    if (!record.startsWith("# ")) break;
     const [key = "", ...rest] = record.slice(2).split(" ");
     const value = rest.join(" ");
     if (key === "branch.oid" && value !== "(initial)") head = value;

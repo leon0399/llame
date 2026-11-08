@@ -27,7 +27,7 @@ import type {
  */
 
 /** One step's result, or the failure that ended the inspection. */
-type Step<T> = T | GitFailure;
+export type Step<T> = T | GitFailure;
 
 /** One record per remote URL: `remote.<name>.url\n<url>` up to a NUL. */
 export function parseRemoteRecords(stdout: string): Array<GitRepositoryRemote> {

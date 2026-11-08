@@ -1,8 +1,9 @@
 import { stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
   absoluteGitPath,
+  gitFailure,
   DEFAULT_GIT_TIMEOUT_MS,
   type GitCallOptions,
 } from "./invocation";
@@ -23,13 +24,6 @@ export type LocateInput = {
   /** An absolute directory that holds `path`; the walk ends there. */
   readonly ceiling?: string;
 };
-
-function failure(
-  type: Extract<GitFailure, { readonly stderr: string }>["type"],
-  stderr = "",
-): GitFailure {
-  return { status: "error", type, stderr };
-}
 
 function isMissing(error: unknown): boolean {
   return (
@@ -69,12 +63,12 @@ export async function locateNearest(
   input: LocateInput,
   options: { readonly endsAt: number; readonly signal?: AbortSignal },
 ): Promise<GitLocateResult> {
-  if (!(await isDirectory(input.path))) return failure("root_missing");
+  if (!(await isDirectory(input.path))) return gitFailure("root_missing");
   let directory = input.path;
   try {
     for (;;) {
       if (options.signal?.aborted || Date.now() > options.endsAt) {
-        return failure("timed_out");
+        return gitFailure("timed_out");
       }
       const found = await entryIn(directory);
       if (found !== undefined) return found;
@@ -83,23 +77,27 @@ export async function locateNearest(
       directory = parent;
     }
   } catch (error) {
-    return failure("git_failed", error instanceof Error ? error.message : "");
+    return gitFailure(
+      "git_failed",
+      error instanceof Error ? error.message : "",
+    );
   }
-  return failure(
+  return gitFailure(
     input.ceiling === undefined ? "not_a_repository" : "no_repository_in_root",
   );
 }
 
-/** The absolute-path refusal for a path and an optional ceiling. */
+/** The absolute-path refusal for a path and an optional ceiling; both come
+ *  back normalized, so a trailing slash or `..` cannot miss the ceiling. */
 export function absoluteLocateInput(
   input: LocateInput,
 ): LocateInput | Extract<GitFailure, { readonly type: "invalid_input" }> {
   const path = absoluteGitPath(input.path);
   if ("status" in path) return path;
-  if (input.ceiling === undefined) return { path: path.path };
+  if (input.ceiling === undefined) return { path: resolve(path.path) };
   const ceiling = absoluteGitPath(input.ceiling);
   if ("status" in ceiling) return ceiling;
-  return { path: path.path, ceiling: ceiling.path };
+  return { path: resolve(path.path), ceiling: resolve(ceiling.path) };
 }
 
 export async function locateRepository(
