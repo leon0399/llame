@@ -3,13 +3,14 @@ import { GIT_METHODS, isGitMethod } from "./git";
 
 describe("the git method vocabulary", () => {
   // The literal anchor: the wire names are a contract with every daemon.
-  it("names the five methods the spec requires", () => {
+  it("names the six methods the spec requires", () => {
     expect(GIT_METHODS).toEqual([
       "git.inspect",
       "git.worktreeAdd",
       "git.worktreeList",
       "git.worktreeRemove",
-      "git.status",
+      "git.locate",
+      "git.state",
     ]);
   });
 

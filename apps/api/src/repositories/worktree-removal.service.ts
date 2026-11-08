@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { type GitStateSuccess } from '@workspace/machine-protocol';
 
 import { type Checkout } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
@@ -83,33 +84,58 @@ export class WorktreeRemovalService {
     checkout: Checkout,
     target: ExecutorTarget,
   ): Promise<void> {
-    const status = await this.executors
-      .status(target, checkout.path)
-      .catch((error: unknown) => throwExecutorFailure(error));
-    if (status.status === 'error') {
-      throw repositoryFailure('git_failed', gitFailureMessage(status));
-    }
-    if (status.dirty) {
+    const state = await this.readState(target, checkout);
+    const { counts, upstream } = state;
+    if (
+      counts.staged > 0 ||
+      counts.unstaged > 0 ||
+      counts.untracked > 0 ||
+      counts.conflicted > 0
+    ) {
       throw repositoryFailure(
         'worktree_not_clean',
         'The worktree holds uncommitted changes.',
       );
     }
     if (
-      status.upstream === undefined &&
-      !(await this.holdsBaseCommit(ownerUserId, checkout, status.head))
+      (upstream === null || upstream.gone || upstream.ahead === null) &&
+      !(await this.holdsBaseCommit(ownerUserId, checkout, state.head))
     ) {
       throw repositoryFailure(
         'worktree_not_clean',
-        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+        'The worktree has no usable upstream and its HEAD is not the recorded base commit.',
       );
     }
-    if (status.ahead > 0) {
+    if (upstream !== null && upstream.ahead !== null && upstream.ahead > 0) {
       throw repositoryFailure(
         'worktree_not_clean',
         'The worktree holds commits its upstream does not have.',
       );
     }
+  }
+
+  /** The checkout's observed state; any failure of either read refuses. */
+  private async readState(
+    target: ExecutorTarget,
+    checkout: Checkout,
+  ): Promise<GitStateSuccess> {
+    const located = await this.executors
+      .locateEntry(target, checkout.path)
+      .catch((error: unknown) => throwExecutorFailure(error));
+    if (located.status === 'error') {
+      throw repositoryFailure('git_failed', gitFailureMessage(located));
+    }
+    const state = await this.executors
+      .state(target, checkout.path, {
+        gitEntry: located.gitEntry,
+        limit: 0,
+        submodules: 'check',
+      })
+      .catch((error: unknown) => throwExecutorFailure(error));
+    if (state.status === 'error') {
+      throw repositoryFailure('git_failed', gitFailureMessage(state));
+    }
+    return state;
   }
 
   /** Remove the directory first; the row leaves only after git succeeds. */

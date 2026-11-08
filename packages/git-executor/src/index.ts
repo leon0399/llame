@@ -1,9 +1,9 @@
+export { DEFAULT_GIT_TIMEOUT_MS, invalidInput } from "./invocation";
 export { inspectRepository } from "./inspect";
 export { locateRepository } from "./locate";
 export type { LocateInput } from "./locate";
 export { stateRepository } from "./state";
 export type { StateInput } from "./state";
-export { statusRepository } from "./status";
 export type { WorktreeAddInput } from "./worktrees";
 export {
   addWorktree,
@@ -25,7 +25,6 @@ export type {
   GitLocateSuccess,
   GitStateResult,
   GitStateSuccess,
-  GitStatusResult,
   GitWorktreeAddResult,
   GitWorktreeListResult,
   GitWorktreeRemoveResult,

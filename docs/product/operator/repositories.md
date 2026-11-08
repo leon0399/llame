@@ -148,13 +148,14 @@ or `machine_update_required`.
 
 ### The typed git surface
 
-Both executors answer five typed methods, and no owner or model string ever
+Both executors answer six typed methods, and no owner or model string ever
 becomes a command line on either side:
 
 | Method               | Inputs                                     | Answer                                                                        |
 | -------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
 | `git.inspect`        | `path`                                     | toplevel, common directory, linked flag, main worktree, remotes, branch, head |
-| `git.status`         | `path`                                     | dirty flag, commits ahead of the upstream, upstream, head                     |
+| `git.locate`         | `path`                                     | the nearest `.git` entry inside the registered roots, found without git       |
+| `git.state`          | `path`, `gitEntry`, `limit`, `submodules`  | branch, head, upstream, operation, change counts, and listed changed paths    |
 | `git.worktreeAdd`    | `source`, `branch`, `baseRef`, `directory` | the new worktree's path, branch, and head                                     |
 | `git.worktreeList`   | `source`                                   | each worktree: path, branch, head, locked, prunable                           |
 | `git.worktreeRemove` | `path`                                     | success, or the git standard error                                            |

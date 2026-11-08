@@ -10,6 +10,7 @@ import { join } from 'node:path';
 
 import {
   type GitInspectSuccess,
+  type GitStateSuccess,
   type GitWorktreeListResult,
 } from '@workspace/git-executor';
 
@@ -623,6 +624,194 @@ describe('ExecutorGit.inspect', () => {
 
     expect(error.code).toBe('git_failed');
     expect(error.message).toContain('unusable');
+  });
+});
+
+const OBSERVED: GitStateSuccess = {
+  status: 'ok',
+  toplevel: '/srv/app',
+  rootRelative: '',
+  branch: 'main',
+  detached: false,
+  head: 'a'.repeat(40),
+  upstream: null,
+  operation: null,
+  counts: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
+  entries: [],
+  omitted: 0,
+  submodules: [],
+  commits: [],
+  remotes: [],
+};
+const STATE_INPUT = {
+  gitEntry: `${LOCATOR}/.git`,
+  limit: 5,
+  submodules: 'check',
+} as const;
+
+describe('ExecutorGit.locateEntry', () => {
+  it('locates a local path in process, with the signal', async () => {
+    const found = {
+      status: 'ok',
+      gitEntry: '/srv/app/.git',
+      kind: 'directory',
+    } as const;
+    const locate = vi.fn(() => Promise.resolve(found));
+    const { executors } = hub({}, { ...localGitSurface(), locate });
+    const signal = new AbortController().signal;
+
+    await expect(
+      executors.locateEntry(executors.locate('/srv/app'), '/srv/app', {
+        signal,
+      }),
+    ).resolves.toEqual(found);
+    expect(locate).toHaveBeenCalledWith({ path: '/srv/app' }, { signal });
+  });
+
+  it('sends the executor path and answers the entry as a locator', async () => {
+    const { executors, peer } = hub({
+      methods: ['git.locate'],
+      answers: {
+        'git.locate': {
+          value: {
+            status: 'ok',
+            gitEntry: `machine://${NAS}${MACHINE_PATH}/.git`,
+            kind: 'file',
+          },
+        },
+      },
+    });
+
+    await expect(
+      executors.locateEntry(executors.locate(LOCATOR), LOCATOR),
+    ).resolves.toEqual({
+      status: 'ok',
+      gitEntry: `${LOCATOR}/.git`,
+      kind: 'file',
+    });
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.locate')?.params,
+    ).toMatchObject({
+      path: MACHINE_PATH,
+      options: { displayPrefix: `machine://${NAS}` },
+    });
+  });
+});
+
+describe('ExecutorGit.state', () => {
+  it('reads a local state in process with the deadline and signal', async () => {
+    const state = vi.fn(() => Promise.resolve(OBSERVED));
+    const { executors } = hub({}, { ...localGitSurface(), state });
+    const signal = new AbortController().signal;
+
+    await expect(
+      executors.state(
+        executors.locate('/srv/app'),
+        '/srv/app',
+        { ...STATE_INPUT, gitEntry: '/srv/app/.git', timeoutMs: 5000 },
+        { signal },
+      ),
+    ).resolves.toEqual(OBSERVED);
+    expect(state).toHaveBeenCalledWith(
+      {
+        path: '/srv/app',
+        gitEntry: '/srv/app/.git',
+        limit: 5,
+        submodules: 'check',
+      },
+      { signal, timeoutMs: 5000 },
+    );
+  });
+
+  it('sends executor paths for the path and the entry, and a deadline-based budget', async () => {
+    const { executors, peer } = hub({
+      methods: ['git.state'],
+      answers: {
+        'git.state': {
+          value: { ...OBSERVED, toplevel: `machine://${NAS}${MACHINE_PATH}` },
+        },
+      },
+    });
+
+    await expect(
+      executors.state(executors.locate(LOCATOR), LOCATOR, {
+        ...STATE_INPUT,
+        timeoutMs: 5000,
+      }),
+    ).resolves.toEqual({ ...OBSERVED, toplevel: LOCATOR });
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.state')?.params,
+    ).toMatchObject({
+      envelope: { budgetMs: 20_000 },
+      path: MACHINE_PATH,
+      gitEntry: `${MACHINE_PATH}/.git`,
+      limit: 5,
+      submodules: 'check',
+      timeoutMs: 5000,
+    });
+  });
+
+  it('budgets the default deadline and omits an unset timeout', async () => {
+    const { executors, peer } = hub({
+      methods: ['git.state'],
+      answers: { 'git.state': { value: { ...OBSERVED, toplevel: LOCATOR } } },
+    });
+
+    await executors.state(executors.locate(LOCATOR), LOCATOR, STATE_INPUT);
+
+    const params = (await peer.session(0)).calls.find(
+      (call) => call.method === 'git.state',
+    )?.params;
+    expect(params).toMatchObject({ envelope: { budgetMs: 25_000 } });
+    expect(params).not.toHaveProperty('timeoutMs');
+  });
+
+  it('ends a Machine call when its signal aborts', async () => {
+    const { executors, peer } = hub({
+      methods: ['git.state'],
+      answer: (call) =>
+        call.method === 'git.state' ? { hold: true } : undefined,
+    });
+    const controller = new AbortController();
+    const call = executors.state(
+      executors.locate(LOCATOR),
+      LOCATOR,
+      STATE_INPUT,
+      { signal: controller.signal },
+    );
+    const machine = await peer.session(0);
+    await machine.awaitRequests(1);
+
+    controller.abort(new Error('the caller gave up'));
+
+    await expect(call).rejects.toThrow('was cancelled');
+  });
+
+  it('fails as git_failed on an unreadable answer', async () => {
+    const { executors } = hub({
+      methods: ['git.state'],
+      answers: { 'git.state': { value: { ...OBSERVED, counts: 3 } } },
+    });
+
+    const error = await rejectionOf(
+      executors.state(executors.locate(LOCATOR), LOCATOR, STATE_INPUT),
+    );
+
+    expect(error.code).toBe('git_failed');
+    expect(error.message).toContain('unusable');
+  });
+
+  it('asks for a daemon update when the state method is not listed', async () => {
+    const { executors, peer } = hub({ methods: ['git.inspect'] });
+
+    const error = await rejectionOf(
+      executors.state(executors.locate(LOCATOR), LOCATOR, STATE_INPUT),
+    );
+
+    expect(error.code).toBe('machine_update_required');
+    expect((await peer.session(0)).requests).not.toContain('git.state');
   });
 });
 

@@ -4,26 +4,30 @@ import path from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   addWorktree,
+  DEFAULT_GIT_TIMEOUT_MS,
   inspectRepository,
   listWorktrees,
+  locateRepository,
   removeWorktree,
-  statusRepository,
+  stateRepository,
   WORKTREE_ADD_TIMEOUT_MS,
   type GitInspectResult,
-  type GitStatusResult,
+  type GitLocateResult,
+  type GitStateResult,
   type GitWorktreeAddResult,
   type GitWorktreeListResult,
   type GitWorktreeRemoveResult,
 } from '@workspace/git-executor';
 import {
   GIT_INSPECT_METHOD,
-  GIT_STATUS_METHOD,
+  GIT_LOCATE_METHOD,
+  GIT_STATE_METHOD,
   GIT_WORKTREE_ADD_METHOD,
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
-  MachineProtocolError,
   type FsStatResult,
   type GitMethod,
+  type GitStateParams,
   type JsonValue,
   type MachineMethodParams,
   type NativeDisplayOptions,
@@ -38,16 +42,14 @@ import {
   machineExecutorId,
   parseMachineLocator,
 } from './machine-locator';
+import { dispatchFailure } from './dispatch-failure';
 import { ExecutorGitError } from './executor-git-error';
-import {
-  MachineUnavailableError,
-  MachineUpdateRequiredError,
-} from './machine-session';
 import { MachineConnector } from './machine-connector.service';
 import { readFsStatResult } from './machine-results';
 import {
   readGitInspectResult,
-  readGitStatusResult,
+  readGitLocateResult,
+  readGitStateResult,
   readGitWorktreeAddResult,
   readGitWorktreeListResult,
   readGitWorktreeRemoveResult,
@@ -74,7 +76,8 @@ export const LOCAL_GIT = Symbol('LOCAL_GIT');
 /** The in-process git surface, exactly as `@workspace/git-executor` exports it. */
 export type LocalGit = {
   readonly inspect: typeof inspectRepository;
-  readonly status: typeof statusRepository;
+  readonly locate: typeof locateRepository;
+  readonly state: typeof stateRepository;
   readonly worktreeAdd: typeof addWorktree;
   readonly listWorktrees: typeof listWorktrees;
   readonly removeWorktree: typeof removeWorktree;
@@ -83,12 +86,16 @@ export type LocalGit = {
 export function localGitSurface(): LocalGit {
   return {
     inspect: inspectRepository,
-    status: statusRepository,
+    locate: locateRepository,
+    state: stateRepository,
     worktreeAdd: addWorktree,
     listWorktrees,
     removeWorktree,
   };
 }
+
+/** The round-trip margin added to a daemon operation's own deadline. */
+const MACHINE_MARGIN_MS = 15_000;
 
 /**
  * The budget one Machine git call carries: the daemon's longest operation plus
@@ -96,7 +103,8 @@ export function localGitSurface(): LocalGit {
  * the hub's budget. A cancelled or expired call still ends git, because the
  * request signal reaches every subcommand.
  */
-export const MACHINE_GIT_BUDGET_MS = WORKTREE_ADD_TIMEOUT_MS + 15_000;
+export const MACHINE_GIT_BUDGET_MS =
+  WORKTREE_ADD_TIMEOUT_MS + MACHINE_MARGIN_MS;
 
 /** The executor one submitted address runs on, and the path it names there. */
 export type ExecutorTarget = {
@@ -273,7 +281,7 @@ export class ExecutorGit {
         path: machinePath,
       });
     } catch (error) {
-      throw this.dispatchFailure(machine, 'fs.stat', error);
+      throw dispatchFailure(machine, 'fs.stat', error);
     }
     const entry = readFsStatResult(answer);
     if (entry === undefined) {
@@ -392,34 +400,65 @@ export class ExecutorGit {
   ): Promise<GitInspectResult> {
     if (target.machine === undefined)
       return this.local.inspect({ path: address });
-    return this.ask(
-      target.machine,
-      GIT_INSPECT_METHOD,
-      (envelope, options) => ({
+    return this.ask(target.machine, GIT_INSPECT_METHOD, {
+      build: (envelope, options) => ({
         envelope,
         options,
         path: this.executorPath(target, address),
       }),
-      readGitInspectResult,
-    );
+      read: readGitInspectResult,
+    });
   }
 
-  async status(
+  async locateEntry(
     target: ExecutorTarget,
     address: string,
-  ): Promise<GitStatusResult> {
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<GitLocateResult> {
     if (target.machine === undefined)
-      return this.local.status({ path: address });
-    return this.ask(
-      target.machine,
-      GIT_STATUS_METHOD,
-      (envelope, options) => ({
+      return this.local.locate({ path: address }, options);
+    return this.ask(target.machine, GIT_LOCATE_METHOD, {
+      build: (envelope, display) => ({
         envelope,
-        options,
+        options: display,
         path: this.executorPath(target, address),
       }),
-      readGitStatusResult,
-    );
+      read: readGitLocateResult,
+      signal: options.signal,
+    });
+  }
+
+  async state(
+    target: ExecutorTarget,
+    address: string,
+    input: Pick<
+      GitStateParams,
+      'gitEntry' | 'limit' | 'submodules' | 'timeoutMs'
+    >,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<GitStateResult> {
+    const { gitEntry, limit, submodules, timeoutMs } = input;
+    if (target.machine === undefined)
+      return this.local.state(
+        { path: address, gitEntry, limit, submodules },
+        { ...options, timeoutMs },
+      );
+    const path = this.executorPath(target, address);
+    const entry = this.executorPath(target, gitEntry);
+    return this.ask(target.machine, GIT_STATE_METHOD, {
+      build: (envelope, display) => ({
+        envelope,
+        options: display,
+        path,
+        gitEntry: entry,
+        limit,
+        submodules,
+        timeoutMs,
+      }),
+      read: readGitStateResult,
+      signal: options.signal,
+      budgetMs: (timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS) + MACHINE_MARGIN_MS,
+    });
   }
 
   async worktreeAdd(
@@ -432,10 +471,8 @@ export class ExecutorGit {
     },
   ): Promise<GitWorktreeAddResult> {
     if (target.machine === undefined) return this.local.worktreeAdd(input);
-    return this.ask(
-      target.machine,
-      GIT_WORKTREE_ADD_METHOD,
-      (envelope, options) => ({
+    return this.ask(target.machine, GIT_WORKTREE_ADD_METHOD, {
+      build: (envelope, options) => ({
         envelope,
         options,
         source: this.executorPath(target, input.source),
@@ -443,8 +480,8 @@ export class ExecutorGit {
         baseRef: input.baseRef,
         directory: this.executorPath(target, input.directory),
       }),
-      readGitWorktreeAddResult,
-    );
+      read: readGitWorktreeAddResult,
+    });
   }
 
   async worktreeList(
@@ -453,16 +490,14 @@ export class ExecutorGit {
   ): Promise<GitWorktreeListResult> {
     if (target.machine === undefined)
       return this.local.listWorktrees({ path: address });
-    return this.ask(
-      target.machine,
-      GIT_WORKTREE_LIST_METHOD,
-      (envelope, options) => ({
+    return this.ask(target.machine, GIT_WORKTREE_LIST_METHOD, {
+      build: (envelope, options) => ({
         envelope,
         options,
         source: this.executorPath(target, address),
       }),
-      readGitWorktreeListResult,
-    );
+      read: readGitWorktreeListResult,
+    });
   }
 
   async removeWorktree(
@@ -471,16 +506,14 @@ export class ExecutorGit {
   ): Promise<GitWorktreeRemoveResult> {
     if (target.machine === undefined)
       return this.local.removeWorktree({ path: address });
-    return this.ask(
-      target.machine,
-      GIT_WORKTREE_REMOVE_METHOD,
-      (envelope, options) => ({
+    return this.ask(target.machine, GIT_WORKTREE_REMOVE_METHOD, {
+      build: (envelope, options) => ({
         envelope,
         options,
         path: this.executorPath(target, address),
       }),
-      readGitWorktreeRemoveResult,
-    );
+      read: readGitWorktreeRemoveResult,
+    });
   }
 
   /**
@@ -510,26 +543,31 @@ export class ExecutorGit {
   private async ask<M extends GitMethod, T>(
     machine: string,
     method: M,
-    build: (
-      envelope: RequestEnvelope,
-      options: NativeDisplayOptions,
-    ) => MachineMethodParams[M],
-    read: (value: JsonValue, machine: string) => T | undefined,
+    call: {
+      readonly build: (
+        envelope: RequestEnvelope,
+        options: NativeDisplayOptions,
+      ) => MachineMethodParams[M];
+      readonly read: (value: JsonValue, machine: string) => T | undefined;
+      readonly signal?: AbortSignal;
+      readonly budgetMs?: number;
+    },
   ): Promise<T> {
     let answer: JsonValue;
     try {
       answer = await this.connector.request(
         machine,
         method,
-        build(
-          { budgetMs: MACHINE_GIT_BUDGET_MS },
+        call.build(
+          { budgetMs: call.budgetMs ?? MACHINE_GIT_BUDGET_MS },
           { displayPrefix: `${MACHINE_SCHEME}://${machine}` },
         ),
+        { signal: call.signal },
       );
     } catch (error) {
-      throw this.dispatchFailure(machine, method, error);
+      throw dispatchFailure(machine, method, error);
     }
-    const result = read(answer, machine);
+    const result = call.read(answer, machine);
     if (result === undefined) {
       throw new ExecutorGitError(
         'git_failed',
@@ -537,40 +575,5 @@ export class ExecutorGit {
       );
     }
     return result;
-  }
-
-  /** A Machine failure as the code the callers answer. */
-  private dispatchFailure(
-    machine: string,
-    method: string,
-    error: unknown,
-  ): Error {
-    if (error instanceof MachineUpdateRequiredError)
-      return new ExecutorGitError('machine_update_required', error.message);
-    if (error instanceof MachineUnavailableError)
-      // The session's own message is the transport's: an ssh standard error or
-      // a socket failure, which the repository routes would answer as the body
-      // of an HTTP response. Only the Machine and the reason leave the hub.
-      // Only a mutation can leave an effect behind: `sent` on a read would
-      // claim an unknown outcome for a request that wrote nothing.
-      return new ExecutorGitError(
-        'machine_unavailable',
-        `The Machine ${machine} is unavailable (${error.reason}).`,
-        error.sent &&
-          (method === GIT_WORKTREE_ADD_METHOD ||
-            method === GIT_WORKTREE_REMOVE_METHOD),
-      );
-    if (error instanceof MachineProtocolError) {
-      // A path outside the Machine's registered roots is its refusal of the
-      // address, not a git failure: registration maps that to 403
-      // `permission_denied`, and worktree entry answers it under its own code.
-      return error.code === 'path_not_registered'
-        ? new ExecutorGitError('path_not_registered', error.message)
-        : new ExecutorGitError(
-            'git_failed',
-            `${method} failed on ${machine}: ${error.message}`,
-          );
-    }
-    return error instanceof Error ? error : new Error(String(error));
   }
 }

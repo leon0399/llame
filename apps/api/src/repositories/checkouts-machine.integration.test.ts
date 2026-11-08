@@ -72,7 +72,8 @@ const GIT_SURFACE = [
   'git.worktreeAdd',
   'git.worktreeList',
   'git.worktreeRemove',
-  'git.status',
+  'git.locate',
+  'git.state',
 ];
 
 /** A policy that admits the Machine's own locators and nothing else. */

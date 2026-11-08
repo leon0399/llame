@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -220,65 +221,262 @@ describe("git.inspect", () => {
   });
 });
 
-describe("git.status", () => {
-  it("reports a clean clone with a head", async () => {
-    const head = runGit(clone, ["rev-parse", "HEAD"]).trim();
+/** Runs `body` with a `git` on PATH that records every start. */
+async function withGitRecorder(
+  body: (started: () => boolean) => Promise<void>,
+): Promise<void> {
+  const recorder = gitRecorder();
+  const previousPath = process.env["PATH"];
+  process.env["PATH"] = `${recorder.directory}:${previousPath ?? ""}`;
+  try {
+    await body(() => existsSync(recorder.marker));
+  } finally {
+    process.env["PATH"] = previousPath;
+  }
+}
 
-    await expect(
-      daemon.call("git.status", {
-        envelope: envelope(),
-        path: clone,
-        options: OPTIONS,
-      }),
-    ).resolves.toEqual({
-      status: "ok",
-      dirty: false,
-      ahead: 0,
-      head,
+function stateParams(
+  path: string,
+  gitEntry: string,
+): MachineMethodParams["git.state"] {
+  return {
+    envelope: envelope(),
+    path,
+    gitEntry,
+    limit: 10,
+    submodules: "check",
+    options: OPTIONS,
+  };
+}
+
+describe("git.locate", () => {
+  it("Locate starts no git process", async () => {
+    await withGitRecorder(async (started) => {
+      await expect(
+        daemon.call("git.locate", {
+          envelope: envelope(),
+          path: clone,
+          options: OPTIONS,
+        }),
+      ).resolves.toEqual({
+        status: "ok",
+        gitEntry: `${PREFIX}${join(clone, ".git")}`,
+        kind: "directory",
+      });
+      expect(started()).toBe(false);
     });
   });
 
-  it("reports a dirty clone", async () => {
-    writeFileSync(join(clone, "README.md"), "changed\n");
-
-    await expect(
-      daemon.call("git.status", {
-        envelope: envelope(),
-        path: clone,
-        options: OPTIONS,
-      }),
-    ).resolves.toMatchObject({ status: "ok", dirty: true });
-  });
-
-  it("reports the upstream and the commits ahead of it", async () => {
-    const remote = join(fixture.root, "origin.git");
-    runGit(fixture.root, ["init", "--quiet", "--bare", remote]);
-    runGit(clone, ["remote", "add", "origin", remote]);
-    runGit(clone, ["push", "--quiet", "--set-upstream", "origin", "main"]);
-    commitFile(clone, "second.md");
-
-    await expect(
-      daemon.call("git.status", {
-        envelope: envelope(),
-        path: clone,
-        options: OPTIONS,
-      }),
-    ).resolves.toMatchObject({
-      status: "ok",
-      dirty: false,
-      ahead: 1,
-      upstream: "origin/main",
-    });
+  it("A repository above the registered root is not found", async () => {
+    const inner = join(clone, "sub");
+    mkdirSync(inner);
+    const nested = startDaemon({ roots: [inner] });
+    try {
+      expect((await nested.hello()).ok).toBe(true);
+      await expect(
+        nested.call("git.locate", {
+          envelope: envelope(),
+          path: inner,
+          options: OPTIONS,
+        }),
+      ).resolves.toEqual({
+        status: "error",
+        type: "no_repository_in_root",
+        stderr: "",
+      });
+    } finally {
+      nested.input.end();
+      await nested.session.done;
+    }
   });
 
   it("refuses a path outside every root", async () => {
     await expect(
-      daemon.call("git.status", {
+      daemon.call("git.locate", {
         envelope: envelope(),
         path: fixture.outside,
         options: OPTIONS,
       }),
     ).rejects.toMatchObject(refusal("path_not_registered"));
+  });
+});
+
+describe("git.locate with nested registered roots", () => {
+  it("finds a .git under the outermost root from inside the inner one", async () => {
+    const server = join(fixture.root, "srv");
+    const app = join(server, "app");
+    mkdirSync(join(app, "web"), { recursive: true });
+    mkdirSync(join(server, ".git"));
+    const nested = startDaemon({ roots: [server, app] });
+    try {
+      expect((await nested.hello()).ok).toBe(true);
+      await expect(
+        nested.call("git.locate", {
+          envelope: envelope(),
+          path: join(app, "web"),
+          options: OPTIONS,
+        }),
+      ).resolves.toEqual({
+        status: "ok",
+        gitEntry: `${PREFIX}${join(server, ".git")}`,
+        kind: "directory",
+      });
+    } finally {
+      nested.input.end();
+      await nested.session.done;
+    }
+  });
+});
+
+describe("git.state", () => {
+  it("reports a clean clone with a locator toplevel", async () => {
+    const head = runGit(clone, ["rev-parse", "HEAD"]).trim();
+
+    await expect(
+      daemon.call(
+        "git.state",
+        stateParams(join(clone, "."), join(clone, ".git")),
+      ),
+    ).resolves.toMatchObject({
+      status: "ok",
+      toplevel: `${PREFIX}${clone}`,
+      rootRelative: "",
+      branch: "main",
+      head,
+      counts: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
+    });
+  });
+
+  it("State refuses a changed git entry", async () => {
+    const nested = initRepository(join(clone, "nested"));
+    await withGitRecorder(async (started) => {
+      await expect(
+        daemon.call("git.state", stateParams(nested, join(clone, ".git"))),
+      ).resolves.toEqual({
+        status: "error",
+        type: "git_entry_changed",
+        stderr: "",
+      });
+      expect(started()).toBe(false);
+    });
+  });
+
+  it("observes a repository whose .git is a symlink inside the root", async () => {
+    const linked = initRepository(join(fixture.root, "linked-repo"));
+    commitFile(linked, "README.md");
+    const store = join(fixture.root, "linked-store");
+    renameSync(join(linked, ".git"), store);
+    symlinkSync(store, join(linked, ".git"));
+
+    await expect(
+      daemon.call("git.state", stateParams(linked, join(linked, ".git"))),
+    ).resolves.toMatchObject({ status: "ok", branch: "main" });
+  });
+
+  it("refuses a gitdir reached through a symlink that leaves the roots", async () => {
+    const elsewhere = initRepository(join(fixture.outside, "elsewhere"));
+    commitFile(elsewhere, "README.md");
+    const directory = join(fixture.root, "escaping");
+    mkdirSync(directory);
+    symlinkSync(elsewhere, join(directory, "link"));
+    writeFileSync(join(directory, ".git"), "gitdir: link/.git\n");
+
+    await withGitRecorder(async (started) => {
+      await expect(
+        daemon.call(
+          "git.state",
+          stateParams(directory, join(directory, ".git")),
+        ),
+      ).resolves.toEqual({
+        status: "error",
+        type: "outside_registered_root",
+        stderr: "",
+      });
+      expect(started()).toBe(false);
+    });
+  });
+
+  it("refuses a quoted alternates line", async () => {
+    mkdirSync(join(clone, ".git", "objects", "info"), { recursive: true });
+    writeFileSync(
+      join(clone, ".git", "objects", "info", "alternates"),
+      `"${join(fixture.outside, "objects")}"\n`,
+    );
+
+    await withGitRecorder(async (started) => {
+      await expect(
+        daemon.call("git.state", stateParams(clone, join(clone, ".git"))),
+      ).resolves.toEqual({
+        status: "error",
+        type: "outside_registered_root",
+        stderr: "",
+      });
+      expect(started()).toBe(false);
+    });
+  });
+
+  it("An outside common directory is refused", async () => {
+    const main = initRepository(join(fixture.outside, "main"));
+    commitFile(main, "README.md");
+    const linked = join(fixture.root, "linked");
+    runGit(main, ["worktree", "add", "--quiet", "-b", "linked", linked]);
+
+    await withGitRecorder(async (started) => {
+      await expect(
+        daemon.call("git.state", stateParams(linked, join(linked, ".git"))),
+      ).resolves.toEqual({
+        status: "error",
+        type: "outside_registered_root",
+        stderr: "",
+      });
+      expect(started()).toBe(false);
+    });
+  });
+
+  it("refuses a git entry outside every root", async () => {
+    await expect(
+      daemon.call(
+        "git.state",
+        stateParams(clone, join(fixture.outside, ".git")),
+      ),
+    ).rejects.toMatchObject(refusal("path_not_registered"));
+  });
+
+  it("refuses a path outside every root", async () => {
+    await expect(
+      daemon.call(
+        "git.state",
+        stateParams(fixture.outside, join(clone, ".git")),
+      ),
+    ).rejects.toMatchObject(refusal("path_not_registered"));
+  });
+
+  it.each([
+    ["a negative limit", { limit: -1 }],
+    ["a limit above 1000", { limit: 1001 }],
+    ["a fractional limit", { limit: 1.5 }],
+    ["an unknown submodules mode", { submodules: "all" }],
+  ] as const)("refuses %s before any git call", async (_name, override) => {
+    await withGitRecorder(async (started) => {
+      await expect(
+        daemon.call(
+          "git.state",
+          Object.assign(stateParams(clone, join(clone, ".git")), override),
+        ),
+      ).resolves.toMatchObject({ status: "error", type: "invalid_input" });
+      expect(started()).toBe(false);
+    });
+  });
+
+  it("accepts the limit bounds 0 and 1000", async () => {
+    for (const limit of [0, 1000]) {
+      await expect(
+        daemon.call(
+          "git.state",
+          Object.assign(stateParams(clone, join(clone, ".git")), { limit }),
+        ),
+      ).resolves.toMatchObject({ status: "ok" });
+    }
   });
 });
 
