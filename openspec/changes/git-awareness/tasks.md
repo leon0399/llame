@@ -69,7 +69,7 @@ layer that grows past about 2,000 authored lines.
 - [x] 4.3 Wire model admission to `tools.allowed` and `previewToolPermission`; verify service tests for `A rejected git directory starts no git process`, `Read absent from the allowlist`, `A linked worktree needs only its own entry`, `Bash permission does not substitute`, `A bash reject does not hide git state`, `The git entry path is the evaluated value`, and `A reject clause refuses the git entry`.
 - [x] 4.4 Add `git-snapshot.md`, remote normalization with query, fragment, and host-less handling, length limits, C-style path quoting, and `sanitizeAuthoredText`; verify `A path that read rejects is listed`, `A newline in a file name cannot forge a line`, `A fork reports both remotes`, `A token in a remote URL is removed` (rendered body), `A local remote hides its path`, `Remotes above the bound are counted`, `The ignored-files statement is present`, `A branch name cannot close the envelope`, `A commit subject cannot grant capabilities`, and `Two observations of an unchanged repository match`.
 - [ ] 4.5 Run api `lint`, `typecheck`, and focused tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
-- [ ] 4.6 Verify `A very long submodule path is counted, not listed` with a normalizer test (a 5,000-character submodule path is dropped and counted in `omitted`).
+- [x] 4.6 Verify `A very long submodule path is counted, not listed` with a normalizer test (a 5,000-character submodule path is dropped and counted in `omitted`).
 
 ## 5. producer
 
