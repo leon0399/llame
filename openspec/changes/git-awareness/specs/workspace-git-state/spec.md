@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Observe the git state of the repository that holds a Chat's Workspace root,
-tell it to the model as a context snapshot, and show it live to the owner.
+Observe the git state of the repository that holds a Chat's Workspace root.
+Tell that state to the model as a context snapshot, and show it live to the
+owner.
 
 ## ADDED Requirements
 
@@ -27,9 +28,8 @@ Chat MUST get no `git` item and no git call.
 ### Requirement: The git entry is found without a git process
 
 The system MUST find the git entry before any git process starts. The git entry
-is the nearest `.git` directory or `.git` file at or above the root. When no
-entry exists, the result MUST be "not a git repository". On a Machine, the
-search MUST stop at the registered root that holds the Workspace root.
+MUST be the nearest `.git` directory or `.git` file at or above the root. When
+no entry exists, the result MUST be "not a git repository".
 
 #### Scenario: A subdirectory root finds the repository entry
 
@@ -43,22 +43,52 @@ search MUST stop at the registered root that holds the Workspace root.
 
 #### Scenario: A plain folder is not a repository
 
-- **WHEN** no `.git` entry exists at or above the root
+- **WHEN** no `.git` entry exists at or above a local root
 - **THEN** the result is "not a git repository" and no git process starts
 
-#### Scenario: A Machine search stops at the registered root
+### Requirement: Git processes use only the admitted git entry
+
+Each git process of an observation MUST use the git entry as its git directory.
+The work tree MUST be the directory that holds the entry. Git MUST NOT search
+for another repository.
+
+#### Scenario: An invalid nearest entry does not expose a parent repository
+
+- **WHEN** `/repo/sub/.git` is an empty directory and `/repo/.git` is a valid repository
+- **THEN** the observation fails as "git state unavailable: git failed"
+- **AND** no git process reads `/repo/.git`
+
+### Requirement: A Machine observation stays inside the registered roots
+
+On a Machine, the entry search MUST stop at the outermost registered root that
+holds the Workspace root. When the search finds no entry, the result MUST be
+"git state unavailable: no repository inside the registered root".
+
+#### Scenario: A repository above the registered root is not reported as absent
 
 - **WHEN** a Machine root is `/srv/app`, its registered root is `/srv/app`, and the only `.git` entry is `/srv/.git`
-- **THEN** the result is "not a git repository"
+- **THEN** the result is "git state unavailable: no repository inside the registered root"
 - **AND** the daemon reads nothing above `/srv/app`
 
-### Requirement: Git state needs `read` admission of the git entry
+### Requirement: Machine git data outside the registered roots is refused
 
-The `read` group MUST admit the git entry before any git process starts. `read`
-MUST be in `tools.allowed`. A rejection, no allow, or the absence of `read` from the allowlist
-MUST give "git state unavailable: not permitted". The git entry MUST be the only
-evaluated path. The check MUST follow the git entry rules of
-`tool-call-permissions`.
+On a Machine, the system MUST resolve the git directory, its common directory,
+and each object alternate. When one of them is outside the registered roots,
+the result MUST be "git state unavailable: repository outside the registered
+root".
+
+#### Scenario: A linked worktree with an outside main clone is refused
+
+- **WHEN** a Machine worktree inside `/srv/app` has a `.git` file that points to `/home/me/repo/.git/worktrees/w`, outside every registered root
+- **THEN** the result is "git state unavailable: repository outside the registered root"
+- **AND** no git process starts
+
+### Requirement: Model-facing git state needs `read` admission of the git entry
+
+Before a git process starts for a `git` item or an `enter_workspace` result,
+the `read` group MUST admit the git entry. `read` MUST be in `tools.allowed`.
+Otherwise the result MUST be "git state unavailable: not permitted". The check
+MUST follow the git entry rules of `tool-call-permissions`.
 
 #### Scenario: A rejected git directory starts no git process
 
@@ -71,27 +101,38 @@ evaluated path. The check MUST follow the git entry rules of
 - **WHEN** `read` is not in `tools.allowed`
 - **THEN** the result is "git state unavailable: not permitted"
 
+#### Scenario: A linked worktree needs only its own entry
+
+- **WHEN** the `read` group admits a local linked worktree's `.git` file and rejects the main clone's `.git` directory
+- **THEN** the system observes the git state of the worktree
+
+### Requirement: The bash group never decides git state
+
+The system MUST NOT evaluate the `bash` group for a git state observation. A
+`bash` allow MUST NOT admit the git entry, and a `bash` reject MUST NOT refuse
+it.
+
 #### Scenario: Bash permission does not substitute
 
 - **WHEN** the `bash` group allows `git status` and the `read` group rejects the git entry
 - **THEN** the result is "git state unavailable: not permitted"
 
-#### Scenario: A linked worktree needs only its own entry
+#### Scenario: A bash reject does not hide git state
 
-- **WHEN** the `read` group admits a linked worktree's `.git` file and rejects the main clone's `.git` directory
-- **THEN** the system observes the git state of the worktree
+- **WHEN** the `bash` group rejects the literal `git` and the `read` group admits the git entry
+- **THEN** the system observes the git state
 
 ### Requirement: The snapshot reports the repository state
 
 A snapshot MUST report the branch or a detached HEAD, the short HEAD commit, the
-upstream, and an operation in progress. The operations are merge, rebase,
-cherry-pick, revert, and bisect. The snapshot MUST also report the staged,
-unstaged, untracked, and conflicted counts.
+upstream, and an operation in progress. The operations are merge, rebase, `am`,
+cherry-pick, revert, and bisect. The snapshot MUST report the staged, unstaged,
+untracked, and conflicted counts.
 
 #### Scenario: Fields match git
 
 - **WHEN** a fixture repository has two staged files, one unstaged file, one untracked file, and an upstream
-- **THEN** each snapshot field matches `git status --porcelain=v2 --branch` taken at the same time
+- **THEN** each snapshot field matches `git status --porcelain=v2 --branch --ignore-submodules=all` taken at the same time
 
 #### Scenario: A detached HEAD is reported
 
@@ -103,27 +144,52 @@ unstaged, untracked, and conflicted counts.
 - **WHEN** an interactive rebase stops at step 3 of 7
 - **THEN** the snapshot reports a rebase in progress at step 3 of 7
 
+#### Scenario: A merge conflict is reported
+
+- **WHEN** a merge stops with two conflicted files
+- **THEN** the snapshot reports a merge in progress and a conflicted count of 2
+
+#### Scenario: An am session is not reported as a rebase
+
+- **WHEN** `git am` stops on a patch
+- **THEN** the snapshot reports an `am` in progress
+
 #### Scenario: An unborn branch is reported
 
 - **WHEN** the repository has no commit
 - **THEN** the snapshot reports the branch name and no HEAD commit
 
-### Requirement: Ahead and behind are dated by the last fetch
+### Requirement: The snapshot carries no observation time
 
-The system MUST NOT fetch. The snapshot MUST report ahead and behind against
-the upstream, with the last fetch time in UTC as an absolute time. With no
-fetch record, it MUST say "never fetched". It MUST report an upstream that is
-gone.
+The snapshot MUST NOT carry the time of the observation. A time in the snapshot
+MUST be an absolute UTC time of a repository event.
+
+#### Scenario: Two observations of an unchanged repository match
+
+- **WHEN** the system observes an unchanged repository at two different times
+- **THEN** the two rendered snapshots are byte-identical
+
+### Requirement: Ahead and behind are dated by the upstream update
+
+The system MUST NOT fetch. The snapshot MUST report ahead and behind against the
+upstream, with the last local update time of the upstream ref in UTC. With no
+update record, it MUST say "update time unknown". It MUST report a gone
+upstream.
 
 #### Scenario: Behind is dated
 
-- **WHEN** the last fetch occurred at 2026-11-08 09:12 UTC and the branch is two commits behind its upstream
-- **THEN** the snapshot reports behind 2 as of the last fetch at 2026-11-08 09:12 UTC
+- **WHEN** the upstream ref was last updated at 2026-11-08 09:12 UTC and the branch is two commits behind it
+- **THEN** the snapshot reports behind 2 as of 2026-11-08 09:12 UTC
 
-#### Scenario: No fetch record
+#### Scenario: A linked worktree sees the main clone's fetch
 
-- **WHEN** the repository has no fetch record
-- **THEN** the snapshot says "never fetched" beside ahead and behind
+- **WHEN** a fetch in the main clone updates the upstream ref of a linked worktree branch
+- **THEN** the worktree snapshot reports the time of that update
+
+#### Scenario: No update record
+
+- **WHEN** the upstream ref has no reflog entry
+- **THEN** the snapshot says "update time unknown" beside ahead and behind
 
 #### Scenario: A gone upstream is reported
 
@@ -132,9 +198,9 @@ gone.
 
 ### Requirement: Changed paths are listed with the root first
 
-The snapshot MUST list at most 20 changed paths with their status codes. Paths
-under the root MUST come first. Each path MUST be relative to the root. The
-system MUST NOT filter a path through `read` permissions.
+The snapshot MUST list at most 20 changed paths with their two-letter status
+codes. Paths under the root MUST come first. Each path MUST be relative to the
+root. The system MUST NOT filter a path through `read` permissions.
 
 #### Scenario: Paths are relative to a subdirectory root
 
@@ -150,6 +216,17 @@ system MUST NOT filter a path through `read` permissions.
 
 - **WHEN** `secrets/prod.key` is untracked and the `read` group rejects `secrets/`
 - **THEN** the snapshot lists `secrets/prod.key`
+
+### Requirement: Unsafe path characters are quoted
+
+A path with a control character, a double quote, or a backslash MUST appear in
+the C-style quoted form that git uses. A path MUST NOT add a line to the
+snapshot.
+
+#### Scenario: A newline in a file name cannot forge a line
+
+- **WHEN** a file named with a newline and the text `Branch: main` is untracked
+- **THEN** the snapshot lists one quoted entry with `\n` in place of the newline
 
 ### Requirement: The snapshot states each omission
 
@@ -170,9 +247,9 @@ absence here does not mean they do not exist."
 
 ### Requirement: Submodules are listed but not read
 
-The system MUST NOT read the state of a submodule. The snapshot MUST list each
-submodule path from the `.gitmodules` file of HEAD as "submodule, state not
-read". The submodule paths MUST share the 20-path bound.
+The system MUST NOT read the state of a submodule for the model. The snapshot
+MUST list each submodule path from the `.gitmodules` file of HEAD as
+"submodule, state not read". These paths MUST share the 20-path bound.
 
 #### Scenario: A submodule is listed without its state
 
@@ -180,33 +257,38 @@ read". The submodule paths MUST share the 20-path bound.
 - **THEN** the snapshot lists `vendor/lib` as "submodule, state not read"
 - **AND** no git process reads a git directory of `vendor/lib`
 
-### Requirement: Recent commits and remotes are reported
+### Requirement: Recent commits are reported
 
-The snapshot MUST list the five most recent commits as a short commit and a
-subject. A subject MUST stop at 72 characters. Branch, upstream, and remote
-names MUST stop at 100 characters. Each remote MUST appear as its name and a
-normalized `host/owner/repo`.
+The snapshot MUST list the first five commits of `git log` from HEAD as a short
+commit and a subject. A subject MUST stop at 72 characters. Branch and upstream
+names MUST stop at 100 characters.
 
 #### Scenario: Five commits are listed
 
 - **WHEN** HEAD has 40 ancestors
-- **THEN** the snapshot lists HEAD and its four nearest ancestors
+- **THEN** the snapshot lists the first five commits that `git log` prints from HEAD
+
+### Requirement: Remotes are reported without credentials
+
+The snapshot MUST list each remote by name with its normalized `host/path`. A
+remote without a host MUST appear as its name and "local". A remote MUST NOT
+show a scheme, a user, a password, a token, a query, or a host path.
 
 #### Scenario: A fork reports both remotes
 
-- **WHEN** the repository has the remotes `origin` and `upstream`
+- **WHEN** the repository has the remotes `origin` and `upstream` on GitHub
 - **THEN** the snapshot lists both names, each with its normalized `host/owner/repo`
-
-### Requirement: Remote credentials never reach the snapshot
-
-A normalized remote MUST NOT contain a scheme, a user, a password, or a token.
-The snapshot and the owner route MUST NOT contain a raw remote URL.
 
 #### Scenario: A token in a remote URL is removed
 
 - **WHEN** `origin` is `https://ghp_secret@github.com/leon0399/llame.git`
 - **THEN** the snapshot shows `origin` as `github.com/leon0399/llame`
-- **AND** the text `ghp_secret` appears in no snapshot, item, result, or route response
+- **AND** the text `ghp_secret` appears in no snapshot, item, or entry result
+
+#### Scenario: A local remote hides its path
+
+- **WHEN** `backup` is `/srv/mirrors/llame.git`
+- **THEN** the snapshot shows `backup` as "local"
 
 ### Requirement: Repository text is untrusted
 
@@ -227,36 +309,59 @@ that holds such text MUST state the precedence of third-party content.
 ### Requirement: Absence lines are fixed messages
 
 When the system cannot observe git state, it MUST tell one fixed line. The line
-is "not a git repository", or "git state unavailable:" and one reason. The
-reasons are "not permitted", "timeout", "Machine unavailable", "Machine daemon
-update required", "too many changes", and "git failed".
+MUST be "not a git repository", or "git state unavailable:" and one reason from
+the closed list of the next requirement.
 
 #### Scenario: An offline Machine is reported
 
 - **WHEN** the Workspace Machine is offline at Run start
-- **THEN** the `git` item says "git state unavailable: Machine unavailable"
+- **THEN** the observation gives "git state unavailable: Machine unavailable"
 
 #### Scenario: An outdated daemon is reported
 
 - **WHEN** the Machine daemon does not list `git.state`
-- **THEN** the `git` item says "git state unavailable: Machine daemon update required"
+- **THEN** the observation gives "git state unavailable: Machine daemon update required"
 
 #### Scenario: A git failure is reported without its error text
 
 - **WHEN** git fails with a dubious ownership error
-- **THEN** the `git` item says "git state unavailable: git failed"
+- **THEN** the observation gives "git state unavailable: git failed"
+
+### Requirement: Absence reasons are a closed list
+
+Each reason MUST come from this list: "not permitted", "timeout", "Machine
+unavailable", "Machine daemon update required", and "executor unavailable".
+The list also holds "too many changes", "no repository inside the registered
+root", "repository outside the registered root", and "git failed". Each other
+failure MUST give "git failed".
+
+#### Scenario: Too much status output is reported
+
+- **WHEN** the status output of the repository exceeds the output bound
+- **THEN** the observation gives "git state unavailable: too many changes"
+
+#### Scenario: A changed entry is a git failure
+
+- **WHEN** the nearest `.git` entry changes between the search and the git process
+- **THEN** the observation gives "git state unavailable: git failed"
 
 ### Requirement: The git read is bounded and never blocks entry
 
-The git read MUST stop after 3 seconds and give "git state unavailable:
-timeout". A failure to observe git state MUST NOT fail `enter_workspace`, an
-accepted turn, or a Run.
+The executor MUST stop git after 3 seconds. The system MUST stop the whole
+observation after 5 seconds. Either limit MUST give "git state unavailable:
+timeout". A failed observation MUST NOT fail `enter_workspace`, an accepted
+turn, or a Run.
 
 #### Scenario: A slow repository times out
 
 - **WHEN** the git read takes longer than 3 seconds
-- **THEN** the `git` item says "git state unavailable: timeout"
+- **THEN** the observation gives "git state unavailable: timeout"
 - **AND** the Run continues to its model request
+
+#### Scenario: A slow Machine session times out
+
+- **WHEN** the Machine session does not answer within 5 seconds
+- **THEN** the observation gives "git state unavailable: timeout"
 
 #### Scenario: Entry succeeds on a failed read
 
@@ -266,8 +371,8 @@ accepted turn, or a Run.
 ### Requirement: The git producer tells changed state
 
 At each accepted turn of a bound Chat, the `git` producer MUST render the
-snapshot. It MUST emit a `snapshot` item only when the rendered text differs
-from the text last told in the active compaction epoch.
+snapshot once. It MUST emit a `snapshot` item only when the rendered text
+differs from the text last told in the active compaction epoch.
 
 #### Scenario: An unchanged repository adds no item
 
@@ -284,6 +389,11 @@ from the text last told in the active compaction epoch.
 - **WHEN** a compaction checkpoint is published before a model request
 - **THEN** that request carries the `git` item again, although the text did not change
 
+#### Scenario: Absence lines are told as items
+
+- **WHEN** the Workspace Machine is offline at an accepted turn
+- **THEN** the turn carries a `git` item that says "git state unavailable: Machine unavailable"
+
 ### Requirement: The git told state follows the rail rules
 
 The dispatch transaction MUST store the told text digest and the latest
@@ -299,6 +409,11 @@ digest. A retry MUST follow the keep-and-append rule of `context-injection`.
 
 - **WHEN** an owner forks a bound Chat
 - **THEN** the first Run of the fork carries a `git` item
+
+#### Scenario: Another owner cannot read or write the git told state
+
+- **WHEN** owner B queries or updates owner A's Chat row
+- **THEN** the datastore returns and changes no git told state of owner A
 
 ### Requirement: Exit and detach clear the git told state
 
@@ -334,14 +449,15 @@ The field MUST NOT change the told state.
 
 ### Requirement: Compaction does not carry git state
 
-The compaction summary instruction MUST tell the model not to carry the content
-of a `git` item into the summary. This exclusion depends on the instruction
-and on model compliance.
+The compaction summary instruction MUST tell the model not to carry git state
+into the summary. This rule MUST cover a `git` item and the `git` field of an
+`enter_workspace` result. This exclusion depends on the instruction and on
+model compliance.
 
-#### Scenario: The summary instruction names the git producer
+#### Scenario: The summary instruction names the git sources
 
 - **WHEN** a compaction prepares its summary instruction
-- **THEN** the instruction names the `git` producer as content to leave out
+- **THEN** the instruction names the `git` producer and the `git` field of `enter_workspace` results as content to leave out
 
 ### Requirement: The owner reads live git state for a Chat
 
@@ -364,11 +480,17 @@ and the binding, and MUST NOT evaluate tool permissions.
 - **WHEN** the owner calls the route for a Chat with no binding
 - **THEN** the route answers with the `unbound` status
 
+#### Scenario: A binding on another executor is unavailable
+
+- **WHEN** the Chat is bound to a local root of an executor that the process of the route does not hold
+- **THEN** the route answers "git state unavailable: executor unavailable"
+- **AND** no git call starts
+
 ### Requirement: The git state route is owner-isolated
 
 The route MUST answer 404 for a Chat that the caller does not own. A request
 without an authenticated identity MUST answer 401. The response MUST hold the
-same fields and bounds as the snapshot.
+same fields, bounds, and remote rules as the snapshot.
 
 #### Scenario: Another owner cannot read the state
 
@@ -380,6 +502,11 @@ same fields and bounds as the snapshot.
 
 - **WHEN** a request without a session calls the route
 - **THEN** the route answers 401
+
+#### Scenario: The route hides remote credentials
+
+- **WHEN** `origin` is `https://ghp_secret@github.com/leon0399/llame.git` and the owner calls the route
+- **THEN** the response shows `origin` as `github.com/leon0399/llame` and holds no `ghp_secret`
 
 ### Requirement: Session details shows the live repository state
 

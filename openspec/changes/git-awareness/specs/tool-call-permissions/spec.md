@@ -4,9 +4,10 @@
 
 ### Requirement: The git entry check is a named synthetic read evaluation
 
-The git state check of `workspace-git-state` is a named exception to matched
-submitted values. It MUST evaluate the `read` group with the git entry path as
-the `path` value. It is not a tool call. It MUST record no decision of its own.
+The git entry check of `workspace-git-state` is the seventh named exception of
+the requirement on matched submitted values. It MUST evaluate the `read` group
+with the git entry path as the `path` value. It is not a tool call. It MUST
+record no decision of its own.
 
 #### Scenario: The git entry path is the evaluated value
 

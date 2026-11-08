@@ -26,10 +26,12 @@ git state, and the owner sees the same state live. Feature issue:
 - A successful `enter_workspace` result carries the same rendered text in a
   new `git` field, including a same-root re-entry.
 - The snapshot holds the branch or a detached HEAD, HEAD, the upstream with
-  ahead and behind dated by the last fetch, an in-progress operation, change
-  counts, up to 20 root-relative paths with the root's paths first, five
-  recent commits, every remote normalized to `host/owner/repo`, and a fixed
-  statement for each omission. llame never fetches.
+  ahead and behind dated by the upstream ref's last local update, an
+  in-progress operation, change counts, up to 20 root-relative paths with the
+  root's paths first, five recent commits, every remote normalized without
+  credentials, and a fixed statement for each omission. llame never fetches.
+- Every git process of an observation is pinned to the admitted git entry, so
+  git never discovers another repository.
 - llame reads git state only when the `read` permission group admits the
   repository's git entry. Listed paths are not filtered through `read`.
 - "not a git repository" and "git state unavailable:" with a closed reason are
@@ -42,8 +44,11 @@ git state, and the owner sees the same state live. Feature issue:
 - A new owner-only route `GET /api/v1/chats/:id/git-state` returns the
   live state for the chat's Workspace. Session details shows it as a
   Repository block in Environment instead of the stored checkout branch.
-- The compaction summary instruction excludes `git` snapshot content, because
-  the producer tells the state again after each checkpoint.
+- The compaction summary instruction excludes `git` snapshot content and the
+  `git` field of `enter_workspace` results, because the producer tells the
+  state again after each checkpoint.
+- The worktree-removal guard fails closed on a gone upstream and keeps
+  counting changes inside submodules.
 
 ## Assumptions, confirmed with Leo
 
@@ -56,8 +61,8 @@ record. The ones that shape the deltas:
 - grilling D11, D12, D18, D19, D21: the `read` group must admit the git entry;
   presence is never filtered; no `bash` admission; a linked worktree needs only
   its own `.git` entry; the entry is checked as `read` checks a path.
-- grilling D13-D17, D22: content, bounds, remotes, staleness, a 3 s timeout,
-  and an absolute fetch time with no observation stamp.
+- grilling D13-D17, D22: content, bounds, remotes, staleness, a timeout, and
+  no observation stamp.
 - grilling D8, D20, D23: Session details reads live state, gated by owner
   identity and the binding, not by tool permissions; #1356 stays out.
 - grilling D9: a new typed method replaces `git.status`.
@@ -75,14 +80,33 @@ Assumptions that follow from those decisions but were not asked:
   accepted turn tells the snapshot again once. The `workspace` producer
   already behaves this way.
 - The Session details route uses the same 20-path bound as the model.
+- A configured clean filter, such as Git LFS, can run during `git status`,
+  also in `read-only` mode. The removal guard has the same exposure today.
 
-## Deviation from the grilling record
+## Deviations from the grilling record
 
-- grilling D9 named one new method. Discovery of the git entry must happen
-  before any git process reads it, otherwise llame reads `.git` before the
-  `read` group admits it (D11). The design therefore adds `git.locate`, a
-  filesystem walk that starts no git process, beside `git.state`. Please
-  confirm.
+Please confirm each:
+
+- V1, grilling D9: one new method became two. Discovery must happen before any
+  git process reads `.git`, otherwise llame reads it before the `read` group
+  admits it (D11). `git.locate` is a filesystem walk that starts no git
+  process; `git.state` then runs pinned to the admitted entry.
+- V2, grilling D17: ahead and behind are dated by the reflog of the upstream
+  ref, not by `FETCH_HEAD`. `FETCH_HEAD` is per worktree, so every
+  llame-created worktree would say "never fetched" while its upstream refs are
+  fresh. With no reflog the snapshot says "update time unknown".
+- V3, grilling D17: git stops after 3 s on the executor, and the whole
+  observation stops after 5 s, so a Machine round trip and session setup are
+  bounded too.
+- V4, A3: a Machine search that reaches the registered root says "git state
+  unavailable: no repository inside the registered root"; a git directory,
+  common directory, or alternate outside the roots says "git state
+  unavailable: repository outside the registered root".
+- V5, grilling D25: `Closes #1615` moves from the producer layer to the
+  Session details layer, because #1615's acceptance includes Session details.
+  The producer layer splits in two (`producer`, `entry-result`) to stay within
+  the review budget, and the protocol types ship with the executor layer
+  because `git-executor` re-exports them.
 
 ## Capabilities
 
@@ -99,16 +123,25 @@ Assumptions that follow from those decisions but were not asked:
   adds `git` after `workspace`.
 - `remote-machines`: "Machine daemons answer typed git methods" replaces
   `git.status` with `git.locate` and `git.state`; "Git methods are additive to
-  the Machine protocol" gates each method by the handshake list.
+  the Machine protocol" gates each method by the handshake list. ADDED: "Machine
+  git discovery stays inside the registered root" and "Machine git state reads
+  only inside the registered roots".
 - `repositories`: "Executors expose typed git operations" replaces
-  `git.status` with `git.locate` and `git.state`.
-- `tool-call-permissions`: an ADDED requirement defines the git entry
-  evaluation as a named synthetic `read` evaluation.
+  `git.status` with `git.locate` and `git.state`. ADDED: "Worktree removal
+  reads a complete worktree state" fails closed on a gone upstream or an
+  unreadable state and counts submodule changes.
+- `tool-call-permissions`: two ADDED requirements define the git entry check as
+  the seventh named exception and state its mode and reject rules.
 
 Deliberately unchanged, with the reading under which each holds:
 
-- `repositories` "Worktree removal is owner-initiated and guarded": it names
-  no git method; the guard keeps its three refusals on `git.state` fields.
+- `repositories` "Worktree removal is owner-initiated and guarded": its "fail
+  closed when the upstream is unknown" covers a gone upstream; the ADDED
+  requirement states that reading and the submodule rule beside it.
+- `model-system-prompts` "Compaction publishes a summary-only checkpoint
+  before the Run's first model step": it requires the instruction to name the
+  standing-context delimiters and the `recency-digest` producer; naming the
+  `git` sources as well does not contradict it.
 - `workspace-entry` "Workspace entry validates and authorizes both submitted
   and canonical paths": the result "SHALL include" the listed fields; an added
   `git` field does not contradict an inclusive list.
@@ -160,7 +193,8 @@ Deliberately unchanged, with the reading under which each holds:
 ## Acceptance
 
 - On fixture repositories, every snapshot field matches
-  `git status --porcelain=v2 --branch` and `git log` taken at the same time.
+  `git status --porcelain=v2 --branch --ignore-submodules=all` and `git log`
+  taken at the same time.
 - An unchanged repository adds no item on a later accepted turn; a change adds
   exactly one; a checkpoint re-tells it once.
 - A git entry that `read` rejects yields "git state unavailable: not

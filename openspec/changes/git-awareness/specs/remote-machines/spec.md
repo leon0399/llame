@@ -6,12 +6,11 @@
 
 The daemon MUST answer the git methods `git.inspect`, `git.worktreeAdd`,
 `git.worktreeList`, `git.worktreeRemove`, `git.locate`, and `git.state`. Each
-method MUST take one strict object. Each method that starts git MUST run git
-with an argument array. A caller value that starts with `-` MUST fail as
-`invalid_input` before any command starts. Every other caller value MUST follow
-`--end-of-options` or `--`, where the subcommand accepts one. A path MUST be
-absolute. A failed command MUST return a typed failure with the git standard
-error.
+method MUST take one strict object. A git process MUST get an argument array. A
+caller value that starts with `-` MUST fail as `invalid_input` before any
+command starts. Other caller values MUST follow `--end-of-options` or `--` where
+the subcommand accepts one. A path MUST be absolute. A failed command MUST
+return a typed failure with the git standard error.
 
 #### Scenario: Repository is inspected
 
@@ -81,12 +80,25 @@ any request. File tools and `bash` on that Machine MUST continue to work.
 
 ### Requirement: Machine git discovery stays inside the registered root
 
-`git.locate` MUST search only from the path up to the registered root that
-holds it. It MUST read nothing above that root. When no `.git` entry exists in
-that range, it MUST return `not_a_repository`.
+`git.locate` MUST search only from the path up to the outermost registered root
+that holds it. It MUST read nothing above that root. When no `.git` entry exists
+in that range, it MUST return `no_repository_in_root`, not `not_a_repository`.
 
 #### Scenario: A repository above the registered root is not found
 
 - **WHEN** the registered root is `/srv/app`, the path is `/srv/app/web`, and the only `.git` entry is `/srv/.git`
-- **THEN** `git.locate` returns `not_a_repository`
+- **THEN** `git.locate` returns `no_repository_in_root`
 - **AND** the daemon reads nothing above `/srv/app`
+
+### Requirement: Machine git state reads only inside the registered roots
+
+Before git starts, `git.state` MUST resolve the git directory, the common
+directory, and each object alternate. When one of them is outside the
+registered roots, it MUST return `outside_registered_root` and start no git
+process.
+
+#### Scenario: An outside common directory is refused
+
+- **WHEN** a worktree `.git` file inside `/srv/app` points to a git directory under `/home/me/repo`, outside every registered root
+- **THEN** `git.state` returns `outside_registered_root`
+- **AND** no git process starts
