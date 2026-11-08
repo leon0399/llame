@@ -6,6 +6,8 @@ Enter a Workspace: a directory on the native host, or on an operator-configured 
 `worktree`: optional. Present, `path` names a source clone and the call creates a git worktree of it, then binds that directory. Pass `worktree: {}` for a generated name, or `worktree: {"name": "…"}`. `worktree.name` must not start with `-` or contain a `.` or `..` segment; the branch is `llame/<name>`, or the name itself when it holds a `/`. `worktree.baseRef` chooses the commit the branch starts at and must not start with `-`; an omitted value uses the source HEAD and no fetch runs. The directory is `<parent>/.llame-worktrees/<repository name>/<slug>` beside the clone, or under the clone's `worktree_base`, and never inside the clone. The operator decides the submitted path, its canonical form, the main clone git reports, and the new directory, so a refused one creates nothing. Each call creates a new worktree: it never re-enters the clone.
 </instruction>
 
+After an entry that binds or switches the root, the next step carries the repository's git state as a context item after the tool result; the result itself holds none.
+
 <critical>
 Workspace selects a working root but is not filesystem confinement; host operations retain the host user's authority. Entering a Workspace can start host processes with that authority. A Machine Workspace runs as that Machine's OS user with no sandbox: its registered roots bound addressing only and can be changed by that user, and a Machine shared between users gives no isolation between them.
 </critical>

@@ -53,6 +53,9 @@ export const CONTEXT_ITEM_PRODUCERS = [
   'regenerate',
   'tool-availability',
   'workspace',
+  // The repository state follows the snapshot that names the root it describes
+  // and precedes the instructions bundle for the same root.
+  'git',
   // The instructions bundle describes the paths the model is about to work
   // under, so it follows the snapshot that names those paths and precedes the
   // notices that read like content.

@@ -70,6 +70,9 @@ for a Machine target. A worktree entry adds `worktree` with its `path`, `branch`
 and `baseCommit`. The result carries the authority the bound root discloses,
 which for a Machine names the Machine and states that its operations run as that
 Machine's own OS user; see [machine authority](../locators/machine.md#authority).
+The result holds no git state: when the entry binds or switches the root, the
+next model step carries a `git` item after the result, as described in
+[git state](../git-state.md).
 
 ## Behavior
 
@@ -103,6 +106,10 @@ longer allowlisted; a Machine binding detaches only when the Machine is no longe
 configured, because [an unreachable Machine does not detach
 it](../locators/machine.md#behavior). A detached binding is not restored
 automatically; a later successful entry is required.
+
+Entry tells the repository's [git state](../git-state.md) the same way: always
+when it binds or switches the root, and on a same-root re-entry only when the
+state changed. A failed git read never fails the entry.
 
 Entry loads the bound root's instruction chain when it establishes or switches
 the binding, never on a same-root re-entry; a Machine entry discovers that chain

@@ -146,7 +146,6 @@ import {
   toContextCheckpoint,
 } from '../chats/context-item-producers';
 import {
-  CONTEXT_ITEM_PRODUCERS,
   isContextItemPart,
   type AuthoredContextItemPart,
 } from '../chats/context-item';
@@ -280,13 +279,22 @@ import {
 import {
   IN_RUN_CONTEXT_PRODUCER,
   createInRunContextItems,
+  composeAttemptProducers,
   type InRunAttemptProducer,
   type InRunAttempt,
+  type InRunGitWorld,
   type InRunContextProducer,
   type PromptImportTrigger,
 } from './in-run-context-items';
 import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
+import { GIT_CONTEXT_PRODUCER } from '../git-state/git-context-producer';
+import { gitToldState, type GitToldState } from '../git-state/git-item';
+import { observeWorkspaceRoot } from '../git-state/git-observe-root';
+import { GitSnapshotService } from '../git-state/git-snapshot.service';
+import { modelGitAdmission } from '../git-state/model-git-admission';
+import { type GitObservation } from '../git-state/git-state-view';
+import { placeRailPart, refreshTurnGit, type TurnGit } from './turn-git';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
@@ -491,6 +499,8 @@ type PreparedAttemptContext = ModelRequestContext & {
   latestCheckpoint: CheckpointMessage | undefined;
   /** Canonical instruction paths the effective history already discloses. */
   seenInstructionPaths: ReadonlySet<string>;
+  /** What the effective history told about git, and the root it leaves bound. */
+  toldGit: GitToldState;
   /** First digest baseline; written only by the attempt that completes. */
   recencyDigestInitialization?: RecencyDigestInitialization;
   /** Written by the dispatch transaction, with the items it stores. */
@@ -526,6 +536,7 @@ type PreparedFirstStep = {
   readonly request: PreparedExecutionContext;
   readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
+  readonly turnGit: TurnGit;
 };
 type AttemptDigestInputs = {
   shareRecentChats: ResolvedMemorySettings;
@@ -731,27 +742,6 @@ function toTurnToolAvailability(
   return [...manifest.entries]
     .map(({ id, state }) => ({ id, state }))
     .sort((left, right) => compareCodePoints(left.id, right.id));
-}
-
-/**
- * Places a staged instructions item at its rail position: directly after every
- * item whose producer precedes it — the workspace snapshot is the last of
- * those — and before the notices that follow (design D10).
- */
-function placeInstructionsPart(
-  parts: Array<MessagePart>,
-  part: AuthoredContextItemPart | undefined,
-): void {
-  if (part === undefined) return;
-  const rank = CONTEXT_ITEM_PRODUCERS.indexOf('instructions');
-  const index = parts.findLastIndex(
-    (staged) =>
-      isContextItemPart(staged) &&
-      CONTEXT_ITEM_PRODUCERS.findIndex(
-        (known) => known === staged.data.producer,
-      ) < rank,
-  );
-  parts.splice(index + 1, 0, part);
 }
 
 /** A durably recorded tool request, with safe decision metadata once admitted. */
@@ -969,6 +959,13 @@ export class RunExecutionService {
     // its canonical order.
     @Inject(DecisionsService)
     private readonly decisions?: DecisionJudge,
+    // Tells the bound repository's git state; a worker without them tells none.
+    @Optional()
+    @Inject(GIT_CONTEXT_PRODUCER)
+    private readonly gitProducer?: InRunContextProducer,
+    @Optional()
+    @Inject(GitSnapshotService)
+    private readonly gitSnapshots?: Pick<GitSnapshotService, 'observe'>,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1197,6 +1194,15 @@ export class RunExecutionService {
       effectivePermissionMode,
     );
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
+    // The attempt's one git read starts here and runs beside the MCP start, the
+    // skill resolution, and the prompt imports; preparation awaits it last.
+    const gitObservation = this.startGitObservation(
+      input,
+      claim.nativeDeliverySequence,
+      workspacePreparation,
+      workspaceRoot,
+      effectivePermissionMode,
+    );
     // The attempt's one Workspace MCP listing, filled at attempt start or at
     // the entry that sets a binding, so a same-root re-entry reads no
     // configuration again (read-only-permission-mode D6).
@@ -1252,6 +1258,7 @@ export class RunExecutionService {
     let prepared: PreparedExecutionContext;
     let attemptContext: PreparedAttemptContext;
     let turnInstructions: TurnInstructions;
+    let turnGit: TurnGit;
     try {
       const firstStep = await this.prepareAttemptForFirstStep({
         run: input,
@@ -1265,10 +1272,12 @@ export class RunExecutionService {
         effort,
         media,
         continued,
+        gitObservation,
       });
       prepared = firstStep.request;
       attemptContext = firstStep.context;
       turnInstructions = firstStep.turnInstructions;
+      turnGit = firstStep.turnGit;
     } catch (error) {
       if (input.abortSignal?.aborted) {
         await this.settleAbortedRun(input, attemptId);
@@ -1898,6 +1907,8 @@ export class RunExecutionService {
     const inRunProducer = this.beginInRunAttempt(
       input,
       turnInstructions,
+      turnGit,
+      workspaceRoot,
       readInstructionPage,
       admitsRead,
     );
@@ -2657,6 +2668,7 @@ export class RunExecutionService {
     readonly context: ModelRequestContext;
     readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
+    readonly toldGit: GitToldState;
   }> {
     const messagesRepo = new MessagesRepository(tx);
     const checkpoint = await messagesRepo.findActiveCheckpoint(
@@ -2691,6 +2703,11 @@ export class RunExecutionService {
         ...(continued === undefined
           ? []
           : instructionsSeenPaths(continued.parts)),
+      ]),
+      // The same epoch, in order, with the kept parts of a Continue after it.
+      toldGit: gitToldState([
+        ...history.flatMap((message) => message.parts),
+        ...(continued?.parts ?? []),
       ]),
     };
   }
@@ -3523,7 +3540,7 @@ export class RunExecutionService {
       part === undefined
         ? seenCanonicalPaths
         : new Set([...seenCanonicalPaths, ...instructionsSeenPaths([part])]);
-    if (part !== undefined) placeInstructionsPart(stagedParts, part);
+    if (part !== undefined) placeRailPart(stagedParts, part);
   }
 
   /**
@@ -4240,10 +4257,12 @@ export class RunExecutionService {
   private beginInRunAttempt(
     input: ExecuteRunInput,
     turn: TurnInstructions,
+    turnGit: TurnGit,
+    workspaceRoot: WorkspaceRootCell,
     readPage: ReadPage,
     admitsRead: (path: string) => boolean,
   ): InRunAttemptProducer | undefined {
-    return this.inRunProducer?.beginAttempt({
+    const attempt: InRunAttempt = {
       runId: input.runId,
       chatId: input.chatId,
       userId: input.userId,
@@ -4255,7 +4274,85 @@ export class RunExecutionService {
       knowledge: this.knowledgeInstructionWorld(input, readPage),
       machines: turn.machines,
       abortSignal: input.abortSignal,
-    });
+      git: this.gitWorld(input, turnGit, workspaceRoot, admitsRead),
+    };
+    // The rail's order: the git item of one step precedes its instructions.
+    return composeAttemptProducers([
+      this.gitProducer?.beginAttempt(attempt),
+      this.inRunProducer?.beginAttempt(attempt),
+    ]);
+  }
+
+  /** What the `git` producer observes an in-Run entry with; none without the service. */
+  private gitWorld(
+    input: ExecuteRunInput,
+    turnGit: TurnGit,
+    workspaceRoot: WorkspaceRootCell,
+    admitsRead: (path: string) => boolean,
+  ): InRunGitWorld | undefined {
+    const snapshots = this.gitSnapshots;
+    if (snapshots === undefined) return undefined;
+    return {
+      observe: (root) =>
+        this.observeGit(snapshots, admitsRead, {
+          root,
+          signal: input.abortSignal,
+        }),
+      currentRoot: () => workspaceRoot.current(),
+      toldText: turnGit.part?.data.text ?? turnGit.toldText,
+    };
+  }
+
+  /** One git observation under the model's admission: `read` allowlisted and admitted. */
+  private observeGit(
+    snapshots: Pick<GitSnapshotService, 'observe'>,
+    admitsRead: (path: string) => boolean,
+    input: Omit<Parameters<typeof observeWorkspaceRoot>[1], 'admit'>,
+  ): Promise<GitObservation> {
+    const readAllowlisted =
+      this.instanceConfig.config.tools.allowed.includes('read');
+    return observeWorkspaceRoot(
+      { snapshots, executors: this.executorGit, readAllowlisted },
+      {
+        ...input,
+        admit: modelGitAdmission({ readAllowlisted, admitsRead }),
+      },
+    );
+  }
+
+  /**
+   * Starts the attempt's one git observation for a bound Chat; none for an
+   * unbound one. It never rejects. An unreachable Machine answers without a
+   * request, from the attempt's own reachability verdict.
+   */
+  private startGitObservation(
+    input: ExecuteRunInput,
+    nativeDeliverySequence: number,
+    preparation: WorkspacePreparation,
+    workspaceRoot: WorkspaceRootCell,
+    effectivePermissionMode: PermissionMode,
+  ): Promise<GitObservation> | undefined {
+    const { root, machine } = preparation;
+    const snapshots = this.gitSnapshots;
+    if (this.gitProducer === undefined || snapshots === undefined) return;
+    if (root === undefined) return;
+    const toolContext = this.buildSystemReadContext(
+      input,
+      nativeDeliverySequence,
+      workspaceRoot,
+      effectivePermissionMode,
+    );
+    return this.observeGit(
+      snapshots,
+      (path) => previewToolPermission(nativeReadTool, { path }, toolContext),
+      {
+        root,
+        ...(machine !== undefined && {
+          reachable: () => Promise.resolve(machine.available),
+        }),
+        signal: input.abortSignal,
+      },
+    );
   }
 
   /** Best-effort standalone persist after the terminal transaction rolled back. */
@@ -4552,6 +4649,7 @@ export class RunExecutionService {
     return {
       ...built.context,
       seenInstructionPaths: built.seenInstructionPaths,
+      toldGit: built.toldGit,
       historyRows: built.historyRows,
       triggerParts: built.historyRows.find(
         (row) => row.id === input.userMessage.id,
@@ -4597,6 +4695,8 @@ export class RunExecutionService {
     media: RunMediaResolver;
     /** The kept parts of a Continue Run, and the step of each kept call. */
     continued: ContinueState | undefined;
+    /** The attempt's one git observation; absent for an unbound Chat. */
+    gitObservation: Promise<GitObservation> | undefined;
   }): Promise<PreparedFirstStep> {
     // One projection for the whole attempt: both passes and the compaction
     // trigger measure and send the same kept messages. The kept parts are the
@@ -4629,6 +4729,17 @@ export class RunExecutionService {
       estimatePass.seenInstructionPaths,
       estimatePass.stagedParts,
     );
+    const turnGit: TurnGit = {
+      observation: await input.gitObservation,
+      part: undefined,
+      toldText: undefined,
+    };
+    refreshTurnGit({
+      turn: turnGit,
+      stagedParts: estimatePass.stagedParts,
+      history: estimatePass.toldGit,
+      runId: input.run.runId,
+    });
     // Every retained entry this request's markers name, from the rows the
     // build read and from the kept parts it sends after them.
     mergeRetainedMedia(input.media.retainedMedia, estimatePass.retainedMedia);
@@ -4725,6 +4836,14 @@ export class RunExecutionService {
         input.run,
         context.seenInstructionPaths,
       );
+      // A checkpoint starts a new epoch: the same observation is compared with
+      // what the published history told, and no second git read runs.
+      refreshTurnGit({
+        turn: turnGit,
+        stagedParts: context.stagedParts,
+        history: context.toldGit,
+        runId: input.run.runId,
+      });
       // The re-baked epoch begins at the checkpoint, so its rows carry their
       // own entries; the ones the absorbed rows named are unreferenced now.
       mergeRetainedMedia(input.media.retainedMedia, context.retainedMedia);
@@ -4764,7 +4883,7 @@ export class RunExecutionService {
         'The complete request still exceeds the target model context window after one compaction.',
       );
     }
-    return { request, context, turnInstructions };
+    return { request, context, turnInstructions, turnGit };
   }
 
   /**

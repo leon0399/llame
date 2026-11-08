@@ -16,6 +16,7 @@
 import type { ModelMessage } from 'ai';
 
 import type { AuthoredContextItemPart } from '../chats/context-item';
+import type { GitObservation } from '../git-state/git-state-view';
 import { type KnowledgeInstructionProbe } from '../knowledge/knowledge-instruction-probe';
 import type { ReadPage } from '../instructions/instruction-files';
 import type { MachineInstructionProbe } from '../instructions/machine-instruction-scope';
@@ -292,6 +293,21 @@ export interface InRunAttempt {
   readonly machines?: MachineInstructionWorld;
   /** The Run's own abort signal; a producer must stop loading once it fires. */
   readonly abortSignal?: AbortSignal;
+  /** The capability the `git` producer reads; no other producer uses it. */
+  readonly git?: InRunGitWorld;
+}
+
+/** What the `git` producer needs to tell the state of a root an entry bound. */
+export interface InRunGitWorld {
+  /** Observes one Workspace root under the attempt's admission; never rejects. */
+  readonly observe: (root: string) => Promise<GitObservation>;
+  /** The Workspace root the Run's current step holds; undefined when unbound. */
+  readonly currentRoot: () => string | undefined;
+  /**
+   * The text of the `git` item the attempt already told: the turn's own item,
+   * else the one the effective history holds; undefined when none holds.
+   */
+  readonly toldText: string | undefined;
 }
 
 export interface InRunStepContext {
@@ -330,4 +346,26 @@ export interface InRunContextProducer {
   prepareTurn?(
     context: InRunTurnContext,
   ): Promise<AuthoredContextItemPart | undefined>;
+}
+
+/**
+ * One attempt producer that runs each of `producers` in the order given, or
+ * undefined when there are none. The order is the rail's precedence: the items
+ * one step stages follow it.
+ */
+export function composeAttemptProducers(
+  producers: ReadonlyArray<InRunAttemptProducer | undefined>,
+): InRunAttemptProducer | undefined {
+  const present = producers.filter(
+    (producer): producer is InRunAttemptProducer => producer !== undefined,
+  );
+  if (present.length === 0) return undefined;
+  return {
+    async prepareStep(step): Promise<void> {
+      for (const producer of present) await producer.prepareStep(step);
+    },
+    observeToolCall(call): void {
+      for (const producer of present) producer.observeToolCall?.(call);
+    },
+  };
 }

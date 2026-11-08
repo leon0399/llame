@@ -83,6 +83,15 @@ Workspace, and instruction-import canonical-path records; bypassed address check
 do not create address records because those are recorded only for refused
 addresses. The decision metadata is not model-visible.
 
+## Git state
+
+The [git state](git-state.md) item is read for the model under the `read` group,
+evaluated in the Run's effective mode. Its `git state unavailable: not
+permitted` line is the one place where the mode changes what the model sees: a
+`bypass` turn admits a git entry that the group rejects, so it tells the
+repository state after a `default` turn told that line. No item names the mode,
+and `read-only` tells the state exactly as `default` does.
+
 ## Configured by
 
 [native files](../operator/native-files.md) enables the modes and owns the

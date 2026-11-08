@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
+- **The assistant sees the git state of the Workspace repository.** A Chat bound
+  to a Workspace now carries one `git` context item with the branch, upstream
+  ahead and behind, HEAD, an operation in progress, change counts and the first
+  changed paths, recent commits, and remotes. It is told with the first request
+  of a turn when it differs from what the Chat last told, and after an
+  `enter_workspace` that binds or switches the root, or re-enters it with a
+  changed state. It does not update after the assistant's own commands. The
+  `read` group decides it: `read` must be in `tools.allowed` and the group must
+  admit the repository's `.git` entry, otherwise the item says
+  `git state unavailable: not permitted`. A failed or slow read (five second
+  deadline) tells one fixed absence line and never fails the turn or the entry.
+  The compaction summary leaves the item out. See
+  `docs/product/reference/git-state.md`.
+
 - **BREAKING for Machine operators: update every daemon with the hub.** The
   `git.status` method is replaced by `git.locate` (the nearest `.git` entry
   inside the registered roots, found without starting git) and `git.state` (the

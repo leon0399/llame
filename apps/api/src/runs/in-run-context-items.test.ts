@@ -1,6 +1,10 @@
 import type { ModelMessage } from 'ai';
 
-import { createInRunContextItems } from './in-run-context-items';
+import {
+  composeAttemptProducers,
+  createInRunContextItems,
+  type InRunAttemptProducer,
+} from './in-run-context-items';
 import type { AuthoredContextItemPart } from '../chats/context-item';
 
 function contextItem(text: string): AuthoredContextItemPart {
@@ -292,3 +296,51 @@ function isItemCopy(message: ModelMessage, text: string): boolean {
     message.content.length === 1 && part?.type === 'text' && part.text === text
   );
 }
+
+describe('composeAttemptProducers', () => {
+  function recording(name: string, log: Array<string>): InRunAttemptProducer {
+    return {
+      prepareStep: async (step) => {
+        await Promise.resolve();
+        log.push(`${name}:prepare`);
+        step.stage(contextItem(name));
+      },
+      observeToolCall: () => {
+        log.push(`${name}:observe`);
+      },
+    };
+  }
+
+  it('is undefined without a producer', () => {
+    expect(composeAttemptProducers([undefined, undefined])).toBeUndefined();
+  });
+
+  it('runs every producer in order, finishing one before the next starts', async () => {
+    const log: Array<string> = [];
+    const composed = composeAttemptProducers([
+      recording('git', log),
+      undefined,
+      recording('instructions', log),
+    ]);
+    const staged: Array<string> = [];
+
+    composed?.observeToolCall?.({
+      toolName: 'read',
+      input: {},
+      workspaceRoot: undefined,
+    });
+    await composed?.prepareStep({
+      messages: [],
+      stepNumber: 1,
+      stage: (part) => staged.push(part.data.text),
+    });
+
+    expect(log).toEqual([
+      'git:observe',
+      'instructions:observe',
+      'git:prepare',
+      'instructions:prepare',
+    ]);
+    expect(staged).toEqual(['git', 'instructions']);
+  });
+});

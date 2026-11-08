@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CompactionModule } from '../compaction/compaction.module';
 import { DecisionsModule } from '../decisions/decisions.module';
 import { RecencyDigestModule } from '../chats/recency-digest.module';
+import { GitStateModule } from '../git-state/git-state.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { MachinesModule } from '../machines/machines.module';
 import { MachineConnector } from '../machines/machine-connector.service';
@@ -57,6 +58,7 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
     MemoryModule,
     RecencyDigestModule,
     MachinesModule,
+    GitStateModule,
   ],
   providers: [
     RunExecutionService,
