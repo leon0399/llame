@@ -1087,6 +1087,78 @@
         "tags": ["chats"]
       }
     },
+    "/api/v1/chats/{id}/git-state": {
+      "get": {
+        "operationId": "getChatGitState",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/GitStateOkResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GitStateUnboundResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GitStateNotARepositoryResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GitStateUnavailableResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "status",
+                    "mapping": {
+                      "ok": "#/components/schemas/GitStateOkResponse",
+                      "unbound": "#/components/schemas/GitStateUnboundResponse",
+                      "not_a_repository": "#/components/schemas/GitStateNotARepositoryResponse",
+                      "unavailable": "#/components/schemas/GitStateUnavailableResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found or not owned"
+          },
+          "429": {
+            "description": "Too many git state reads"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
     "/api/v1/me/runs": {
       "get": {
         "operationId": "listActiveRuns",
@@ -5395,6 +5467,269 @@
           }
         },
         "required": ["chatId", "attempts"]
+      },
+      "GitStateHead": {
+        "type": "object",
+        "properties": {
+          "short": {
+            "type": "string"
+          },
+          "oid": {
+            "type": "string"
+          }
+        },
+        "required": ["short", "oid"]
+      },
+      "GitStateUpstream": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "gone": {
+            "type": "boolean"
+          },
+          "ahead": {
+            "type": "integer",
+            "nullable": true
+          },
+          "behind": {
+            "type": "integer",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": ["name", "gone", "ahead", "behind", "updatedAt"]
+      },
+      "GitStateOperation": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": ["kind"]
+      },
+      "GitStateCounts": {
+        "type": "object",
+        "properties": {
+          "staged": {
+            "type": "integer"
+          },
+          "unstaged": {
+            "type": "integer"
+          },
+          "untracked": {
+            "type": "integer"
+          },
+          "conflicted": {
+            "type": "integer"
+          }
+        },
+        "required": ["staged", "unstaged", "untracked", "conflicted"]
+      },
+      "GitStateEntry": {
+        "type": "object",
+        "properties": {
+          "xy": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          }
+        },
+        "required": ["xy", "path"]
+      },
+      "GitStateCommit": {
+        "type": "object",
+        "properties": {
+          "short": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": ["short", "subject"]
+      },
+      "GitStateRemote": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string",
+            "description": "The normalized remote; never a raw URL or a credential."
+          }
+        },
+        "required": ["name", "value"]
+      },
+      "GitStateOkResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok"]
+          },
+          "toplevel": {
+            "type": "string"
+          },
+          "rootRelative": {
+            "type": "string",
+            "description": "Posix, relative to the toplevel; empty at the toplevel."
+          },
+          "branch": {
+            "type": "string",
+            "nullable": true
+          },
+          "detached": {
+            "type": "boolean"
+          },
+          "head": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GitStateHead"
+              }
+            ]
+          },
+          "upstream": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GitStateUpstream"
+              }
+            ]
+          },
+          "operation": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GitStateOperation"
+              }
+            ]
+          },
+          "counts": {
+            "$ref": "#/components/schemas/GitStateCounts"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitStateEntry"
+            }
+          },
+          "omitted": {
+            "type": "integer"
+          },
+          "submodules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitStateCommit"
+            }
+          },
+          "remotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitStateRemote"
+            }
+          },
+          "remotesOmitted": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "toplevel",
+          "rootRelative",
+          "branch",
+          "detached",
+          "head",
+          "upstream",
+          "operation",
+          "counts",
+          "entries",
+          "omitted",
+          "submodules",
+          "commits",
+          "remotes",
+          "remotesOmitted"
+        ]
+      },
+      "GitStateUnboundResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["unbound"]
+          }
+        },
+        "required": ["status"]
+      },
+      "GitStateNotARepositoryResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["not_a_repository"]
+          },
+          "line": {
+            "type": "string",
+            "description": "`not a git repository`"
+          }
+        },
+        "required": ["status", "line"]
+      },
+      "GitStateUnavailableResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["unavailable"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "not_permitted",
+              "timeout",
+              "machine_unavailable",
+              "machine_update_required",
+              "executor_unavailable",
+              "root_not_found",
+              "too_many_changes",
+              "no_repository_in_root",
+              "outside_registered_root",
+              "git_failed"
+            ]
+          },
+          "line": {
+            "type": "string",
+            "description": "`git state unavailable: <label>`"
+          }
+        },
+        "required": ["status", "reason", "line"]
       },
       "ActiveRunResponse": {
         "type": "object",

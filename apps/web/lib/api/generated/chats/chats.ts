@@ -17,6 +17,10 @@ import type {
   ForkChatDto,
   GetChatMessagesParams,
   GetSharedChatParams,
+  GitStateNotARepositoryResponse,
+  GitStateOkResponse,
+  GitStateUnavailableResponse,
+  GitStateUnboundResponse,
   ListChatsParams,
   ModelDomainErrorResponse,
   SearchChatsParams,
@@ -407,6 +411,54 @@ export const getChatCreationRecord = async (
     throw err;
   }
   const data: ChatCreationRecordResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type getChatGitStateError = void | void | void | void;
+
+export const getGetChatGitStateUrl = (id: string) => {
+  return `/api/v1/chats/${id}/git-state`;
+};
+
+export const getChatGitState = async (
+  id: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<
+  | GitStateOkResponse
+  | GitStateUnboundResponse
+  | GitStateNotARepositoryResponse
+  | GitStateUnavailableResponse
+> => {
+  const res = await fetchFn(getGetChatGitStateUrl(id), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: getChatGitStateError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getGetChatGitStateUrl(id)} failed (${res.status})`,
+    );
+    const data: getChatGitStateError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data:
+    | GitStateOkResponse
+    | GitStateUnboundResponse
+    | GitStateNotARepositoryResponse
+    | GitStateUnavailableResponse = body ? JSON.parse(body) : {};
   return data;
 };
 

@@ -82,9 +82,9 @@ layer that grows past about 2,000 authored lines.
 
 ## 6. route
 
-- [ ] 6.1 Create `git-awareness/route` from `producer` with `$gh-stack`.
-- [ ] 6.2 Add `GET /api/v1/chats/:id/git-state` with the route admission and the `status` union DTO; verify `The owner sees a branch switch at once`, `Tool permissions do not gate the route`, `An unbound Chat has no git state`, `A binding on another executor is unavailable`, and integration tests for `Another owner cannot read the state`, `An anonymous request is refused`, and `The route hides remote credentials`.
-- [ ] 6.3 Regenerate with `pnpm generate:api-client`; verify `pnpm lint:openapi` and a clean second generation diff. The route is an internal client API; its CHANGELOG line ships in `session-details`.
+- [x] 6.1 Create `git-awareness/route` from `producer` with `$gh-stack`.
+- [x] 6.2 Add `GET /api/v1/chats/:id/git-state` with the route admission and the `status` union DTO; verify `The owner sees a branch switch at once`, `Tool permissions do not gate the route`, `An unbound Chat has no git state`, `A binding on another executor is unavailable`, and integration tests for `Another owner cannot read the state`, `An anonymous request is refused`, and `The route hides remote credentials`.
+- [x] 6.3 Regenerate with `pnpm generate:api-client`; verify `pnpm lint:openapi` and a clean second generation diff. The route is an internal client API; its CHANGELOG line ships in `session-details`.
 - [ ] 6.4 Run api `lint`, `typecheck`, focused and integration tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 7. session-details
