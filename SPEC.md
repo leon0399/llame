@@ -89,9 +89,28 @@ request. Every newly written assistant and published checkpoint usage record
 stamps its resolved `billing` mode at write time. See
 [`run-usage-accounting`](openspec/specs/run-usage-accounting/spec.md).
 
+A chat send may name `delivery` (`queue` today). During a live Run the message
+waits in the Chat's pending items instead of getting 409: the owner lists them
+at `GET /api/v1/chats/:chatId/deliveries`, withdraws one at `DELETE` on the
+item and gets its text back, and every connected device sees the list change
+over the live channel (`chat.deliveries`). Pending items are owner-scoped rows
+under forced row-level security and are not copied by a fork.
+
 ### 9.3 Run state
 
-The current runtime uses only active states `queued` and `running_model` and terminal states `completed`, `failed`, `cancelled`, and `expired`. The database enum retains additional reserved states for migration compatibility; they are not current runtime behavior. Terminal state is immutable, and per-chat single-flight permits at most one non-terminal Run. A Run's assistant reply exists from the first model request of its first dispatched attempt: that attempt's dispatch transaction creates it with `running` usage naming the attempt, a retry's dispatch transaction resets it, and history, shares, forks, and the chat list skip it while it is `running`. Every terminal path finalizes the reply in its own terminal transaction — completion, failure, cancellation, expiry, dead-letter expiry, cancellation before start, native recovery, pickup failure, the claim-time transitions, and expiry by a new message — from the attempt's live parts when it holds them, otherwise rebuilt from the events of the attempt the reply names with its stored in-Run items in place; a Run that never dispatched gets no reply. No reader may therefore observe a Run as terminal while its reply is not yet final, because the terminal event is what makes clients refetch. An executor still streaming when a recovery path ends its Run can only replace that reply with its partial answer after the fact. See [`durable-runs`](openspec/specs/durable-runs/spec.md).
+The current runtime uses only active states `queued` and `running_model` and terminal states `completed`, `failed`, `cancelled`, and `expired`. The database enum retains additional reserved states for migration compatibility; they are not current runtime behavior. Terminal state is immutable, and per-chat single-flight permits at most one non-terminal Run. A Run's assistant reply exists from the first model request of its first dispatched attempt: that attempt's dispatch transaction creates it with `running` usage naming the attempt, a retry's dispatch transaction resets it, and history, shares, forks, and the chat list skip it while it is `running`. Every terminal path finalizes the reply in its own terminal transaction — completion, failure, cancellation, expiry, dead-letter expiry, cancellation before start, native recovery, pickup failure, the claim-time transitions, and expiry by a new message — from the attempt's live parts when it holds them, otherwise rebuilt from the events of the attempt the reply names with its stored in-Run items in place; a Run that never dispatched gets no reply. No reader may therefore observe a Run as terminal while its reply is not yet final, because the terminal event is what makes clients refetch. An executor still streaming when a recovery path ends its Run can only replace that reply with its partial answer after the fact. A message sent with `delivery: "queue"` while a Chat has a live Run does not
+answer 409. It is stored as a pending item in `chat_deliveries` and answered
+202, with no message row and no Run. When a Run completes, its terminal
+transaction takes the Chat's first pending `queue` item, stores it as a user
+message under the item's id, and creates its Run with the settings the item was
+sent with; each item starts one Run after the one before it completed, and an
+item whose model, effort, or permission mode a send would no longer accept stays
+pending. A Run that ends `failed`, `cancelled`, or `expired` promotes nothing,
+so the queue is paused until the owner sends a message, which starts its Run
+first, or withdraws an item. A send with `delivery` to an idle Chat starts a
+Run like any send. See
+[`run-steering`](openspec/changes/in-run-steering/specs/run-steering/spec.md)
+and [`durable-runs`](openspec/specs/durable-runs/spec.md).
 
 ### 9.4 Run events
 

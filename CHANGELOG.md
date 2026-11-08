@@ -2,6 +2,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
+- **Queue a message during a live Run (API).** A chat send that names
+  `delivery: "queue"` while the Chat has a live Run no longer answers 409: the
+  API stores the message as a pending item in the new `chat_deliveries` table
+  and answers 202 with it, creating no message row and no Run. The item keeps
+  its client message id, the sanitized parts, and the model, effort, and
+  permission mode of the send. A retry of the same message id answers the
+  stored item in any state. A send to an idle Chat starts a Run as before, and
+  a send without `delivery` still gets 409; `steer` and `interrupt` are not
+  accepted yet and get 400. `GET /api/v1/chats/{chatId}/deliveries` lists the
+  pending items in order, and `DELETE /api/v1/chats/{chatId}/deliveries/{id}`
+  withdraws one and returns its parts, or answers 409 when the item is no
+  longer pending. When a Run completes, including a completed follow-up Run,
+  the same transaction starts the first pending queue item as a Run with its
+  own settings, keeping the item's id for the user message; an item whose
+  settings a send would refuse stays pending, and a Run that fails, is
+  cancelled, or expires leaves the queue paused. The live channel sends a new
+  `chat.deliveries` message with a Chat's pending items, and a fork copies no
+  pending item. The web composer has no queue control yet.
+
 - **Session details shows the live git state of the bound repository.** The
   Repository block replaces the stored branch with the live branch (or the
   detached HEAD), the upstream with ahead and behind and the time of its last
