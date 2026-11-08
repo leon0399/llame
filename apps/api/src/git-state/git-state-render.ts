@@ -1,3 +1,5 @@
+import { neutralizeReservedDelimiters } from '@workspace/runtime-safety';
+
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
@@ -63,9 +65,9 @@ const NAMED_ESCAPES = new Map([
   ['\\', String.raw`\\`],
 ]);
 
-// Control characters, plus the two Unicode line separators.
+// Control characters, the two Unicode line separators, and the quote and
+// backslash that the quoted form escapes.
 const UNSAFE_PATH_CHARACTER = /[\p{Cc}"\\\u2028\u2029]/gu;
-const UNSAFE_PATH = /[\p{Cc}"\\\u2028\u2029]/u;
 const SINGLE_LINE_BREAKERS = /[\p{Cc}\u2028\u2029]/gu;
 
 function octal(character: string): string {
@@ -81,12 +83,11 @@ function octal(character: string): string {
  * never holds a line break.
  */
 export function quoteGitPath(value: string): string {
-  if (!UNSAFE_PATH.test(value)) return value;
   const body = value.replaceAll(
     UNSAFE_PATH_CHARACTER,
     (character) => NAMED_ESCAPES.get(character) ?? octal(character),
   );
-  return `"${body}"`;
+  return body === value ? value : `"${body}"`;
 }
 
 /** Repository text that is not a path: one line, neutralized. */
@@ -98,24 +99,7 @@ function path(value: string): string {
   return sanitizeAuthoredText(quoteGitPath(value));
 }
 
-type BranchValues = Pick<
-  SnapshotValues,
-  | 'detached'
-  | 'branch'
-  | 'hasHead'
-  | 'headShort'
-  | 'hasUpstream'
-  | 'upstreamGone'
-  | 'upstream'
-  | 'ahead'
-  | 'behind'
-  | 'hasUpdatedAt'
-  | 'updatedAt'
-  | 'hasOperation'
-  | 'operation'
->;
-
-function branchValues(view: GitStateView): BranchValues {
+function branchValues(view: GitStateView) {
   const { upstream, operation } = view;
   const total = operation?.total;
   const step = operation?.step;
@@ -180,6 +164,8 @@ export function renderGitObservation(observation: GitObservation): string {
     case 'unavailable':
       return `git state unavailable: ${GIT_ABSENCE_LABELS[observation.reason]}`;
     case 'state':
-      return renderSnapshotTemplate(snapshotValues(observation.view));
+      return neutralizeReservedDelimiters(
+        renderSnapshotTemplate(snapshotValues(observation.view)),
+      );
   }
 }
