@@ -8,10 +8,7 @@ import {
   SidebarProvider,
 } from "@workspace/ui/components/sidebar";
 
-import type {
-  GitStateOkResponse,
-  GitStateUpstream,
-} from "@/lib/api/generated/models";
+import type { GitStateOkResponse } from "@/lib/services/git-state/queries";
 
 import {
   EnvironmentSection,
@@ -31,7 +28,7 @@ const onlineDevbox = {
   roots: ["/home/box/work"],
 };
 
-const upstream: GitStateUpstream = {
+const upstream: NonNullable<GitStateOkResponse["upstream"]> = {
   name: "origin/main",
   gone: false,
   ahead: 0,
@@ -217,7 +214,9 @@ export const SessionDetailsShowsTheLiveBranch: Story = {
     await expect(canvas.getByText("feature/x")).toBeVisible();
     await expect(canvas.queryByText("main")).toBeNull();
     await expect(
-      canvas.getByText("origin/feature/x · ↑2 ↓1 · as of 2026-11-08 09:12 UTC"),
+      canvas.getByText(
+        "origin/feature/x · 2 ahead, 1 behind · as of 2026-11-08 09:12 UTC",
+      ),
     ).toBeVisible();
     await expect(
       canvas.getByText("2 staged · 3 unstaged · 1 untracked"),
@@ -244,6 +243,22 @@ export const SessionDetailsShowsAnAbsenceLine: Story = {
     await expect(
       canvas.getByText("git state unavailable: Machine unavailable"),
     ).toBeVisible();
+  },
+};
+
+/**
+ * The folder is not a repository: the route's line stands where the branch
+ * would be.
+ *
+ * @summary Session details says the folder is not a git repository
+ */
+export const NotAGitRepository: Story = {
+  tags: ["ai-generated"],
+  args: {
+    gitState: { status: "not_a_repository", line: "not a git repository" },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("not a git repository")).toBeVisible();
   },
 };
 
@@ -318,7 +333,7 @@ export const UpstreamUpdateTimeUnknown: Story = {
   },
   play: async ({ canvas }) => {
     await expect(
-      canvas.getByText("origin/main · ↑0 ↓0 · update time unknown"),
+      canvas.getByText("origin/main · 0 ahead, 0 behind · update time unknown"),
     ).toBeVisible();
     await expect(canvas.getByText("No changes")).toBeVisible();
   },

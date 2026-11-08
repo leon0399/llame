@@ -42,6 +42,5 @@ export function useChatGitStateQuery(
     queryFn: () => fetchChatGitState(chatId),
     enabled: panelOpen && workspaceRoot !== null,
     staleTime: 0,
-    refetchOnWindowFocus: true,
   });
 }

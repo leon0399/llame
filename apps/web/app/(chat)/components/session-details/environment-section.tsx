@@ -285,10 +285,6 @@ function RepositoryRow({ checkout }: { checkout: EnvironmentCheckout }) {
   );
 }
 
-const WORKTREE_MARKER = (
-  <span className="shrink-0 text-xs text-muted-foreground">Worktree</span>
-);
-
 function branchLabel(state: GitStateOkResponse) {
   if (!state.detached) return state.branch ?? "No branch";
   return `Detached HEAD at ${state.head?.short ?? "unknown"}`;
@@ -317,7 +313,11 @@ function BranchRow({
         <span className="min-w-0 flex-1 truncate font-mono text-xs">
           {label}
         </span>
-        {worktree ? WORKTREE_MARKER : null}
+        {worktree ? (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            Worktree
+          </span>
+        ) : null}
       </span>
     </SidebarMenuItem>
   );
@@ -326,7 +326,7 @@ function BranchRow({
 function upstreamLabel({ upstream }: GitStateOkResponse) {
   if (upstream === null) return "No upstream";
   if (upstream.gone) return `${upstream.name} · upstream gone`;
-  const counts = `↑${upstream.ahead ?? 0} ↓${upstream.behind ?? 0}`;
+  const counts = `${upstream.ahead ?? 0} ahead, ${upstream.behind ?? 0} behind`;
   const updated =
     upstream.updatedAt === null
       ? "update time unknown"

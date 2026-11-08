@@ -2047,13 +2047,16 @@ export const RunReceiptWithoutSwitch: Story = {
 
 const LIST_ROUTE = "GET /api/v1/chats";
 const DETAIL_ROUTE = `GET /api/v1/chats/${CHAT_ID}`;
-// Session details read the checkout catalog for a bound chat, to name its
-// repository and branch; these stories are about the chat card, not that.
+const GIT_STATE_ROUTE = `GET /api/v1/chats/${CHAT_ID}/git-state`;
+// Session details read the checkout catalog and the live git state for a
+// bound chat, to show its repository and branch; these stories are about the
+// chat card, not that.
 const CATALOG_ROUTES = ["GET /api/v1/checkouts", "GET /api/v1/repositories"];
+const DETAILS_ROUTES = [...CATALOG_ROUTES, GIT_STATE_ROUTE];
 
-/** The routes sent so far, without the session details' catalog reads. */
+/** The routes sent so far, without the session details' reads. */
 function chatRoutes() {
-  return sentRoutes().filter((route) => !CATALOG_ROUTES.includes(route));
+  return sentRoutes().filter((route) => !DETAILS_ROUTES.includes(route));
 }
 const LLAME_ROOT = "/home/operator/projects/llame";
 const NEXT_ROOT = "/home/operator/projects/next";
@@ -2106,6 +2109,8 @@ function serveChatCard(listed: boolean) {
         () => Promise.resolve(jsonResponse([])),
       ]),
     ),
+    [GIT_STATE_ROUTE]: () =>
+      Promise.resolve(jsonResponse({ status: "unbound" })),
     [LIST_ROUTE]: (input) =>
       Promise.resolve(
         jsonResponse(
