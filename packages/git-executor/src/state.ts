@@ -16,6 +16,8 @@ import {
   OPERATION_PATHS,
   realPath,
   repositoryDirectories,
+  spent,
+  type Budget,
 } from "./repository-files";
 import type { GitProcessResult } from "./run";
 import {
@@ -202,6 +204,7 @@ async function observe(
   git: GitRunner,
   input: StateInput,
   toplevel: string,
+  rootRelative: string,
 ): Promise<GitStateResult> {
   const status = await git([
     "status",
@@ -219,7 +222,7 @@ async function observe(
   const facts = await gatherFacts(git, parsed);
   if (isFailure(facts)) return facts;
 
-  const rootRelative = posix.relative(toplevel, input.path);
+  const limit = Math.max(0, Math.trunc(input.limit));
   return {
     status: "ok",
     toplevel,
@@ -230,7 +233,7 @@ async function observe(
     upstream: facts.upstream,
     operation: facts.operation,
     counts: parsed.counts,
-    ...layoutPaths(rootRelative, parsed.entries, facts.modules, input.limit),
+    ...layoutPaths(rootRelative, parsed.entries, facts.modules, limit),
     commits: facts.commits,
     remotes: parseRemoteRecords(facts.remotes),
   };
@@ -241,9 +244,15 @@ async function observe(
 async function confinementFailure(
   located: { readonly gitEntry: string; readonly kind: "directory" | "file" },
   confine: (path: string) => boolean,
+  budget: Budget,
 ): Promise<GitFailure | undefined> {
-  const found = await repositoryDirectories(located.gitEntry, located.kind);
+  const found = await repositoryDirectories(
+    located.gitEntry,
+    located.kind,
+    budget,
+  );
   if ("failure" in found) {
+    if (found.failure === "timed_out") return gitFailure("timed_out");
     return found.failure === "no_git_directory"
       ? gitFailure("git_failed", "The .git file does not name a git directory.")
       : gitFailure("outside_registered_root");
@@ -277,28 +286,37 @@ export async function stateRepository(
   if ("status" in checked) return checked;
   const entry = absoluteGitPath(input.gitEntry);
   if ("status" in entry) return entry;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
-
-  const located = await locateNearest(checked, {
-    endsAt: Date.now() + timeoutMs,
+  const budget: Budget = {
+    endsAt: Date.now() + (options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS),
     signal: options.signal,
-  });
+  };
+
+  const located = await locateNearest(checked, budget);
   if (located.status === "error") return located;
   if (located.gitEntry !== entry.path) {
     return gitFailure("git_entry_changed");
   }
 
   if (input.confine !== undefined) {
-    const refused = await confinementFailure(located, input.confine);
+    const refused = await confinementFailure(located, input.confine, budget);
     if (refused !== undefined) return refused;
   }
 
   const toplevel = dirname(located.gitEntry);
   const entryDirectory = await pinnableDirectory(toplevel);
   if (isFailure(entryDirectory)) return entryDirectory;
+  const realInput = await realPath(checked.path);
+  if (realInput === undefined) return gitFailure("root_missing");
+  if (spent(budget)) return gitFailure("timed_out");
+  const rootRelative = posix.relative(entryDirectory, realInput);
   return withGit(
     entryDirectory,
-    { timeoutMs, signal: options.signal, pinned: true },
-    (git) => observe(git, { ...input, path: checked.path }, toplevel),
+    {
+      timeoutMs: budget.endsAt - Date.now(),
+      signal: options.signal,
+      pinned: true,
+    },
+    (git) =>
+      observe(git, { ...input, path: checked.path }, toplevel, rootRelative),
   );
 }

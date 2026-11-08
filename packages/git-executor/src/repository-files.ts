@@ -40,11 +40,23 @@ export async function realPath(path: string): Promise<string | undefined> {
 }
 
 type RepositoryFailure = {
-  readonly failure: "no_git_directory" | "unconfinable";
+  readonly failure: "no_git_directory" | "unconfinable" | "timed_out";
 };
+
+/** The one absolute deadline of a call and its cancellation. */
+export type Budget = {
+  readonly endsAt: number;
+  readonly signal?: AbortSignal;
+};
+
+/** Whether the deadline has passed or the call was cancelled. */
+export function spent(budget: Budget): boolean {
+  return budget.signal?.aborted === true || Date.now() > budget.endsAt;
+}
 
 const UNCONFINABLE = { failure: "unconfinable" } as const;
 const NO_GIT_DIRECTORY = { failure: "no_git_directory" } as const;
+const TIMED_OUT = { failure: "timed_out" } as const;
 
 /**
  * The one value of a file git reads as a path: the text without its single
@@ -72,42 +84,46 @@ async function gitDirectory(
     : { path: resolve(dirname(gitEntry), target) };
 }
 
-/** The lines of an `alternates` file: blank lines and comments are skipped. */
+/** The lines of an `alternates` file: empty lines and comments are skipped.
+ *  Git reads a line verbatim, so none is trimmed here. */
 async function alternateLines(
   objectsDirectory: string,
 ): Promise<Array<string>> {
   const text = await readText(join(objectsDirectory, "info", "alternates"));
   return (text ?? "")
+    .replace(/\n$/u, "")
     .split("\n")
-    .map((line) => line.trim())
     .filter((line) => line !== "" && !line.startsWith("#"));
 }
 
 /**
  * Each alternate object directory, followed to its own alternates, as real
- * paths. `undefined` when one cannot be judged: a line git would C-unquote
- * (it starts with `"`), a directory that does not exist, or a chain longer
- * than the cap.
+ * paths. `unconfinable` when one cannot be judged: a line git would C-unquote
+ * (it starts with `"`), a line with leading or trailing whitespace, a
+ * directory that does not exist, or a chain longer than the cap; `timed_out`
+ * when the budget is spent.
  */
 async function alternates(
   objectsDirectory: string,
   seen: Set<string>,
   depth: number,
-): Promise<Array<string> | undefined> {
-  if (depth > MAX_ALTERNATE_CHAIN) return undefined;
+  budget: Budget,
+): Promise<{ readonly found: Array<string> } | RepositoryFailure> {
+  if (depth > MAX_ALTERNATE_CHAIN) return UNCONFINABLE;
   const found: Array<string> = [];
   for (const line of await alternateLines(objectsDirectory)) {
-    if (line.startsWith('"')) return undefined;
+    if (spent(budget)) return TIMED_OUT;
+    if (line.startsWith('"') || line !== line.trim()) return UNCONFINABLE;
     const alternate = await realPath(resolve(objectsDirectory, line));
-    if (alternate === undefined) return undefined;
+    if (alternate === undefined) return UNCONFINABLE;
     if (seen.has(alternate)) continue;
     seen.add(alternate);
     found.push(alternate);
-    const nested = await alternates(alternate, seen, depth + 1);
-    if (nested === undefined) return undefined;
-    found.push(...nested);
+    const nested = await alternates(alternate, seen, depth + 1, budget);
+    if ("failure" in nested) return nested;
+    found.push(...nested.found);
   }
-  return found;
+  return { found };
 }
 
 /** The directories of a repository, or why they cannot be listed: a `.git`
@@ -124,21 +140,25 @@ export type RepositoryDirectories =
 export async function repositoryDirectories(
   gitEntry: string,
   kind: "directory" | "file",
+  budget: Budget,
 ): Promise<RepositoryDirectories> {
+  if (spent(budget)) return TIMED_OUT;
   const named = await gitDirectory(gitEntry, kind);
   if ("failure" in named) return named;
   const gitDir = await realPath(named.path);
   if (gitDir === undefined) return UNCONFINABLE;
+  if (spent(budget)) return TIMED_OUT;
   const commonText = await readText(join(gitDir, "commondir"));
   const common = commonText === undefined ? "" : singleLine(commonText)?.trim();
   if (common === undefined) return UNCONFINABLE;
   const commonDir = await realPath(common ? resolve(gitDir, common) : gitDir);
   if (commonDir === undefined) return UNCONFINABLE;
+  if (spent(budget)) return TIMED_OUT;
   const objects = await realPath(join(commonDir, "objects"));
   if (objects === undefined) return UNCONFINABLE;
-  const found = await alternates(objects, new Set([objects]), 1);
-  if (found === undefined) return UNCONFINABLE;
-  return { directories: [gitDir, commonDir, objects, ...found] };
+  const found = await alternates(objects, new Set([objects]), 1, budget);
+  if ("failure" in found) return found;
+  return { directories: [gitDir, commonDir, objects, ...found.found] };
 }
 
 type Operation = {

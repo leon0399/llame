@@ -543,6 +543,21 @@ describe("stateRepository paths", () => {
     expect(none.omitted).toBe(26);
     expect(none.counts.untracked).toBe(26);
   });
+
+  it("clamps a negative or fractional bound once", async () => {
+    const directory = repositoryWithCommit();
+    for (const name of ["a.txt", "b.txt", "c.txt"]) {
+      writeFileSync(join(directory, name), "x\n");
+    }
+
+    const negative = await observed(directory, { limit: -1 });
+    const fractional = await observed(directory, { limit: 1.9 });
+
+    expect(negative.entries).toEqual([]);
+    expect(negative.omitted).toBe(3);
+    expect(fractional.entries).toEqual([{ xy: "??", path: "a.txt" }]);
+    expect(fractional.omitted).toBe(2);
+  });
 });
 
 describe("stateRepository submodules", () => {
@@ -591,6 +606,16 @@ describe("stateRepository submodules", () => {
     const result = await observed(directory, { limit: 1 });
 
     expect(result.entries).toEqual([{ xy: "??", path: "new.txt" }]);
+    expect(result.submodules).toEqual([]);
+    expect(result.omitted).toBe(1);
+  });
+
+  it("clamps a negative bound for the submodule slice", async () => {
+    const directory = repositoryWithSubmodule();
+
+    const result = await observed(directory, { limit: -1 });
+
+    expect(result.entries).toEqual([]);
     expect(result.submodules).toEqual([]);
     expect(result.omitted).toBe(1);
   });
@@ -677,6 +702,26 @@ describe("stateRepository pinning and refusals", () => {
     const result = await observed(link);
 
     expect(result).toMatchObject({ toplevel: link, branch: "main" });
+  });
+
+  it("reports paths relative to the real directory behind a symlinked component", async () => {
+    const directory = repositoryWithCommit();
+    mkdirSync(join(directory, "sub"));
+    writeFileSync(join(directory, "sub", "in.txt"), "x\n");
+    runGit(directory, ["add", "."]);
+    runGit(directory, ["commit", "--quiet", "--message", "sub"]);
+    writeFileSync(join(directory, "sub", "in.txt"), "changed\n");
+    writeFileSync(join(directory, "README.md"), "changed\n");
+    symlinkSync("sub", join(directory, "link"));
+
+    const result = await observed(join(directory, "link"));
+
+    expect(result.rootRelative).toBe("sub");
+    expect(result.entries).toEqual([
+      { xy: " M", path: "in.txt" },
+      { xy: " M", path: "../README.md" },
+      { xy: "??", path: "../link" },
+    ]);
   });
 
   it("lists submodules when the committed .gitmodules includes another file", async () => {
@@ -871,6 +916,127 @@ describe("stateRepository admission", () => {
     await expect(
       observe(directory, { confine: inside }),
     ).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it.each(["/pool ", " /pool", "\t/pool"])(
+    "refuses an alternate line with whitespace around the path %j",
+    async (padded) => {
+      const directory = repositoryWithCommit();
+      const pool = join(tempDirectory(), "pool");
+      mkdirSync(pool);
+      const objects = join(directory, ".git", "objects");
+      mkdirSync(join(objects, "info"), { recursive: true });
+      // The padded line resolves to a path that does not exist for git, yet
+      // its trimmed form would name an existing directory inside the root.
+      const inside = join(directory, "pool");
+      mkdirSync(inside);
+      writeFileSync(
+        join(objects, "info", "alternates"),
+        `${padded.replace("/pool", inside)}\n`,
+      );
+
+      await expect(
+        observe(directory, { confine: (path) => path.startsWith(directory) }),
+      ).resolves.toEqual({
+        status: "error",
+        type: "outside_registered_root",
+        stderr: "",
+      });
+    },
+  );
+
+  it("accepts an alternate line without whitespace before the line break", async () => {
+    const directory = repositoryWithCommit();
+    const inside = join(directory, "pool");
+    mkdirSync(inside);
+    const objects = join(directory, ".git", "objects");
+    mkdirSync(join(objects, "info"), { recursive: true });
+    writeFileSync(join(objects, "info", "alternates"), `${inside}\n\n`);
+
+    await expect(
+      observe(directory, { confine: (path) => path.startsWith(directory) }),
+    ).resolves.toMatchObject({ status: "ok" });
+  });
+
+  it("spends one deadline on admission and the git session together", async () => {
+    const directory = repositoryWithCommit();
+    const started = Date.now();
+    let burned = false;
+
+    const result = await withSlowGit(() =>
+      observe(
+        directory,
+        {
+          confine: () => {
+            if (burned) return true;
+            burned = true;
+            const until = Date.now() + 1500;
+            while (Date.now() < until) {
+              // Burn the admission share of the budget.
+            }
+            return true;
+          },
+        },
+        { timeoutMs: 2500 },
+      ),
+    );
+
+    expect(result).toMatchObject({ status: "error", type: "timed_out" });
+    expect(Date.now() - started).toBeLessThan(3500);
+  });
+
+  it("reports an exhausted deadline after admission as timed_out without git", async () => {
+    const directory = repositoryWithCommit();
+    const marker = join(tempDirectory(), "started");
+
+    const result = await withGitShim(`touch '${marker}'; exit 99`, () =>
+      observe(
+        directory,
+        {
+          confine: () => {
+            const until = Date.now() + 50;
+            while (Date.now() < until) {
+              // Outlast the deadline.
+            }
+            return true;
+          },
+        },
+        { timeoutMs: 10 },
+      ),
+    );
+
+    expect(result).toMatchObject({ status: "error", type: "timed_out" });
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("stops admission when the call is cancelled between steps", async () => {
+    const directory = repositoryWithCommit();
+    const controller = new AbortController();
+    const objects = join(directory, ".git", "objects");
+    mkdirSync(join(objects, "info"), { recursive: true });
+    const lines: Array<string> = [];
+    for (let index = 0; index < 5; index += 1) {
+      const pool = join(directory, `pool-${index}`);
+      mkdirSync(pool);
+      lines.push(pool);
+    }
+    writeFileSync(join(objects, "info", "alternates"), `${lines.join("\n")}\n`);
+    const located = await locateRepository({ path: directory });
+    if (located.status !== "ok") throw new Error("no repository");
+    controller.abort();
+
+    const result = await stateRepository(
+      {
+        path: directory,
+        gitEntry: located.gitEntry,
+        limit: 20,
+        submodules: "skip",
+        confine: () => true,
+      },
+      { signal: controller.signal },
+    );
+
+    expect(result).toMatchObject({ status: "error", type: "timed_out" });
   });
 
   it("refuses an alternate line it cannot unquote", async () => {
