@@ -96,6 +96,10 @@ import '../decisions/decisions.service';
 // at import.
 import '../ranking/rubrics';
 
+// Same proof for `git-state/prompts/*.md`: `git-state/git-state-render` loads the
+// snapshot template at import.
+import '../git-state/git-state-render';
+
 // Verify the built runtime reads llame's version from the manifest beside
 // dist/ (design D6 of openspec/changes/opencode-go-provider). The call makes
 // `product-identity` resolve `apps/api/package.json` from its own compiled
