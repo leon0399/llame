@@ -19,6 +19,8 @@ read_when:
   whether a marker inside them is expanded, and which surface carries the result.
 - [Instruction files](instruction-files.md): which project instruction files a
   touch loads into context, and when.
+- [Git state](git-state.md): what git state of a Workspace repository reaches the
+  model as a `git` item, when it is told again, and its bounds and absence lines.
 - [Prompt imports](prompt-imports.md): which markers in a prompt import a
   `read` locator before the first model request, and the bounds that apply.
 - [Chat location](chat-location.md): how the composer sets a new chat's project

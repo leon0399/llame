@@ -1741,7 +1741,7 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
   // rewritten clause. Restatement in a reply or its reasoning is named because
   // a summarization request now replays that reasoning.
   const STANDING_CONTEXT_EXCLUSION_SENTENCE =
-    'Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest", including where an earlier reply or its reasoning restates that content. Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.';
+    'Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest" or "git", including where an earlier reply or its reasoning restates that content. Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.';
 
   it('carries the standing-context exclusion sentence verbatim', () => {
     expect(COMPACTION_INSTRUCTION).toContain(
