@@ -376,10 +376,11 @@ describe("stateRepository upstream", () => {
 
   it("never passes an option-like upstream name to git", async () => {
     const directory = repositoryWithCommit();
+    const oid = runGit(directory, ["rev-parse", "HEAD"]).trim();
     const log = join(tempDirectory(), "argv.log");
     const shim = `for a in "$@"; do
   if [ "$a" = status ]; then
-    printf '# branch.oid 1\\0# branch.head main\\0# branch.upstream --all\\0# branch.ab +0 -0\\0'
+    printf '# branch.oid ${oid}\\0# branch.head main\\0# branch.upstream --all\\0# branch.ab +0 -0\\0'
     exit 0
   fi
 done
@@ -576,6 +577,35 @@ describe("stateRepository submodules", () => {
     runGit(directory, ["commit", "--quiet", "--message", "add submodule"]);
     return directory;
   }
+
+  it("reads the log and .gitmodules at the oid status reported, never HEAD", async () => {
+    const directory = repositoryWithSubmodule();
+    const oid = runGit(directory, ["rev-parse", "HEAD"]).trim();
+    const log = join(tempDirectory(), "argv.log");
+
+    const result = await withGitShim(
+      `echo "$@" >> '${log}'\nexec "$REAL_GIT" "$@"`,
+      () => observed(directory),
+    );
+
+    expect(result.submodules).toEqual(["lib"]);
+    const argv = readFileSync(log, "utf8").split("\n");
+    expect(argv.filter((line) => / log -5 /u.test(line))).toEqual([
+      expect.stringMatching(new RegExp(` ${oid} --$`, "u")),
+    ]);
+    expect(argv.filter((line) => /(^| )cat-file /u.test(line))).toEqual([
+      expect.stringMatching(new RegExp(` -e ${oid}:\\.gitmodules$`, "u")),
+    ]);
+    expect(argv.filter((line) => / --blob /u.test(line))).toEqual([
+      expect.stringMatching(new RegExp(` --blob ${oid}:\\.gitmodules `, "u")),
+    ]);
+    expect(
+      argv.filter(
+        (line) =>
+          /HEAD/u.test(line) && /( log | cat-file | --blob )/u.test(line),
+      ),
+    ).toEqual([]);
+  });
 
   it("lists a submodule path without its state", async () => {
     const directory = repositoryWithSubmodule();

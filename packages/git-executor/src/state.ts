@@ -53,8 +53,6 @@ export type StateInput = {
   readonly confine?: (path: string) => boolean;
 };
 
-const HEAD_MODULES = "HEAD:.gitmodules";
-
 /** A failed call. An entry that git rejects as no repository is invalid, not
  *  absent: locate already found it. */
 function failure(
@@ -79,15 +77,18 @@ async function configValues(
 
 async function submodulePaths(
   git: GitRunner,
-  hasHead: boolean,
+  head: string | null,
 ): Promise<Step<Array<string>>> {
-  if (!hasHead) return [];
-  const present = await git(["cat-file", "-e", HEAD_MODULES]);
+  if (head === null) return [];
+  // The oid status read, not `HEAD`: a checkout between calls must not mix
+  // commits.
+  const modules = `${head}:.gitmodules`;
+  const present = await git(["cat-file", "-e", modules]);
   if (present.status === "timed_out") return failure(present);
   if (present.status === "failed") return [];
   const paths = await configValues(git, [
     "--blob",
-    HEAD_MODULES,
+    modules,
     "--no-includes",
     "--get-regexp",
     String.raw`^submodule\..*\.path$`,
@@ -141,14 +142,16 @@ async function upstreamState(
 
 async function recentCommits(
   git: GitRunner,
-  hasHead: boolean,
+  head: string | null,
 ): Promise<Step<GitStateSuccess["commits"]>> {
-  if (!hasHead) return [];
+  if (head === null) return [];
   const log = await git([
     "log",
     "-5",
     "--no-show-signature",
     "--format=%h%x00%s%x00",
+    head,
+    "--",
   ]);
   return log.status === "ok" ? parseCommits(log.stdout) : failure(log);
 }
@@ -183,15 +186,14 @@ async function gatherFacts(
   git: GitRunner,
   parsed: ParsedStatus,
 ): Promise<Step<Facts>> {
-  const hasHead = parsed.head !== null;
-  const commits = await recentCommits(git, hasHead);
+  const commits = await recentCommits(git, parsed.head);
   if (isFailure(commits)) return commits;
   const remotes = await configValues(git, [
     "--get-regexp",
     String.raw`^remote\..*\.url$`,
   ]);
   if (isFailure(remotes)) return remotes;
-  const modules = await submodulePaths(git, hasHead);
+  const modules = await submodulePaths(git, parsed.head);
   if (isFailure(modules)) return modules;
   const upstream = await upstreamState(git, parsed);
   if (isFailure(upstream)) return upstream;
