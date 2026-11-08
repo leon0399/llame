@@ -20,5 +20,7 @@ tree (F2) and background jobs (F3) that subagents
   and parked-agent revival.
 - [Child agents across conversation forks](./children-across-forks.md) —
   whether forks list, message, copy, share or detach existing children.
+- [Blind-spot review](./blind-spot-review.md) — lifecycle, security, cost
+  and spec-conflict reviews of the settled #1612 decisions.
 - [llame baseline](./llame-baseline.md) — the shipped Run, queue, tool, usage,
   Chat and permission contracts these foundations change.
