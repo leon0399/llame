@@ -1319,3 +1319,33 @@ A `read-only` attempt MUST reject an `enter_workspace` call that carries a `work
 
 - **WHEN** a `read-only` attempt calls `enter_workspace` with `worktree` and a `path` that does not exist
 - **THEN** the call gets `permission_denied` with reason `permission_mode_read_only`, not an error for an absent directory
+
+### Requirement: The git entry check is a named synthetic read evaluation
+
+The git entry check of `workspace-git-state` is the seventh named exception of
+the requirement on matched submitted values. It MUST evaluate the `read` group
+with the git entry path as the `path` value. It is not a tool call. It MUST
+record no decision of its own.
+
+#### Scenario: The git entry path is the evaluated value
+
+- **WHEN** the system checks the git entry `/home/dev/src/llame/.git`
+- **THEN** the `read` group evaluates `/home/dev/src/llame/.git` as the `path` value
+- **AND** no tool call, decision record, or tool part results
+
+### Requirement: The git entry check obeys modes and rejects
+
+In `read-only`, the git entry check MUST occur as in `default`. In `bypass`, the
+check MUST admit the entry without evaluation. A reject clause that matches the
+git entry MUST refuse the check in `default` and `read-only`.
+
+#### Scenario: A reject clause refuses the git entry
+
+- **WHEN** the `read` group has a reject clause `/\.git(/|$)` and the system checks `/repo/.git`
+- **THEN** the check refuses in `default` and `read-only`
+- **AND** the check admits in `bypass`
+
+#### Scenario: Read-only mode keeps git state
+
+- **WHEN** a Run in `read-only` mode starts in a bound Chat and the `read` group admits the git entry
+- **THEN** the Run carries the git snapshot

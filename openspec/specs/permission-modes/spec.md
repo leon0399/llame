@@ -115,7 +115,14 @@ isolation.
 
 ### Requirement: The permission mode is not model-visible
 
-The system prompt, the system-prompt receipt, and model-visible context items MUST NOT contain the mode of a Run. A change of mode between turns MUST NOT be a cause of an `effective-context-change` item. But a `read-only` attempt has no Workspace MCP declaration, and the tool availability reminder reports that change. The model MUST learn of a policy decision only from `permission_denied` results, the `web_search` removal note, that reminder, and the Workspace MCP reason of `mcp-tools`.
+The system prompt, the system-prompt receipt, and model-visible context items
+MUST NOT contain the mode of a Run. A change of mode between turns MUST NOT be a
+cause of an `effective-context-change` item. But a `read-only` attempt has no
+Workspace MCP declaration, and the tool availability reminder reports that
+change. The model MUST learn of a policy decision only from these sources:
+`permission_denied` results, the `web_search` removal note, that reminder, the
+Workspace MCP reason of `mcp-tools`, and the "not permitted" git line of
+`workspace-git-state`.
 
 #### Scenario: Switching mode preserves the prompt prefix
 
@@ -136,6 +143,12 @@ The system prompt, the system-prompt receipt, and model-visible context items MU
 - **AND** no checkpoint publishes between the two turns, and no operator MCP server has the server id `docs`
 - **THEN** the `read-only` attempt does not declare `mcp__docs__search`
 - **AND** its tool availability reminder lists `mcp__docs__search` under `Removed tools:`
+
+#### Scenario: A bypass turn changes the git line without the mode
+
+- **WHEN** the `read` group rejects the git entry, a `default` turn told "git state unavailable: not permitted", and the next turn is `bypass`
+- **THEN** the `bypass` turn carries a `git` item with the repository state
+- **AND** no context item mentions the mode
 
 ### Requirement: Usage records a bypassed turn
 

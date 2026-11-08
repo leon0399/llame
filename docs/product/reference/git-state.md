@@ -5,7 +5,7 @@ read_when:
   - you need the fields, bounds, or absence lines of a git item
   - you need to know why a git item says "not permitted" or shows no state
   - you are reasoning about whether the assistant's git state can be stale
-spec: context-injection
+spec: workspace-git-state
 configured_by:
   - ../operator/native-files.md
 ---
