@@ -35,6 +35,9 @@ export class ChatGitStateService {
     const observation = await observeWorkspaceRoot(
       {
         snapshots: this.snapshots,
+        // The owner route evaluates no tool permissions (grilling D20), so the
+        // `read` allowlist does not gate it either.
+        readAllowlisted: true,
         executors: {
           // A binding on another executor than the one this root addresses
           // here is unavailable before any git call.
