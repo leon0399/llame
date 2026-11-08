@@ -243,9 +243,9 @@ snapshot.
 
 ### Requirement: The snapshot states each omission
 
-When the snapshot omits a changed path or a submodule path from the list, it
-MUST end the list with "+N more not listed; run `git status`." with the count
-of omitted paths. The files in an untracked directory and the ignored files are
+When the snapshot omits a changed or submodule path from the list, it MUST end
+the list with "+N more not listed; run `git status`." That line MUST carry the
+count of omitted paths. The files in an untracked directory and the ignored files are
 not omitted paths. Untracked directories MUST appear
 as one entry. The snapshot MUST say: "Ignored files are not listed; their
 absence here does not mean they do not exist."

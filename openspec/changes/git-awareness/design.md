@@ -364,6 +364,10 @@ beyond open and focus can change after use.
 
 ## Revision history
 
+- **v8 (2026-11-08):** At Leo's choice, `Closes #1615` returns to `producer`, where the
+  agent-facing capability ships; the owner route and Session details are #1417's outcome and
+  close on `session-details`. This supersedes the v2 rejection of that placement.
+
 - **v7 (2026-11-08):** The omission count names changed and submodule paths only; D7 states
   that a `workspace` snapshot restarts the told state only when it names a different root;
   D2 reads `log` and `.gitmodules` at the status OID instead of `HEAD`.
