@@ -127,9 +127,11 @@ added to the prefix:
    `submodules: "check"`, D5). The `# branch.*` headers give the HEAD commit
    (`(initial)` when unborn), branch or `(detached)`, upstream, and `+A -B`. An
    upstream header without `branch.ab` means the upstream is gone.
-2. `log -5 --no-show-signature --format=%h%x00%s%x00` when HEAD exists.
+2. `log -5 --no-show-signature --format=%h%x00%s%x00 <oid> --` when HEAD exists,
+   where `<oid>` is the `# branch.oid` that `status` printed, so a checkout
+   between the calls cannot mix two commits.
 3. `config --null --get-regexp ^remote\..*\.url$` (exit 1 means no remotes).
-4. `config --blob HEAD:.gitmodules --null --get-regexp ^submodule\..*\.path$`
+4. `config --blob <oid>:.gitmodules --null --get-regexp ^submodule\..*\.path$`
    when HEAD exists and the blob exists.
 5. Only when `# branch.ab` is present:
    `reflog show -1 --date=unix --format=%gd <upstream ref>`, which prints
@@ -272,7 +274,7 @@ code path serves both moments:
 Told state comes from the reconstructed context: the producer finds its own
 latest `git` item in the active epoch after the latest binding change (an
 `enter_workspace` that bound or switched, an exit, a detach, or a `workspace`
-snapshot) and compares the new rendering with that item's stored text. A retry
+snapshot that names a different root than the one bound) and compares the new rendering with that item's stored text. A retry
 that resets a reply loses that reply's items and compares with the earlier
 one, and a fork compares with the history it copied. A checkpoint starts a new
 epoch, so the next request tells the state again. No column and no migration
@@ -361,6 +363,10 @@ None that change the specs or the stack. The Session details refresh cadence
 beyond open and focus can change after use.
 
 ## Revision history
+
+- **v7 (2026-11-08):** The omission count names changed and submodule paths only; D7 states
+  that a `workspace` snapshot restarts the told state only when it names a different root;
+  D2 reads `log` and `.gitmodules` at the status OID instead of `HEAD`.
 
 - **v6 (2026-11-08):** Swept the v5 wording into V3, D2, D8, the risk list, and the
   proposal assumption; the "+N more" line now appears whenever a path is omitted, not only
