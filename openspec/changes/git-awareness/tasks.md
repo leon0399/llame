@@ -40,9 +40,9 @@ layer that grows past about 2,000 authored lines.
 
 ## 1. proposal
 
-- [ ] 1.1 Create `git-awareness/proposal` from `master` with `$gh-stack`; write `proposal.md`, `design.md`, the six deltas, and this list; verify `pnpm exec openspec validate git-awareness --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`.
-- [ ] 1.2 Run two review rounds with two independent reviewers each against code, git, and canonical specs; verify each finding; commit each round separately and record it in the design revision history.
-- [ ] 1.3 Obtain Leo's confirmation of deviations V1-V6 and his publication approval; publish the draft with `$gh-stack`; self-review (SR); mark ready; run the GitHub review loop (GR); obtain Leo's approval of the published revision; update the Project.
+- [x] 1.1 Create `git-awareness/proposal` from `master` with `$gh-stack`; write `proposal.md`, `design.md`, the six deltas, and this list; verify `pnpm exec openspec validate git-awareness --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`.
+- [x] 1.2 Run two review rounds with two independent reviewers each against code, git, and canonical specs; verify each finding; commit each round separately and record it in the design revision history.
+- [x] 1.3 Obtain Leo's confirmation of deviations V1-V6 and his publication approval; publish the draft with `$gh-stack`; self-review (SR); mark ready; run the GitHub review loop (GR); obtain Leo's approval of the published revision; update the Project.
 
 ## 2. executor
 
@@ -51,7 +51,7 @@ layer that grows past about 2,000 authored lines.
 - [x] 2.3 Add `locateRepository({path, ceiling?})` with a stat walk and no git process, and its protocol result types; verify fixture tests for `A subdirectory root finds the repository entry`, `A linked worktree uses its own .git file`, `A plain folder is not a repository`, and a ceiling that returns `no_repository_in_root`.
 - [x] 2.4 Add `stateRepository({path, gitEntry, limit, submodules, timeoutMs})` with the D1 re-locate and the `-C`, `--work-tree`, and `GIT_CEILING_DIRECTORIES` pinning, the D2 argv, `log.showSignature=false`, and the `git_entry_changed`, `output_bound`, and `outside_registered_root` failures; verify `An invalid nearest entry does not expose a parent repository`, `A repository of another user is refused` with `GIT_TEST_ASSUME_DIFFERENT_OWNER`, a missing path as `root_missing`, and a repository config with `log.showSignature` and a `gpg.program` marker that never runs.
 - [x] 2.5 Verify the structured executor result, not rendered text, in fixture tests against real git for `Fields match git`, `A detached HEAD is reported`, `A rebase in progress is reported`, `A merge conflict is reported`, `An am session is not reported as a rebase`, `An unborn branch is reported`, `Behind is dated`, `A linked worktree sees the main clone's fetch`, `No update record`, `A gone upstream is reported`, `Paths are relative to a subdirectory root`, `Root paths come first`, `Paths above the bound are counted` (entries and `omitted`), `An untracked directory is one entry`, `A submodule is listed without its state`, and `Five commits are listed`, plus `submodules: "check"` on a dirty submodule and a 3 s timeout as `timed_out`.
-- [ ] 2.6 Run `pnpm --filter @workspace/git-executor` and `@workspace/machine-protocol` `lint`, `typecheck`, `test:coverage`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [x] 2.6 Run `pnpm --filter @workspace/git-executor` and `@workspace/machine-protocol` `lint`, `typecheck`, `test:coverage`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 3. machine
 
@@ -60,7 +60,7 @@ layer that grows past about 2,000 authored lines.
 - [x] 3.3 Add `locate` and `state` to `ExecutorGit` with result readers and a 5 s wall-clock deadline with an abort signal for model-facing calls; verify hub tests for `A daemon without the state method asks for an update`, `Outdated daemon asks for an update`, `Handshake with an old daemon still succeeds`, and a session that does not open within 5 s.
 - [x] 3.4 Move `refuseUnsafe` onto `git.locate` and `git.state` with `submodules: "check"` and the 10 s default; delete `statusRepository`, `GIT_STATUS_METHOD`, `readGitStatusResult`, and every test and doc reference; verify the existing scenarios of `Worktree removal is owner-initiated and guarded`, every scenario of `Worktree removal reads a complete worktree state` (`A gone upstream fails closed`, `A dirty submodule keeps the worktree`, `An unreadable state keeps the worktree`, `Worktree removal reads the state method`), and `Locate starts no git process` of `Executors expose typed git operations`.
 - [x] 3.5 Update `docs/product/operator/machines.md` and `docs/product/operator/repositories.md` method lists; add the dated **BREAKING** CHANGELOG entry for daemon updates.
-- [ ] 3.6 Run affected `lint`, `typecheck`, and `test:coverage` for `machine-protocol`, `machine`, and `api`, the API integration tests for checkouts on Machines, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [x] 3.6 Run affected `lint`, `typecheck`, and `test:coverage` for `machine-protocol`, `machine`, and `api`, the API integration tests for checkouts on Machines, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 4. snapshot
 
@@ -68,7 +68,7 @@ layer that grows past about 2,000 authored lines.
 - [x] 4.2 Add the snapshot service with the D6 sequence, an admission callback, and the failure map; verify service tests with fake executors that render each line of `Absence reasons are a closed list` and the service outcome of `An offline Machine is reported`, `An outdated daemon is reported`, `A git failure is reported without its error text`, `Too much status output is reported`, `A changed entry is a git failure`, `A slow repository times out`, `A slow Machine session times out`, `A known offline Machine sends no request`, `A removed root is reported`, `A repository above the registered root is not reported as absent`, and `A linked worktree with an outside main clone is refused`.
 - [x] 4.3 Wire model admission to `tools.allowed` and `previewToolPermission`; verify service tests for `A rejected git directory starts no git process`, `Read absent from the allowlist`, `A linked worktree needs only its own entry`, `Bash permission does not substitute`, `A bash reject does not hide git state`, `The git entry path is the evaluated value`, and `A reject clause refuses the git entry`.
 - [x] 4.4 Add `git-snapshot.md`, remote normalization with query, fragment, and host-less handling, length limits, C-style path quoting, and `sanitizeAuthoredText`; verify `A path that read rejects is listed`, `A newline in a file name cannot forge a line`, `A fork reports both remotes`, `A token in a remote URL is removed` (rendered body), `A local remote hides its path`, `Remotes above the bound are counted`, `The ignored-files statement is present`, `A branch name cannot close the envelope`, `A commit subject cannot grant capabilities`, and `Two observations of an unchanged repository match`.
-- [ ] 4.5 Run api `lint`, `typecheck`, and focused tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [x] 4.5 Run api `lint`, `typecheck`, and focused tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 - [x] 4.6 Verify `A very long submodule path is counted, not listed` with a normalizer test (a 5,000-character submodule path is dropped and counted in `omitted`).
 
 ## 5. producer
@@ -78,27 +78,27 @@ layer that grows past about 2,000 authored lines.
 - [x] 5.3 Name the `git` producer in the compaction instruction; verify `The summary instruction names the git sources`.
 - [x] 5.4 Mention the in-Run `git` item in `apps/api/src/prompts/tools/enter_workspace.md` and `docs/product/reference/tools/enter-workspace.md`; document the snapshot, its absence lines, and its bounds in `docs/product/reference/`; add the git line to `docs/product/reference/permission-modes.md`; add the dated CHANGELOG entry.
 - [x] 5.5 Put `Closes #1615` in the PR body: the producer layer ships the agent-facing git state that #1615 asks for.
-- [ ] 5.6 Run api `lint`, `typecheck`, `test:coverage`, the API integration suites for chats and compaction, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [x] 5.6 Run api `lint`, `typecheck`, `test:coverage`, the API integration suites for chats and compaction, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 6. route
 
 - [x] 6.1 Create `git-awareness/route` from `producer` with `$gh-stack`.
 - [x] 6.2 Add `GET /api/v1/chats/:id/git-state` with the route admission and the `status` union DTO; verify `The owner sees a branch switch at once`, `Tool permissions do not gate the route`, `An unbound Chat has no git state`, `A binding on another executor is unavailable`, and integration tests for `Another owner cannot read the state`, `An anonymous request is refused`, and `The route hides remote credentials`.
 - [x] 6.3 Regenerate with `pnpm generate:api-client`; verify `pnpm lint:openapi` and a clean second generation diff. The route is an internal client API; its CHANGELOG line ships in `session-details`.
-- [ ] 6.4 Run api `lint`, `typecheck`, focused and integration tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [x] 6.4 Run api `lint`, `typecheck`, focused and integration tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 7. session-details
 
 - [x] 7.1 Create `git-awareness/session-details` from `route` with `$gh-stack`.
 - [x] 7.2 Replace `BranchRow` with a Repository block fed by the route on open and window focus, and keep `RepositoryRow`; verify stories for `Session details shows the live branch`, `Session details shows an absence line`, and `A bound folder without a checkout record shows git state` with Storybook story tests.
 - [x] 7.3 Add the dated CHANGELOG entry; put `Closes #1417` in the PR body.
-- [ ] 7.4 Run web `lint`, `typecheck`, `test:coverage`, the story tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [x] 7.4 Run web `lint`, `typecheck`, `test:coverage`, the story tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 8. finalize
 
 - [x] 8.1 Create `git-awareness/finalize` from `session-details` with `$gh-stack` before any sync write.
 - [x] 8.2 Run `$openspec-sync-specs`; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
-- [ ] 8.3 Confirm every task above is checked, the `producer` PR lists #1615 and the `session-details` PR lists #1417 as closing references.
+- [x] 8.3 Confirm every task above is checked, the `producer` PR lists #1615 and the `session-details` PR lists #1417 as closing references.
 
 ## Workflow follow-up
 
