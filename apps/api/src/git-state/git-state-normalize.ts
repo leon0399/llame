@@ -68,9 +68,12 @@ function remoteValue(url: string): string {
 
 const STATUS_CODE = /^[ MTADRCU?!]{2}$/u;
 
-/** The upstream time as `YYYY-MM-DDTHH:MM:SS.mmmZ`, or `null` when it is not a date. */
+/** An absolute date-time: a local-time string would be read in this host's zone. */
+const ABSOLUTE_TIME = /(?:Z|[+-]\d{2}:?\d{2})$/u;
+
+/** The upstream time as `YYYY-MM-DDTHH:MM:SS.mmmZ`, or `null` when it is not an absolute date-time. */
 function canonicalTime(value: string | null): string | null {
-  if (value === null) return null;
+  if (value === null || !ABSOLUTE_TIME.test(value)) return null;
   const time = new Date(value).getTime();
   if (Number.isNaN(time)) return null;
   const iso = new Date(time).toISOString();

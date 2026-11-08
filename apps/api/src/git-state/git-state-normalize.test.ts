@@ -65,6 +65,27 @@ describe('normalizeGitState bounds', () => {
     expect(view.upstream?.updatedAt).toBeNull();
   });
 
+  it.each(['2026-11-08T11:12:44', '2026-11-08 11:12:44'])(
+    'treats the offset-less upstream time %s as unknown',
+    (updatedAt) => {
+      const view = normalizeGitState({
+        ...BASE,
+        upstream: { ...BASE.upstream!, updatedAt },
+      });
+
+      expect(view.upstream?.updatedAt).toBeNull();
+    },
+  );
+
+  it('converts an upstream time with an offset to UTC', () => {
+    const view = normalizeGitState({
+      ...BASE,
+      upstream: { ...BASE.upstream!, updatedAt: '2026-11-08T11:12:44+02:00' },
+    });
+
+    expect(view.upstream?.updatedAt).toBe('2026-11-08T09:12:44.000Z');
+  });
+
   it('lists a submodule path of exactly 4,096 characters', () => {
     const path = 'a'.repeat(4096);
     const view = normalizeGitState({ ...BASE, submodules: [path] });
