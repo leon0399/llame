@@ -343,7 +343,10 @@ export const UpstreamUpdateTimeUnknown: Story = {
 export const GitStateLoading: Story = {
   tags: ["ai-generated"],
   args: { gitState: { status: "loading" } },
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
+    await expect(
+      canvasElement.querySelector("[data-sidebar=menu-skeleton]"),
+    ).not.toBeNull();
     await expect(canvas.getByText("/home/box/work/shop")).toBeVisible();
     await expect(canvas.queryByText("main")).toBeNull();
   },
