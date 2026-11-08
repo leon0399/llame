@@ -6,13 +6,12 @@ the settlement of work that an interrupt stops, and the owner's controls for pen
 
 ## ADDED Requirements
 
-### Requirement: A send with a delivery mode becomes a pending item during an active Run
+### Requirement: A send with a delivery mode becomes a pending item during a live Run
 
 A chat send can name `delivery` with the value `steer`, `interrupt`, or `queue`. When the Chat has
-a non-terminal Run, the API MUST store the message as a pending item of that Chat. It MUST NOT
-create a Run or a message row. It MUST answer 202 with the item. The send MUST pass the same
-validation as a chat send, which includes neutralization of the text and the media ownership
-check.
+a live Run, as `durable-runs` defines live, the API MUST store the message as a pending item. It
+MUST NOT create a Run or a message row. It MUST answer 202 with the item. The send MUST pass the
+validation of a chat send, with text neutralization and the media ownership check.
 
 #### Scenario: A steer during a Run is accepted as a pending item
 
@@ -31,46 +30,61 @@ check.
 - **THEN** the API answers with the error of a chat send with that model
 - **AND** it stores no pending item
 
+#### Scenario: A delivery send to a Chat with a stuck Run
+
+- **WHEN** the only non-terminal Run of the Chat is stuck, and the owner sends a message with `delivery: "queue"`
+- **THEN** admission expires the stuck Run, as `durable-runs` requires
+- **AND** the message starts a Run, and no pending item is stored
+
 ### Requirement: A send to an idle Chat starts a Run for every delivery mode
 
 When the Chat has no non-terminal Run, a chat send MUST start a Run as a chat send without
 `delivery` does. The `delivery` value MUST have no other effect. Paused queue items MUST stay
-pending and MUST NOT go before this message.
+pending, and they MUST NOT start before this message.
 
 #### Scenario: A queue send to an idle Chat starts at once
 
 - **WHEN** the owner sends a message with `delivery: "queue"` to a Chat with no live Run
 - **THEN** the API starts a Run for the message and answers with its stream
 
+#### Scenario: A send to a paused queue goes first
+
+- **WHEN** two queue items are paused, and the owner sends a new message to the idle Chat
+- **THEN** the new message starts a Run, and the two items stay pending
+
 ### Requirement: Admission of a pending item is idempotent on the message id
 
 The id of the sent message MUST become the id of the pending item. A send that repeats the id of
-a pending, delivered, or withdrawn item MUST answer with that item. It MUST NOT store a second
-item. A send whose id names an existing message MUST get 409 as a duplicate.
+a pending, delivered, or withdrawn item MUST answer with that item. It MUST NOT store a second item
+or start a Run. Admission MUST make this check before the check for duplicate message ids.
 
 #### Scenario: A retried send returns the stored item
 
-- **WHEN** the client sends the same steer twice with one message id
+- **WHEN** the client sends the same queue item twice with one message id
 - **THEN** both answers name the same item, and the Chat holds one pending item
+
+#### Scenario: A retry after delivery starts no Run
+
+- **WHEN** a Run delivered a steer item and completed, and the client sends the same message id again
+- **THEN** the API answers with the delivered item and starts no Run
 
 ### Requirement: A pending item records a producer and a sender
 
 Each pending item MUST record its producer kind, its sender reference, its mode, its parts, and its
 attachments. It MUST also record the model, effort, and permission mode of the send, its state, and
-its order. The
-state is `pending`, `delivered`, or `withdrawn`. This capability MUST accept only the producer
-kind `owner`, whose sender reference is empty.
+its order. The state is `pending`, `delivered`, or `withdrawn`. This capability MUST accept only
+the producer kind `owner`, whose sender reference is empty.
 
 #### Scenario: An owner item names its producer
 
-- **WHEN** the owner sends a steer during a Run
+- **WHEN** the owner sends a queue item during a Run
 - **THEN** the stored item has producer kind `owner` and no sender reference
 
-### Requirement: Pending items are visible and writable only for the Chat owner
+### Requirement: Pending items belong to their Chat and its owner
 
-A pending item MUST be readable and writable only in the tenant scope of the Chat owner. The
-datastore MUST enforce this with row-level security. A request that names the Chat or an item of
-another owner MUST get the not-found answer. It MUST NOT reveal or change that item.
+A pending item MUST name a Chat of its owner. The datastore MUST enforce that match and MUST
+enforce row-level security in the tenant scope of the owner. A request that names the Chat or an
+item of another owner MUST get the not-found answer. It MUST NOT reveal or change that item.
 
 #### Scenario: Another owner cannot see or change an item
 
@@ -79,8 +93,13 @@ another owner MUST get the not-found answer. It MUST NOT reveal or change that i
 
 #### Scenario: Another owner cannot add an item
 
-- **WHEN** user B sends a steer to a Chat of user A that has a live Run
+- **WHEN** user B sends a queue item to a Chat of user A that has a live Run
 - **THEN** the API answers 404, and the Chat of user A gets no pending item
+
+#### Scenario: The datastore refuses a mismatched owner
+
+- **WHEN** a write in the tenant scope of user B tries to store an item for a Chat of user A
+- **THEN** the datastore refuses the write
 
 ### Requirement: The owner lists and changes pending items
 
@@ -108,15 +127,26 @@ the write MUST be one conditional update. An action on a `delivered` or `withdra
 
 #### Scenario: A withdrawal that loses the race to delivery
 
-- **WHEN** a Run delivers a steer item, and the owner then sends a withdrawal for it
+- **WHEN** an item was delivered, and the owner then sends a withdrawal for it
 - **THEN** the API answers 409
 - **AND** the item stays `delivered`, and its message stays in the Chat
+
+### Requirement: A delivered message gets its id from the system or the item
+
+A user message that holds one promoted queue item MUST use the id of that item. A user message that
+a boundary delivers MUST get a new id from the system. An edit MUST send its text again with a new
+message id.
+
+#### Scenario: A promoted item keeps its id
+
+- **WHEN** a completed Run promotes a queue item
+- **THEN** the new user message has the id of that item
 
 ### Requirement: Steer delivers at the next step boundary
 
 A step boundary is the point after a model step and all tool results of that step, before the
-next model request of the Run. At each step boundary, the Run MUST deliver every `steer` item
-that is pending. A steer MUST NOT stop a model response or a tool call.
+next model request of the Run. At each step boundary, the Run MUST deliver every pending `steer`
+item. A steer MUST NOT stop a model response or a tool call.
 
 #### Scenario: A steer during a tool call waits for the result
 
@@ -130,11 +160,11 @@ that is pending. A steer MUST NOT stop a model response or a tool call.
 - **THEN** the response and its tool call complete
 - **AND** the steer is delivered after the result of that call
 
-### Requirement: A steer that is pending at the final answer continues the Run
+### Requirement: A pending item at the final answer continues the Run
 
 When the model gives a final answer, the transaction that would complete the Run MUST first look
-for pending `steer` items. If it finds one or more, the Run MUST NOT complete. It MUST deliver
-them and send a further model request. A Run with no tools follows the same rule.
+for pending `steer` and `interrupt` items. If it finds one or more, the Run MUST NOT complete. It
+MUST deliver them and send a further model request. A Run with no tools follows the same rule.
 
 #### Scenario: A steer during the final answer
 
@@ -144,14 +174,14 @@ them and send a further model request. A Run with no tools follows the same rule
 
 #### Scenario: A steer after completion starts a Run
 
-- **WHEN** the transaction that completes the Run commits before the steer is admitted
+- **WHEN** the transaction that completes the Run commits before the steer is admitted, and no queue item is pending
 - **THEN** the send finds no live Run and starts a new Run for the message
 
 ### Requirement: The items delivered at one boundary form one user message
 
-All items that one boundary delivers MUST become one user message, in their order. Each item
-MUST give one text part and its own attachments to that message. The message MUST name the Chat
-owner as sender. Each delivered item MUST record the id of that message.
+All items that one boundary delivers MUST become one user message, in their order. Each item MUST
+give one text part and its own attachments to that message. The message MUST name the Chat owner
+as sender. Each delivered item MUST record the id of that message.
 
 #### Scenario: Two steers at one boundary
 
@@ -159,11 +189,11 @@ owner as sender. Each delivered item MUST record the id of that message.
 - **THEN** the next boundary stores one user message with two text parts in send order
 - **AND** both items record the id of that message
 
-### Requirement: A delivered message starts a segment with its own reply
+### Requirement: A delivered message starts a segment and an attempt
 
-A segment is the part of a Run that answers one user message. The first segment answers the
-message that started the Run. A delivered message MUST close the reply of the current segment
-and MUST start a segment. The reply of the new segment MUST answer the delivered message.
+A segment is the part of a Run that answers one user message. A delivery MUST close the reply of
+the current segment. It MUST make the delivered message the message of the Run. It MUST start a
+new attempt of the Run for that message in the same worker, with no new claim.
 
 #### Scenario: The transcript order after a steer
 
@@ -171,23 +201,40 @@ and MUST start a segment. The reply of the new segment MUST answer the delivered
 - **THEN** the Chat holds the first user message and the reply of the first segment
 - **AND** the delivered message and the reply of the second segment follow, in that order
 
-### Requirement: A delivered message belongs to the Run that delivered it
-
-A delivered message MUST record the id of the Run that delivered it. For `turn-actions`, that
-Run is a Run of the delivered message. A later follow-up Run on that message becomes its latest
-Run.
-
 #### Scenario: Continue on a delivered message
 
 - **WHEN** a Run fails in its second segment, and the owner continues the latest turn
-- **THEN** the follow-up request names the delivered message
+- **THEN** the follow-up request names the delivered message, and the API accepts it
 - **AND** the Continue Run keeps the settled parts of the second segment reply
+
+### Requirement: A segment attempt prepares its own accepted turn
+
+The attempt of a segment MUST prepare its request as the first attempt of a Run prepares it for
+its user message. This includes the compaction check and the accepted-turn context items. Prompt
+imports and `$skill` mentions in a delivered message MUST take effect.
+
+#### Scenario: A steer with a skill mention
+
+- **WHEN** a delivered steer names `$pdf` and the skill is available
+- **THEN** the delivered message carries a `skill-activation` item before the steer text
+
+### Requirement: A steer closes its segment reply as completed
+
+A reply that a steer delivery closes MUST record usage status `completed`. A reply that an interrupt
+delivery closes MUST record usage status `aborted` and `complete: false`. The Run MUST publish the
+usage of the closed reply in its event stream before the `run.delivered` event.
+
+#### Scenario: A live client sees the segment usage
+
+- **WHEN** a Run delivers a steer
+- **THEN** the stream shows the usage of the first segment reply before the delivery
+- **AND** a reload shows the same usage
 
 ### Requirement: Each segment has its own step budget and retry scope
 
-The configured step cap MUST count the steps of one segment. A crash retry of the Run MUST
-restart the current segment from its user message. It MUST keep the stored messages and replies
-of earlier segments.
+The configured step cap MUST count the steps of one segment. A crash retry of the Run MUST restart
+the current segment from its user message. It MUST keep the stored messages and replies of earlier
+segments.
 
 #### Scenario: A steer after the cap gives a new budget
 
@@ -203,8 +250,8 @@ of earlier segments.
 ### Requirement: A delivered item reaches the model exactly once
 
 The transaction that stores a delivered message MUST mark its items `delivered` and MUST check
-that the attempt is still current. A crash before that transaction MUST leave the items
-`pending`. A crash after it MUST NOT deliver them again.
+that the attempt is still current. A crash before that transaction MUST leave the items `pending`.
+A crash after it MUST NOT deliver them again.
 
 #### Scenario: A crash before delivery keeps the item
 
@@ -228,9 +275,9 @@ the Run. The settings that the item records MUST have no effect on that Run.
 
 ### Requirement: Queue items start one Run each after a completed Run
 
-The transaction that completes a Run MUST take the first pending `queue` item of the Chat. It
-MUST store that item as a user message and create a Run for it with the settings of the item. A
-Run that does not complete MUST NOT start a queue item.
+The transaction that completes a Run MUST take the first pending `queue` item of the Chat. It MUST
+store that item as a user message and create a Run for it with the settings of the item. A Run that
+does not complete MUST NOT start a queue item. A follow-up Run that completes also starts one.
 
 #### Scenario: Three queue items run in order
 
@@ -245,9 +292,10 @@ Run that does not complete MUST NOT start a queue item.
 
 ### Requirement: The queue pauses after a Run that does not complete
 
-When a Run ends `failed`, `cancelled`, or `expired`, its pending `steer` items MUST become `queue`
-items before the other queue items, in their order. No pending item MUST start a Run until the
-owner sends a message or changes an item to `steer` or `interrupt`.
+A Run can end `failed`, `cancelled`, or `expired`. Its pending `steer` and `interrupt` items MUST
+then become `queue` items before the other queue items, in their order. A pending item MUST NOT
+start a Run until the owner acts. The owner acts when they send a message, start a follow-up Run,
+or change an item to `steer` or `interrupt`.
 
 #### Scenario: A failed Run pauses the queue
 
@@ -283,17 +331,33 @@ and every pending `steer` item, and continue. The Run MUST NOT become terminal.
 - **WHEN** one steer is pending and the owner sends an interrupt
 - **THEN** one delivered message holds the steer and the interrupt, in their order
 
+### Requirement: An interrupt with no work in progress acts as a steer
+
+The Run can have no model request and no tool call in progress. An `interrupt` item MUST then be
+delivered at the next step boundary or final answer, as a steer is. This includes a `queued` Run
+and an attempt that prepares its first request.
+
+#### Scenario: An interrupt during compaction
+
+- **WHEN** the owner sends an interrupt while the attempt runs its compaction check
+- **THEN** the compaction completes, and the item is delivered after the first step of the segment
+
 ### Requirement: Every tool declares an interrupt fate
 
-Each tool MUST declare one interrupt fate: `cancel`, `finish`, or `background`. Native `edit` and
-`write` MUST declare `finish`. Each other tool MUST declare `cancel`. No tool can declare
-`background` until a capability defines that fate.
+Each tool MUST declare one interrupt fate: `cancel`, `finish`, or `background`. A `read_only` tool,
+`bash`, and each MCP tool MUST declare `cancel`. Each other tool MUST declare `finish`. A tool MUST
+NOT declare `background` until a capability defines that fate.
 
 #### Scenario: A write finishes before the interrupt applies
 
 - **WHEN** the owner interrupts while a native `write` call runs
 - **THEN** the write completes, and its result is stored
 - **AND** the interrupt is then delivered
+
+#### Scenario: Workspace entry finishes
+
+- **WHEN** the owner interrupts while an `enter_workspace` call creates a worktree
+- **THEN** the call completes, and the interrupt is then delivered
 
 ### Requirement: A cancelled call settles under its tool rules
 
@@ -307,6 +371,17 @@ call MUST settle as `outcome_unknown`.
 - **WHEN** the owner interrupts while a `bash` call runs for 60 seconds
 - **THEN** the command stops, and the call settles as `bash-execution` requires for a cancellation
 - **AND** the Run continues with the interrupt
+
+### Requirement: Interrupt settlement is at most once and distinguishable
+
+Each call MUST settle once. A tool rejection that the interrupt signal causes MUST NOT settle the
+call as `execution_failed`. The stored result MUST carry a marker that an interrupt settled it.
+The live stream and a reload MUST show the same outcome.
+
+#### Scenario: A late tool result does not replace the settlement
+
+- **WHEN** a cancelled call returns a result after the interrupt settled it
+- **THEN** the first settlement stands in the live stream and in history
 
 ### Requirement: A call that did not start gets a not-executed result
 
@@ -323,21 +398,20 @@ step before it started. Run it again if you still need it."
 ### Requirement: An interrupted reply keeps its complete output
 
 The reply of an interrupted segment MUST keep its text and its settled tool calls. Later model
-requests MUST carry them. They MUST carry each reasoning part that completed with provider
-metadata and has a later kept part. The reasoning part that the interrupt cut MUST be
-display-only.
+requests MUST carry them. Its reasoning parts follow the rule of `reasoning-output` for a reply
+that an interrupt closed. The reasoning part that the interrupt cut MUST stay in the transcript.
 
 #### Scenario: The cut reasoning part never replays
 
 - **WHEN** an interrupt stops a response during its second reasoning part
 - **THEN** the first reasoning part replays with its provider metadata
-- **AND** the second reasoning part stays in the transcript and no request carries it
+- **AND** the second reasoning part stays in the transcript, and no request carries it
 
-### Requirement: An interrupted notice comes before the delivered message
+### Requirement: An interrupted notice comes first in the delivered message
 
-The delivered message of an interrupt MUST carry one context item with producer `interrupted`
-and form `notice`, before the owner text. Its body MUST state: "The owner interrupted your
-previous step. Your response stopped before it was complete."
+The delivered message of an interrupt MUST carry one context item with producer `interrupted` and
+form `notice`, before the owner text. Its body MUST state: "The owner interrupted your previous
+step. Your response stopped before it was complete."
 
 #### Scenario: The notice comes first
 
@@ -369,8 +443,8 @@ signal is lost, the Run MUST find the interrupt at its next step boundary at the
 ### Requirement: A delivered message is a Run event
 
 Each delivery MUST append one `run.delivered` event. The event MUST name the delivered message, its
-items, and a `cause` of `steer` or `interrupt`. The Run stream MUST end its
-current segment at that event and name the delivered message.
+items, and a `cause` of `steer` or `interrupt`. The Run stream MUST end its current segment at
+that event and name the delivered message.
 
 #### Scenario: A live client sees the delivery
 
@@ -380,8 +454,8 @@ current segment at that event and name the delivered message.
 
 ### Requirement: Pending items reach every owner device live
 
-Each change to a pending item MUST reach the live subscribers of the Chat owner. A reload MUST
-show the same pending items as a live client.
+Each change to a pending item MUST reach the live subscribers of the Chat owner. A reload MUST show
+the same pending items as a live client.
 
 #### Scenario: A second tab sees a new item
 
@@ -414,10 +488,15 @@ Run is active, the composer MUST show the plain Send button.
 - **WHEN** a Run is active and the owner chooses Queue in the Send menu
 - **THEN** the web sends the message with `delivery: "queue"`
 
+#### Scenario: Interrupt from the Send menu
+
+- **WHEN** a Run is active and the owner chooses Interrupt in the Send menu
+- **THEN** the web sends the message with `delivery: "interrupt"`
+
 ### Requirement: The web shows pending items above the composer
 
-The web MUST show each pending item above the composer in its order. A queue item MUST offer
-Steer now, Interrupt now, delete, and edit. A steer item MUST offer Interrupt now and delete. Edit
+The web MUST show each pending item above the composer in its order. A queue item MUST offer Steer
+now, Interrupt now, delete, and edit. A steer item MUST offer Interrupt now, delete, and edit. Edit
 MUST withdraw the item and put its text and attachments into the composer.
 
 #### Scenario: Edit puts the text back
@@ -432,9 +511,8 @@ MUST withdraw the item and put its text and attachments into the composer.
 
 ### Requirement: Stop interrupts when steers are pending
 
-The Stop control and the Esc key MUST interrupt the Run when one or more `steer` items are
-pending. Otherwise they MUST request cancellation of the Run. A draft in the composer MUST NOT
-change.
+The Stop control and the Esc key MUST interrupt the Run when one or more `steer` items are pending.
+Otherwise they MUST request cancellation of the Run. A draft in the composer MUST NOT change.
 
 #### Scenario: Esc twice stops everything
 
@@ -444,11 +522,16 @@ change.
 
 ### Requirement: The transcript shows delivered messages and interrupts
 
-The web MUST show a delivered message as an owner message between the replies of its segments.
-It MUST show the `interrupted` item as a muted notice. It MUST show a paused queue with a label
-that states that nothing runs until the owner acts.
+The web MUST show a delivered message as an owner message between the replies of its segments. It
+MUST show the `interrupted` item as a muted notice. When the Chat has no live Run and one or more
+pending items, the web MUST label the queue as paused.
 
 #### Scenario: A reload shows the segments
 
 - **WHEN** the owner reloads a Chat whose Run delivered one interrupt
 - **THEN** the transcript shows the first reply, the interrupted notice, the owner message, and the second reply
+
+#### Scenario: A failed Run shows a paused queue
+
+- **WHEN** a Run fails while two queue items are pending
+- **THEN** the stack labels the queue as paused, and the Continue action stays available

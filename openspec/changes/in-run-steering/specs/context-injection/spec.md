@@ -6,22 +6,21 @@ The system can inject more than one item on the same turn. The path that authors
 prepares the request MUST then persist them in a fixed producer precedence order. They go before the triggering
 user text in the same message:
 
-1. `effective-context-change`
-2. `regenerate`
-3. `tool-availability`
-4. `workspace`
-5. `instructions`
-6. `skill-catalog`
-7. `skill-activation`
-8. `prompt-imports`
-9. `recency-digest`
-10. `temporal`
-11. `interrupted`
+1. `interrupted`
+2. `effective-context-change`
+3. `regenerate`
+4. `tool-availability`
+5. `workspace`
+6. `instructions`
+7. `skill-catalog`
+8. `skill-activation`
+9. `prompt-imports`
+10. `recency-digest`
+11. `temporal`
 
 When one producer contributes more than one item, the system MUST store those items in emission
 order. A producer added later MUST extend this author-time list in the rail specification. The
-`interrupted` producer of `run-steering` attaches its item to a delivered message, before the
-owner text.
+`interrupted` producer of `run-steering` attaches its item to a delivered message.
 
 In-Run items MUST be in the order of the model step that triggered them. In a step, they MUST be in
 this same producer precedence. The system never sorts them again against the attached items of the
@@ -109,4 +108,5 @@ rule of a retry after a dispatch.
 #### Scenario: An interrupted item comes before the owner text
 
 - **WHEN** a Run delivers an interrupt as a user message
-- **THEN** the `interrupted` item is the last attached item of that message, before the owner text
+- **THEN** the `interrupted` item is the first attached item of that message
+- **AND** the dispatch transaction of the next segment stores it

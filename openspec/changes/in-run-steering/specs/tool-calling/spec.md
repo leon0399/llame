@@ -50,7 +50,7 @@ durable.
 #### Scenario: Step cap reached fails closed to answering
 
 - **WHEN** a segment of a Run reaches the configured maximum of tool steps
-- **THEN** no further calls execute, and the model must answer from what it has
+- **THEN** no further calls execute, and the system drives the model to answer from what it has
 - **AND** the Run records the cap in its events, and the segment ends with that answer
 
 #### Scenario: No step cap unless configured

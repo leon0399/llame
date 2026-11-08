@@ -82,9 +82,20 @@ Assumptions that follow from those decisions but that the grilling did not ask:
   acts.
 - `Steer now` or `Interrupt now` on a paused item when no Run is active starts a Run with that
   item.
-- A segment start runs no compaction check. Compaction stays a Run-start step.
+- Each segment is a new attempt of the Run for the delivered message. It prepares like the first
+  attempt of a Run: the compaction check, accepted-turn context items, prompt imports, and
+  `$skill` activations run for the delivered message.
 - When a run-control notification is lost, the worker finds the interrupt at its next step
   boundary at the latest, so the item is delivered as a steer would be.
+
+## Deviation from the grilling record
+
+- grilling D7 named `outcome_unknown` for an interrupted `bash` call. The spec uses the
+  cancellation rules of `bash-execution` instead: `outcome_unknown` unless the host proves the
+  process group empty, then the observed exit status. The `interrupted` notice still names each
+  stopped `bash` call and states that its effects are unknown. Leo to confirm.
+- grilling D11 listed edit for every pending row; the first draft left it off steer rows. The
+  spec now offers edit on steer rows too.
 
 ## Capabilities
 
@@ -97,8 +108,9 @@ Assumptions that follow from those decisions but that the grilling did not ask:
 ### Modified Capabilities
 
 - `durable-runs`: `Every message executes as a durable, resumable run` (a delivered message
-  executes inside the active Run); `One in-flight run per chat (single-flight)` (a send with a
-  delivery mode is admitted as a pending item).
+  executes inside the live Run); `One in-flight run per chat (single-flight)` (a send with a
+  delivery mode is admitted as a pending item); `Final assistant-message projection preserves
+  replay order` (each segment has its own reply, and finalizers act only on the current one).
 - `run-cancellation`: `A recorded cancellation settles the Run as cancelled` (cancellation
   reaches a worker in another process); `The Run stream identifies its Run at acceptance` (a
   stream covers one segment, and a resume replays the current segment).
@@ -106,47 +118,53 @@ Assumptions that follow from those decisions but that the grilling did not ask:
   `No mid-run tool-state checkpointing (read-only slice; write-tool landmine)` (a retry restarts
   the current segment, and only a native attempt of that segment stops the Run).
 - `context-injection`: `Co-occurring items have a total author-time order` (adds the
-  `interrupted` producer).
-- `run-usage-accounting`: `Message usage aggregates every model request of its attempt` (a
-  reply sums the requests of its own segment).
+  `interrupted` producer, first in the order).
+- `run-usage-accounting`: `Usage records whether it is complete` (a reply that a steer closed is
+  complete, and only attempts for the same message count); `Compaction uses the final request's
+  size, not the aggregate` (the trigger runs before each segment).
 - `reasoning-output`: `Earlier reasoning replays only for the model that produced it` (the
-  segments of one Run replay their reasoning like one turn).
+  segments of one Run replay their reasoning like one turn; an interrupted reply drops the cut
+  part and a part with no later part).
 
-Deliberately unchanged, with the reading this change relies on:
+Deliberately unchanged, with the reading this change relies on. Each segment is an attempt of
+the Run for the message of that segment, so rules that are scoped to one attempt hold per segment.
 
-- `durable-runs` `Final assistant-message projection preserves replay order`: "the final
-  assistant message of a Run" applies to each segment reply of the Run.
+- `durable-runs` `Run claiming and completion are crash-safe`: a delivery assigns a fresh
+  `activeAttemptId` in the fenced delivery transaction. Every rule for attempt-owned events,
+  superseded workers, and native effect admission applies to that attempt.
+- `run-usage-accounting` `Message usage aggregates every model request of its attempt`,
+  `Reasoning tokens are known only when every request reported them`, `Stream performance
+  metrics are recorded additively`, `Every terminal assistant turn keeps its known usage`, and
+  `Live and reloaded usage agree`: "the attempt" is the attempt of one segment.
 - `context-injection` `Server-authored context is injected as discrete items on one rail`: "the
-  triggering user message" of a segment is its batch row, and "the assistant message of that
-  Run" is the reply of the current segment.
-- `tool-calling` `Cooperative cancellation reaches tool execution`: the signal is derived from
-  termination and the per-call timeout; an interrupt adds a third source, which `run-steering`
-  defines. "A rejection caused by the parent run abort" stays the terminal case.
-- `tool-calling` `Termination settles in-flight tool activity`: it covers a terminating Run. An
-  interrupt is not a termination; `run-steering` defines its settlement with the same
-  at-most-once and live/reload agreement rules.
-- `turn-actions` (all requirements): "a user message that already has a Run" and "the latest
-  Run of the message" include a batch row, whose Run is the Run that delivered it.
+  triggering user message" of a segment attempt is the message of the Run, which a delivery moves
+  to the delivered message.
+- `tool-calling` `Cooperative cancellation reaches tool execution` and `Termination settles
+  in-flight tool activity`: they cover Run termination. An interrupt is not a termination, and
+  `run-steering` gives it its own settlement rules.
+- `turn-actions` (all requirements): a delivery makes the delivered message the message of the
+  Run, so `latestRun.messageId` names it, and "the latest Run of the message" is that Run.
 - `anthropic-messages-provider` `Thinking blocks are persisted and replayed complete and
-  unmodified`: a reasoning part that an interrupt cut never completed as a block, so it is not
-  a block that the model emitted. Keeping completed blocks replays them unchanged.
-- `owner-chat-forks`: a fork copies messages and no Run state; pending items are Run-adjacent
-  state and are not copied.
+  unmodified`: its pruning rule defers to the model rule of `reasoning-output`, which this change
+  extends for interrupted replies. A cut part never closed as a block.
+- `owner-chat-forks`: a fork copies messages and no Run state. Pending items are not messages.
 
 ## Impact
 
 - API: `POST /api/v1/chats/:chatId/messages` gains an optional `delivery` field; new
   `GET`/`PATCH`/`DELETE` routes under `/api/v1/chats/:chatId/deliveries`; generated OpenAPI
   client.
-- Database: new owner-RLS `chat_deliveries` table with a live-change trigger; a nullable
-  `messages.delivered_by_run_id` link; one migration.
+- Database: new owner-RLS `chat_deliveries` table with a composite Chat-owner key and a
+  live-change trigger. A delivery moves `runs.message_id` to the delivered message. One generated
+  migration and one hand-written trigger migration.
 - Worker: segment loop in `RunExecutionService`, step-boundary delivery, completion check,
-  queue promotion, run-control listener, per-step interrupt abort, interrupt tool settlement.
+  queue promotion, the steer-to-queue move in every terminal writer, a run-control listener in
+  every process that executes Runs, per-step interrupt abort, and interrupt tool settlement.
 - Live protocol: one new message type in `asyncapi.websocket.yaml`; new `run.delivered` run
   event and stream-bridge translation.
 - Web: composer split button, pending stack, Stop/Esc logic, transcript rows; `DESIGN.md`
   gains the split-button and pending-row patterns.
-- Docs: `SPEC.md` §9.3–9.6, `CHANGELOG.md`.
+- Docs: `SPEC.md` §9 (intro, §9.3–9.6, §9.8), `CHANGELOG.md`.
 
 ## Non-Goals
 
@@ -156,7 +174,6 @@ Deliberately unchanged, with the reading this change relies on:
 - Background jobs, `wait`, and moving tools to the background on interrupt or steer
   ([#1051](https://github.com/leon0399/llame/issues/1051)).
 - Reordering pending items, and changing an item from Steer back to Queue.
-- Compaction at a segment start.
 - A requester column on Runs (#1612 Q8d lands with its producer).
 
 ## Acceptance
