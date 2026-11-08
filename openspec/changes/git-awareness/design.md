@@ -362,6 +362,13 @@ beyond open and focus can change after use.
 
 ## Revision history
 
+- **v5 (2026-11-08):** PR review clarifications after approval, no design change: the
+  3 s `git.state` limit applies to the `git` item and the owner route (the removal guard
+  keeps 10 s, as D2 says); "an entry to the root that is already bound" replaces
+  "same-root re-entry"; the no-upstream and no-commits forms are named; a submodule path
+  over 4,096 characters is counted, not listed; two scenario wordings follow the
+  changed-text rule.
+
 - **v4 (2026-11-08):** V6 at Leo's choice: git state reaches the model only as
   `git` items; a mid-Run entry stages an in-Run item after its tool result,
   and the producer is one `InRunContextProducer` for both moments. Told state

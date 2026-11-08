@@ -131,9 +131,11 @@ it.
 ### Requirement: The snapshot reports the repository state
 
 A snapshot MUST report the branch or a detached HEAD, the short HEAD commit, the
-upstream, and an operation in progress. The operations are merge, rebase, `am`,
-cherry-pick, revert, and bisect. The snapshot MUST report the staged, unstaged,
-untracked, and conflicted counts.
+upstream, and an operation in progress. A branch without an upstream MUST show
+"no upstream". A repository without a commit MUST show "no commits yet" in place
+of the HEAD commit. The operations are merge, rebase, `am`, cherry-pick, revert,
+and bisect. The snapshot MUST report the staged, unstaged, untracked, and
+conflicted counts.
 
 #### Scenario: Fields match git
 
@@ -163,7 +165,12 @@ untracked, and conflicted counts.
 #### Scenario: An unborn branch is reported
 
 - **WHEN** the repository has no commit
-- **THEN** the snapshot reports the branch name and no HEAD commit
+- **THEN** the snapshot reports the branch name and "no commits yet" in place of the HEAD commit
+
+#### Scenario: A branch without an upstream is reported
+
+- **WHEN** the branch `main` has no upstream
+- **THEN** the snapshot reports `main` and "no upstream", with no ahead or behind
 
 ### Requirement: The snapshot carries no observation time
 
@@ -260,13 +267,21 @@ absence here does not mean they do not exist."
 
 The system MUST NOT read the state of a submodule for the model. The snapshot
 MUST list each submodule path from the `.gitmodules` file of HEAD as
-"submodule, state not read". These paths MUST share the 20-path bound.
+"submodule, state not read". These paths MUST share the 20-path bound. The
+snapshot MUST NOT list a submodule path longer than 4,096 characters. The "+N
+more" line MUST count that path.
 
 #### Scenario: A submodule is listed without its state
 
 - **WHEN** the repository has a submodule at `vendor/lib` with uncommitted changes
 - **THEN** the snapshot lists `vendor/lib` as "submodule, state not read"
 - **AND** no git process reads a git directory of `vendor/lib`
+
+#### Scenario: A very long submodule path is counted, not listed
+
+- **WHEN** the `.gitmodules` file of HEAD names a submodule path of 10,000 characters
+- **THEN** the snapshot does not list that path
+- **AND** the "+N more" line counts it
 
 ### Requirement: Recent commits are reported
 
@@ -370,10 +385,11 @@ root", and "git failed". Each other failure MUST give "git failed".
 
 ### Requirement: The git read is bounded and never blocks entry
 
-The executor MUST stop git after 3 seconds. The system MUST stop the whole
-observation, from the entry search to the result, after 5 seconds. Either limit
-MUST give "git state unavailable: timeout". A failed observation MUST NOT fail
-`enter_workspace`, an accepted turn, or a Run.
+The system MUST give `git.state` a limit of 3 seconds for a `git` item and for
+the owner route. The system MUST stop the whole observation, from the entry
+search to the result, after 5 seconds. Either limit MUST give "git state
+unavailable: timeout". A failed observation MUST NOT fail `enter_workspace`, an
+accepted turn, or a Run.
 
 #### Scenario: A slow repository times out
 
@@ -411,7 +427,7 @@ differs from the text last told in the active compaction epoch.
 
 #### Scenario: A change adds one item
 
-- **WHEN** a file changed between two accepted turns
+- **WHEN** an unmodified tracked file was modified between two accepted turns
 - **THEN** the later turn carries exactly one `git` item with the new text
 
 #### Scenario: A checkpoint tells the state again
@@ -421,7 +437,7 @@ differs from the text last told in the active compaction epoch.
 
 #### Scenario: Absence lines are told as items
 
-- **WHEN** the Workspace Machine is offline at an accepted turn
+- **WHEN** the last told `git` item holds a snapshot and the Workspace Machine is offline at the next accepted turn
 - **THEN** the turn carries a `git` item that says "git state unavailable: Machine unavailable"
 
 ### Requirement: The git told state comes from effective history
@@ -454,7 +470,8 @@ compaction epoch. The system MUST NOT store a separate git told state.
 
 An exit or a detach MUST make the `git` producer emit nothing. An entry that
 binds or switches the root MUST count as a new binding, so the producer tells
-the state again. A same-root re-entry MUST NOT restart the told state.
+the state again. An entry after an exit or a detach binds the root. An entry to
+the root that is already bound MUST NOT restart the told state.
 
 #### Scenario: Exit adds no git item
 
@@ -469,8 +486,9 @@ the state again. A same-root re-entry MUST NOT restart the told state.
 ### Requirement: Entry triggers an in-Run git item
 
 A successful `enter_workspace` can bind or switch the root. Then the next model
-step of the Run MUST carry a `git` item after the tool result. After a
-same-root re-entry, it MUST carry one only when the text changed. The tool
+step of the Run MUST carry a `git` item after the tool result. After an
+entry to the root that is already bound, it MUST carry one only when the text
+changed. The tool
 result MUST NOT hold git state.
 
 #### Scenario: Entry narrates git state after the result
