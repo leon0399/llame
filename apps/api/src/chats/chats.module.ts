@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { GitStateModule } from '../git-state/git-state.module';
 import { MachinesModule } from '../machines/machines.module';
 import { MediaModule } from '../media/media.module';
 import { ModelsModule } from '../models/models.module';
@@ -7,6 +8,8 @@ import { ProjectsModule } from '../projects/projects.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
+import { ChatGitStateController } from './chat-git-state.controller';
+import { ChatGitStateService } from './chat-git-state.service';
 import { ChatCreationLock } from './chat-creation-lock';
 import { ChatCreationController } from './chat-creation.controller';
 import { ChatCreationService } from './chat-creation.service';
@@ -29,6 +32,7 @@ import { SharedChatsController } from './shared-chats.controller';
 @Module({
   imports: [
     AuthModule,
+    GitStateModule,
     MachinesModule,
     MediaModule,
     ModelsModule,
@@ -40,11 +44,13 @@ import { SharedChatsController } from './shared-chats.controller';
   controllers: [
     ChatsController,
     ChatCreationController,
+    ChatGitStateController,
     MeRunsController,
     SharedChatsController,
   ],
   providers: [
     ChatsService,
+    ChatGitStateService,
     ChatLoopService,
     FollowUpAdmissionService,
     ChatCreationLock,
