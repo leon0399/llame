@@ -4098,7 +4098,7 @@ export class RunExecutionService {
     return {
       outcome: 'won',
       assistantMessage,
-      ...(promoted !== undefined && { promoted }),
+      promoted,
     };
   }
 
