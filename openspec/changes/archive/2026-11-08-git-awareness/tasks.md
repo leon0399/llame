@@ -2,7 +2,7 @@
 
 Track [#1615](https://github.com/leon0399/llame/issues/1615) under the tracker
 [#1614](https://github.com/leon0399/llame/issues/1614), and the PRs of this
-change, through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+change, through [Project tracking](../../../../CONTRIBUTING.md#project-tracking).
 Implementation waits for Leo's approval of the published proposal, including
 deviations V1-V6.
 
