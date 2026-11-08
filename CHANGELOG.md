@@ -1,5 +1,18 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-08
+
+- **BREAKING for Machine operators: update every daemon with the hub.** The
+  `git.status` method is replaced by `git.locate` (the nearest `.git` entry
+  inside the registered roots, found without starting git) and `git.state` (the
+  repository state of that entry). A daemon that does not list `git.state`
+  keeps serving files and `bash`, and worktree removal on that Machine answers
+  `machine_update_required` until the daemon binary is replaced. Roll back the
+  API and the daemons together: an older API asks for `git.status`, which a
+  new daemon no longer answers. Worktree removal now reads the full state and
+  refuses a gone upstream (unless HEAD is the recorded base commit) and a
+  dirty submodule, besides the cases it already refused.
+
 # 2026-11-07
 
 - **Rerank models in the rank seat.** A new `cohere-rerank` provider type

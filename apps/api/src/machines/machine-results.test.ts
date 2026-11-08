@@ -70,7 +70,7 @@ describe('readHelloResult', () => {
         protocolVersion: 1,
         daemonVersion: '0.0.1',
         roots: [],
-        methods: ['git.status', 'git.inspect'],
+        methods: ['git.state', 'git.status', 'git.inspect'],
       }),
     ).toEqual({
       protocolVersion: 1,
@@ -78,7 +78,7 @@ describe('readHelloResult', () => {
       roots: [],
       // Rebuilt from the protocol's own vocabulary, so an unknown method a
       // daemon names cannot reach a hub-side check.
-      methods: ['git.inspect', 'git.status'],
+      methods: ['git.inspect', 'git.state'],
     });
   });
 

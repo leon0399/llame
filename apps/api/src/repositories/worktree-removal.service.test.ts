@@ -376,12 +376,135 @@ describe('WorktreeRemovalService', () => {
     expect(existsSync(directory)).toBe(true);
   });
 
+  it('A gone upstream fails closed', async () => {
+    const source = clone();
+    const { directory } = worktree(source, 'llame/x');
+    runGit(directory, ['remote', 'add', 'origin', source]);
+    runGit(directory, ['config', 'branch.llame/x.remote', 'origin']);
+    runGit(directory, ['config', 'branch.llame/x.merge', 'refs/heads/gone']);
+    rowOf(checkoutRow(directory));
+    const { removal, deleteCheckout } = service();
+
+    await expect(
+      failureOf(removal.remove('owner-1', 'checkout-1')),
+    ).resolves.toStrictEqual({
+      code: 'worktree_not_clean',
+      status: 409,
+      message:
+        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+    });
+    expect(existsSync(directory)).toBe(true);
+    expect(deleteCheckout).not.toHaveBeenCalled();
+  });
+
+  it('A dirty submodule keeps the worktree', async () => {
+    const source = clone();
+    const library = clone();
+    const { directory } = worktree(source, 'llame/x');
+    runGit(directory, [
+      '-c',
+      'protocol.file.allow=always',
+      'submodule',
+      'add',
+      '--quiet',
+      library,
+      'library',
+    ]);
+    runGit(directory, ['commit', '--quiet', '--message', 'add library']);
+    runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
+    runGit(directory, ['update-ref', 'refs/heads/main', 'HEAD']);
+    writeFileSync(join(directory, 'library', 'README.md'), 'changed\n');
+    rowOf(checkoutRow(directory));
+    const { removal, deleteCheckout } = service();
+
+    await expect(
+      failureOf(removal.remove('owner-1', 'checkout-1')),
+    ).resolves.toStrictEqual({
+      code: 'worktree_not_clean',
+      status: 409,
+      message: 'The worktree holds uncommitted changes.',
+    });
+    expect(existsSync(directory)).toBe(true);
+    expect(deleteCheckout).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'a git failure',
+      { status: 'error', type: 'git_failed', stderr: 'fatal: boom' } as const,
+      'fatal: boom',
+    ],
+    [
+      'a timeout',
+      { status: 'error', type: 'timed_out', stderr: '' } as const,
+      'The worktree command failed.',
+    ],
+  ])(
+    'An unreadable state keeps the worktree: %s',
+    async (_case, failure, message) => {
+      const source = clone();
+      const { directory } = worktree(source, 'llame/x');
+      runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
+      rowOf(checkoutRow(directory));
+      const executorsOf = executors();
+      vi.spyOn(executorsOf, 'state').mockResolvedValue(failure);
+      const remove = vi.spyOn(executorsOf, 'removeWorktree');
+      const { removal, deleteCheckout } = service({ executors: executorsOf });
+
+      await expect(
+        failureOf(removal.remove('owner-1', 'checkout-1')),
+      ).resolves.toStrictEqual({ code: 'git_failed', status: 502, message });
+      expect(existsSync(directory)).toBe(true);
+      expect(remove).not.toHaveBeenCalled();
+      expect(deleteCheckout).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the worktree when the entry cannot be located', async () => {
+    const source = clone();
+    const { directory } = worktree(source, 'llame/x');
+    rowOf(checkoutRow(directory));
+    const executorsOf = executors();
+    vi.spyOn(executorsOf, 'locateEntry').mockResolvedValue({
+      status: 'error',
+      type: 'root_missing',
+      stderr: '',
+    });
+    const state = vi.spyOn(executorsOf, 'state');
+    const { removal } = service({ executors: executorsOf });
+
+    await expect(
+      failureOf(removal.remove('owner-1', 'checkout-1')),
+    ).resolves.toMatchObject({ code: 'git_failed' });
+    expect(state).not.toHaveBeenCalled();
+    expect(existsSync(directory)).toBe(true);
+  });
+
+  it('Worktree removal reads the state method', async () => {
+    const source = clone();
+    const { directory } = worktree(source, 'llame/x');
+    runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
+    rowOf(checkoutRow(directory));
+    const executorsOf = executors();
+    const state = vi.spyOn(executorsOf, 'state');
+    const { removal } = service({ executors: executorsOf });
+
+    await removal.remove('owner-1', 'checkout-1');
+
+    expect(state).toHaveBeenCalledOnce();
+    expect(state).toHaveBeenCalledWith(
+      expect.objectContaining({ machine: undefined }),
+      directory,
+      { gitEntry: join(directory, '.git'), limit: 0, submodules: 'check' },
+    );
+  });
+
   it('refuses a removal when enter_workspace is not allowlisted', async () => {
     const source = clone();
     const { directory } = worktree(source, 'llame/x');
     rowOf(checkoutRow(directory));
     const executorsOf = executors();
-    const status = vi.spyOn(executorsOf, 'status');
+    const locate = vi.spyOn(executorsOf, 'locateEntry');
     const { removal } = service({
       config: configWith({ allowed: [] }),
       executors: executorsOf,
@@ -395,7 +518,7 @@ describe('WorktreeRemovalService', () => {
       message:
         'enter_workspace is not in tools.allowed, so this path may not be inspected.',
     });
-    expect(status).not.toHaveBeenCalled();
+    expect(locate).not.toHaveBeenCalled();
   });
 
   it('refuses a removal of a path the policy rejects, starting no git call', async () => {
@@ -403,7 +526,7 @@ describe('WorktreeRemovalService', () => {
     const { directory } = worktree(source, 'llame/x');
     rowOf(checkoutRow(directory));
     const executorsOf = executors();
-    const status = vi.spyOn(executorsOf, 'status');
+    const locate = vi.spyOn(executorsOf, 'locateEntry');
     const { removal } = service({
       executors: executorsOf,
       group: {
@@ -419,7 +542,7 @@ describe('WorktreeRemovalService', () => {
       status: 403,
       message: 'The host access policy does not allow this path.',
     });
-    expect(status).not.toHaveBeenCalled();
+    expect(locate).not.toHaveBeenCalled();
   });
 
   it('removes a worktree the group allows by its stored path', async () => {
@@ -445,7 +568,7 @@ describe('WorktreeRemovalService', () => {
     const { directory } = worktree(source, 'llame/x');
     rowOf(checkoutRow(directory));
     const executorsOf = executors({ nativeExecutorId: undefined });
-    const status = vi.spyOn(executorsOf, 'status');
+    const locate = vi.spyOn(executorsOf, 'locateEntry');
     const { removal } = service({
       config: configWith({ nativeExecutorId: undefined }),
       executors: executorsOf,
@@ -459,7 +582,7 @@ describe('WorktreeRemovalService', () => {
       message:
         'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
     });
-    expect(status).not.toHaveBeenCalled();
+    expect(locate).not.toHaveBeenCalled();
   });
 
   it('answers a missing or foreign row as not found', async () => {

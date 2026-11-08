@@ -88,11 +88,14 @@ const FS_READ_CALL: MachineCall<'fs.read'> = {
     options: { displayPrefix: 'machine://devl' },
   },
 };
-const GIT_STATUS_CALL: MachineCall<'git.status'> = {
-  method: 'git.status',
+const GIT_STATE_CALL: MachineCall<'git.state'> = {
+  method: 'git.state',
   params: {
     envelope: ENVELOPE,
     path: '/srv/app',
+    gitEntry: '/srv/app/.git',
+    limit: 10,
+    submodules: 'check',
     options: { displayPrefix: 'machine://devl' },
   },
 };
@@ -593,19 +596,19 @@ describe('MachineSession git methods', () => {
     value: { status: 'error', type: 'not_found', message: 'no' },
   };
 
-  it('refuses a git call on a daemon that listed none, before writing a frame', async () => {
+  it('Outdated daemon asks for an update: a daemon that listed none gets no frame', async () => {
     const { peer, session } = peerSession({
       roots: ['/srv/app'],
       answers: { 'fs.read': FS_READ_ANSWER },
     });
     await session.ready();
 
-    const error = await failedCall(session.request(GIT_STATUS_CALL));
+    const error = await failedCall(session.request(GIT_STATE_CALL));
 
     expect(error).toBeInstanceOf(MachineUpdateRequiredError);
     expect(error.name).toBe('MachineUpdateRequiredError');
     expect(error.message).toBe(
-      'The llame-machine daemon on devl answers no git.status. Update the daemon on that Machine to use git operations on it.',
+      'The llame-machine daemon on devl answers no git.state. Update the daemon on that Machine to use git operations on it.',
     );
     // The same session still runs a file tool: only the git surface is
     // missing on a daemon that predates it.
@@ -614,8 +617,39 @@ describe('MachineSession git methods', () => {
       type: 'not_found',
     });
     const machine = await peer.session(0);
-    expect(machine.requests).not.toContain('git.status');
+    expect(machine.requests).not.toContain('git.state');
     expect(machine.requests).toContain('fs.read');
+  });
+
+  it('A daemon without the state method asks for an update', async () => {
+    // The five methods a daemon listed before `git.locate` and `git.state`.
+    const { peer, session } = peerSession({
+      roots: ['/srv/app'],
+      methods: [
+        'git.inspect',
+        'git.worktreeAdd',
+        'git.worktreeList',
+        'git.worktreeRemove',
+        'git.status',
+      ],
+    });
+    await expect(session.ready()).resolves.toMatchObject({
+      protocolVersion: PROTOCOL_VERSION,
+    });
+
+    const error = await failedCall(session.request(GIT_STATE_CALL));
+
+    expect(error).toBeInstanceOf(MachineUpdateRequiredError);
+    expect((await peer.session(0)).requests).not.toContain('git.state');
+  });
+
+  it('Handshake with an old daemon still succeeds', async () => {
+    const { session } = peerSession({ roots: ['/srv/app'] });
+    await expect(session.ready()).resolves.toMatchObject({
+      protocolVersion: PROTOCOL_VERSION,
+      roots: ['/srv/app'],
+    });
+    expect(session.isReady).toBe(true);
   });
 
   it('sends a listed git method with its display prefix', async () => {
@@ -623,22 +657,21 @@ describe('MachineSession git methods', () => {
       roots: ['/srv/app'],
       methods: [...GIT_METHODS],
       answers: {
-        'git.status': {
-          value: { status: 'ok', dirty: false, ahead: 0, head: null },
+        'git.state': {
+          value: { status: 'error', type: 'timed_out', stderr: '' },
         },
       },
     });
     await session.ready();
 
-    await expect(session.request(GIT_STATUS_CALL)).resolves.toEqual({
-      status: 'ok',
-      dirty: false,
-      ahead: 0,
-      head: null,
+    await expect(session.request(GIT_STATE_CALL)).resolves.toEqual({
+      status: 'error',
+      type: 'timed_out',
+      stderr: '',
     });
     const machine = await peer.session(0);
     expect(
-      machine.calls.find((call) => call.method === 'git.status')?.params,
+      machine.calls.find((call) => call.method === 'git.state')?.params,
     ).toMatchObject({ options: { displayPrefix: 'machine://devl' } });
   });
 });

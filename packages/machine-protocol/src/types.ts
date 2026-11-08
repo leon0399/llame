@@ -460,24 +460,6 @@ export type GitInspectSuccess = {
 };
 export type GitInspectResult = GitInspectSuccess | GitFailure;
 
-/** `git.status`: the working tree's state and its place against its upstream. */
-export type GitStatusParams = {
-  readonly envelope: RequestEnvelope;
-  readonly path: string;
-  readonly options: NativeDisplayOptions;
-};
-export type GitStatusSuccess = {
-  readonly status: "ok";
-  readonly dirty: boolean;
-  /** Commits the branch is ahead of its upstream; zero without an upstream. */
-  readonly ahead: number;
-  /** The upstream ref, absent when the branch tracks none. */
-  readonly upstream?: string;
-  /** `null` on an unborn branch, which has no commit yet. */
-  readonly head: string | null;
-};
-export type GitStatusResult = GitStatusSuccess | GitFailure;
-
 /** `git.locate`: the nearest `.git` entry at or above `path`, found by a stat
  *  walk that starts no git process. */
 export type GitLocateParams = {
@@ -627,7 +609,8 @@ export type MachineMethodParams = {
   readonly "git.worktreeAdd": GitWorktreeAddParams;
   readonly "git.worktreeList": GitWorktreeListParams;
   readonly "git.worktreeRemove": GitWorktreeRemoveParams;
-  readonly "git.status": GitStatusParams;
+  readonly "git.locate": GitLocateParams;
+  readonly "git.state": GitStateParams;
 };
 
 /** Every method's result, keyed by the same names. */
@@ -648,7 +631,8 @@ export type MachineMethodResults = {
   readonly "git.worktreeAdd": GitWorktreeAddResult;
   readonly "git.worktreeList": GitWorktreeListResult;
   readonly "git.worktreeRemove": GitWorktreeRemoveResult;
-  readonly "git.status": GitStatusResult;
+  readonly "git.locate": GitLocateResult;
+  readonly "git.state": GitStateResult;
 };
 
 export type MachineMethod = keyof MachineMethodParams;

@@ -1,32 +1,38 @@
 import {
   GIT_INSPECT_METHOD,
-  GIT_STATUS_METHOD,
+  GIT_LOCATE_METHOD,
+  GIT_STATE_METHOD,
   GIT_WORKTREE_ADD_METHOD,
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
+  isIntegerValue,
   PATH_NOT_REGISTERED_MESSAGE,
   type GitFailure,
   type GitInspectResult,
-  type GitStatusResult,
+  type GitLocateResult,
+  type GitStateResult,
   type GitWorktreeAddResult,
   type GitWorktreeEntry,
   type GitWorktreeListResult,
   type GitWorktreeRemoveResult,
   type NativeDisplayOptions,
+  type SerializableRecord,
   type SerializableValue,
 } from "@workspace/machine-protocol";
 import {
   addWorktree,
   inspectRepository,
   listWorktrees,
+  locateRepository,
   removeWorktree,
-  statusRepository,
+  stateRepository,
 } from "@workspace/git-executor";
 import type { OperationContext } from "./dispatch-types";
 import { MachineRequestError } from "./errors";
 import { isInsideRoots, rewriteRootPrefixes } from "./locators";
 import {
   optionalString,
+  optionalInteger,
   paramRecord,
   refuseUnknownKeys,
   requireDisplayOptions,
@@ -115,23 +121,107 @@ export async function inspectOperation(
   };
 }
 
-export async function statusOperation(
+/** The outermost registered root that holds `path`: the walk and the
+ *  repository checks stop there, so nothing above the roots is read. */
+function outermostRoot(
+  context: OperationContext,
+  path: string,
+): string | undefined {
+  const holding = context.guard.roots.filter((root) =>
+    isInsideRoots([root], path),
+  );
+  return holding.reduce<string | undefined>(
+    (outer, root) =>
+      outer === undefined || root.length < outer.length ? root : outer,
+    undefined,
+  );
+}
+
+export async function locateOperation(
   params: SerializableValue,
   context: OperationContext,
-): Promise<GitStatusResult> {
-  const source = paramRecord(params, GIT_STATUS_METHOD);
-  refuseUnknownKeys(source, GIT_STATUS_METHOD, ["envelope", "options", "path"]);
-  const options = requireDisplayOptions(source, GIT_STATUS_METHOD);
+): Promise<GitLocateResult> {
+  const source = paramRecord(params, GIT_LOCATE_METHOD);
+  refuseUnknownKeys(source, GIT_LOCATE_METHOD, ["envelope", "options", "path"]);
+  const options = requireDisplayOptions(source, GIT_LOCATE_METHOD);
   const guarded = await context.guard.resolvePath(
-    requireString(source, "path", GIT_STATUS_METHOD),
+    requireString(source, "path", GIT_LOCATE_METHOD),
   );
-  const result = await statusRepository(
-    { path: guarded.canonical },
+  const result = await locateRepository(
+    {
+      path: guarded.canonical,
+      ceiling: outermostRoot(context, guarded.canonical),
+    },
     { signal: context.signal },
   );
-  return result.status === "error"
-    ? renderFailure(result, context, options)
-    : result;
+  if (result.status === "error") return renderFailure(result, context, options);
+  return {
+    ...result,
+    gitEntry: resultLocator(options, context, result.gitEntry),
+  };
+}
+
+function invalid(message: string): GitFailure {
+  return { status: "error", type: "invalid_input", message };
+}
+
+const MAXIMUM_STATE_LIMIT = 1000;
+
+function readStateBounds(
+  source: SerializableRecord,
+):
+  | { readonly limit: number; readonly submodules: "skip" | "check" }
+  | GitFailure {
+  const { limit, submodules } = source;
+  if (!isIntegerValue(limit) || limit < 0 || limit > MAXIMUM_STATE_LIMIT) {
+    return invalid(
+      `limit must be a whole number from 0 to ${String(MAXIMUM_STATE_LIMIT)}`,
+    );
+  }
+  if (submodules !== "skip" && submodules !== "check") {
+    return invalid('submodules must be "skip" or "check"');
+  }
+  return { limit, submodules };
+}
+
+export async function stateOperation(
+  params: SerializableValue,
+  context: OperationContext,
+): Promise<GitStateResult> {
+  const source = paramRecord(params, GIT_STATE_METHOD);
+  refuseUnknownKeys(source, GIT_STATE_METHOD, [
+    "envelope",
+    "options",
+    "path",
+    "gitEntry",
+    "limit",
+    "submodules",
+    "timeoutMs",
+  ]);
+  const options = requireDisplayOptions(source, GIT_STATE_METHOD);
+  const path = requireString(source, "path", GIT_STATE_METHOD);
+  const gitEntry = requireString(source, "gitEntry", GIT_STATE_METHOD);
+  const bounds = readStateBounds(source);
+  if ("status" in bounds) return bounds;
+  const timeoutMs = optionalInteger(source, "timeoutMs", GIT_STATE_METHOD, 1);
+  const guarded = await context.guard.resolvePath(path);
+  const entry = await context.guard.resolvePath(gitEntry);
+  const result = await stateRepository(
+    {
+      path: guarded.canonical,
+      gitEntry: entry.canonical,
+      limit: bounds.limit,
+      submodules: bounds.submodules,
+      ceiling: outermostRoot(context, guarded.canonical),
+      confine: (candidate) => isInsideRoots(context.guard.roots, candidate),
+    },
+    { signal: context.signal, timeoutMs },
+  );
+  if (result.status === "error") return renderFailure(result, context, options);
+  return {
+    ...result,
+    toplevel: resultLocator(options, context, result.toplevel),
+  };
 }
 
 export async function worktreeAddOperation(

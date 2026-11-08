@@ -10,7 +10,8 @@ export const GIT_INSPECT_METHOD = "git.inspect";
 export const GIT_WORKTREE_ADD_METHOD = "git.worktreeAdd";
 export const GIT_WORKTREE_LIST_METHOD = "git.worktreeList";
 export const GIT_WORKTREE_REMOVE_METHOD = "git.worktreeRemove";
-export const GIT_STATUS_METHOD = "git.status";
+export const GIT_LOCATE_METHOD = "git.locate";
+export const GIT_STATE_METHOD = "git.state";
 
 /** Every git method, in the order the handshake lists them. */
 export const GIT_METHODS = [
@@ -18,7 +19,8 @@ export const GIT_METHODS = [
   GIT_WORKTREE_ADD_METHOD,
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
-  GIT_STATUS_METHOD,
+  GIT_LOCATE_METHOD,
+  GIT_STATE_METHOD,
 ] as const;
 
 export type GitMethod = (typeof GIT_METHODS)[number];

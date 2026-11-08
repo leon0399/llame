@@ -1,6 +1,7 @@
 import {
   GIT_INSPECT_METHOD,
-  GIT_STATUS_METHOD,
+  GIT_LOCATE_METHOD,
+  GIT_STATE_METHOD,
   GIT_WORKTREE_ADD_METHOD,
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
@@ -26,7 +27,8 @@ import {
 } from "./files";
 import {
   inspectOperation,
-  statusOperation,
+  locateOperation,
+  stateOperation,
   worktreeAddOperation,
   worktreeListOperation,
   worktreeRemoveOperation,
@@ -58,7 +60,8 @@ const OPERATIONS: OperationTable = {
   [GIT_WORKTREE_ADD_METHOD]: worktreeAddOperation,
   [GIT_WORKTREE_LIST_METHOD]: worktreeListOperation,
   [GIT_WORKTREE_REMOVE_METHOD]: worktreeRemoveOperation,
-  [GIT_STATUS_METHOD]: statusOperation,
+  [GIT_LOCATE_METHOD]: locateOperation,
+  [GIT_STATE_METHOD]: stateOperation,
 };
 
 const STREAM_KEEPING_OPERATIONS: Readonly<Partial<Record<Operation, true>>> = {

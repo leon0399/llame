@@ -37,8 +37,9 @@ export { createHeartbeat } from "./heartbeat";
 export type { Heartbeat, HeartbeatOptions } from "./heartbeat";
 export {
   GIT_INSPECT_METHOD,
+  GIT_LOCATE_METHOD,
   GIT_METHODS,
-  GIT_STATUS_METHOD,
+  GIT_STATE_METHOD,
   GIT_WORKTREE_ADD_METHOD,
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
@@ -136,9 +137,6 @@ export type {
   GitStateParams,
   GitStateResult,
   GitStateSuccess,
-  GitStatusParams,
-  GitStatusResult,
-  GitStatusSuccess,
   GitWorktreeAddParams,
   GitWorktreeAddResult,
   GitWorktreeAddSuccess,

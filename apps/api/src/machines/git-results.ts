@@ -14,7 +14,9 @@ import {
   type GitFailure,
   type GitInspectResult,
   type GitRepositoryRemote,
-  type GitStatusResult,
+  type GitLocateResult,
+  type GitStateResult,
+  type GitStateSuccess,
   type GitWorktreeAddResult,
   type GitWorktreeEntry,
   type GitWorktreeListResult,
@@ -55,6 +57,23 @@ function readOptionalText(
   return isText(value) ? { value } : undefined;
 }
 
+const STDERR_FAILURE_TYPES = [
+  'not_a_repository',
+  'timed_out',
+  'git_failed',
+  'no_repository_in_root',
+  'root_missing',
+  'git_entry_changed',
+  'outside_registered_root',
+  'output_bound',
+] as const;
+
+function isStderrFailureType(
+  value: SerializableValue,
+): value is (typeof STDERR_FAILURE_TYPES)[number] {
+  return STDERR_FAILURE_TYPES.some((type) => type === value);
+}
+
 /** A git refusal or failure, as a `git.*` method answers it. */
 function readGitFailure(value: JsonValue): GitFailure | undefined {
   if (!isSerializableRecord(value) || value['status'] !== 'error')
@@ -66,12 +85,7 @@ function readGitFailure(value: JsonValue): GitFailure | undefined {
       ? { status: 'error', type: 'invalid_input', message }
       : undefined;
   }
-  if (
-    type !== 'not_a_repository' &&
-    type !== 'timed_out' &&
-    type !== 'git_failed'
-  )
-    return undefined;
+  if (!isStderrFailureType(type)) return undefined;
   const stderr = value['stderr'];
   return isText(stderr) ? { status: 'error', type, stderr } : undefined;
 }
@@ -129,26 +143,226 @@ export function readGitInspectResult(
   };
 }
 
-/** A `git.status` answer: dirty, ahead, upstream, head, or a typed failure. */
-export function readGitStatusResult(
+/** A `git.locate` answer: the entry as a locator and its kind, or a failure. */
+export function readGitLocateResult(
   value: JsonValue,
-): GitStatusResult | undefined {
+  machine: string,
+): GitLocateResult | undefined {
   const failure = readGitFailure(value);
   if (failure !== undefined) return failure;
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
-  const { dirty, ahead, upstream } = value;
-  const head = readOptionalText(value['head']);
-  if (!isFlag(dirty) || !isCount(ahead) || head === undefined) return undefined;
-  if (upstream !== undefined && upstream !== null && !isText(upstream))
+  const gitEntry = readLocatorPath(machine, value['gitEntry']);
+  const kind = value['kind'];
+  if (gitEntry === undefined || (kind !== 'directory' && kind !== 'file'))
     return undefined;
-  const status: GitStatusResult = {
-    status: 'ok',
-    dirty,
-    ahead,
-    head: head.value,
+  return { status: 'ok', gitEntry: gitEntry.value, kind };
+}
+
+type StateUpstream = NonNullable<GitStateSuccess['upstream']>;
+type StateOperation = NonNullable<GitStateSuccess['operation']>;
+type Writable<T> = { -readonly [K in keyof T]: T[K] };
+
+const STATE_OPERATION_KINDS = [
+  'merge',
+  'rebase',
+  'am',
+  'cherry-pick',
+  'revert',
+  'bisect',
+] as const;
+
+/** A count that is absent or null, as `null`; anything else unusable fails. */
+function readNullableCount(
+  value: SerializableValue,
+): { readonly value: number | null } | undefined {
+  if (value === null || value === undefined) return { value: null };
+  return isCount(value) ? { value } : undefined;
+}
+
+function readStateUpstream(
+  value: SerializableValue,
+): { readonly value: StateUpstream | null } | undefined {
+  if (value === null || value === undefined) return { value: null };
+  if (!isSerializableRecord(value)) return undefined;
+  const { name, gone } = value;
+  const ahead = readNullableCount(value['ahead']);
+  const behind = readNullableCount(value['behind']);
+  const updatedAt = readOptionalText(value['updatedAt']);
+  if (
+    !isText(name) ||
+    !isFlag(gone) ||
+    ahead === undefined ||
+    behind === undefined ||
+    updatedAt === undefined
+  )
+    return undefined;
+  return {
+    value: {
+      name,
+      gone,
+      ahead: ahead.value,
+      behind: behind.value,
+      updatedAt: updatedAt.value,
+    },
   };
-  return isText(upstream) ? { ...status, upstream } : status;
+}
+
+function readStateOperation(
+  value: SerializableValue,
+): { readonly value: StateOperation | null } | undefined {
+  if (value === null || value === undefined) return { value: null };
+  if (!isSerializableRecord(value)) return undefined;
+  const kind = STATE_OPERATION_KINDS.find((known) => known === value['kind']);
+  const { step, total } = value;
+  if (kind === undefined) return undefined;
+  if (step !== undefined && !isCount(step)) return undefined;
+  if (total !== undefined && !isCount(total)) return undefined;
+  const operation: Writable<StateOperation> = { kind };
+  if (step !== undefined) operation.step = step;
+  if (total !== undefined) operation.total = total;
+  return { value: operation };
+}
+
+function readStateCounts(
+  value: SerializableValue,
+): GitStateSuccess['counts'] | undefined {
+  if (!isSerializableRecord(value)) return undefined;
+  const { staged, unstaged, untracked, conflicted } = value;
+  if (
+    !isCount(staged) ||
+    !isCount(unstaged) ||
+    !isCount(untracked) ||
+    !isCount(conflicted)
+  )
+    return undefined;
+  return { staged, unstaged, untracked, conflicted };
+}
+
+function readStateEntries(
+  value: SerializableValue,
+): GitStateSuccess['entries'] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const entries: Array<GitStateSuccess['entries'][number]> = [];
+  for (const entry of value) {
+    if (!isSerializableRecord(entry)) return undefined;
+    const { xy, path, from } = entry;
+    if (!isText(xy) || !isText(path)) return undefined;
+    if (from !== undefined && !isText(from)) return undefined;
+    entries.push(from === undefined ? { xy, path } : { xy, path, from });
+  }
+  return entries;
+}
+
+function readStateCommits(
+  value: SerializableValue,
+): GitStateSuccess['commits'] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const commits: Array<GitStateSuccess['commits'][number]> = [];
+  for (const commit of value) {
+    if (!isSerializableRecord(commit)) return undefined;
+    const { short, subject } = commit;
+    if (!isText(short) || !isText(subject)) return undefined;
+    commits.push({ short, subject });
+  }
+  return commits;
+}
+
+function readTextList(
+  value: SerializableValue,
+): ReadonlyArray<string> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items: ReadonlyArray<SerializableValue> = value;
+  const texts: Array<string> = [];
+  for (const entry of items) {
+    if (!isText(entry)) return undefined;
+    texts.push(entry);
+  }
+  return texts;
+}
+
+type StateHead = Pick<
+  GitStateSuccess,
+  'branch' | 'detached' | 'head' | 'upstream' | 'operation'
+>;
+type StateChanges = Pick<
+  GitStateSuccess,
+  'counts' | 'entries' | 'omitted' | 'submodules' | 'commits' | 'remotes'
+>;
+
+function readStateHead(
+  value: Readonly<Record<string, SerializableValue>>,
+): StateHead | undefined {
+  const branch = readOptionalText(value['branch']);
+  const head = readOptionalText(value['head']);
+  const upstream = readStateUpstream(value['upstream']);
+  const operation = readStateOperation(value['operation']);
+  const { detached } = value;
+  if (
+    branch === undefined ||
+    head === undefined ||
+    upstream === undefined ||
+    operation === undefined ||
+    !isFlag(detached)
+  )
+    return undefined;
+  return {
+    branch: branch.value,
+    detached,
+    head: head.value,
+    upstream: upstream.value,
+    operation: operation.value,
+  };
+}
+
+function readStateChanges(
+  value: Readonly<Record<string, SerializableValue>>,
+): StateChanges | undefined {
+  const counts = readStateCounts(value['counts']);
+  const entries = readStateEntries(value['entries']);
+  const submodules = readTextList(value['submodules']);
+  const commits = readStateCommits(value['commits']);
+  const remotes = readGitRemotes(value['remotes']);
+  const { omitted } = value;
+  if (
+    counts === undefined ||
+    entries === undefined ||
+    !isCount(omitted) ||
+    submodules === undefined ||
+    commits === undefined ||
+    remotes === undefined
+  )
+    return undefined;
+  return { counts, entries, omitted, submodules, commits, remotes };
+}
+
+/** A `git.state` answer: every field rebuilt, the toplevel as a locator. */
+export function readGitStateResult(
+  value: JsonValue,
+  machine: string,
+): GitStateResult | undefined {
+  const failure = readGitFailure(value);
+  if (failure !== undefined) return failure;
+  if (!isSerializableRecord(value) || value['status'] !== 'ok')
+    return undefined;
+  const toplevel = readLocatorPath(machine, value['toplevel']);
+  const head = readStateHead(value);
+  const changes = readStateChanges(value);
+  const { rootRelative } = value;
+  if (
+    toplevel === undefined ||
+    !isText(rootRelative) ||
+    head === undefined ||
+    changes === undefined
+  )
+    return undefined;
+  return {
+    status: 'ok',
+    toplevel: toplevel.value,
+    rootRelative,
+    ...head,
+    ...changes,
+  };
 }
 
 /** A `git.worktreeAdd` answer: the created worktree, or a typed failure. */

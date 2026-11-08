@@ -124,13 +124,16 @@ stable. On jump hosts, allow forwarding only to the next hop, for example
 To report the daemon's errors and traces to Sentry, set its variables in the
 same forced command; see [observability](observability.md#machine-daemon).
 
-The daemon also answers the typed git methods (`git.inspect`, `git.status`,
-`git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`) that checkout
-registration and worktree entry use. They are additive to the protocol: the
+The daemon also answers the typed git methods (`git.inspect`, `git.locate`,
+`git.state`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`) that
+checkout registration, worktree entry, and worktree removal use. `git.locate`
+finds the nearest `.git` entry inside the registered roots without starting git,
+and `git.state` reads the repository state of that entry. They are additive to the protocol: the
 version did not change, and the handshake lists every method a daemon answers.
 After updating the hub, replace the daemon binary on each box with the same
-build. A box whose handshake listed no git methods keeps serving files and
-`bash`, and a git call on it fails as `machine_update_required` until the
+build. A box whose handshake lacks a git method keeps serving files and
+`bash`, and a git call that needs the missing method (worktree removal needs
+`git.locate` and `git.state`) fails as `machine_update_required` until the
 binary is replaced.
 
 One request shape is not additive: the `fs.grep` request carries its bounds in

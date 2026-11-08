@@ -1,6 +1,7 @@
 import {
   readGitInspectResult,
-  readGitStatusResult,
+  readGitLocateResult,
+  readGitStateResult,
   readGitWorktreeAddResult,
   readGitWorktreeListResult,
   readGitWorktreeRemoveResult,
@@ -135,49 +136,171 @@ describe('readGitInspectResult', () => {
   });
 });
 
-describe('readGitStatusResult', () => {
-  it('accepts a status with and without an upstream', () => {
+describe('readGitLocateResult', () => {
+  it('accepts the entry as a locator and every failure type', () => {
     expect(
-      readGitStatusResult({
-        status: 'ok',
-        dirty: true,
-        ahead: 2,
-        upstream: 'origin/main',
-        head: 'a'.repeat(40),
-      }),
+      readGitLocateResult(
+        {
+          status: 'ok',
+          gitEntry: 'machine://devl/srv/app/.git',
+          kind: 'directory',
+        },
+        MACHINE,
+      ),
     ).toEqual({
       status: 'ok',
-      dirty: true,
-      ahead: 2,
-      upstream: 'origin/main',
-      head: 'a'.repeat(40),
+      gitEntry: 'machine://devl/srv/app/.git',
+      kind: 'directory',
     });
-    expect(
-      readGitStatusResult({ status: 'ok', dirty: false, ahead: 0, head: null }),
-    ).toEqual({ status: 'ok', dirty: false, ahead: 0, head: null });
-  });
-
-  it('returns a typed failure unchanged', () => {
-    const failure = { status: 'error', type: 'timed_out', stderr: '' };
-    expect(readGitStatusResult(failure)).toEqual(failure);
+    for (const type of [
+      'no_repository_in_root',
+      'root_missing',
+      'git_entry_changed',
+      'outside_registered_root',
+      'output_bound',
+    ]) {
+      const failure = { status: 'error', type, stderr: '' };
+      expect(readGitLocateResult(failure, MACHINE)).toEqual(failure);
+    }
   });
 
   it.each([
-    ['a dirty flag that is not a boolean', { dirty: 'yes' }],
-    ['a negative count', { ahead: -1 }],
-    ['a fractional count', { ahead: 1.5 }],
-    ['an upstream that is not text', { upstream: 7 }],
-    ['a head that is not text', { head: 7 }],
+    ['a gitEntry that is not a locator', { gitEntry: '/srv/app/.git' }],
+    ['a locator of another Machine', { gitEntry: 'machine://other/a/.git' }],
+    ['an unknown kind', { kind: 'link' }],
     ['an unknown status', { status: 'done' }],
   ])('refuses %s', (_case, override) => {
     expect(
-      readGitStatusResult({
-        status: 'ok',
-        dirty: false,
-        ahead: 0,
-        head: 'a'.repeat(40),
-        ...override,
-      }),
+      readGitLocateResult(
+        {
+          status: 'ok',
+          gitEntry: 'machine://devl/srv/app/.git',
+          kind: 'file',
+          ...override,
+        },
+        MACHINE,
+      ),
+    ).toBeUndefined();
+  });
+});
+
+const STATE = {
+  status: 'ok',
+  toplevel: 'machine://devl/srv/app',
+  rootRelative: 'src',
+  branch: 'main',
+  detached: false,
+  head: 'a'.repeat(40),
+  upstream: {
+    name: 'origin/main',
+    gone: false,
+    ahead: 1,
+    behind: 0,
+    updatedAt: '2026-11-08T10:00:00Z',
+  },
+  operation: { kind: 'rebase', step: 1, total: 3 },
+  counts: { staged: 1, unstaged: 2, untracked: 3, conflicted: 0 },
+  entries: [
+    { xy: 'M ', path: 'a.ts' },
+    { xy: 'R ', path: 'b.ts', from: 'c.ts' },
+  ],
+  omitted: 4,
+  submodules: ['vendor/x'],
+  commits: [{ short: 'abc1234', subject: 'add a' }],
+  remotes: [{ name: 'origin', url: 'https://example.test/a.git' }],
+};
+
+describe('readGitStateResult', () => {
+  it('rebuilds a full answer, with the toplevel as a locator', () => {
+    expect(readGitStateResult(STATE, MACHINE)).toEqual(STATE);
+  });
+
+  it('accepts the null forms of an unborn, detached, idle branch', () => {
+    const quiet = {
+      ...STATE,
+      branch: null,
+      detached: true,
+      head: null,
+      upstream: null,
+      operation: null,
+      entries: [],
+      omitted: 0,
+      submodules: [],
+      commits: [],
+      remotes: [],
+    };
+    expect(readGitStateResult(quiet, MACHINE)).toEqual(quiet);
+  });
+
+  it('accepts a gone upstream with unknown counts', () => {
+    const gone = {
+      ...STATE,
+      upstream: {
+        name: 'origin/old',
+        gone: true,
+        ahead: null,
+        behind: null,
+        updatedAt: null,
+      },
+    };
+    expect(readGitStateResult(gone, MACHINE)).toEqual(gone);
+  });
+
+  it('drops a field the protocol does not declare', () => {
+    expect(
+      readGitStateResult({ ...STATE, secret: '/home/leo' }, MACHINE),
+    ).toEqual(STATE);
+  });
+
+  it('returns a typed failure unchanged', () => {
+    const failure = { status: 'error', type: 'git_entry_changed', stderr: '' };
+    expect(readGitStateResult(failure, MACHINE)).toEqual(failure);
+  });
+
+  it.each([
+    ['a toplevel that is not a locator', { toplevel: '/srv/app' }],
+    ['a rootRelative that is not text', { rootRelative: 1 }],
+    ['a detached flag that is not a boolean', { detached: 'no' }],
+    ['a head that is not text', { head: 7 }],
+    ['an upstream that is not an object', { upstream: 'origin/main' }],
+    [
+      'an upstream whose gone flag is missing',
+      { upstream: { ...STATE.upstream, gone: undefined } },
+    ],
+    [
+      'an upstream with a negative ahead',
+      { upstream: { ...STATE.upstream, ahead: -1 } },
+    ],
+    [
+      'an upstream whose updatedAt is not text',
+      { upstream: { ...STATE.upstream, updatedAt: 5 } },
+    ],
+    ['an unknown operation kind', { operation: { kind: 'stash' } }],
+    [
+      'an operation step that is not a count',
+      { operation: { kind: 'am', step: -1 } },
+    ],
+    [
+      'an operation total that is not a count',
+      { operation: { kind: 'am', total: 'x' } },
+    ],
+    ['counts that are not an object', { counts: 3 }],
+    ['a fractional count', { counts: { ...STATE.counts, staged: 1.5 } }],
+    ['entries that are not a list', { entries: 'a.ts' }],
+    ['an entry that is not an object', { entries: ['a.ts'] }],
+    ['an entry with a numeric xy', { entries: [{ xy: 1, path: 'a' }] }],
+    [
+      'an entry whose from is not text',
+      { entries: [{ xy: 'R ', path: 'a', from: 1 }] },
+    ],
+    ['an omitted count that is negative', { omitted: -1 }],
+    ['submodules that are not text', { submodules: [1] }],
+    ['a commit without a subject', { commits: [{ short: 'abc' }] }],
+    ['a remote without a url', { remotes: [{ name: 'origin' }] }],
+    ['an unknown status', { status: 'done' }],
+  ])('refuses %s', (_case, override) => {
+    expect(
+      readGitStateResult({ ...STATE, ...override }, MACHINE),
     ).toBeUndefined();
   });
 });
