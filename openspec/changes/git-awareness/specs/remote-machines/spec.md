@@ -6,11 +6,11 @@
 
 The daemon MUST answer the git methods `git.inspect`, `git.worktreeAdd`,
 `git.worktreeList`, `git.worktreeRemove`, `git.locate`, and `git.state`. Each
-method MUST take one strict object. A git process MUST get an argument array. A
-caller value that starts with `-` MUST fail as `invalid_input` before any
-command starts. Other caller values MUST follow `--end-of-options` or `--` where
-the subcommand accepts one. A path MUST be absolute. A failed command MUST
-return a typed failure with the git standard error.
+method MUST take one strict object. Git MUST get an argument array. A caller
+value that starts with `-` MUST fail as `invalid_input` before git starts. Other
+caller values MUST follow `--end-of-options` or `--` where the subcommand
+accepts one. A path MUST be absolute. A failed command MUST return a typed
+failure with the git standard error.
 
 #### Scenario: Repository is inspected
 
