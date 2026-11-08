@@ -23,16 +23,16 @@ master
   <- git-awareness/finalize
 ```
 
-| Layer             | Parent            | Ownership                                                                                                | Authored estimate | Closes       |
-| ----------------- | ----------------- | -------------------------------------------------------------------------------------------------------- | ----------------- | ------------ |
-| `proposal`        | `master`          | Proposal, design, deltas, and this list.                                                                 | ~1,500            | none         |
-| `executor`        | `proposal`        | `locate` and `state` in `packages/git-executor`, the truncation flag, protocol types, fixture tests.     | ~1,800            | none         |
-| `machine`         | `executor`        | Daemon and hub methods with root confinement and deadlines, removal guard, `git.status` deletion, docs.  | ~1,700            | none         |
-| `snapshot`        | `machine`         | The snapshot service: admission, failure mapping, bounds, quoting, remotes, neutralization, template.    | ~1,400            | none         |
-| `producer`        | `snapshot`        | The in-Run `git` producer for turn start and entry, precedence, compaction instruction, docs, CHANGELOG. | ~1,600            | none         |
-| `route`           | `producer`        | The owner route, its DTO, OpenAPI, and the regenerated client.                                           | ~700              | none         |
-| `session-details` | `route`           | The Repository block in Session details, stories, CHANGELOG.                                             | ~800              | #1615, #1417 |
-| `finalize`        | `session-details` | Spec sync, task records, archive.                                                                        | ~1,500            | none         |
+| Layer             | Parent            | Ownership                                                                                                | Authored estimate | Closes |
+| ----------------- | ----------------- | -------------------------------------------------------------------------------------------------------- | ----------------- | ------ |
+| `proposal`        | `master`          | Proposal, design, deltas, and this list.                                                                 | ~1,500            | none   |
+| `executor`        | `proposal`        | `locate` and `state` in `packages/git-executor`, the truncation flag, protocol types, fixture tests.     | ~1,800            | none   |
+| `machine`         | `executor`        | Daemon and hub methods with root confinement and deadlines, removal guard, `git.status` deletion, docs.  | ~1,700            | none   |
+| `snapshot`        | `machine`         | The snapshot service: admission, failure mapping, bounds, quoting, remotes, neutralization, template.    | ~1,400            | none   |
+| `producer`        | `snapshot`        | The in-Run `git` producer for turn start and entry, precedence, compaction instruction, docs, CHANGELOG. | ~1,600            | #1615  |
+| `route`           | `producer`        | The owner route, its DTO, OpenAPI, and the regenerated client.                                           | ~700              | none   |
+| `session-details` | `route`           | The Repository block in Session details, stories, CHANGELOG.                                             | ~800              | #1417  |
+| `finalize`        | `session-details` | Spec sync, task records, archive.                                                                        | ~1,500            | none   |
 
 Generated files count zero and are reported apart: `apps/api/openapi.json`
 and `apps/web/lib/api/generated/` in `route`. Re-estimate each layer against its parent before publication; split a
@@ -77,7 +77,8 @@ layer that grows past about 2,000 authored lines.
 - [ ] 5.2 Add the `git` `InRunContextProducer`: observe once per attempt outside the transaction, stage the turn-start item in `prepareTurn`, and stage an in-Run item after a settled `enter_workspace` that binds or switches; add `git` to `CONTEXT_ITEM_PRODUCERS` after `workspace`; derive told state from effective history; verify `An unbound Chat gets no git state`, `A bound Chat gets git state`, every scenario of `The git producer tells changed state`, `The git told state comes from effective history` (`Another owner cannot read git items` as an RLS integration test), `A binding change restarts the git told state`, and `Entry triggers an in-Run git item`, plus `Entry succeeds on a failed read`, `Workspace and git snapshots share a turn`, `Read-only mode keeps git state`, `A bypass turn changes the git line without the mode`, and the item outcome of `A slow repository times out` (the Run continues).
 - [ ] 5.3 Name the `git` producer in the compaction instruction; verify `The summary instruction names the git sources`.
 - [ ] 5.4 Mention the in-Run `git` item in `apps/api/src/prompts/tools/enter_workspace.md` and `docs/product/reference/tools/enter-workspace.md`; document the snapshot, its absence lines, and its bounds in `docs/product/reference/`; add the git line to `docs/product/reference/permission-modes.md`; add the dated CHANGELOG entry.
-- [ ] 5.5 Run api `lint`, `typecheck`, `test:coverage`, the API integration suites for chats and compaction, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [ ] 5.5 Put `Closes #1615` in the PR body: the producer layer ships the agent-facing git state that #1615 asks for.
+- [ ] 5.6 Run api `lint`, `typecheck`, `test:coverage`, the API integration suites for chats and compaction, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 6. route
 
@@ -90,14 +91,14 @@ layer that grows past about 2,000 authored lines.
 
 - [ ] 7.1 Create `git-awareness/session-details` from `route` with `$gh-stack`.
 - [ ] 7.2 Replace `BranchRow` with a Repository block fed by the route on open and window focus, and keep `RepositoryRow`; verify stories for `Session details shows the live branch`, `Session details shows an absence line`, and `A bound folder without a checkout record shows git state` with Storybook story tests.
-- [ ] 7.3 Add the dated CHANGELOG entry; put `Closes #1615` and `Closes #1417` in the PR body.
+- [ ] 7.3 Add the dated CHANGELOG entry; put `Closes #1417` in the PR body.
 - [ ] 7.4 Run web `lint`, `typecheck`, `test:coverage`, the story tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 8. finalize
 
 - [ ] 8.1 Create `git-awareness/finalize` from `session-details` with `$gh-stack` before any sync write.
 - [ ] 8.2 Run `$openspec-sync-specs`; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
-- [ ] 8.3 Confirm every task above is checked and the `session-details` PR lists #1615 and #1417 as closing references.
+- [ ] 8.3 Confirm every task above is checked, the `producer` PR lists #1615 and the `session-details` PR lists #1417 as closing references.
 
 ## Workflow follow-up
 

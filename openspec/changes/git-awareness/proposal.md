@@ -101,10 +101,10 @@ Please confirm each:
   unavailable: no repository inside the registered root"; a git directory,
   common directory, or alternate outside the roots says "git state
   unavailable: repository outside the registered root".
-- V5, grilling D25: `Closes #1615` moves from the producer layer to the
-  Session details layer, because #1615's acceptance includes Session details.
-  The protocol types ship with the executor layer because `git-executor`
-  re-exports them.
+- V5, grilling D25: `Closes #1615` stays on the producer layer, where the
+  agent-facing capability ships; the owner route and Session details belong to
+  #1417, which closes on the Session details layer. The protocol types ship with
+  the executor layer because `git-executor` re-exports them.
 - V6, grilling D6 (chosen by Leo on 2026-11-08): no `git` field in the
   `enter_workspace` result. A mid-Run entry stages an in-Run `git` item, and
   the producer derives its told state from effective history instead of
