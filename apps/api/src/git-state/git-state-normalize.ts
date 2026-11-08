@@ -6,6 +6,7 @@ import { type GitStateView } from './git-state-view';
 const MAX_REMOTES = 10;
 const MAX_COMMITS = 5;
 const MAX_LISTED = 20;
+const MAX_PATH_LENGTH = 4096;
 const NAME_LIMIT = 100;
 const SUBJECT_LIMIT = 72;
 const SHORT_HEAD = 7;
@@ -86,7 +87,10 @@ function canonicalTime(value: string | null): string | null {
 function boundLists(state: GitStateSuccess) {
   const valid = state.entries.filter((entry) => STATUS_CODE.test(entry.xy));
   const entries = valid.slice(0, MAX_LISTED);
-  const submodules = state.submodules.slice(0, MAX_LISTED - entries.length);
+  const listable = state.submodules.filter(
+    (path) => path.length <= MAX_PATH_LENGTH,
+  );
+  const submodules = listable.slice(0, MAX_LISTED - entries.length);
   const dropped =
     state.entries.length -
     entries.length +

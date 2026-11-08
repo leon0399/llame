@@ -488,4 +488,20 @@ describe('normalizeGitState', () => {
     expect(view.submodules).toEqual([]);
     expect(view.omitted).toBe(6);
   });
+
+  it('does not list a submodule path over 4,096 characters', () => {
+    const long = 'a'.repeat(5000);
+    const view = normalizeGitState({
+      ...BASE,
+      omitted: 0,
+      submodules: [long, 'vendor/lib'],
+    });
+    const text = render({ omitted: 0, submodules: [long, 'vendor/lib'] });
+
+    expect(view.submodules).toEqual(['vendor/lib']);
+    expect(view.omitted).toBe(1);
+    expect(
+      Math.max(...text.split('\n').map((line) => line.length)),
+    ).toBeLessThan(4096);
+  });
 });
