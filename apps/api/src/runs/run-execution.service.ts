@@ -8,6 +8,10 @@ import {
 import { isBashTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
+import {
+  deliverPendingSteering,
+  type DeliveredBoundary,
+} from './segment-delivery';
 import { machineAttemptKey } from './machine-attempt';
 import { probeMachinePromptTarget } from './machine-prompt-probe';
 import {
@@ -63,12 +67,15 @@ import {
   type SystemModelCatalogEntry,
 } from '../models/model-catalog';
 import { type ModelClient, type SdkRefusal } from '../models/model-client';
+import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import {
   ChatsRepository,
   MessagesRepository,
   isCompletedAssistantTurn,
 } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import {
@@ -619,7 +626,16 @@ type FinishRunResult =
       /** The Run a completed Run's transaction created for a queue item. */
       promoted?: RunJob;
     }
-  | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message };
+  | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message }
+  | {
+      /**
+       * A pending item kept the Run live: the segment's reply is closed and
+       * the Run moved onto the delivered message under a new attempt.
+       */
+      outcome: 'delivered';
+      assistantMessage?: Message;
+      delivery: DeliveredBoundary;
+    };
 
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
@@ -644,6 +660,19 @@ type ExecuteRunInput = {
   followUpAction?: FollowUpAction | null;
 };
 
+type ModelStreamResult = ReturnType<ModelClient['streamText']>;
+type ConsumeStreamOptions = Parameters<ModelStreamResult['consumeStream']>[0];
+
+/**
+ * One model call of an attempt and what it hands on. `next` is set when the
+ * call ended at a step boundary instead of the Run: the segment loop starts
+ * what it returns once the call is drained (run-steering D3).
+ */
+type AttemptRun = { result: ModelStreamResult; outcome: AttemptOutcome };
+type AttemptOutcome = {
+  next?: (previous: ModelStreamResult) => Promise<AttemptRun>;
+};
+
 /**
  * The run reached a terminal state (superseded / cancelled / expired) before
  * execution could claim it — nothing was executed, nothing was appended.
@@ -665,6 +694,19 @@ class ReplyAlreadyCompletedError extends Error {
     this.name = 'ReplyAlreadyCompletedError';
   }
 }
+
+/**
+ * The dispatch found a cancellation recorded on the Run: no request of this
+ * attempt goes out. The dispatch transaction rolls back on it.
+ */
+class CancellationRecordedError extends Error {
+  constructor(readonly runId: string) {
+    super(`Run ${runId} records a cancellation.`);
+    this.name = 'CancellationRecordedError';
+  }
+}
+
+function noop(): void {}
 
 /** Adapter locator decisions have their own cap and cannot crowd out hops or probes. */
 const MAX_ADAPTER_DECISIONS = 16;
@@ -1094,7 +1136,6 @@ export class RunExecutionService {
             : nativeAbort.signal,
         }
       : request;
-    const { client } = input;
 
     // Claim before any context preparation can invoke a model. Pre-step
     // compaction is part of this run's execution budget and cancellation
@@ -1160,6 +1201,8 @@ export class RunExecutionService {
         effort: started.effort ?? undefined,
         permissionMode: started.permissionMode,
         attemptId: started.activeAttemptId!,
+        // The Run's current message: a retry resumes the segment it names.
+        messageId: started.messageId,
         nativeDeliverySequence: startedEvent.sequence,
       };
     });
@@ -1183,16 +1226,126 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
     const { effort, permissionMode, attemptId } = claim;
+    // Every attempt, a crash retry included, reads the Run's current message
+    // from the Run row, not from the job: a delivery moved it (run-steering D3).
+    const firstSegment = claim.messageId === input.userMessage.id;
+    const attempt = await this.executeAttempt({
+      input: firstSegment
+        ? input
+        : await this.currentSegmentInput(input, claim.messageId),
+      nativeAbort,
+      effort,
+      permissionMode,
+      attemptId,
+      nativeDeliverySequence: claim.nativeDeliverySequence,
+      firstSegment,
+    });
+    return this.chainSegments(attempt);
+  }
+
+  /**
+   * The input of a later segment: the Run's current message in place of the
+   * job's. Only the first segment applies follow-up rules (run-steering D3).
+   */
+  private async currentSegmentInput(
+    input: ExecuteRunInput,
+    messageId: string | null,
+  ): Promise<ExecuteRunInput> {
+    const message =
+      messageId === null
+        ? undefined
+        : await this.tenantDb.runAs(input.userId, (tx) =>
+            new MessagesRepository(tx).findById(
+              input.chatId,
+              input.userId,
+              messageId,
+            ),
+          );
+    if (message === undefined) throw new RunNotRunnableError(input.runId);
+    return {
+      ...input,
+      userMessage: toRunUserMessage(message),
+      followUpAction: null,
+    };
+  }
+
+  /**
+   * One result for the whole Run: its `consumeStream()` drains the segment's
+   * call, then every call or segment that call handed on, and resolves only
+   * when the Run is terminal. `text` is the last call's text. Anything else
+   * reads the first call's result.
+   */
+  private chainSegments(first: AttemptRun): ModelStreamResult {
+    let last = first;
+    let drained: Promise<void> | undefined;
+    const drain = (options?: ConsumeStreamOptions): Promise<void> => {
+      drained ??= (async () => {
+        for (;;) {
+          const { result, outcome } = last;
+          await (result.consumeStream
+            ? result.consumeStream(options)
+            : result.text);
+          if (outcome.next === undefined) return;
+          last = await outcome.next(result);
+        }
+      })();
+      return drained;
+    };
+    return wrapStreamTextResult(first.result, {
+      consumeStream: () => ({ value: drain }),
+      text: () => ({ value: drain().then(() => last.result.text) }),
+    });
+  }
+
+  private async executeAttempt(attempt: {
+    input: ExecuteRunInput;
+    nativeAbort: AbortController | undefined;
+    effort: string | undefined;
+    permissionMode: PermissionMode;
+    attemptId: string;
+    nativeDeliverySequence: number;
+    /** False for a segment that a delivery started. */
+    firstSegment: boolean;
+  }): Promise<AttemptRun> {
+    const {
+      input,
+      nativeAbort,
+      effort,
+      permissionMode,
+      attemptId,
+      nativeDeliverySequence,
+      firstSegment,
+    } = attempt;
+    const { client } = input;
     // A Continue Run starts from the kept parts its admission recorded, in the
     // same transaction as its own row (turn-actions D5). Every later read of
     // this attempt — the request, the collector, the in-Run region — reads
     // that one state, so no path can disagree about where the turn resumes.
-    const continued = await this.loadContinueState(input);
+    // Only the first segment resumes them.
+    const continued = firstSegment
+      ? await this.loadContinueState(input)
+      : undefined;
     const effectivePermissionMode =
       this.resolveEffectivePermissionMode(permissionMode);
     if (input.abortSignal?.aborted) {
       await this.settleAbortedRun(input, attemptId);
     }
+    // The segment of a delivered message: a new attempt of this Run, in this
+    // worker, with no new claim.
+    const startDelivered = (delivery: DeliveredBoundary): Promise<AttemptRun> =>
+      this.executeAttempt({
+        input: {
+          ...input,
+          userMessage: toRunUserMessage(delivery.message),
+          followUpAction: null,
+        },
+        nativeAbort,
+        effort,
+        permissionMode,
+        attemptId: delivery.attemptId,
+        nativeDeliverySequence,
+        firstSegment: false,
+      });
 
     // Workspace validation is the first accepted-turn preparation step. Load
     // the owner-scoped Chat row once here and derive the binding from it; pass
@@ -1202,7 +1355,7 @@ export class RunExecutionService {
     );
     const workspacePreparation = await this.prepareWorkspace(
       input,
-      claim.nativeDeliverySequence,
+      nativeDeliverySequence,
       workspaceChat,
       effectivePermissionMode,
     );
@@ -1239,7 +1392,7 @@ export class RunExecutionService {
     // back through the ordinary path and recovery replays the stored text.
     const skillSelection = await this.activateMentionedSkills(
       input,
-      claim.nativeDeliverySequence,
+      nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
       continued !== undefined,
@@ -1256,7 +1409,7 @@ export class RunExecutionService {
     await this.resolvePromptImports({
       input,
       attemptId,
-      nativeDeliverySequence: claim.nativeDeliverySequence,
+      nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
       skillSelection,
@@ -1280,7 +1433,7 @@ export class RunExecutionService {
         workspaceMcpKey,
         dynamicResolver: attemptDynamicResolver,
         effectivePermissionMode,
-        nativeDeliverySequence: claim.nativeDeliverySequence,
+        nativeDeliverySequence,
         workspaceRootCell: workspaceRoot,
         effort,
         media,
@@ -1379,7 +1532,7 @@ export class RunExecutionService {
     // before the target call (design D1). The request already carries the
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
-    await this.tenantDb
+    const salvaged = await this.tenantDb
       .runAs(input.userId, (tx) =>
         this.dispatchAttempt(tx, {
           run: input,
@@ -1390,19 +1543,39 @@ export class RunExecutionService {
           permissionMode: effectivePermissionMode,
         }),
       )
-      .catch(async (error: unknown) => {
-        if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
-        // A salvaged answer completed the reply while the Run stayed live:
-        // this attempt settles the Run completed (the finalizer leaves that
-        // reply untouched) instead of dispatching a second answer.
-        await this.settleTerminalRun({
-          userId: input.userId,
-          runId: input.runId,
-          status: 'completed',
-          attemptId,
-        });
-        throw new RunNotRunnableError(input.runId);
-      });
+      .then(
+        (): DeliveredBoundary | undefined => undefined,
+        async (error: unknown) => {
+          if (error instanceof CancellationRecordedError) {
+            // A cancellation recorded before the first request of this
+            // segment: the delivered message gets no reply.
+            const message = this.abortedRunMessage('cancelled', undefined);
+            await this.settleTerminalRun({
+              userId: input.userId,
+              runId: input.runId,
+              status: 'cancelled',
+              attemptId,
+              runPayload: { status: 'cancelled', message },
+              error: { message },
+            });
+            throw new RunNotRunnableError(input.runId);
+          }
+          if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
+          // A salvaged answer completed the reply while the Run stayed live:
+          // this attempt settles the Run completed (the finalizer leaves that
+          // reply untouched) instead of dispatching a second answer. A pending
+          // item keeps the Run live instead (run-steering D5).
+          const settlement = await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            status: 'completed',
+            attemptId,
+          });
+          if (settlement.outcome === 'delivered') return settlement.delivery;
+          throw new RunNotRunnableError(input.runId);
+        },
+      );
+    if (salvaged !== undefined) return startDelivered(salvaged);
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta, reasoning.delta, AND
@@ -1433,7 +1606,7 @@ export class RunExecutionService {
     // onto the running reply with the collector's snapshot before the step's
     // request, and spliced into every later step by the model client's step
     // callback (design D3).
-    const inRunItems = createInRunContextItems();
+    let inRunItems = createInRunContextItems();
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- generic run-event payload dispatcher: shape depends on `eventType` (a discriminated union `RunEventsRepository.append` accepts), and every call site below already constructs the correct literal shape (see `persistDelta`/`persistReasoning`/`recordToolRequested`); this is the single serialization chokepoint, not a validation boundary.
@@ -1537,7 +1710,7 @@ export class RunExecutionService {
     const toolContext: ToolContext = {
       runId: input.runId,
       nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
-      nativeDeliverySequence: claim.nativeDeliverySequence,
+      nativeDeliverySequence,
       onNativeMutationUnknown: () =>
         nativeAbort?.abort(NATIVE_MUTATION_ABORT_REASON),
       productUserAgent: this.instanceConfig.productUserAgent,
@@ -1574,10 +1747,7 @@ export class RunExecutionService {
       permissionMode: effectivePermissionMode,
       machines: this.machineConnector,
       machineStatus: this.machinesStatus,
-      machineAttemptKey: machineAttemptKey(
-        input.runId,
-        claim.nativeDeliverySequence,
-      ),
+      machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
       sshClient: this.sshClient,
       executorGit: this.executorGit,
     };
@@ -2172,494 +2342,623 @@ export class RunExecutionService {
     const removeParentAbortListener = () => {
       input.abortSignal?.removeEventListener('abort', settleToolsOnParentAbort);
     };
-    if (input.abortSignal?.aborted) {
-      settleToolsOnParentAbort();
-    } else {
-      input.abortSignal?.addEventListener('abort', settleToolsOnParentAbort, {
-        once: true,
-      });
-    }
-
-    const endWorkspaceAttempt = this.beginWorkspaceAttempt(
-      input.chatId,
-      workspaceMcpKey,
-    );
-    try {
-      return client.streamText({
-        onRequestUsage: (usage, requestGenerationMs) => {
-          requestUsageReceipts.push(usage);
-          generationMs += requestGenerationMs;
-        },
-        system,
-        messages,
-        chat: { id: input.chatId, lane: 'main' },
-        abortSignal: input.abortSignal,
-        media,
-        reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
-        // Absent → no provider option at all, leaving the provider default.
-        ...(effort !== undefined && { effort }),
-        // Tool loop: pass the pre-filtered set + the operator step cap.
-        // Absent when no tool is available → the answer-only single-
-        // generation path (today's pre-tool-loop behavior).
-        ...(hasTools && {
-          tools: toolSet,
-          onToolSet: (record) => toolAdditions.bindToolRecord(record),
-          maxSteps: maxStepsPerRun,
-          onStepStart: async ({ messages, stepNumber }) => {
-            // Each buffered event carries the step its characters arrived in,
-            // so drain what the previous step still held BEFORE the number
-            // moves: text after a step's calls stays in that step (design D5).
-            persistReasoning(reasoningDeltas.flush());
-            persistDelta(deltas.flush());
-            currentStepNumber = stepNumber;
-            workspaceRoot.beginStep();
-            inRunItems.beginStep(messages);
-            const staged: Array<AuthoredContextItemPart> = [];
-            await inRunProducer?.prepareStep({
-              messages,
-              stepNumber,
-              stage: (part) => {
-                staged.push(part);
-              },
-            });
-            // An item joins the attempt only once it is committed onto the
-            // running reply, before the request that first carries it (design
-            // D3); a step that fails first never sent it.
-            if (staged.length > 0) {
-              await this.storeInRunSnapshot(input, attemptId, [
-                ...assistantPartCollector.parts(),
-                ...staged,
-              ]);
-            }
-            for (const part of staged) {
-              inRunItems.stage(part);
-              assistantPartCollector.contextItem(part);
-            }
-            // Recomputed from the step's own messages on every step, so a
-            // retained override is replaced rather than accumulated (D1).
-            return inRunItems.applyToStep(messages);
-          },
-          // Fires once, the moment the model client disables tools for
-          // the next step because maxStepsPerRun tool-requesting steps
-          // already ran (D6) — record it as a distinct run event; the
-          // cap-marker PART is persisted in onFinish once the run
-          // actually completes (a run that errors mid-loop after
-          // capping does not claim to have "completed with the cap").
-          onCapReached: () => {
-            cappedAt = maxStepsPerRun;
-            enqueueEvent('run.step_cap_reached', {
-              stepsUsed: maxStepsPerRun,
-              maxSteps: maxStepsPerRun,
-            });
-          },
-          // A tool call the model requested but that never passed the
-          // gate/schema check (unlisted/non-read_only/hallucinated name,
-          // or schema-invalid args) — recorded for durability/UI
-          // visibility (D3/D6 "recorded, non-fatal tool error"). No
-          // 'tool.started' event: the call never genuinely ran.
-          onUnavailableToolCall: ({
-            toolCallId,
-            toolName,
-            input: callInput,
-            reason,
-            sdkRefusal,
-          }) => {
-            persistReasoning(reasoningDeltas.flush());
-            persistDelta(deltas.flush());
-            const result =
-              reason === 'not_available'
-                ? refusalResult(toolName)
-                : invalidCallResult(toolName);
-            // No 'tool.started': the call never genuinely ran (a refusal
-            // is distinguished downstream by requested+completed with no
-            // started in between). No permission decision: an unavailable or
-            // invalid call is not a permission rejection.
-            reserveToolRequest(toolCallId, toolName, callInput, { sdkRefusal });
-            emitToolRequested(toolCallId, toolName, callInput, undefined);
-            recordToolCompleted(toolCallId, toolName, callInput, result);
-          },
+    // Each model call of the attempt is one `streamText` (the segment's first,
+    // and one more whenever a step end found nothing left to deliver), so the
+    // abort listener and the workspace hold belong to the call.
+    let endWorkspaceAttempt = noop;
+    let stopCause: 'cancel' | 'delivery' | undefined;
+    // The step end's one query: a pending item or a recorded cancellation
+    // stops the call after the step's tool results (run-steering D3).
+    const stopWhenExtra = async (): Promise<boolean> => {
+      stopCause = await this.tenantDb.runAs(input.userId, (tx) =>
+        new ChatDeliveriesRepository(tx).stepEndSignal({
+          runId: input.runId,
+          chatId: input.chatId,
+          userId: input.userId,
         }),
-        // The call's opaque metadata, held before the call can execute or be
-        // refused, and copied to its `tool.requested` event and stored part
-        // (design A7).
-        onToolCallMetadata: (toolCallId, providerMetadata) => {
-          pendingToolMetadata.set(toolCallId, providerMetadata);
-        },
-        onTextDelta: (text, partId, providerMetadata) => {
-          // A metadata-only delivery: a text part's start or end carries the
-          // adapter's opaque metadata but no text of its own (design A7).
-          // Drain both buffers first so the durable log keeps every earlier
-          // part — another step's text included — before this one, then record
-          // the metadata under the id it names. An empty text delivery never
-          // starts a stored part.
-          if (text.length === 0) {
-            if (providerMetadata === undefined) return;
-            persistReasoning(reasoningDeltas.flush());
-            persistDelta(deltas.flush());
-            // Only a delivery that binds to a stored part is durable: an id
-            // that has produced no text yet holds its metadata in the
-            // collector, and a part that never produces text keeps none (A7).
-            const bound = assistantPartCollector.text(
-              '',
-              partId,
-              providerMetadata,
-              stepOffset + currentStepNumber,
-            );
-            if (bound !== undefined) persistTextMetadata(partId, bound);
-            return;
-          }
-          noteOutputDelta(text);
-          streamedText += text;
-          const bound = assistantPartCollector.text(
-            text,
-            partId,
-            providerMetadata,
-            stepOffset + currentStepNumber,
-          );
-          // Time-injected push: age-based flushes (#50 live-channel
-          // granularity) stay pure inside the buffer.
-          // Cross-flush on a modality switch: reasoning and text stream one at
-          // a time, so when text starts, drain any still-buffered reasoning
-          // FIRST (and vice versa in onReasoningDelta) — else a sub-threshold
-          // reasoning tail would flush only at onFinish, landing AFTER the
-          // text in the log. A no-op once the other buffer is empty, so it's
-          // cheap on the steady-state stream.
-          persistReasoning(reasoningDeltas.flush());
-          // Text intervened: the next reasoning delta opens a new part, so the
-          // id it carries is not the one the drained buffer belonged to.
-          reasoningPartId = undefined;
-          // Drain before adopting a new id so a buffered event never spans
-          // two adapter parts (the collector splits on the same transition).
-          if (partId !== textPartId) {
-            persistDelta(deltas.flush());
-            textPartId = partId;
-          }
-          persistDelta(deltas.push(text, Date.now()));
-          // A start's held metadata binds with this text, and its part must
-          // be durable first.
-          if (bound !== undefined) {
-            persistDelta(deltas.flush());
-            persistTextMetadata(partId, bound);
-          }
-        },
-        onReasoningDelta: (text, partId, providerMetadata) => {
-          // Reasoning text is streamed output too: it stamps the first delta and
-          // counts, exactly as answer text does (#155). The metadata-only
-          // deliveries below carry no text and do not.
-          noteOutputDelta(text);
-          // A metadata-only delivery: a reasoning part's start/end carries the
-          // opaque provider metadata but no delta of its own (design D15/D18).
-          // Drain the buffer first so the durable log keeps the part's text
-          // before its metadata, then record the metadata under the id the
-          // adapter named — which can differ from the open part's id when one
-          // reasoning item has several summaries.
-          if (text.length === 0 && providerMetadata !== undefined) {
-            // D18: when this delivery starts a part no collected part carries
-            // (a signed block whose text the provider withheld, a reasoning
-            // item whose summary is empty), any text buffered before it must
-            // land first — else the durable replay would place the empty part
-            // ahead of text the live collector already recorded in order.
-            if (
-              assistantPartCollector.startsReasoningPart(
+      );
+      return stopCause !== undefined;
+    };
+    const callStream = async (
+      callMessages: typeof messages,
+      stepBase: number,
+    ): Promise<AttemptRun> => {
+      const outcome: AttemptOutcome = {};
+      // The delivered message's segment: a new attempt of the same Run.
+      const continueOnDelivered = (delivery: DeliveredBoundary): void => {
+        outcome.next = () => startDelivered(delivery);
+      };
+      // Another call over the same reply: the request carries what the
+      // segment produced so far, and its step count starts at zero again.
+      const continueInSegment = (segmentSteps: number): void => {
+        outcome.next = async (previous) => {
+          const produced = (await previous.response).messages;
+          const carried = [...callMessages, ...produced];
+          // The staged in-Run items are part of the carried request now; the
+          // next call stages its own against the new Run boundary.
+          const next = inRunItems.applyToStep(carried) ?? carried;
+          inRunItems = createInRunContextItems();
+          return callStream(next, segmentSteps);
+        };
+      };
+      if (input.abortSignal?.aborted) {
+        settleToolsOnParentAbort();
+      } else {
+        input.abortSignal?.addEventListener('abort', settleToolsOnParentAbort, {
+          once: true,
+        });
+      }
+      endWorkspaceAttempt = this.beginWorkspaceAttempt(
+        input.chatId,
+        workspaceMcpKey,
+      );
+      stopCause = undefined;
+      try {
+        const result = client.streamText({
+          onRequestUsage: (usage, requestGenerationMs) => {
+            requestUsageReceipts.push(usage);
+            generationMs += requestGenerationMs;
+          },
+          system,
+          messages: callMessages,
+          chat: { id: input.chatId, lane: 'main' },
+          abortSignal: input.abortSignal,
+          media,
+          reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+          // Absent → no provider option at all, leaving the provider default.
+          ...(effort !== undefined && { effort }),
+          // Tool loop: pass the pre-filtered set + the operator step cap.
+          // Absent when no tool is available → the answer-only single-
+          // generation path (today's pre-tool-loop behavior).
+          ...(hasTools && {
+            tools: toolSet,
+            onToolSet: (record) => toolAdditions.bindToolRecord(record),
+            maxSteps: maxStepsPerRun,
+            stopWhenExtra,
+            onStepStart: async ({ messages, stepNumber }) => {
+              // Each buffered event carries the step its characters arrived in,
+              // so drain what the previous step still held BEFORE the number
+              // moves: text after a step's calls stays in that step (design D5).
+              persistReasoning(reasoningDeltas.flush());
+              persistDelta(deltas.flush());
+              currentStepNumber = stepBase + stepNumber;
+              workspaceRoot.beginStep();
+              inRunItems.beginStep(messages);
+              const staged: Array<AuthoredContextItemPart> = [];
+              await inRunProducer?.prepareStep({
+                messages,
+                stepNumber,
+                stage: (part) => {
+                  staged.push(part);
+                },
+              });
+              // An item joins the attempt only once it is committed onto the
+              // running reply, before the request that first carries it (design
+              // D3); a step that fails first never sent it.
+              if (staged.length > 0) {
+                await this.storeInRunSnapshot(input, attemptId, [
+                  ...assistantPartCollector.parts(),
+                  ...staged,
+                ]);
+              }
+              for (const part of staged) {
+                inRunItems.stage(part);
+                assistantPartCollector.contextItem(part);
+              }
+              // Recomputed from the step's own messages on every step, so a
+              // retained override is replaced rather than accumulated (D1).
+              return inRunItems.applyToStep(messages);
+            },
+            // Fires once, the moment the model client disables tools for
+            // the next step because maxStepsPerRun tool-requesting steps
+            // already ran (D6) — record it as a distinct run event; the
+            // cap-marker PART is persisted in onFinish once the run
+            // actually completes (a run that errors mid-loop after
+            // capping does not claim to have "completed with the cap").
+            onCapReached: () => {
+              cappedAt = maxStepsPerRun;
+              enqueueEvent('run.step_cap_reached', {
+                stepsUsed: maxStepsPerRun,
+                maxSteps: maxStepsPerRun,
+              });
+            },
+            // A tool call the model requested but that never passed the
+            // gate/schema check (unlisted/non-read_only/hallucinated name,
+            // or schema-invalid args) — recorded for durability/UI
+            // visibility (D3/D6 "recorded, non-fatal tool error"). No
+            // 'tool.started' event: the call never genuinely ran.
+            onUnavailableToolCall: ({
+              toolCallId,
+              toolName,
+              input: callInput,
+              reason,
+              sdkRefusal,
+            }) => {
+              persistReasoning(reasoningDeltas.flush());
+              persistDelta(deltas.flush());
+              const result =
+                reason === 'not_available'
+                  ? refusalResult(toolName)
+                  : invalidCallResult(toolName);
+              // No 'tool.started': the call never genuinely ran (a refusal
+              // is distinguished downstream by requested+completed with no
+              // started in between). No permission decision: an unavailable or
+              // invalid call is not a permission rejection.
+              reserveToolRequest(toolCallId, toolName, callInput, {
+                sdkRefusal,
+              });
+              emitToolRequested(toolCallId, toolName, callInput, undefined);
+              recordToolCompleted(toolCallId, toolName, callInput, result);
+            },
+          }),
+          // The call's opaque metadata, held before the call can execute or be
+          // refused, and copied to its `tool.requested` event and stored part
+          // (design A7).
+          onToolCallMetadata: (toolCallId, providerMetadata) => {
+            pendingToolMetadata.set(toolCallId, providerMetadata);
+          },
+          onTextDelta: (text, partId, providerMetadata) => {
+            // A metadata-only delivery: a text part's start or end carries the
+            // adapter's opaque metadata but no text of its own (design A7).
+            // Drain both buffers first so the durable log keeps every earlier
+            // part — another step's text included — before this one, then record
+            // the metadata under the id it names. An empty text delivery never
+            // starts a stored part.
+            if (text.length === 0) {
+              if (providerMetadata === undefined) return;
+              persistReasoning(reasoningDeltas.flush());
+              persistDelta(deltas.flush());
+              // Only a delivery that binds to a stored part is durable: an id
+              // that has produced no text yet holds its metadata in the
+              // collector, and a part that never produces text keeps none (A7).
+              const bound = assistantPartCollector.text(
+                '',
                 partId,
                 providerMetadata,
-              )
-            ) {
-              persistDelta(deltas.flush());
+                stepOffset + currentStepNumber,
+              );
+              if (bound !== undefined) persistTextMetadata(partId, bound);
+              return;
             }
-            persistReasoning(reasoningDeltas.flush());
-            persistReasoningMetadata(partId, providerMetadata);
-            assistantPartCollector.reasoning(
-              '',
+            noteOutputDelta(text);
+            streamedText += text;
+            const bound = assistantPartCollector.text(
+              text,
               partId,
               providerMetadata,
               stepOffset + currentStepNumber,
             );
-            return;
-          }
-          // Drain before adopting a new id so a buffered event never spans
-          // two adapter parts (the collector splits on the same transition).
-          if (partId !== reasoningPartId) {
+            // Time-injected push: age-based flushes (#50 live-channel
+            // granularity) stay pure inside the buffer.
+            // Cross-flush on a modality switch: reasoning and text stream one at
+            // a time, so when text starts, drain any still-buffered reasoning
+            // FIRST (and vice versa in onReasoningDelta) — else a sub-threshold
+            // reasoning tail would flush only at onFinish, landing AFTER the
+            // text in the log. A no-op once the other buffer is empty, so it's
+            // cheap on the steady-state stream.
             persistReasoning(reasoningDeltas.flush());
-            reasoningPartId = partId;
-          }
-          // A text-bearing delivery is recorded as text alone. The opaque
-          // metadata a wire may also attach to a delta (Responses repeats the
-          // item id on every summary delta) is not the delivery a later
-          // request replays from: the part's own metadata delivery carries it
-          // in full under the same id — the Responses item's end (id, plus the
-          // encrypted content on the item's last part), the Messages withheld
-          // block's empty signature delta or redacted start — so binding it
-          // here would only duplicate plumbing, and buffering stays coalesced
-          // exactly as the live collector's part does.
-          assistantPartCollector.reasoning(
-            text,
-            partId,
-            undefined,
-            stepOffset + currentStepNumber,
-          );
-          persistDelta(deltas.flush());
-          // Reasoning intervened: the next text delta opens a new part, so
-          // the id it carries is not the one the drained buffer belonged to.
-          textPartId = undefined;
-          persistReasoning(reasoningDeltas.push(text, Date.now()));
-        },
-        onError: async ({ error }) => {
-          endWorkspaceAttempt();
-          removeParentAbortListener();
-          if (parentAbortSettlement) {
-            await parentAbortSettlement;
-            return;
-          }
-          // On the request thread the stream has already sent HTTP headers, so
-          // this error can't reach an exception filter — log + record it.
-          this.logger.error(
-            `Stream error for chat ${input.chatId}`,
-            loggableError(error),
-          );
-
-          const status = input.abortSignal?.aborted
-            ? classifyAbortedRun(input.abortSignal)
-            : 'failed';
-          // A cancelled or superseded Run is not a fault.
-          if (status === 'failed') {
-            Sentry.captureException(error, {
-              tags: {
-                'llame.run_id': input.runId,
-                'llame.chat_id': input.chatId,
-              },
-            });
-          }
-          const assistantTelemetry = buildAssistantTelemetry(
-            null,
-            turnStatusForTerminalRun(status),
-          );
-          const progressFailureTelemetry =
-            status === 'failed'
-              ? assistantTelemetry
-              : buildAssistantTelemetry(null, 'error');
-          persistReasoning(reasoningDeltas.flush());
-          persistDelta(deltas.flush());
-          await deltaWrites;
-          if (progressWriteFailed) {
-            await this.settleProgressWriteFailure({
-              userId: input.userId,
-              runId: input.runId,
-              attemptId,
-              telemetry: progressFailureTelemetry,
-            });
-            return;
-          }
-          // A stalled model stream is a model-level failure, not an abort: it
-          // ends the run terminally `failed` under its own error code so the
-          // cause survives on the run and its event (the same treatment
-          // `outcome_unknown` gets), and the job succeeds without a retry.
-          const idleCode =
-            error instanceof ModelStreamIdleError ? error.code : undefined;
-          const message =
-            status === 'expired'
-              ? expiredRunMessage(input.abortSignal)
-              : errorMessageWithoutParams(error);
-          // Settle before reading parts: a call still open here was rendered
-          // as running live, and an unsettled part is filtered out of
-          // history — so without this the live view and the reload disagree.
-          if (
-            !(await settleOpenToolsAndDrain(status, progressFailureTelemetry))
-          ) {
-            return;
-          }
-          const turn: AssistantTurnWrite = {
-            chatId: input.chatId,
-            inReplyTo: input.userMessage.id,
-            // Same "show what the user actually saw" honesty as streamedText:
-            // reasoning and any tool activity that happened before the
-            // abort/error are kept too, not silently dropped while the
-            // partial answer survives. No cap notice here — the run didn't
-            // complete (see onFinish), so it can't claim "answered at cap".
-            parts: assistantPartCollector.parts(),
-            telemetry: assistantTelemetry,
-          };
-          const finish = await this.finishRun({
-            userId: input.userId,
-            runId: input.runId,
-            status,
-            attemptId,
-            modelCompleted: {
-              finishReason: null,
-              telemetry: assistantTelemetry,
-            },
-            runPayload: {
-              status,
-              message,
-              ...(idleCode !== undefined && { code: idleCode }),
-            },
-            error: {
-              message,
-              ...(idleCode !== undefined && { code: idleCode }),
-            },
-            assistantTurn: turn,
-          });
-
-          await this.afterAssistantTurn(
-            finish.assistantMessage,
-            input.userId,
-            turn.telemetry,
-          );
-        },
-        onFinish: async ({ text, usage, finishReason, stepCount }) => {
-          endWorkspaceAttempt();
-          removeParentAbortListener();
-          if (parentAbortSettlement) {
-            await parentAbortSettlement;
-            return;
-          }
-          // `streamedText === ''` makes the `startsWith` check vacuously true
-          // (every string starts with the empty string), so that case is
-          // already covered by this branch — there is no second case to guard.
-          if (text.startsWith(streamedText)) {
-            assistantPartCollector.text(
-              text.slice(streamedText.length),
-              undefined,
+            // Text intervened: the next reasoning delta opens a new part, so the
+            // id it carries is not the one the drained buffer belonged to.
+            reasoningPartId = undefined;
+            // Drain before adopting a new id so a buffered event never spans
+            // two adapter parts (the collector splits on the same transition).
+            if (partId !== textPartId) {
+              persistDelta(deltas.flush());
+              textPartId = partId;
+            }
+            persistDelta(deltas.push(text, Date.now()));
+            // A start's held metadata binds with this text, and its part must
+            // be durable first.
+            if (bound !== undefined) {
+              persistDelta(deltas.flush());
+              persistTextMetadata(partId, bound);
+            }
+          },
+          onReasoningDelta: (text, partId, providerMetadata) => {
+            // Reasoning text is streamed output too: it stamps the first delta and
+            // counts, exactly as answer text does (#155). The metadata-only
+            // deliveries below carry no text and do not.
+            noteOutputDelta(text);
+            // A metadata-only delivery: a reasoning part's start/end carries the
+            // opaque provider metadata but no delta of its own (design D15/D18).
+            // Drain the buffer first so the durable log keeps the part's text
+            // before its metadata, then record the metadata under the id the
+            // adapter named — which can differ from the open part's id when one
+            // reasoning item has several summaries.
+            if (text.length === 0 && providerMetadata !== undefined) {
+              // D18: when this delivery starts a part no collected part carries
+              // (a signed block whose text the provider withheld, a reasoning
+              // item whose summary is empty), any text buffered before it must
+              // land first — else the durable replay would place the empty part
+              // ahead of text the live collector already recorded in order.
+              if (
+                assistantPartCollector.startsReasoningPart(
+                  partId,
+                  providerMetadata,
+                )
+              ) {
+                persistDelta(deltas.flush());
+              }
+              persistReasoning(reasoningDeltas.flush());
+              persistReasoningMetadata(partId, providerMetadata);
+              assistantPartCollector.reasoning(
+                '',
+                partId,
+                providerMetadata,
+                stepOffset + currentStepNumber,
+              );
+              return;
+            }
+            // Drain before adopting a new id so a buffered event never spans
+            // two adapter parts (the collector splits on the same transition).
+            if (partId !== reasoningPartId) {
+              persistReasoning(reasoningDeltas.flush());
+              reasoningPartId = partId;
+            }
+            // A text-bearing delivery is recorded as text alone. The opaque
+            // metadata a wire may also attach to a delta (Responses repeats the
+            // item id on every summary delta) is not the delivery a later
+            // request replays from: the part's own metadata delivery carries it
+            // in full under the same id — the Responses item's end (id, plus the
+            // encrypted content on the item's last part), the Messages withheld
+            // block's empty signature delta or redacted start — so binding it
+            // here would only duplicate plumbing, and buffering stays coalesced
+            // exactly as the live collector's part does.
+            assistantPartCollector.reasoning(
+              text,
+              partId,
               undefined,
               stepOffset + currentStepNumber,
             );
-          }
-          const status = input.abortSignal?.aborted
-            ? classifyAbortedRun(input.abortSignal)
-            : finishReason === 'error'
-              ? 'failed'
-              : 'completed';
-          const assistantTelemetry = buildAssistantTelemetry(
-            finishReason,
-            turnStatusForTerminalRun(status),
-            stepCount,
-          );
-          const progressFailureTelemetry =
-            status === 'failed'
-              ? assistantTelemetry
-              : buildAssistantTelemetry(finishReason, 'error', stepCount);
-          // Drain buffered reasoning + deltas BEFORE the terminal events so the
-          // log reads in stream order: …model.delta, model.completed, run.completed.
-          persistReasoning(reasoningDeltas.flush());
-          persistDelta(deltas.flush());
-          await deltaWrites;
-          if (progressWriteFailed) {
-            await this.settleProgressWriteFailure({
+            persistDelta(deltas.flush());
+            // Reasoning intervened: the next text delta opens a new part, so
+            // the id it carries is not the one the drained buffer belonged to.
+            textPartId = undefined;
+            persistReasoning(reasoningDeltas.push(text, Date.now()));
+          },
+          onError: async ({ error }) => {
+            endWorkspaceAttempt();
+            removeParentAbortListener();
+            if (parentAbortSettlement) {
+              await parentAbortSettlement;
+              return;
+            }
+            // On the request thread the stream has already sent HTTP headers, so
+            // this error can't reach an exception filter — log + record it.
+            this.logger.error(
+              `Stream error for chat ${input.chatId}`,
+              loggableError(error),
+            );
+
+            const status = input.abortSignal?.aborted
+              ? classifyAbortedRun(input.abortSignal)
+              : 'failed';
+            // A cancelled or superseded Run is not a fault.
+            if (status === 'failed') {
+              Sentry.captureException(error, {
+                tags: {
+                  'llame.run_id': input.runId,
+                  'llame.chat_id': input.chatId,
+                },
+              });
+            }
+            const assistantTelemetry = buildAssistantTelemetry(
+              null,
+              turnStatusForTerminalRun(status),
+            );
+            const progressFailureTelemetry =
+              status === 'failed'
+                ? assistantTelemetry
+                : buildAssistantTelemetry(null, 'error');
+            persistReasoning(reasoningDeltas.flush());
+            persistDelta(deltas.flush());
+            await deltaWrites;
+            if (progressWriteFailed) {
+              await this.settleProgressWriteFailure({
+                userId: input.userId,
+                runId: input.runId,
+                attemptId,
+                telemetry: progressFailureTelemetry,
+              });
+              return;
+            }
+            // A stalled model stream is a model-level failure, not an abort: it
+            // ends the run terminally `failed` under its own error code so the
+            // cause survives on the run and its event (the same treatment
+            // `outcome_unknown` gets), and the job succeeds without a retry.
+            const idleCode =
+              error instanceof ModelStreamIdleError ? error.code : undefined;
+            const message =
+              status === 'expired'
+                ? expiredRunMessage(input.abortSignal)
+                : errorMessageWithoutParams(error);
+            // Settle before reading parts: a call still open here was rendered
+            // as running live, and an unsettled part is filtered out of
+            // history — so without this the live view and the reload disagree.
+            if (
+              !(await settleOpenToolsAndDrain(status, progressFailureTelemetry))
+            ) {
+              return;
+            }
+            const turn: AssistantTurnWrite = {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              // Same "show what the user actually saw" honesty as streamedText:
+              // reasoning and any tool activity that happened before the
+              // abort/error are kept too, not silently dropped while the
+              // partial answer survives. No cap notice here — the run didn't
+              // complete (see onFinish), so it can't claim "answered at cap".
+              parts: assistantPartCollector.parts(),
+              telemetry: assistantTelemetry,
+            };
+            const finish = await this.finishRun({
               userId: input.userId,
               runId: input.runId,
+              status,
               attemptId,
-              telemetry: progressFailureTelemetry,
+              modelCompleted: {
+                finishReason: null,
+                telemetry: assistantTelemetry,
+              },
+              runPayload: {
+                status,
+                message,
+                ...(idleCode !== undefined && { code: idleCode }),
+              },
+              error: {
+                message,
+                ...(idleCode !== undefined && { code: idleCode }),
+              },
+              assistantTurn: turn,
             });
-            return;
-          }
-          // Persist the collected thinking as reasoning parts in occurrence
-          // order: displayed on reload, and replayed to the reply's own model
-          // under the model rule (D7) — a summarization request included
-          // (D9) — while `partsToText` keeps it out of text-only surfaces.
-          // Only turns reaching onFinish (normal completion + the narrow
-          // finish-races-abort case) get this; the common event-driven abort
-          // goes through onError → the streamedText-only parts above (reasoning
-          // dropped, like text-in-progress today).
-          if (cappedAt !== null) {
-            assistantPartCollector.capNotice({
-              type: 'data-cap-notice',
-              data: { stepsUsed: cappedAt, maxSteps: cappedAt },
-            });
-          }
-          // Normally a no-op — a completed run settled every call through the
-          // toolSet wrapper. It fires for the narrow finish-races-abort case,
-          // where a call can still be open when this path wins.
-          if (
-            status !== 'completed' &&
-            !(await settleOpenToolsAndDrain(status, progressFailureTelemetry))
-          ) {
-            return;
-          }
-          const turn: AssistantTurnWrite = {
-            chatId: input.chatId,
-            inReplyTo: input.userMessage.id,
-            parts: assistantPartCollector.parts(),
-            telemetry: assistantTelemetry,
-          };
-          const finish = await this.finishRun({
-            userId: input.userId,
-            runId: input.runId,
-            status,
-            attemptId,
-            modelCompleted: {
-              usage,
+
+            await this.afterAssistantTurn(
+              finish.assistantMessage,
+              input.userId,
+              turn.telemetry,
+            );
+          },
+          onFinish: async ({ text, usage, finishReason, stepCount }) => {
+            endWorkspaceAttempt();
+            removeParentAbortListener();
+            if (parentAbortSettlement) {
+              await parentAbortSettlement;
+              return;
+            }
+            // The segment's steps so far: a withdrawal continues the segment in
+            // another call, whose own count restarts at zero.
+            const segmentSteps = stepBase + stepCount;
+            // `streamedText === ''` makes the `startsWith` check vacuously true
+            // (every string starts with the empty string), so that case is
+            // already covered by this branch — there is no second case to guard.
+            if (text.startsWith(streamedText)) {
+              assistantPartCollector.text(
+                text.slice(streamedText.length),
+                undefined,
+                undefined,
+                stepOffset + currentStepNumber,
+              );
+            }
+            // A `tool-calls` finish that only our step-end check caused ends the
+            // call at a step boundary, not the Run (run-steering D3).
+            const stopped =
+              finishReason === 'tool-calls' ? stopCause : undefined;
+            const status = input.abortSignal?.aborted
+              ? classifyAbortedRun(input.abortSignal)
+              : finishReason === 'error'
+                ? 'failed'
+                : stopped === 'cancel'
+                  ? 'cancelled'
+                  : 'completed';
+            // Drain buffered reasoning + deltas BEFORE the terminal events so the
+            // log reads in stream order: …model.delta, model.completed, run.completed.
+            persistReasoning(reasoningDeltas.flush());
+            persistDelta(deltas.flush());
+            await deltaWrites;
+            if (progressWriteFailed) {
+              await this.settleProgressWriteFailure({
+                userId: input.userId,
+                runId: input.runId,
+                attemptId,
+                telemetry: buildAssistantTelemetry(
+                  finishReason,
+                  'error',
+                  segmentSteps,
+                ),
+              });
+              return;
+            }
+            // Persist the collected thinking as reasoning parts in occurrence
+            // order: displayed on reload, and replayed to the reply's own model
+            // under the model rule (D7) — a summarization request included
+            // (D9) — while `partsToText` keeps it out of text-only surfaces.
+            // Only turns reaching onFinish (normal completion + the narrow
+            // finish-races-abort case) get this; the common event-driven abort
+            // goes through onError → the streamedText-only parts above (reasoning
+            // dropped, like text-in-progress today).
+            if (cappedAt !== null) {
+              assistantPartCollector.capNotice({
+                type: 'data-cap-notice',
+                data: { stepsUsed: cappedAt, maxSteps: cappedAt },
+              });
+            }
+            const settleRun = async (
+              settling: TerminalRunStatus,
+            ): Promise<void> => {
+              const assistantTelemetry = buildAssistantTelemetry(
+                finishReason,
+                turnStatusForTerminalRun(settling),
+                segmentSteps,
+              );
+              const progressFailureTelemetry =
+                settling === 'failed'
+                  ? assistantTelemetry
+                  : buildAssistantTelemetry(
+                      finishReason,
+                      'error',
+                      segmentSteps,
+                    );
+              // Normally a no-op — a completed run settled every call through the
+              // toolSet wrapper. It fires for the narrow finish-races-abort case,
+              // where a call can still be open when this path wins.
+              if (
+                settling !== 'completed' &&
+                !(await settleOpenToolsAndDrain(
+                  settling,
+                  progressFailureTelemetry,
+                ))
+              ) {
+                return;
+              }
+              const turn: AssistantTurnWrite = {
+                chatId: input.chatId,
+                inReplyTo: input.userMessage.id,
+                parts: assistantPartCollector.parts(),
+                telemetry: assistantTelemetry,
+              };
+              // A cancellation that only the step-end check found: no abort
+              // reached this worker, so the settlement names its own cause.
+              const recorded =
+                settling === 'cancelled' && !input.abortSignal?.aborted
+                  ? { message: 'Run was cancelled.' }
+                  : undefined;
+              const finish = await this.finishRun({
+                userId: input.userId,
+                runId: input.runId,
+                status: settling,
+                attemptId,
+                modelCompleted: {
+                  usage,
+                  finishReason,
+                  // Carry the FULL turn telemetry (tokens + cost + latency + model) so
+                  // the stream bridge can surface per-turn usage as message metadata
+                  // live and on resume — the same object persisted on the message.
+                  telemetry: assistantTelemetry,
+                },
+                assistantTurn: turn,
+                ...(recorded !== undefined && {
+                  runPayload: { status: settling, ...recorded },
+                  error: recorded,
+                }),
+                ...(settling === 'completed' && {
+                  ...(attemptContext.recencyDigestInitialization !==
+                    undefined && {
+                    recencyDigestInitialization:
+                      attemptContext.recencyDigestInitialization,
+                  }),
+                  ...(attemptContext.skillCatalogFreeze !== undefined && {
+                    skillCatalogFreeze: attemptContext.skillCatalogFreeze,
+                  }),
+                }),
+              });
+
+              await this.afterAssistantTurn(
+                finish.assistantMessage,
+                input.userId,
+                turn.telemetry,
+              );
+              // The final answer met a pending item: the Run stays live on the
+              // delivered message (run-steering D5).
+              if (finish.outcome === 'delivered') {
+                continueOnDelivered(finish.delivery);
+                return;
+              }
+
+              // Post-work needs a committed turn to act on, and needs to own it.
+              // Two cases have neither. An intentional terminal state written by
+              // someone else (cancel/supersede): the newer attempt owns the turn.
+              // And a terminal transaction that rolled back with nothing salvaged:
+              // there is no stored turn to title after or compact around, so
+              // running either would spend a title model call on a turn that does
+              // not exist. The gate is the committed message rather than the
+              // outcome, because 'errored' no longer implies nothing committed —
+              // the catch salvages the answer in its own transaction, and a chat
+              // whose first turn landed that way still needs a title.
+              if (
+                (finish.outcome === 'errored' && !finish.assistantMessage) ||
+                (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
+              ) {
+                return;
+              }
+              if (assistantTelemetry.status === 'completed') {
+                await this.postCompletedRunWork({
+                  chatId: input.chatId,
+                  userId: input.userId,
+                  untitled,
+                  userMessage: input.userMessage,
+                });
+              }
+            };
+            if (stopped !== 'delivery' || status !== 'completed') {
+              await settleRun(status);
+              return;
+            }
+            // The step-end check saw a pending item: deliver it, or continue.
+            const closingTelemetry = buildAssistantTelemetry(
               finishReason,
-              // Carry the FULL turn telemetry (tokens + cost + latency + model) so
-              // the stream bridge can surface per-turn usage as message metadata
-              // live and on resume — the same object persisted on the message.
-              telemetry: assistantTelemetry,
-            },
-            assistantTurn: turn,
-            ...(status === 'completed' && {
-              ...(attemptContext.recencyDigestInitialization !== undefined && {
-                recencyDigestInitialization:
-                  attemptContext.recencyDigestInitialization,
+              'completed',
+              segmentSteps,
+            );
+            const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
+              deliverPendingSteering(tx, {
+                run: { runId: input.runId, userId: input.userId },
+                attemptId,
+                modelCompleted: {
+                  usage,
+                  finishReason,
+                  telemetry: closingTelemetry,
+                },
+                live: {
+                  chatId: input.chatId,
+                  inReplyTo: input.userMessage.id,
+                  parts: assistantPartCollector.parts(),
+                  telemetry: closingTelemetry,
+                },
+                models: this.instanceConfig.config.models,
               }),
-              ...(attemptContext.skillCatalogFreeze !== undefined && {
-                skillCatalogFreeze: attemptContext.skillCatalogFreeze,
-              }),
-            }),
-          });
-
-          await this.afterAssistantTurn(
-            finish.assistantMessage,
-            input.userId,
-            turn.telemetry,
-          );
-
-          // Post-work needs a committed turn to act on, and needs to own it.
-          // Two cases have neither. An intentional terminal state written by
-          // someone else (cancel/supersede): the newer attempt owns the turn.
-          // And a terminal transaction that rolled back with nothing salvaged:
-          // there is no stored turn to title after or compact around, so
-          // running either would spend a title model call on a turn that does
-          // not exist. The gate is the committed message rather than the
-          // outcome, because 'errored' no longer implies nothing committed —
-          // the catch salvages the answer in its own transaction, and a chat
-          // whose first turn landed that way still needs a title.
-          if (
-            (finish.outcome === 'errored' && !finish.assistantMessage) ||
-            (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
-          ) {
-            return;
-          }
-          if (assistantTelemetry.status === 'completed') {
-            await this.postCompletedRunWork({
-              chatId: input.chatId,
-              userId: input.userId,
-              untitled,
-              userMessage: input.userMessage,
-            });
-          }
-        },
-      });
-    } catch (error) {
-      endWorkspaceAttempt();
-      removeParentAbortListener();
-      // A synchronous throw from streamText (provider/config validation before
-      // any callback can fire) would otherwise strand the claimed run at
-      // 'running_model' until the deadman sweep expires it — fail it now.
-      if (input.abortSignal?.aborted) {
-        await this.settleAbortedRun(input, attemptId);
+            );
+            if (boundary.kind === 'delivered') {
+              await this.afterAssistantTurn(
+                boundary.closedReply,
+                input.userId,
+                closingTelemetry,
+              );
+              continueOnDelivered(boundary);
+            } else if (boundary.kind === 'nothing-pending') {
+              continueInSegment(segmentSteps);
+            } else if (await this.recordsCancellation(input, attemptId)) {
+              // The fence missed on a recorded cancellation: the items stay
+              // pending and the Run settles cancelled. A superseded attempt
+              // writes nothing; the attempt that superseded it owns the Run.
+              await settleRun('cancelled');
+            }
+          },
+        });
+        return { result, outcome };
+      } catch (error) {
+        endWorkspaceAttempt();
+        removeParentAbortListener();
+        // A synchronous throw from streamText (provider/config validation before
+        // any callback can fire) would otherwise strand the claimed run at
+        // 'running_model' until the deadman sweep expires it — fail it now.
+        if (input.abortSignal?.aborted) {
+          await this.settleAbortedRun(input, attemptId);
+        }
+        const message = errorMessageWithoutParams(error);
+        // This attempt holds the claim; a reclaim during the synchronous throw
+        // must reject this write rather than let the superseded attempt publish.
+        await this.finishRunWithoutCollector({
+          userId: input.userId,
+          runId: input.runId,
+          status: 'failed',
+          attemptId,
+          runPayload: { status: 'failed', message },
+          error: { message },
+        });
+        throw error;
       }
-      const message = errorMessageWithoutParams(error);
-      // This attempt holds the claim; a reclaim during the synchronous throw
-      // must reject this write rather than let the superseded attempt publish.
-      await this.finishRunWithoutCollector({
-        userId: input.userId,
-        runId: input.runId,
-        status: 'failed',
-        attemptId,
-        runPayload: { status: 'failed', message },
-        error: { message },
-      });
-      throw error;
-    }
+    };
+    return callStream(messages, 0);
   }
 
   /**
@@ -3838,6 +4137,26 @@ export class RunExecutionService {
   }
 
   /**
+   * Whether this attempt still holds the Run and a cancellation is recorded on
+   * it: the one reason a delivery fence can miss that this attempt must settle.
+   * A superseded or terminal Run belongs to whoever superseded or ended it.
+   */
+  private async recordsCancellation(
+    input: ExecuteRunInput,
+    attemptId: string,
+  ): Promise<boolean> {
+    const run = await this.tenantDb.runAs(input.userId, (tx) =>
+      new RunsRepository(tx).findById(input.runId, input.userId),
+    );
+    return (
+      run !== undefined &&
+      run.activeAttemptId === attemptId &&
+      !isTerminalRunStatus(run.status) &&
+      run.cancelRequestedAt !== null
+    );
+  }
+
+  /**
    * Finalizes the reply of a Run the claim transaction just ended, and
    * records its terminal event. Returns the reply it wrote, so the caller
    * touches and reindexes the chat once the claim commits.
@@ -4059,6 +4378,27 @@ export class RunExecutionService {
     tx: Db,
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
+    // A pending steer or interrupt keeps the Run live (run-steering D5): the
+    // delivery locks the Run row, then the chat row, and so also serializes
+    // with admission. With nothing to deliver it writes nothing, and the Run
+    // completes below under the locks it already holds.
+    if (input.status === 'completed' && input.attemptId !== undefined) {
+      const delivery = await deliverPendingSteering(tx, {
+        run: { runId: input.runId, userId: input.userId },
+        attemptId: input.attemptId,
+        modelCompleted: input.modelCompleted,
+        live: input.assistantTurn,
+        telemetry: input.synthesizedTurnTelemetry,
+        models: this.instanceConfig.config.models,
+      });
+      if (delivery.kind === 'delivered') {
+        return {
+          outcome: 'delivered',
+          assistantMessage: delivery.closedReply,
+          delivery,
+        };
+      }
+    }
     const runsRepo = new RunsRepository(tx);
     const finished = await runsRepo.markFinished(
       input.runId,
@@ -5788,6 +6128,12 @@ export class RunExecutionService {
       },
     );
     if (!fenced) throw new RunNotRunnableError(run.runId);
+    // A cancellation recorded where no abort reached this worker (another
+    // process, or a delivery between two segments) ends the Run before the
+    // request goes out.
+    if (fenced.cancelRequestedAt !== null) {
+      throw new CancellationRecordedError(run.runId);
+    }
     const stored = await new AcceptedTurnPartsRepository(tx).storeAtDispatch({
       id: run.userMessage.id,
       chatId: run.chatId,

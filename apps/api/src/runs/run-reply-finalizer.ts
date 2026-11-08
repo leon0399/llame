@@ -192,6 +192,20 @@ function tokenlessUsage(
 }
 
 /**
+ * The events of the Run's current segment: those after its latest
+ * `run.delivered`, or all of them before the first delivery. Recovery and the
+ * settlers read only these (run-steering D4).
+ */
+export function eventsAfterLatestDelivery(
+  events: ReadonlyArray<RunEvent>,
+): Array<RunEvent> {
+  const delivered = events.findLastIndex(
+    (event) => event.eventType === 'run.delivered',
+  );
+  return events.slice(delivered + 1);
+}
+
+/**
  * One attempt's events: from the `model.requested` that names it up to the
  * next attempt's `run.started`, or the end of the log. Empty when no request
  * names the attempt.
@@ -342,9 +356,12 @@ function dispatchedReplyWrite(
 function rebuiltReplyWrite(
   input: RunReplyFinalization,
   reply: Message | undefined,
-  log: Array<RunEvent>,
+  fullLog: Array<RunEvent>,
   settled: Array<RunEvent>,
 ): ReplyWrite | undefined {
+  // A rebuild covers only the Run's current segment: an earlier segment's
+  // output, and a Continue Run's kept parts, belong to replies already stored.
+  const log = eventsAfterLatestDelivery(fullLog);
   const continued = continueStateFromEvents(log);
   const stepOffset = continueStepOffset(continued);
   if (reply === undefined) {

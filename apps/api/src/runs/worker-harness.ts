@@ -90,6 +90,8 @@ type HarnessOverrides = {
    */
   machineTransportFactory?: MachineTransportFactory;
   runsConcurrency?: number;
+  /** The operator's step cap per segment; absent keeps the built-in (none). */
+  maxStepsPerRun?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
   /** Explicit tool rules used to configure the worker boot. */
@@ -123,6 +125,9 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: [...(overrides?.allowedTools ?? [])],
       nativeExecutorId: overrides?.nativeExecutorId,
+      ...(overrides?.maxStepsPerRun !== undefined && {
+        maxStepsPerRun: overrides.maxStepsPerRun,
+      }),
       permissions: { ...permissions, ...overrides?.toolPermissions },
     },
     knowledge: {

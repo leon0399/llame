@@ -550,6 +550,32 @@ export class RunsRepository {
       .returning();
     return updated;
   }
+  /**
+   * Lock a Run for a delivery (run-steering D4): the row, behind the fences of
+   * the delivering attempt and `cancel_requested_at IS NULL`. Undefined when
+   * the attempt was superseded, the Run is terminal, or a cancellation is
+   * recorded. The first lock of the Run-then-chat order.
+   */
+  async lockForDelivery(
+    runId: string,
+    userId: string,
+    attemptId: string,
+  ): Promise<Run | undefined> {
+    const [locked] = await this.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          eq(runs.activeAttemptId, attemptId),
+          isNull(runs.cancelRequestedAt),
+          nonTerminalRun(),
+        ),
+      )
+      .for('update');
+    return locked;
+  }
 }
 
 /**
@@ -590,7 +616,10 @@ export type RunEventType =
   | 'tool.completed'
   | 'native.attempt'
   | 'native.result'
-  | 'run.step_cap_reached';
+  | 'run.step_cap_reached'
+  // A delivery moved the Run to a new user message and attempt (run-steering
+  // D4): appended in the delivery transaction, after the closed reply's usage.
+  | 'run.delivered';
 
 export class RunEventsRepository {
   constructor(private readonly db: Db) {}

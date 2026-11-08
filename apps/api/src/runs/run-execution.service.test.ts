@@ -110,6 +110,7 @@ import {
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type CheckpointMessage } from '../chats/messages-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
@@ -785,6 +786,15 @@ function mockNormalExecutionRepositories() {
   const hasMutation = vi
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
+  // No pending steer or interrupt, and no recorded cancellation: a step end
+  // stops nothing and a completion delivers nothing (run-steering D3/D5).
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'stepEndSignal',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValue(
+    undefined,
+  );
   vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue(
     undefined,
   );

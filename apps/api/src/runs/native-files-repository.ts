@@ -1,5 +1,5 @@
 import { RunEventsRepository } from './runs-repository';
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import {
   isRecord,
   isString,
@@ -122,7 +122,23 @@ export class NativeFilesRepository {
     return rows.length === 1;
   }
 
+  /**
+   * Whether the Run's current segment attempted a mutation: only the events
+   * after the latest `run.delivered` count, so a settled write of an earlier
+   * segment does not stop a retry (run-steering D4).
+   */
   async hasMutation(runId: string): Promise<boolean> {
+    const [latestDelivered] = await this.db
+      .select({ sequence: runEvents.sequence })
+      .from(runEvents)
+      .where(
+        and(
+          eq(runEvents.runId, runId),
+          eq(runEvents.eventType, 'run.delivered'),
+        ),
+      )
+      .orderBy(desc(runEvents.sequence))
+      .limit(1);
     const rows = await this.db
       .select({ id: runEvents.sequence })
       .from(runEvents)
@@ -130,6 +146,7 @@ export class NativeFilesRepository {
         and(
           eq(runEvents.runId, runId),
           eq(runEvents.eventType, 'native.attempt'),
+          gt(runEvents.sequence, latestDelivered?.sequence ?? 0),
         ),
       )
       .limit(1);

@@ -123,6 +123,12 @@ export interface ModelStreamInput {
    */
   maxSteps?: number | null;
   /**
+   * An extra stop condition every client ORs into its own `stopWhen`. The SDK
+   * awaits it after the step's tool calls settle, so `true` ends the call at
+   * that step end (run-steering D3). Only meaningful with `tools`.
+   */
+  stopWhenExtra?: () => Promise<boolean>;
+  /**
    * Receives the exact mutable tool record assigned to the SDK request.
    * Trusted in-Run Workspace additions mutate this record between steps.
    */
