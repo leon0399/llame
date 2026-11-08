@@ -2,27 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
-- **Queue a message during a live Run (API).** A chat send that names
-  `delivery: "queue"` while the Chat has a live Run no longer answers 409: the
-  API stores the message as a pending item in the new `chat_deliveries` table
-  and answers 202 with it, creating no message row and no Run. The item keeps
-  its client message id, the sanitized parts, and the model, effort, and
-  permission mode of the send. A retry of the same message id answers the
-  stored item in any state. A send to an idle Chat starts a Run as before, and
-  a send without `delivery` still gets 409; `steer` and `interrupt` are not
-  accepted yet and get 400. `GET /api/v1/chats/{chatId}/deliveries` lists the
-  pending items in order, and `DELETE /api/v1/chats/{chatId}/deliveries/{id}`
-  withdraws one and returns its parts, or answers 409 when the item is no
-  longer pending. When a Run completes, including a completed follow-up Run,
-  the same transaction starts the first pending queue item as a Run with its
-  own settings, keeping the item's id for the user message; an item whose
-  settings a send would refuse stays pending, and a Run that fails, is
-  cancelled, or expires leaves the queue paused. The live channel sends a new
-  `chat.deliveries` message with a Chat's pending items, and a fork copies no
-  pending item. A send, with or without `delivery`, that repeats the id of an
-  item of the same Chat answers that item, and the id of an item or message of
-  another Chat gets 409. An archived Chat promotes nothing. The web composer
-  has no queue control yet.
+- **Run segments (internal machinery).** A live Run can now deliver pending
+  `steer` and `interrupt` items. Nothing admits them yet: `steer` still gets
+  400, so no user-visible behavior changes. A Run stops a model call at a step
+  end, after the step's tool results, when the Chat holds a pending item or the
+  Run records a cancellation, and the transaction that would complete the Run
+  looks for pending items first. One delivery transaction closes the current
+  reply as `completed` with its usage, stores one user message with the items'
+  parts, marks the items `delivered`, moves the Run's message to the new
+  message under a new attempt, and appends `run.delivered`. The delivered
+  message then runs as a new segment of the same Run, in the same worker, with
+  no new claim and its own step budget. A delivery does not restart the Run's
+  wall-clock budget. A crash retry resumes the Run's current segment and leaves
+  the replies of earlier segments unchanged, and a write in an earlier segment
+  no longer blocks it. A cancellation recorded after a delivery ends the Run
+  before the next request. Model clients accept a `stopWhenExtra` condition.
 
 - **Session details shows the live git state of the bound repository.** The
   Repository block replaces the stored branch with the live branch (or the
@@ -58,6 +52,28 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   new daemon no longer answers. Worktree removal now reads the full state and
   refuses a gone upstream (unless HEAD is the recorded base commit) and a
   dirty submodule, besides the cases it already refused.
+
+- **Queue a message during a live Run (API).** A chat send that names
+  `delivery: "queue"` while the Chat has a live Run no longer answers 409: the
+  API stores the message as a pending item in the new `chat_deliveries` table
+  and answers 202 with it, creating no message row and no Run. The item keeps
+  its client message id, the sanitized parts, and the model, effort, and
+  permission mode of the send. A retry of the same message id answers the
+  stored item in any state. A send to an idle Chat starts a Run as before, and
+  a send without `delivery` still gets 409; `steer` and `interrupt` are not
+  accepted yet and get 400. `GET /api/v1/chats/{chatId}/deliveries` lists the
+  pending items in order, and `DELETE /api/v1/chats/{chatId}/deliveries/{id}`
+  withdraws one and returns its parts, or answers 409 when the item is no
+  longer pending. When a Run completes, including a completed follow-up Run,
+  the same transaction starts the first pending queue item as a Run with its
+  own settings, keeping the item's id for the user message; an item whose
+  settings a send would refuse stays pending, and a Run that fails, is
+  cancelled, or expires leaves the queue paused. The live channel sends a new
+  `chat.deliveries` message with a Chat's pending items, and a fork copies no
+  pending item. A send, with or without `delivery`, that repeats the id of an
+  item of the same Chat answers that item, and the id of an item or message of
+  another Chat gets 409. An archived Chat promotes nothing. The web composer
+  has no queue control yet.
 
 # 2026-11-07
 
