@@ -333,6 +333,9 @@ describe('recordJobFor', () => {
       recordJobFor({ k: 'project', owner, project: chat, deleted: false })?.key,
     ).toBe(`project:${chat}`);
     expect(recordJobFor({ k: 'pin', owner })?.key).toBe('pins');
+    expect(recordJobFor({ k: 'chat_deliveries', owner, chat })?.key).toBe(
+      `chat_deliveries:${chat}`,
+    );
     expect(
       recordJobFor({
         k: 'machine',
