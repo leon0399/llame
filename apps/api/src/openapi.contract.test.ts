@@ -86,6 +86,7 @@ const EXPECTED_OPERATION_IDS = [
   'forkSharedChat',
   'getChat',
   'getChatCreationRecord',
+  'getChatGitState',
   'getChatMessages',
   'getCurrentSession',
   'getCurrentUser',
