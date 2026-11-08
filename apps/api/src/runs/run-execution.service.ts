@@ -664,13 +664,14 @@ type ModelStreamResult = ReturnType<ModelClient['streamText']>;
 type ConsumeStreamOptions = Parameters<ModelStreamResult['consumeStream']>[0];
 
 /**
- * One model call of an attempt and what it hands on. `next` is set when the
- * call ended at a step boundary instead of the Run: the segment loop starts
- * what it returns once the call is drained (run-steering D3).
+ * One model call of an attempt and what it hands on. `nextCall` returns the
+ * following call or segment when this call ended at a step boundary instead of
+ * the Run; the segment loop starts it once this call is drained (run-steering
+ * D3).
  */
-type AttemptRun = { result: ModelStreamResult; outcome: AttemptOutcome };
-type AttemptOutcome = {
-  next?: (previous: ModelStreamResult) => Promise<AttemptRun>;
+type AttemptRun = {
+  result: ModelStreamResult;
+  nextCall: () => Promise<AttemptRun> | undefined;
 };
 
 /**
@@ -707,6 +708,8 @@ class CancellationRecordedError extends Error {
 }
 
 function noop(): void {}
+
+const noNextCall: AttemptRun['nextCall'] = () => undefined;
 
 /** Adapter locator decisions have their own cap and cannot crowd out hops or probes. */
 const MAX_ADAPTER_DECISIONS = 16;
@@ -1281,12 +1284,13 @@ export class RunExecutionService {
     const drain = (options?: ConsumeStreamOptions): Promise<void> => {
       drained ??= (async () => {
         for (;;) {
-          const { result, outcome } = last;
+          const { result, nextCall } = last;
           await (result.consumeStream
             ? result.consumeStream(options)
             : result.text);
-          if (outcome.next === undefined) return;
-          last = await outcome.next(result);
+          const following = nextCall();
+          if (following === undefined) return;
+          last = await following;
         }
       })();
       return drained;
@@ -1334,16 +1338,13 @@ export class RunExecutionService {
     // worker, with no new claim.
     const startDelivered = (delivery: DeliveredBoundary): Promise<AttemptRun> =>
       this.executeAttempt({
+        ...attempt,
         input: {
           ...input,
           userMessage: toRunUserMessage(delivery.message),
           followUpAction: null,
         },
-        nativeAbort,
-        effort,
-        permissionMode,
         attemptId: delivery.attemptId,
-        nativeDeliverySequence,
         firstSegment: false,
       });
 
@@ -1364,7 +1365,7 @@ export class RunExecutionService {
     // skill resolution, and the prompt imports; preparation awaits it last.
     const gitObservation = this.startGitObservation(
       input,
-      claim.nativeDeliverySequence,
+      nativeDeliverySequence,
       workspacePreparation,
       workspaceRoot,
       effectivePermissionMode,
@@ -1532,8 +1533,8 @@ export class RunExecutionService {
     // before the target call (design D1). The request already carries the
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
-    const salvaged = await this.tenantDb
-      .runAs(input.userId, (tx) =>
+    try {
+      await this.tenantDb.runAs(input.userId, (tx) =>
         this.dispatchAttempt(tx, {
           run: input,
           attemptId,
@@ -1542,40 +1543,38 @@ export class RunExecutionService {
           effort,
           permissionMode: effectivePermissionMode,
         }),
-      )
-      .then(
-        (): DeliveredBoundary | undefined => undefined,
-        async (error: unknown) => {
-          if (error instanceof CancellationRecordedError) {
-            // A cancellation recorded before the first request of this
-            // segment: the delivered message gets no reply.
-            const message = this.abortedRunMessage('cancelled', undefined);
-            await this.settleTerminalRun({
-              userId: input.userId,
-              runId: input.runId,
-              status: 'cancelled',
-              attemptId,
-              runPayload: { status: 'cancelled', message },
-              error: { message },
-            });
-            throw new RunNotRunnableError(input.runId);
-          }
-          if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
-          // A salvaged answer completed the reply while the Run stayed live:
-          // this attempt settles the Run completed (the finalizer leaves that
-          // reply untouched) instead of dispatching a second answer. A pending
-          // item keeps the Run live instead (run-steering D5).
-          const settlement = await this.settleTerminalRun({
-            userId: input.userId,
-            runId: input.runId,
-            status: 'completed',
-            attemptId,
-          });
-          if (settlement.outcome === 'delivered') return settlement.delivery;
-          throw new RunNotRunnableError(input.runId);
-        },
       );
-    if (salvaged !== undefined) return startDelivered(salvaged);
+    } catch (error) {
+      if (error instanceof CancellationRecordedError) {
+        // A cancellation recorded before the first request of this segment:
+        // the delivered message gets no reply.
+        const message = this.abortedRunMessage('cancelled', undefined);
+        await this.settleTerminalRun({
+          userId: input.userId,
+          runId: input.runId,
+          status: 'cancelled',
+          attemptId,
+          runPayload: { status: 'cancelled', message },
+          error: { message },
+        });
+        throw new RunNotRunnableError(input.runId);
+      }
+      if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
+      // A salvaged answer completed the reply while the Run stayed live: this
+      // attempt settles the Run completed (the finalizer leaves that reply
+      // untouched) instead of dispatching a second answer. A pending item
+      // keeps the Run live instead (run-steering D5).
+      const settlement = await this.settleTerminalRun({
+        userId: input.userId,
+        runId: input.runId,
+        status: 'completed',
+        attemptId,
+      });
+      if (settlement.outcome === 'delivered') {
+        return startDelivered(settlement.delivery);
+      }
+      throw new RunNotRunnableError(input.runId);
+    }
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta, reasoning.delta, AND
@@ -2363,24 +2362,7 @@ export class RunExecutionService {
       callMessages: typeof messages,
       stepBase: number,
     ): Promise<AttemptRun> => {
-      const outcome: AttemptOutcome = {};
-      // The delivered message's segment: a new attempt of the same Run.
-      const continueOnDelivered = (delivery: DeliveredBoundary): void => {
-        outcome.next = () => startDelivered(delivery);
-      };
-      // Another call over the same reply: the request carries what the
-      // segment produced so far, and its step count starts at zero again.
-      const continueInSegment = (segmentSteps: number): void => {
-        outcome.next = async (previous) => {
-          const produced = (await previous.response).messages;
-          const carried = [...callMessages, ...produced];
-          // The staged in-Run items are part of the carried request now; the
-          // next call stages its own against the new Run boundary.
-          const next = inRunItems.applyToStep(carried) ?? carried;
-          inRunItems = createInRunContextItems();
-          return callStream(next, segmentSteps);
-        };
-      };
+      let nextCall = noNextCall;
       if (input.abortSignal?.aborted) {
         settleToolsOnParentAbort();
       } else {
@@ -2413,7 +2395,11 @@ export class RunExecutionService {
           ...(hasTools && {
             tools: toolSet,
             onToolSet: (record) => toolAdditions.bindToolRecord(record),
-            maxSteps: maxStepsPerRun,
+            // A continuation inside a segment gets what the earlier calls left.
+            maxSteps:
+              maxStepsPerRun === null
+                ? null
+                : Math.max(0, maxStepsPerRun - stepBase),
             stopWhenExtra,
             onStepStart: async ({ messages, stepNumber }) => {
               // Each buffered event carries the step its characters arrived in,
@@ -2743,13 +2729,16 @@ export class RunExecutionService {
             // call at a step boundary, not the Run (run-steering D3).
             const stopped =
               finishReason === 'tool-calls' ? stopCause : undefined;
-            const status = input.abortSignal?.aborted
-              ? classifyAbortedRun(input.abortSignal)
-              : finishReason === 'error'
-                ? 'failed'
-                : stopped === 'cancel'
-                  ? 'cancelled'
-                  : 'completed';
+            let status: TerminalRunStatus;
+            if (input.abortSignal?.aborted) {
+              status = classifyAbortedRun(input.abortSignal);
+            } else if (finishReason === 'error') {
+              status = 'failed';
+            } else if (stopped === 'cancel') {
+              status = 'cancelled';
+            } else {
+              status = 'completed';
+            }
             // Drain buffered reasoning + deltas BEFORE the terminal events so the
             // log reads in stream order: …model.delta, model.completed, run.completed.
             persistReasoning(reasoningDeltas.flush());
@@ -2860,7 +2849,8 @@ export class RunExecutionService {
               // The final answer met a pending item: the Run stays live on the
               // delivered message (run-steering D5).
               if (finish.outcome === 'delivered') {
-                continueOnDelivered(finish.delivery);
+                const { delivery } = finish;
+                nextCall = () => startDelivered(delivery);
                 return;
               }
 
@@ -2923,18 +2913,26 @@ export class RunExecutionService {
                 input.userId,
                 closingTelemetry,
               );
-              continueOnDelivered(boundary);
+              nextCall = () => startDelivered(boundary);
             } else if (boundary.kind === 'nothing-pending') {
-              continueInSegment(segmentSteps);
-            } else if (await this.recordsCancellation(input, attemptId)) {
-              // The fence missed on a recorded cancellation: the items stay
-              // pending and the Run settles cancelled. A superseded attempt
-              // writes nothing; the attempt that superseded it owns the Run.
+              // Another call over the same reply: the request carries what the
+              // segment produced so far, and the step count restarts at zero.
+              nextCall = async () => {
+                const produced = (await result.response).messages;
+                const carried = [...callMessages, ...produced];
+                // The staged in-Run items are part of the carried request now;
+                // the next call stages its own against the new Run boundary.
+                const next = inRunItems.applyToStep(carried) ?? carried;
+                inRunItems = createInRunContextItems();
+                return callStream(next, segmentSteps);
+              };
+            } else if (boundary.kind === 'cancelled') {
+              // The items stay pending and the Run settles cancelled.
               await settleRun('cancelled');
             }
           },
         });
-        return { result, outcome };
+        return { result, nextCall: () => nextCall() };
       } catch (error) {
         endWorkspaceAttempt();
         removeParentAbortListener();
@@ -4134,26 +4132,6 @@ export class RunExecutionService {
     return status === 'expired'
       ? expiredRunMessage(signal)
       : 'Run was cancelled before model inference.';
-  }
-
-  /**
-   * Whether this attempt still holds the Run and a cancellation is recorded on
-   * it: the one reason a delivery fence can miss that this attempt must settle.
-   * A superseded or terminal Run belongs to whoever superseded or ended it.
-   */
-  private async recordsCancellation(
-    input: ExecuteRunInput,
-    attemptId: string,
-  ): Promise<boolean> {
-    const run = await this.tenantDb.runAs(input.userId, (tx) =>
-      new RunsRepository(tx).findById(input.runId, input.userId),
-    );
-    return (
-      run !== undefined &&
-      run.activeAttemptId === attemptId &&
-      !isTerminalRunStatus(run.status) &&
-      run.cancelRequestedAt !== null
-    );
   }
 
   /**

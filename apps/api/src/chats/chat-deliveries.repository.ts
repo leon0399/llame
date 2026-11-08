@@ -87,9 +87,9 @@ export class ChatDeliveriesRepository {
 
   /**
    * The one owner-scoped query of a step end (run-steering D3): `cancel` when
-   * the Run records a cancellation, so a signal that never reached this
-   * process is still found, else `delivery` when the Chat holds a pending
-   * `steer` or `interrupt` item.
+   * the Run records a cancellation or no longer exists (its Chat was deleted),
+   * so a signal that never reached this process is still found, else
+   * `delivery` when the Chat holds a pending `steer` or `interrupt` item.
    */
   async stepEndSignal(run: {
     runId: string;
@@ -113,8 +113,8 @@ export class ChatDeliveriesRepository {
       })
       .from(runs)
       .where(and(eq(runs.id, run.runId), eq(runs.userId, run.userId)));
-    if (row?.cancelled) return 'cancel';
-    return row?.pending ? 'delivery' : undefined;
+    if (!row || row.cancelled) return 'cancel';
+    return row.pending ? 'delivery' : undefined;
   }
 
   /**

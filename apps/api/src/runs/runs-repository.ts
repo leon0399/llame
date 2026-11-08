@@ -550,11 +550,13 @@ export class RunsRepository {
       .returning();
     return updated;
   }
+
   /**
    * Lock a Run for a delivery (run-steering D4): the row, behind the fences of
-   * the delivering attempt and `cancel_requested_at IS NULL`. Undefined when
-   * the attempt was superseded, the Run is terminal, or a cancellation is
-   * recorded. The first lock of the Run-then-chat order.
+   * the delivering attempt and a non-terminal status. Undefined when the
+   * attempt was superseded or the Run is terminal; a recorded cancellation is
+   * left on the returned row for the caller to read. The first lock of the
+   * Run-then-chat order.
    */
   async lockForDelivery(
     runId: string,
@@ -569,7 +571,6 @@ export class RunsRepository {
           eq(runs.id, runId),
           eq(runs.userId, userId),
           eq(runs.activeAttemptId, attemptId),
-          isNull(runs.cancelRequestedAt),
           nonTerminalRun(),
         ),
       )

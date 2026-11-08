@@ -1,5 +1,5 @@
 import { RunEventsRepository } from './runs-repository';
-import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, max, or, sql } from 'drizzle-orm';
 import {
   isRecord,
   isString,
@@ -128,17 +128,15 @@ export class NativeFilesRepository {
    * segment does not stop a retry (run-steering D4).
    */
   async hasMutation(runId: string): Promise<boolean> {
-    const [latestDelivered] = await this.db
-      .select({ sequence: runEvents.sequence })
+    const latestDelivered = this.db
+      .select({ sequence: max(runEvents.sequence) })
       .from(runEvents)
       .where(
         and(
           eq(runEvents.runId, runId),
           eq(runEvents.eventType, 'run.delivered'),
         ),
-      )
-      .orderBy(desc(runEvents.sequence))
-      .limit(1);
+      );
     const rows = await this.db
       .select({ id: runEvents.sequence })
       .from(runEvents)
@@ -146,7 +144,7 @@ export class NativeFilesRepository {
         and(
           eq(runEvents.runId, runId),
           eq(runEvents.eventType, 'native.attempt'),
-          gt(runEvents.sequence, latestDelivered?.sequence ?? 0),
+          gt(runEvents.sequence, sql`coalesce((${latestDelivered}), 0)`),
         ),
       )
       .limit(1);

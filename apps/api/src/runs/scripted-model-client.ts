@@ -20,7 +20,10 @@ import { streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 
 import type { ModelInput, ModelReasoning } from '../models/model-catalog';
-import { installStepPreparation } from '../models/step-composer';
+import {
+  installStepPreparation,
+  toolLoopStopWhen,
+} from '../models/step-composer';
 import { applyRequestUsageCallback } from '../models/request-usage';
 import {
   resolveEffortSelection,
@@ -34,7 +37,6 @@ import {
   applyToolCallingOptions,
   runStreamChannel,
 } from '../models/openai-model-client';
-import { toolLoopStopWhen } from '../models/tool-loop-stop-when';
 import type { ModelClient, ModelStreamInput } from '../models/model-client';
 import { createToolCallGate } from '../models/tool-call-gate';
 import { scriptedStreamHandlers } from './scripted-model-stream-options';
@@ -354,7 +356,7 @@ class HarnessModelClient implements ModelClient {
     const model = new MockLanguageModelV3({
       provider: 'fake',
       modelId: this.model,
-      doStream: ({ abortSignal, prompt, tools }) => {
+      doStream: async ({ abortSignal, prompt, tools }) => {
         this.recorded.prompts.push(prompt);
         // Per provider call, not per attempt: a Workspace MCP server's tools
         // join the tool set after the entry step ran, so only the step that
@@ -364,9 +366,7 @@ class HarnessModelClient implements ModelClient {
           tools: providerDeclarations(tools),
         });
         if (behavior.kind === 'provider-error') {
-          return Promise.reject(
-            new Error(behavior.message ?? 'simulated provider failure'),
-          );
+          throw new Error(behavior.message ?? 'simulated provider failure');
         }
         const stepIndex = this.scriptedStepIndex;
         const scriptedStep =
@@ -374,11 +374,10 @@ class HarnessModelClient implements ModelClient {
             ? behavior.steps[this.scriptedStepIndex++]
             : undefined;
         // The hook runs while the model "responds": before its stream opens.
-        const ready =
-          behavior.kind === 'step-script'
-            ? Promise.resolve(behavior.beforeStep?.(stepIndex))
-            : Promise.resolve();
-        return ready.then(() => ({
+        if (behavior.kind === 'step-script') {
+          await behavior.beforeStep?.(stepIndex);
+        }
+        return {
           stream: createScriptedStream({
             abortSignal,
             prompt,
@@ -386,7 +385,7 @@ class HarnessModelClient implements ModelClient {
             delayMs,
             scriptedStep,
           }),
-        }));
+        };
       },
     });
 

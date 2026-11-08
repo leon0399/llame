@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,6 +23,7 @@ import {
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { MessagesRepository } from '../chats/chats-repository';
 import { type ChatDeliveryMode, type Run } from '../db/schema';
+import { type Db } from '../db/tenant-db.service';
 import { waitFor } from '../testing/support';
 import { finalizeRunReply } from './run-reply-finalizer';
 import { isTerminalRunStatus } from './run-status';
@@ -71,28 +72,43 @@ function flatten(prompt: ReadonlyArray<ProviderMessage>): Array<string> {
   );
 }
 
-describeIfDb('run steering segments', () => {
-  let harness: WorkerHarness;
-  let userId: string;
-  let directory: string;
+type SegmentFixtureOptions = NonNullable<
+  Parameters<typeof bootWorkerHarness>[0]
+>;
+
+type SeededRun = Awaited<ReturnType<typeof seedRun>> & { modelId: string };
+
+/**
+ * One worker harness, one owner, and a scratch directory for a `describeIfDb`
+ * block, booted around it, with the helpers every scenario shares. The
+ * helpers read the booted state when they are called.
+ */
+function useSegmentsFixture(label: string, options: SegmentFixtureOptions) {
+  let booted:
+    | { harness: WorkerHarness; userId: string; directory: string }
+    | undefined;
+  const state = () => {
+    if (!booted) throw new Error(`The ${label} fixture is not booted.`);
+    return booted;
+  };
 
   beforeAll(async () => {
-    directory = await mkdtemp(join(tmpdir(), 'run-segments-'));
-    harness = await bootWorkerHarness({
-      allowedTools: ['read', 'bash'],
-      nativeExecutorId: 'run-segments-host',
-      maxStepsPerRun: 2,
-    });
-    userId = await createUser(harness.db, 'run-segments');
+    const harness = await bootWorkerHarness(options);
+    booted = {
+      harness,
+      userId: await createUser(harness.db, label),
+      directory: await mkdtemp(join(tmpdir(), `${label}-`)),
+    };
   });
 
   afterAll(async () => {
-    if (harness) await harness.close();
-    await rm(directory, { recursive: true, force: true });
+    if (!booted) return;
+    await booted.harness.close();
+    await rm(booted.directory, { recursive: true, force: true });
   });
 
-  const db = <T>(work: Parameters<typeof harness.tenantDb.runAs<T>>[1]) =>
-    harness.tenantDb.runAs(userId, work);
+  const db = <T>(work: (tx: Db) => Promise<T>) =>
+    state().harness.tenantDb.runAs(state().userId, work);
 
   /** A pending item of the Chat, as admission will store it in a later layer. */
   async function storeItems(
@@ -107,7 +123,7 @@ describeIfDb('run steering segments', () => {
         new ChatDeliveriesRepository(tx).insertPending({
           id,
           chatId,
-          ownerUserId: userId,
+          ownerUserId: state().userId,
           mode,
           parts: [{ type: 'text', text }],
           settings: { modelId: 'ignored-by-steer', permissionMode: 'default' },
@@ -119,19 +135,21 @@ describeIfDb('run steering segments', () => {
   }
 
   const items = (chatId: string) =>
-    db((tx) => new ChatDeliveriesRepository(tx).listPending(chatId, userId));
+    db((tx) =>
+      new ChatDeliveriesRepository(tx).listPending(chatId, state().userId),
+    );
 
   const itemState = (id: string) =>
-    db((tx) => new ChatDeliveriesRepository(tx).findById(id, userId));
+    db((tx) => new ChatDeliveriesRepository(tx).findById(id, state().userId));
 
   const events = (runId: string) =>
-    db((tx) => new RunEventsRepository(tx).listByRunId(runId, userId));
+    db((tx) => new RunEventsRepository(tx).listByRunId(runId, state().userId));
 
   const types = async (runId: string) =>
     (await events(runId)).map((event) => event.eventType);
 
   const run = (runId: string) =>
-    db((tx) => new RunsRepository(tx).findById(runId, userId));
+    db((tx) => new RunsRepository(tx).findById(runId, state().userId));
 
   const terminal = (runId: string) =>
     waitFor(
@@ -146,7 +164,7 @@ describeIfDb('run steering segments', () => {
   /** The Chat in `seq` order, reduced to what the scenarios assert. */
   async function transcript(chatId: string) {
     const messages = await db((tx) =>
-      new MessagesRepository(tx).findByChatId(chatId, userId),
+      new MessagesRepository(tx).findByChatId(chatId, state().userId),
     );
     return messages.map((message) => ({
       id: message.id,
@@ -167,53 +185,114 @@ describeIfDb('run steering segments', () => {
     }));
   }
 
-  /** Seeds and dispatches a Run on a scripted model; `beforeStep` may store items. */
-  async function startRun(
-    steps: ReadonlyArray<ScriptedStep>,
-    beforeStep?: (
-      stepIndex: number,
-      seeded: { chatId: string; runId: string },
-    ) => Promise<void> | void,
-    options: { target?: WorkerHarness } = {},
-  ) {
-    const target = options.target ?? harness;
-    const modelId = `segments-${randomUUID()}`;
+  /** `role:text` per message, the shape most scenarios compare. */
+  const lines = async (chatId: string) =>
+    (await transcript(chatId)).map(({ role, text }) => `${role}:${text}`);
+
+  /** A Chat, its first message, and its Run, on a model named for the scenario. */
+  async function seed(text = 'first message'): Promise<SeededRun> {
+    const modelId = `${label}-${randomUUID()}`;
     const seeded = await seedRun({
-      tenantDb: target.tenantDb,
-      userId,
+      tenantDb: state().harness.tenantDb,
+      userId: state().userId,
       modelId,
-      text: 'first message',
+      text,
     });
-    target.models.register(modelId, {
+    return { ...seeded, modelId };
+  }
+
+  /**
+   * Scripts the Run's model and dispatches it; `beforeStep` may store items.
+   * `prompts()` returns what the model was sent from here on, flattened.
+   */
+  async function launch(
+    seeded: SeededRun,
+    steps: ReadonlyArray<ScriptedStep>,
+    beforeStep?: (stepIndex: number, seeded: SeededRun) => Promise<void> | void,
+  ) {
+    const { harness, userId } = state();
+    harness.models.register(seeded.modelId, {
       kind: 'step-script',
       steps,
       ...(beforeStep !== undefined && {
         beforeStep: (index) => beforeStep(index, seeded),
       }),
     });
-    const promptsBefore = target.models.prompts.length;
-    await dispatchRun({ queue: target.queue, ...seeded, userId, modelId });
+    const promptsBefore = harness.models.prompts.length;
+    await dispatchRun({ queue: harness.queue, ...seeded, userId });
     return {
       ...seeded,
-      modelId,
       prompts: () =>
-        target.models.prompts
+        harness.models.prompts
           .slice(promptsBefore)
           .map((prompt) => flatten(prompt)),
     };
   }
 
+  const startRun = async (
+    steps: ReadonlyArray<ScriptedStep>,
+    beforeStep?: (stepIndex: number, seeded: SeededRun) => Promise<void> | void,
+  ) => launch(await seed(), steps, beforeStep);
+
+  return {
+    get harness() {
+      return state().harness;
+    },
+    get userId() {
+      return state().userId;
+    },
+    get directory() {
+      return state().directory;
+    },
+    db,
+    storeItems,
+    items,
+    itemState,
+    events,
+    types,
+    run,
+    terminal,
+    transcript,
+    lines,
+    seed,
+    launch,
+    startRun,
+  };
+}
+
+describeIfDb('run steering segments', () => {
+  const fx = useSegmentsFixture('run-segments', {
+    allowedTools: ['read', 'bash'],
+    nativeExecutorId: 'run-segments-host',
+    maxStepsPerRun: 2,
+  });
+  const {
+    db,
+    storeItems,
+    items,
+    itemState,
+    events,
+    types,
+    run,
+    terminal,
+    transcript,
+    lines,
+    seed,
+    launch,
+    startRun,
+  } = fx;
+
   describe('the step end check and the delivery', () => {
     it('A steer during a tool call waits for the result', async () => {
-      let chatId = '';
+      // The call blocks on a gate file, so the item is stored while it runs.
+      const gate = join(fx.directory, `gate-${randomUUID()}`);
       const started = await startRun([
         call('slow', 'bash', {
-          command: 'sleep 1; echo slept',
-          cwd: directory,
+          command: `while [ ! -e ${gate} ]; do sleep 0.05; done; echo opened`,
+          cwd: fx.directory,
         }),
         answer('after the steer'),
       ]);
-      chatId = started.chatId;
       await waitFor(
         async () =>
           (await types(started.runId)).includes('tool.started')
@@ -222,7 +301,8 @@ describeIfDb('run steering segments', () => {
         20_000,
         'the bash call to start',
       );
-      await storeItems(chatId, ['change course']);
+      await storeItems(started.chatId, ['change course']);
+      await writeFile(gate, '');
       await terminal(started.runId);
 
       const log = await events(started.runId);
@@ -248,7 +328,7 @@ describeIfDb('run steering segments', () => {
         [
           [
             { type: 'text', id: 'a', text: 'Reading. ' },
-            ...call('r1', 'read', { path: directory }),
+            ...call('r1', 'read', { path: fx.directory }),
           ],
           answer('done'),
         ],
@@ -274,10 +354,10 @@ describeIfDb('run steering segments', () => {
     it('A delivered message restarts the step count', async () => {
       const started = await startRun(
         [
-          call('a', 'read', { path: directory }),
-          call('b', 'read', { path: directory }),
-          call('c', 'read', { path: directory }),
-          call('d', 'read', { path: directory }),
+          call('a', 'read', { path: fx.directory }),
+          call('b', 'read', { path: fx.directory }),
+          call('c', 'read', { path: fx.directory }),
+          call('d', 'read', { path: fx.directory }),
           answer('four steps in two segments'),
         ],
         async (index, seeded) => {
@@ -300,11 +380,11 @@ describeIfDb('run steering segments', () => {
     it('A steer after the cap gives a new budget', async () => {
       const started = await startRun(
         [
-          call('a', 'read', { path: directory }),
-          call('b', 'read', { path: directory }),
+          call('a', 'read', { path: fx.directory }),
+          call('b', 'read', { path: fx.directory }),
           answer('capped answer'),
-          call('c', 'read', { path: directory }),
-          call('d', 'read', { path: directory }),
+          call('c', 'read', { path: fx.directory }),
+          call('d', 'read', { path: fx.directory }),
           answer('second segment answer'),
         ],
         async (index, seeded) => {
@@ -330,7 +410,7 @@ describeIfDb('run steering segments', () => {
     it('Two steers at one boundary', async () => {
       let ids: Array<string> = [];
       const started = await startRun(
-        [call('a', 'read', { path: directory }), answer('both seen')],
+        [call('a', 'read', { path: fx.directory }), answer('both seen')],
         async (index, seeded) => {
           if (index === 0) {
             ids = await storeItems(seeded.chatId, ['one', 'two']);
@@ -345,11 +425,11 @@ describeIfDb('run steering segments', () => {
       );
       expect(delivered).toHaveLength(1);
       const stored = await db((tx) =>
-        new MessagesRepository(tx).findByChatId(started.chatId, userId),
+        new MessagesRepository(tx).findByChatId(started.chatId, fx.userId),
       );
       expect(
         stored.find((message) => message.id === delivered[0]?.id)?.senderUserId,
-      ).toBe(userId);
+      ).toBe(fx.userId);
       const states = await Promise.all(ids.map((id) => itemState(id)));
       expect(states.map((item) => item?.deliveredMessageId)).toEqual([
         delivered[0]?.id,
@@ -363,7 +443,7 @@ describeIfDb('run steering segments', () => {
 
     it('The transcript order after a steer, and a delivered message executes in the active Run', async () => {
       const started = await startRun(
-        [call('a', 'read', { path: directory }), answer('second reply')],
+        [call('a', 'read', { path: fx.directory }), answer('second reply')],
         async (index, seeded) => {
           if (index === 0) await storeItems(seeded.chatId, ['steer']);
         },
@@ -391,7 +471,7 @@ describeIfDb('run steering segments', () => {
 
     it('A live client sees the segment usage', async () => {
       const started = await startRun(
-        [call('a', 'read', { path: directory }), answer('end')],
+        [call('a', 'read', { path: fx.directory }), answer('end')],
         async (index, seeded) => {
           if (index === 0) await storeItems(seeded.chatId, ['steer']);
         },
@@ -419,13 +499,13 @@ describeIfDb('run steering segments', () => {
 
     it('A cancellation and a steer at one boundary', async () => {
       const started = await startRun(
-        [call('a', 'read', { path: directory }), answer('never reached')],
+        [call('a', 'read', { path: fx.directory }), answer('never reached')],
         async (index, seeded) => {
           if (index !== 0) return;
           await storeItems(seeded.chatId, ['too late']);
           // Recorded, but no abort reaches this worker.
           await db((tx) =>
-            new RunsRepository(tx).requestCancel(seeded.runId, userId),
+            new RunsRepository(tx).requestCancel(seeded.runId, fx.userId),
           );
         },
       );
@@ -440,13 +520,32 @@ describeIfDb('run steering segments', () => {
         messages.filter((message) => message.role === 'user'),
       ).toHaveLength(1);
     });
+
+    it('A cancellation recorded with no pending item stops the call at the step end', async () => {
+      const started = await startRun(
+        [call('a', 'read', { path: fx.directory }), answer('never reached')],
+        async (index, seeded) => {
+          // Recorded, but no abort reaches this worker.
+          if (index === 0) {
+            await db((tx) =>
+              new RunsRepository(tx).requestCancel(seeded.runId, fx.userId),
+            );
+          }
+        },
+      );
+      const finished = await terminal(started.runId);
+
+      expect(finished.status).toBe('cancelled');
+      expect(started.prompts()).toHaveLength(1);
+      expect(await types(started.runId)).not.toContain('run.delivered');
+    });
   });
 
   describe('the completion check', () => {
     it('A steer during the final answer', async () => {
       const started = await startRun(
         [
-          call('a', 'read', { path: directory }),
+          call('a', 'read', { path: fx.directory }),
           answer('final answer'),
           answer('after the steer'),
         ],
@@ -467,37 +566,33 @@ describeIfDb('run steering segments', () => {
       expect(started.prompts()[2]?.at(-1)).toBe('user:one more thing');
     });
 
-    it('A withdrawal after the step end', async () => {
-      const withdrawn = randomUUID();
-      // The step end saw the item; the owner withdraws it before the delivery
-      // transaction reads the pending items, which then find none.
-      const spy = vi
+    /**
+     * The step end saw the pending item; the owner withdraws it before the
+     * delivery transaction reads the pending items, which then find none.
+     */
+    const withdrawBeforeDelivery = () =>
+      vi
         .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
         .mockImplementationOnce(async (chatId) => {
-          await db((tx) =>
-            new ChatDeliveriesRepository(tx).withdrawPending(
-              chatId,
-              withdrawn,
-              userId,
-            ),
-          );
+          for (const item of await items(chatId)) {
+            await db((tx) =>
+              new ChatDeliveriesRepository(tx).withdrawPending(
+                chatId,
+                item.id,
+                fx.userId,
+              ),
+            );
+          }
           return [];
         });
+
+    it('A withdrawal after the step end', async () => {
+      const spy = withdrawBeforeDelivery();
       try {
         const started = await startRun(
-          [call('a', 'read', { path: directory }), answer('same segment')],
+          [call('a', 'read', { path: fx.directory }), answer('same segment')],
           async (index, seeded) => {
-            if (index !== 0) return;
-            await db((tx) =>
-              new ChatDeliveriesRepository(tx).insertPending({
-                id: withdrawn,
-                chatId: seeded.chatId,
-                ownerUserId: userId,
-                mode: 'steer',
-                parts: [{ type: 'text', text: 'never mind' }],
-                settings: { modelId: 'x', permissionMode: 'default' },
-              }),
-            );
+            if (index === 0) await storeItems(seeded.chatId, ['never mind']);
           },
         );
         const finished = await terminal(started.runId);
@@ -506,8 +601,7 @@ describeIfDb('run steering segments', () => {
         expect(spy).toHaveBeenCalledTimes(2);
         expect(finished.status).toBe('completed');
         expect(await types(started.runId)).not.toContain('run.delivered');
-        const messages = await transcript(started.chatId);
-        expect(messages.map(({ role, text }) => `${role}:${text}`)).toEqual([
+        expect(await lines(started.chatId)).toEqual([
           'user:first message',
           'assistant:same segment',
         ]);
@@ -516,6 +610,38 @@ describeIfDb('run steering segments', () => {
         const second = started.prompts()[1] ?? [];
         expect(second).toContain('tool:tool-result');
         expect(second.at(-1)).not.toBe('user:never mind');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('A withdrawal leaves the step budget the earlier calls left', async () => {
+      const spy = withdrawBeforeDelivery();
+      try {
+        // The cap is 2: the first call used one step and stopped at the step
+        // end, so the continuation has one tool step left, then the forced
+        // answer.
+        const started = await startRun(
+          [
+            call('a', 'read', { path: fx.directory }),
+            call('b', 'read', { path: fx.directory }),
+            answer('forced answer'),
+          ],
+          async (index, seeded) => {
+            if (index === 0) await storeItems(seeded.chatId, ['never mind']);
+          },
+        );
+        const finished = await terminal(started.runId);
+
+        expect(finished.status).toBe('completed');
+        const log = await types(started.runId);
+        expect(log.filter((type) => type === 'tool.completed')).toHaveLength(2);
+        expect(
+          log.filter((type) => type === 'run.step_cap_reached'),
+        ).toHaveLength(1);
+        expect((await lines(started.chatId)).at(-1)).toBe(
+          'assistant:forced answer',
+        );
       } finally {
         spy.mockRestore();
       }
@@ -532,13 +658,7 @@ describeIfDb('run steering segments', () => {
       steerText: string,
       before?: (seeded: { runId: string }) => Promise<void>,
     ) {
-      const modelId = `segments-retry-${randomUUID()}`;
-      const seeded = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId,
-        text: 'first message',
-      });
+      const seeded = await seed();
       await db((tx) =>
         new MessagesRepository(tx).createAssistantReplyIfAbsent({
           chatId: seeded.chatId,
@@ -548,7 +668,7 @@ describeIfDb('run steering segments', () => {
         }),
       );
       const started = await db((tx) =>
-        new RunsRepository(tx).markStarted(seeded.runId, userId),
+        new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
       await db((tx) =>
         new RunEventsRepository(tx).append(seeded.runId, 'run.started'),
@@ -557,43 +677,34 @@ describeIfDb('run steering segments', () => {
       await storeItems(seeded.chatId, [steerText]);
       const delivery = await db((tx) =>
         deliverPendingSteering(tx, {
-          run: { runId: seeded.runId, userId },
+          run: { runId: seeded.runId, userId: fx.userId },
           attemptId: started?.activeAttemptId ?? '',
           models: [],
         }),
       );
       if (delivery.kind !== 'delivered') throw new Error('not delivered');
-      return { ...seeded, modelId, delivered: delivery };
+      return { ...seeded, delivered: delivery };
     }
 
     it('A crash retry keeps earlier segments, and a queue retry re-executes the loop from the current segment', async () => {
       const crashed = await runAfterCrashInSecondSegment('the steer');
-      const promptsBefore = harness.models.prompts.length;
-      harness.models.register(crashed.modelId, {
-        kind: 'step-script',
-        steps: [answer('second reply')],
-      });
-      await dispatchRun({
-        queue: harness.queue,
-        ...crashed,
-        userId,
-        modelId: crashed.modelId,
-      });
+      const retried = await launch(crashed, [answer('second reply')]);
       const finished = await terminal(crashed.runId);
 
       expect(finished.status).toBe('completed');
       expect(finished.messageId).toBe(crashed.delivered.message.id);
-      const messages = await transcript(crashed.chatId);
-      expect(messages.map(({ role, text }) => `${role}:${text}`)).toEqual([
+      expect(await lines(crashed.chatId)).toEqual([
         'user:first message',
         'assistant:first reply',
         'user:the steer',
         'assistant:second reply',
       ]);
-      expect(messages[3]?.inReplyTo).toBe(crashed.delivered.message.id);
+      expect((await transcript(crashed.chatId))[3]?.inReplyTo).toBe(
+        crashed.delivered.message.id,
+      );
       // The retried request sends history through the delivered message: the
       // first segment, then the steer last.
-      const sent = flatten(harness.models.prompts[promptsBefore] ?? []);
+      const sent = retried.prompts()[0] ?? [];
       expect(sent.indexOf('user:first message')).toBeGreaterThan(-1);
       expect(sent.indexOf('assistant:first reply')).toBeGreaterThan(
         sent.indexOf('user:first message'),
@@ -609,21 +720,12 @@ describeIfDb('run steering segments', () => {
             new RunEventsRepository(tx).append(runId, 'native.attempt', {
               toolCallId: 'earlier-write',
               operation: 'write',
-              path: join(directory, 'earlier'),
+              path: join(fx.directory, 'earlier'),
             }),
           );
         },
       );
-      harness.models.register(crashed.modelId, {
-        kind: 'step-script',
-        steps: [answer('carried on')],
-      });
-      await dispatchRun({
-        queue: harness.queue,
-        ...crashed,
-        userId,
-        modelId: crashed.modelId,
-      });
+      await launch(crashed, [answer('carried on')]);
       expect((await terminal(crashed.runId)).status).toBe('completed');
     });
 
@@ -633,19 +735,10 @@ describeIfDb('run steering segments', () => {
         new RunEventsRepository(tx).append(crashed.runId, 'native.attempt', {
           toolCallId: 'current-write',
           operation: 'write',
-          path: join(directory, 'current'),
+          path: join(fx.directory, 'current'),
         }),
       );
-      harness.models.register(crashed.modelId, {
-        kind: 'step-script',
-        steps: [answer('unreachable')],
-      });
-      await dispatchRun({
-        queue: harness.queue,
-        ...crashed,
-        userId,
-        modelId: crashed.modelId,
-      });
+      await launch(crashed, [answer('unreachable')]);
       expect(await terminal(crashed.runId)).toMatchObject({
         status: 'failed',
         error: { code: 'outcome_unknown' },
@@ -653,12 +746,19 @@ describeIfDb('run steering segments', () => {
     });
 
     it('A finalizer leaves the reply of an earlier segment, and a rebuild covers only the current segment', async () => {
-      // The earlier segment's own output sits before `run.delivered`.
+      // The earlier segment's own output sits before `run.delivered`, kept
+      // parts of a Continue Run included.
       const crashed = await runAfterCrashInSecondSegment(
         'continue',
         async ({ runId }) => {
           await db(async (tx) => {
             const log = new RunEventsRepository(tx);
+            await log.append(runId, 'run.continued', {
+              sourceRunId: randomUUID(),
+              parts: [{ type: 'text', text: 'kept earlier part' }],
+              steps: {},
+              results: {},
+            });
             await log.append(runId, 'model.requested', {
               modelId: 'earlier',
               attemptId: 'earlier-attempt',
@@ -728,25 +828,15 @@ describeIfDb('run steering segments', () => {
         },
       );
       await db((tx) =>
-        new RunsRepository(tx).requestCancel(crashed.runId, userId),
+        new RunsRepository(tx).requestCancel(crashed.runId, fx.userId),
       );
-      harness.models.register(crashed.modelId, {
-        kind: 'step-script',
-        steps: [answer('must not run')],
-      });
-      const callsBefore = harness.models.streamCalls.length;
-      await dispatchRun({
-        queue: harness.queue,
-        ...crashed,
-        userId,
-        modelId: crashed.modelId,
-      });
+      const callsBefore = fx.harness.models.streamCalls.length;
+      await launch(crashed, [answer('must not run')]);
       expect((await terminal(crashed.runId)).status).toBe('cancelled');
 
-      expect(harness.models.streamCalls).toHaveLength(callsBefore);
-      const messages = await transcript(crashed.chatId);
+      expect(fx.harness.models.streamCalls).toHaveLength(callsBefore);
       // The delivered message gets no reply, and the earlier one is unchanged.
-      expect(messages.map(({ role, text }) => `${role}:${text}`)).toEqual([
+      expect(await lines(crashed.chatId)).toEqual([
         'user:first message',
         'assistant:first reply',
         'user:continue',
@@ -780,7 +870,7 @@ describeIfDb('run steering segments', () => {
         });
       try {
         const started = await startRun(
-          [call('a', 'read', { path: directory }), answer('must not run')],
+          [call('a', 'read', { path: fx.directory }), answer('must not run')],
           async (index, seeded) => {
             if (index === 0) await storeItems(seeded.chatId, ['redirect']);
           },
@@ -800,23 +890,18 @@ describeIfDb('run steering segments', () => {
     });
 
     it('A superseded attempt cannot deliver', async () => {
-      const modelId = `segments-superseded-${randomUUID()}`;
-      const seeded = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId,
-      });
+      const seeded = await seed();
       const first = await db((tx) =>
-        new RunsRepository(tx).markStarted(seeded.runId, userId),
+        new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
       // A newer attempt claims the Run.
       await db((tx) =>
-        new RunsRepository(tx).markStarted(seeded.runId, userId),
+        new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
       const [item] = await storeItems(seeded.chatId, ['stale']);
       const result = await db((tx) =>
         deliverPendingSteering(tx, {
-          run: { runId: seeded.runId, userId },
+          run: { runId: seeded.runId, userId: fx.userId },
           attemptId: first?.activeAttemptId ?? '',
           models: [],
         }),
@@ -831,14 +916,9 @@ describeIfDb('run steering segments', () => {
     });
 
     it('A crash before delivery keeps the item', async () => {
-      const modelId = `segments-crash-${randomUUID()}`;
-      const seeded = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId,
-      });
+      const seeded = await seed();
       const started = await db((tx) =>
-        new RunsRepository(tx).markStarted(seeded.runId, userId),
+        new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
       const [item] = await storeItems(seeded.chatId, ['survives']);
       const attemptId = started?.activeAttemptId ?? '';
@@ -846,7 +926,7 @@ describeIfDb('run steering segments', () => {
       await expect(
         db(async (tx) => {
           await deliverPendingSteering(tx, {
-            run: { runId: seeded.runId, userId },
+            run: { runId: seeded.runId, userId: fx.userId },
             attemptId,
             models: [],
           });
@@ -864,7 +944,7 @@ describeIfDb('run steering segments', () => {
       // The retried attempt delivers it once.
       const retried = await db((tx) =>
         deliverPendingSteering(tx, {
-          run: { runId: seeded.runId, userId },
+          run: { runId: seeded.runId, userId: fx.userId },
           attemptId,
           models: [],
         }),
@@ -872,7 +952,7 @@ describeIfDb('run steering segments', () => {
       expect(retried.kind).toBe('delivered');
       const again = await db((tx) =>
         deliverPendingSteering(tx, {
-          run: { runId: seeded.runId, userId },
+          run: { runId: seeded.runId, userId: fx.userId },
           attemptId: retried.kind === 'delivered' ? retried.attemptId : '',
           models: [],
         }),
@@ -880,209 +960,142 @@ describeIfDb('run steering segments', () => {
       expect(again.kind).toBe('nothing-pending');
     });
   });
+
+  describe('tenant isolation', () => {
+    it("Another owner's session reaches nothing of this Run, and changes nothing", async () => {
+      const seeded = await seed();
+      const started = await db((tx) =>
+        new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
+      );
+      const attemptId = started?.activeAttemptId ?? '';
+      const [item] = await storeItems(seeded.chatId, ['private']);
+      const stranger = await createUser(fx.harness.db, 'run-segments-stranger');
+      // Every call names the owner's identity, as a forged caller would: the
+      // session's own identity is what the row security policy enforces.
+      const owner = fx.userId;
+
+      const attempt = await fx.harness.tenantDb.runAs(stranger, async (tx) => ({
+        signal: await new ChatDeliveriesRepository(tx).stepEndSignal({
+          runId: seeded.runId,
+          chatId: seeded.chatId,
+          userId: owner,
+        }),
+        locked: await new RunsRepository(tx).lockForDelivery(
+          seeded.runId,
+          owner,
+          attemptId,
+        ),
+        pending: await new ChatDeliveriesRepository(tx).lockPendingSteering(
+          seeded.chatId,
+          owner,
+        ),
+        delivery: await deliverPendingSteering(tx, {
+          run: { runId: seeded.runId, userId: owner },
+          attemptId,
+          models: [],
+        }),
+      }));
+
+      // The Run is invisible, so the step end fails closed to a stop.
+      expect(attempt).toEqual({
+        signal: 'cancel',
+        locked: undefined,
+        pending: [],
+        delivery: { kind: 'fenced' },
+      });
+      expect(await itemState(item ?? '')).toMatchObject({ state: 'pending' });
+      expect(await run(seeded.runId)).toMatchObject({
+        messageId: seeded.userMessage.id,
+        activeAttemptId: attemptId,
+      });
+      expect(await types(seeded.runId)).not.toContain('run.delivered');
+    });
+  });
 });
 
 describeIfDb('run steering segments without tools', () => {
-  let harness: WorkerHarness;
-  let userId: string;
-
-  beforeAll(async () => {
-    harness = await bootWorkerHarness({ allowedTools: [] });
-    userId = await createUser(harness.db, 'run-segments-bare');
-  });
-
-  afterAll(async () => {
-    if (harness) await harness.close();
-  });
+  const fx = useSegmentsFixture('run-segments-bare', { allowedTools: [] });
 
   it('A steer during the final answer, with no tools', async () => {
-    const modelId = `segments-bare-${randomUUID()}`;
-    const seeded = await seedRun({
-      tenantDb: harness.tenantDb,
-      userId,
-      modelId,
-      text: 'first message',
-    });
-    harness.models.register(modelId, {
-      kind: 'step-script',
-      steps: [answer('only answer'), answer('after the steer')],
-      beforeStep: async (index) => {
-        if (index !== 0) return;
-        await harness.tenantDb.runAs(userId, (tx) =>
-          new ChatDeliveriesRepository(tx).insertPending({
-            id: randomUUID(),
-            chatId: seeded.chatId,
-            ownerUserId: userId,
-            mode: 'steer',
-            parts: [{ type: 'text', text: 'late thought' }],
-            settings: { modelId, permissionMode: 'default' },
-          }),
-        );
+    const started = await fx.startRun(
+      [answer('only answer'), answer('after the steer')],
+      async (index, seeded) => {
+        if (index === 0) await fx.storeItems(seeded.chatId, ['late thought']);
       },
-    });
-    await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
-    const finished = await waitFor(
-      async () => {
-        const found = await harness.tenantDb.runAs(userId, (tx) =>
-          new RunsRepository(tx).findById(seeded.runId, userId),
-        );
-        return found && isTerminalRunStatus(found.status) ? found : undefined;
-      },
-      40_000,
-      'the Run to settle',
     );
+    const finished = await fx.terminal(started.runId);
 
     // No `stopWhen` exists without tools: the completion check alone kept it live.
-    expect(harness.models.declarations.at(-1)?.tools).toEqual([]);
+    expect(fx.harness.models.declarations.at(-1)?.tools).toEqual([]);
     expect(finished.status).toBe('completed');
-    const messages = await harness.tenantDb.runAs(userId, (tx) =>
-      new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
-    );
-    expect(
-      messages.map((message) =>
-        message.parts.flatMap((part) =>
-          isRecord(part) && isString(part['text']) ? [part['text']] : [],
-        ),
-      ),
-    ).toEqual([
-      ['first message'],
-      ['only answer'],
-      ['late thought'],
-      ['after the steer'],
+    expect(await fx.lines(started.chatId)).toEqual([
+      'user:first message',
+      'assistant:only answer',
+      'user:late thought',
+      'assistant:after the steer',
     ]);
   });
 
   it('A salvaged reply with a pending item continues the Run instead of completing it', async () => {
-    const modelId = `segments-salvage-${randomUUID()}`;
-    const seeded = await seedRun({
-      tenantDb: harness.tenantDb,
-      userId,
-      modelId,
-      text: 'first message',
-    });
-    await harness.tenantDb.runAs(userId, async (tx) => {
+    const seeded = await fx.seed();
+    await fx.db((tx) =>
       // The salvaged answer already completed the reply while the Run stayed live.
-      await new MessagesRepository(tx).createAssistantReplyIfAbsent({
+      new MessagesRepository(tx).createAssistantReplyIfAbsent({
         chatId: seeded.chatId,
         inReplyTo: seeded.userMessage.id,
         parts: [{ type: 'text', text: 'salvaged answer' }],
         usage: { status: 'completed', complete: true },
-      });
-      await new ChatDeliveriesRepository(tx).insertPending({
-        id: randomUUID(),
-        chatId: seeded.chatId,
-        ownerUserId: userId,
-        mode: 'steer',
-        parts: [{ type: 'text', text: 'pending at salvage' }],
-        settings: { modelId, permissionMode: 'default' },
-      });
-    });
-    harness.models.register(modelId, {
-      kind: 'step-script',
-      steps: [answer('answer to the steer')],
-    });
-    await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
-    const finished = await waitFor(
-      async () => {
-        const found = await harness.tenantDb.runAs(userId, (tx) =>
-          new RunsRepository(tx).findById(seeded.runId, userId),
-        );
-        return found && isTerminalRunStatus(found.status) ? found : undefined;
-      },
-      40_000,
-      'the Run to settle',
+      }),
     );
+    await fx.storeItems(seeded.chatId, ['pending at salvage']);
+    await fx.launch(seeded, [answer('answer to the steer')]);
+    const finished = await fx.terminal(seeded.runId);
 
     expect(finished.status).toBe('completed');
-    const messages = await harness.tenantDb.runAs(userId, (tx) =>
-      new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
-    );
-    expect(
-      messages.map((message) =>
-        message.parts.flatMap((part) =>
-          isRecord(part) && isString(part['text']) ? [part['text']] : [],
-        ),
-      ),
-    ).toEqual([
-      ['first message'],
-      ['salvaged answer'],
-      ['pending at salvage'],
-      ['answer to the steer'],
+    expect(await fx.lines(seeded.chatId)).toEqual([
+      'user:first message',
+      'assistant:salvaged answer',
+      'user:pending at salvage',
+      'assistant:answer to the steer',
     ]);
   });
 });
 
 describeIfDb('run steering segments and the time limits', () => {
-  let harness: WorkerHarness;
-  let userId: string;
-  let directory: string;
-
-  beforeAll(async () => {
-    directory = await mkdtemp(join(tmpdir(), 'run-segments-budget-'));
-    harness = await bootWorkerHarness({
-      allowedTools: ['bash'],
-      nativeExecutorId: 'run-segments-budget-host',
-      timeoutSeconds: 4,
-    });
-    userId = await createUser(harness.db, 'run-segments-budget');
-  });
-
-  afterAll(async () => {
-    if (harness) await harness.close();
-    await rm(directory, { recursive: true, force: true });
+  const fx = useSegmentsFixture('run-segments-budget', {
+    allowedTools: ['bash'],
+    nativeExecutorId: 'run-segments-budget-host',
+    timeoutSeconds: 4,
   });
 
   it('A long steered Run reaches its budget, because a delivery does not restart the limits', async () => {
-    const modelId = `segments-budget-${randomUUID()}`;
-    const seeded = await seedRun({
-      tenantDb: harness.tenantDb,
-      userId,
-      modelId,
-      text: 'first message',
-    });
-    harness.models.register(modelId, {
-      kind: 'step-script',
-      steps: [
-        call('first', 'bash', { command: 'sleep 3', cwd: directory }),
-        call('second', 'bash', { command: 'sleep 20', cwd: directory }),
+    // Test-side clock marks: the Run row's timestamps come from the database
+    // clock and the app clock mixed, which can differ by seconds under Docker.
+    let firstRequestAt = 0;
+    let secondRequestAt = 0;
+    const started = await fx.startRun(
+      [
+        call('first', 'bash', { command: 'sleep 2', cwd: fx.directory }),
+        call('second', 'bash', { command: 'sleep 20', cwd: fx.directory }),
       ],
-      beforeStep: async (index) => {
-        if (index !== 0) return;
-        await harness.tenantDb.runAs(userId, (tx) =>
-          new ChatDeliveriesRepository(tx).insertPending({
-            id: randomUUID(),
-            chatId: seeded.chatId,
-            ownerUserId: userId,
-            mode: 'steer',
-            parts: [{ type: 'text', text: 'keep going' }],
-            settings: { modelId, permissionMode: 'default' },
-          }),
-        );
+      async (index, seeded) => {
+        if (index === 0) {
+          firstRequestAt = Date.now();
+          await fx.storeItems(seeded.chatId, ['keep going']);
+        }
+        if (index === 1) secondRequestAt = Date.now();
       },
-    });
-    await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
-    const finished = await waitFor(
-      async () => {
-        const found = await harness.tenantDb.runAs(userId, (tx) =>
-          new RunsRepository(tx).findById(seeded.runId, userId),
-        );
-        return found && isTerminalRunStatus(found.status) ? found : undefined;
-      },
-      40_000,
-      'the Run to expire',
     );
+    const finished = await fx.terminal(started.runId);
+    const settledAt = Date.now();
 
     expect(finished.status).toBe('expired');
-    const log = await harness.tenantDb.runAs(userId, (tx) =>
-      new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
-    );
-    // It expired in its second segment, four seconds after the claim; a
-    // delivery that restarted the budget would have run past seven.
-    expect(log.map((event) => event.eventType)).toContain('run.delivered');
-    const elapsedMs =
-      (finished.finishedAt?.getTime() ?? 0) -
-      (finished.startedAt?.getTime() ?? 0);
-    expect(elapsedMs).toBeGreaterThanOrEqual(3900);
-    expect(elapsedMs).toBeLessThan(6500);
+    expect(await fx.types(started.runId)).toContain('run.delivered');
+    // The budget (four seconds) runs from the claim, just before the first
+    // request. The delivery came two seconds in, so a budget that ran on
+    // would end under four seconds after the second request, and one that
+    // restarted at the delivery could not end before four.
+    expect(settledAt - firstRequestAt).toBeGreaterThanOrEqual(3000);
+    expect(settledAt - secondRequestAt).toBeLessThan(3900);
   });
 });

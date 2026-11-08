@@ -19,7 +19,7 @@ import {
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import type { ModelInput, TokenPrice } from './model-catalog';
-import { installStepPreparation } from './step-composer';
+import { installStepPreparation, toolLoopStopWhen } from './step-composer';
 import {
   composeProviderOptions,
   type ProviderOptionRecord,
@@ -32,7 +32,6 @@ import {
   type ToolCallGate,
 } from './tool-call-gate';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
-import { toolLoopStopWhen } from './tool-loop-stop-when';
 import {
   applyStreamIdleWatchdog,
   ModelStreamIdleError,
@@ -123,8 +122,6 @@ export function applyToolCallingOptions(
   // The SDK keeps every step's request body in `recordedSteps` for the whole
   // call by default, and an uncapped call can run for hours (design D1).
   streamOptions.experimental_include = { requestBody: false };
-  // A configured cap stops one step past the forced text-only answer; with no
-  // cap the predicate never fires and the loop runs as many steps as asked.
   streamOptions.stopWhen = toolLoopStopWhen(input);
   streamOptions.experimental_repairToolCall = refuseUnavailableToolCalls(
     input.onUnavailableToolCall,

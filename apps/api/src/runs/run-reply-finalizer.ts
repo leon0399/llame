@@ -196,7 +196,7 @@ function tokenlessUsage(
  * `run.delivered`, or all of them before the first delivery. Recovery and the
  * settlers read only these (run-steering D4).
  */
-export function eventsAfterLatestDelivery(
+function eventsAfterLatestDelivery(
   events: ReadonlyArray<RunEvent>,
 ): Array<RunEvent> {
   const delivered = events.findLastIndex(

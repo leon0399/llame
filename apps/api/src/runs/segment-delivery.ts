@@ -7,11 +7,9 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
-
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { runs, type ChatDelivery, type Message, type Run } from '../db/schema';
+import { type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   finalizeRunReply,
@@ -32,8 +30,10 @@ export type BoundaryDelivery =
     }
   /** No pending item remained: the transaction wrote nothing. */
   | { kind: 'nothing-pending' }
-  /** The attempt was superseded, the Run is terminal, or a cancel is recorded. */
-  | { kind: 'fenced' };
+  /** The attempt was superseded or the Run is terminal. */
+  | { kind: 'fenced' }
+  /** A cancellation is recorded: the items stay pending. */
+  | { kind: 'cancelled' };
 
 /** A delivery that moved the Run onto a new message. */
 export type DeliveredBoundary = Extract<
@@ -99,22 +99,28 @@ async function closeSegmentAndStore(
 async function moveRunToDelivery(
   tx: Db,
   locked: Run,
-  items: ReadonlyArray<ChatDelivery>,
-  message: Message,
+  fromAttemptId: string,
+  delivery: { items: ReadonlyArray<ChatDelivery>; message: Message },
 ): Promise<string> {
   const { id: runId, userId } = locked;
+  const { items, message } = delivery;
   const deliveries = new ChatDeliveriesRepository(tx);
   for (const item of items) {
-    await deliveries.markDelivered(item.id, userId, {
+    const marked = await deliveries.markDelivered(item.id, userId, {
       messageId: message.id,
       runId,
     });
+    // The items are locked, so a miss means the transaction must not commit.
+    if (!marked) throw new Error(`Steer item ${item.id} was not pending.`);
   }
   const attemptId = randomUUID();
-  await tx
-    .update(runs)
-    .set({ messageId: message.id, activeAttemptId: attemptId })
-    .where(and(eq(runs.id, runId), eq(runs.userId, userId)));
+  const moved = await new RunsRepository(tx).updateForAttempt(
+    runId,
+    userId,
+    fromAttemptId,
+    { messageId: message.id, activeAttemptId: attemptId },
+  );
+  if (!moved) throw new Error(`Run ${runId} could not move to its delivery.`);
   await new RunEventsRepository(tx).append(runId, 'run.delivered', {
     messageId: message.id,
     deliveryIds: items.map((item) => item.id),
@@ -148,6 +154,8 @@ export async function deliverPendingSteering(
     input.attemptId,
   );
   if (!locked) return { kind: 'fenced' };
+  // The items stay pending and the caller settles the Run cancelled.
+  if (locked.cancelRequestedAt !== null) return { kind: 'cancelled' };
   const { chatId, userId } = locked;
   if (!(await new ChatsRepository(tx).lock(chatId, userId))) {
     return { kind: 'fenced' };
@@ -162,7 +170,10 @@ export async function deliverPendingSteering(
     locked,
     items,
   );
-  const attemptId = await moveRunToDelivery(tx, locked, items, message);
+  const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
+    items,
+    message,
+  });
   return {
     kind: 'delivered',
     ...(closedReply !== undefined && { closedReply }),
