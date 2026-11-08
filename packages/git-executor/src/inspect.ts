@@ -30,7 +30,7 @@ import type {
 type Step<T> = T | GitFailure;
 
 /** One record per remote URL: `remote.<name>.url\n<url>` up to a NUL. */
-function parseRemoteRecords(stdout: string): Array<GitRepositoryRemote> {
+export function parseRemoteRecords(stdout: string): Array<GitRepositoryRemote> {
   const remotes: Array<GitRepositoryRemote> = [];
   for (const record of stdout.split("\0")) {
     const separator = record.indexOf("\n");

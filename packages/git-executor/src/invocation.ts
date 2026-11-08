@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import type { GitFailure } from "@workspace/machine-protocol";
 
@@ -45,6 +45,29 @@ export function gitPrefixArguments(
     "core.fsmonitor=false",
     "-C",
     path,
+  ];
+}
+
+/**
+ * The prefix of a call pinned to one git entry: the same overrides, plus no
+ * signature program from `git log`, and the entry's own directory as both the
+ * working directory and the work tree, so `core.worktree` is ignored. The
+ * environment's ceiling stops discovery at that directory; see {@link withGit}.
+ */
+function pinnedPrefixArguments(
+  hooksDirectory: string,
+  entryDirectory: string,
+): Array<string> {
+  return [
+    "-c",
+    `core.hooksPath=${hooksDirectory}`,
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "log.showSignature=false",
+    "-C",
+    entryDirectory,
+    `--work-tree=${entryDirectory}`,
   ];
 }
 
@@ -97,16 +120,25 @@ export function processFailure(
  */
 export async function withGit<T>(
   directory: string,
-  options: GitCallOptions & { readonly timeoutMs: number },
+  options: GitCallOptions & {
+    readonly timeoutMs: number;
+    /** `directory` holds one git entry, and discovery must stop there: the
+     *  prefix is pinned and the parent of `directory` is a ceiling. */
+    readonly pinned?: boolean;
+  },
   work: (git: GitRunner) => Promise<T>,
 ): Promise<T> {
   const endsAt = Date.now() + options.timeoutMs;
   const hooksDirectory = await mkdtemp(join(tmpdir(), "llame-git-hooks-"));
-  const prefix = gitPrefixArguments(hooksDirectory, directory);
+  const prefix = options.pinned
+    ? pinnedPrefixArguments(hooksDirectory, directory)
+    : gitPrefixArguments(hooksDirectory, directory);
+  const ceiling = options.pinned ? dirname(directory) : undefined;
   const git: GitRunner = (args) =>
     runGitProcess([...prefix, ...args], {
       timeoutMs: endsAt - Date.now(),
       signal: options.signal,
+      ceiling,
     });
   try {
     return await work(git);

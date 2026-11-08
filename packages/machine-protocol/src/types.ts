@@ -428,7 +428,16 @@ export type GitFailure =
     }
   | {
       readonly status: "error";
-      readonly type: "not_a_repository" | "timed_out" | "git_failed";
+      readonly type:
+        | "not_a_repository"
+        | "timed_out"
+        | "git_failed"
+        | "no_repository_in_root"
+        | "root_missing"
+        | "git_entry_changed"
+        | "outside_registered_root"
+        | "output_bound";
+      /** Empty when the failure came from no git process. */
       readonly stderr: string;
     };
 
@@ -468,6 +477,87 @@ export type GitStatusSuccess = {
   readonly head: string | null;
 };
 export type GitStatusResult = GitStatusSuccess | GitFailure;
+
+/** `git.locate`: the nearest `.git` entry at or above `path`, found by a stat
+ *  walk that starts no git process. */
+export type GitLocateParams = {
+  readonly envelope: RequestEnvelope;
+  readonly path: string;
+  readonly options: NativeDisplayOptions;
+};
+export type GitLocateSuccess = {
+  readonly status: "ok";
+  readonly gitEntry: string;
+  readonly kind: "directory" | "file";
+};
+export type GitLocateResult = GitLocateSuccess | GitFailure;
+
+/** `git.state`: the observed state of the repository whose entry was located. */
+export type GitStateParams = {
+  readonly envelope: RequestEnvelope;
+  readonly path: string;
+  readonly gitEntry: string;
+  /** The most changed and submodule paths the result lists. */
+  readonly limit: number;
+  readonly submodules: "skip" | "check";
+  readonly timeoutMs?: number;
+  readonly options: NativeDisplayOptions;
+};
+export type GitStateSuccess = {
+  readonly status: "ok";
+  /** The absolute directory that holds the git entry. */
+  readonly toplevel: string;
+  /** The requested path relative to `toplevel`: posix, empty when equal. */
+  readonly rootRelative: string;
+  /** `null` when HEAD is detached. */
+  readonly branch: string | null;
+  readonly detached: boolean;
+  /** The full commit id; `null` on an unborn branch. */
+  readonly head: string | null;
+  readonly upstream: {
+    readonly name: string;
+    readonly gone: boolean;
+    readonly ahead: number | null;
+    readonly behind: number | null;
+    /** ISO UTC time of the upstream ref's last reflog entry. */
+    readonly updatedAt: string | null;
+  } | null;
+  readonly operation: {
+    readonly kind:
+      | "merge"
+      | "rebase"
+      | "am"
+      | "cherry-pick"
+      | "revert"
+      | "bisect";
+    readonly step?: number;
+    readonly total?: number;
+  } | null;
+  readonly counts: {
+    readonly staged: number;
+    readonly unstaged: number;
+    readonly untracked: number;
+    readonly conflicted: number;
+  };
+  readonly entries: ReadonlyArray<{
+    /** Two characters: porcelain `.` is a space, untracked is `??`. */
+    readonly xy: string;
+    /** Root-relative posix path; may start with `../`. */
+    readonly path: string;
+    /** The root-relative source of a rename. */
+    readonly from?: string;
+  }>;
+  /** Changed and submodule paths the result does not list. */
+  readonly omitted: number;
+  readonly submodules: ReadonlyArray<string>;
+  readonly commits: ReadonlyArray<{
+    readonly short: string;
+    readonly subject: string;
+  }>;
+  /** Raw URLs; the hub normalizes them. */
+  readonly remotes: ReadonlyArray<GitRepositoryRemote>;
+};
+export type GitStateResult = GitStateSuccess | GitFailure;
 
 /** `git.worktreeAdd`: a new worktree of `source` on a new branch. */
 export type GitWorktreeAddParams = {

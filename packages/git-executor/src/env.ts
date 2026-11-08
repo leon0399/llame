@@ -19,13 +19,19 @@ const FIXED_ENVIRONMENT = {
 
 const INHERITED_ENVIRONMENT_NAMES = ["PATH", "HOME", "TMPDIR"] as const;
 
-export function gitEnvironment(): Record<string, string> {
+/**
+ * `ceiling`, when given, is the one caller value added: `GIT_CEILING_DIRECTORIES`,
+ * which stops git's discovery from walking up into that directory.
+ */
+export function gitEnvironment(ceiling?: string): Record<string, string> {
   const inherited = INHERITED_ENVIRONMENT_NAMES.flatMap((name) => {
     const value = process.env[name];
     return value === undefined ? [] : [[name, value] as const];
   });
-  return Object.fromEntries([
+  const environment: Record<string, string> = Object.fromEntries([
     ...Object.entries(FIXED_ENVIRONMENT),
     ...inherited,
   ]);
+  if (ceiling !== undefined) environment["GIT_CEILING_DIRECTORIES"] = ceiling;
+  return environment;
 }
