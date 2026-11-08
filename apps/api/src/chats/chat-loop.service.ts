@@ -14,7 +14,7 @@ import {
   type TenantRunner,
 } from '../db/tenant-db.service';
 import { assertNotArchived } from '../db/assert-not-archived';
-import { type Chat, type Message } from '../db/schema';
+import { type Chat, type ChatDelivery, type Message } from '../db/schema';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -48,7 +48,9 @@ import {
 import { MediaService, type MediaDescriber } from '../media/media.service';
 import { type MessagePart } from './context-builder';
 import { resolveOwnerFileParts, toRunUserMessage } from './chat-message-parts';
-import { clearActiveRunSlot } from './chat-admission';
+import { claimActiveRunSlot, clearActiveRunSlot } from './chat-admission';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
+import { type SendableDeliveryMode } from './dto/chat-deliveries.dto';
 import { createRunForMessage } from './run-creation';
 
 /**
@@ -104,6 +106,11 @@ export type PersistUserMessageAndRunInput = {
   message: { id: string; parts: Array<ClientMessagePart> };
   /** The sanitized message with its file parts already resolved. */
   parts: Array<MessagePart>;
+  /**
+   * Set when the sender accepts a pending item in place of a 409: a live Run
+   * stores the message as an item, an idle Chat starts a Run as usual.
+   */
+  delivery?: SendableDeliveryMode | undefined;
   targetRunId: string;
   /**
    * Whether this transaction must win the Chat's creation lock: true on the
@@ -123,6 +130,12 @@ type PersistUserMessageAndRunResult = {
   userMessage: RunUserMessage;
   supersededRunIds: Array<string>;
 };
+
+/**
+ * The answer of a delivery send that stored or found an item and started no
+ * Run (run-steering D2): the controller answers 202 with it.
+ */
+export type PendingDeliveryAnswer = { delivery: ChatDelivery };
 
 type CreateMessageStreamInput = {
   chatId: string;
@@ -188,6 +201,33 @@ export class ChatLoopService {
       runId,
       userMessage,
       supersededRunIds,
+      chatId: input.chatId,
+      userId: input.userId,
+      modelId: input.modelId,
+      abortSignal: input.abortSignal,
+    });
+  }
+
+  /**
+   * A chat send that names a delivery mode (run-steering D2): with a live Run
+   * it stores a pending item and answers it, with an idle Chat it is a plain
+   * send. A retry of the same message id answers the stored item.
+   */
+  async createDeliveryMessage(
+    input: CreateMessageStreamInput & { delivery: SendableDeliveryMode },
+  ): Promise<ChatMessageStream | PendingDeliveryAnswer> {
+    const turn = await this.validateTurn(input);
+    const admitted = await this.persistUserMessageAndRun({
+      chatId: input.chatId,
+      userId: input.userId,
+      ...turn,
+      delivery: input.delivery,
+      targetRunId: randomUUID(),
+      takeCreationLock: true,
+    });
+    if ('delivery' in admitted) return admitted;
+    return this.finalizeAcceptedRun({
+      ...admitted,
       chatId: input.chatId,
       userId: input.userId,
       modelId: input.modelId,
@@ -319,8 +359,14 @@ export class ChatLoopService {
    * identity and the durable Run record.
    */
   private async persistUserMessageAndRun(
+    input: PersistUserMessageAndRunInput & { delivery?: undefined },
+  ): Promise<PersistUserMessageAndRunResult>;
+  private async persistUserMessageAndRun(
     input: PersistUserMessageAndRunInput,
-  ): Promise<PersistUserMessageAndRunResult> {
+  ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer>;
+  private async persistUserMessageAndRun(
+    input: PersistUserMessageAndRunInput,
+  ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer> {
     // Media ownership was decided by `validateTurn` before this transaction
     // opened: a file part naming media the sender does not own rejects the
     // message before any chat or message row is written. Media is immutable, so
@@ -330,18 +376,18 @@ export class ChatLoopService {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
 
-      const { userMessage: admittedMessage } = await this.admitTurn(
+      const { chat, createdByUs } = await this.resolveChat(chatsRepo, input);
+      const stored = await this.findStoredItem(tx, input, createdByUs);
+      if (stored) return { delivery: stored };
+      const admittedMessage = await this.admitTurn(
+        chat,
+        createdByUs,
         chatsRepo,
         messagesRepo,
         input,
       );
-      await clearActiveRunSlot({
-        tx,
-        chatId: input.chatId,
-        userId: input.userId,
-        dispatch: this.dispatch,
-        instanceConfig: this.instanceConfig,
-      });
+      const pending = await this.admitToSlot(tx, input);
+      if (pending) return pending;
 
       // The user message is persisted with only the caller's sanitized text
       // and resolved file parts. Context-rail items (model-switch,
@@ -375,6 +421,45 @@ export class ChatLoopService {
   }
 
   /**
+   * The single-flight step of admission. A send without `delivery` answers 409
+   * while a live Run holds the slot. A delivery send stores the message as a
+   * pending item instead: neither a message row nor a Run (run-steering D2).
+   * Without a live blocker the send goes on to start its Run, whatever
+   * `delivery` says.
+   */
+  private async admitToSlot(
+    tx: Db,
+    input: PersistUserMessageAndRunInput,
+  ): Promise<PendingDeliveryAnswer | undefined> {
+    const slot = {
+      tx,
+      chatId: input.chatId,
+      userId: input.userId,
+      dispatch: this.dispatch,
+      instanceConfig: this.instanceConfig,
+    };
+    if (input.delivery === undefined) {
+      await clearActiveRunSlot(slot);
+      return undefined;
+    }
+    if ((await claimActiveRunSlot(slot)) === 'free') return undefined;
+    return {
+      delivery: await new ChatDeliveriesRepository(tx).insertPending({
+        id: input.message.id,
+        chatId: input.chatId,
+        ownerUserId: input.userId,
+        mode: input.delivery,
+        parts: input.parts,
+        settings: {
+          modelId: input.modelId,
+          ...(input.effort !== undefined && { effort: input.effort }),
+          permissionMode: input.permissionMode,
+        },
+      }),
+    };
+  }
+
+  /**
    * The Chat's creation lock, inside the admission transaction: a create
    * request holding it answers 409 here, and this route holds it only until the
    * transaction ends, never for the life of the Run.
@@ -392,43 +477,74 @@ export class ChatLoopService {
   }
 
   /**
-   * Resolve/create the chat and admit the turn: refuse an archived chat and
-   * a reused message id (a turn already carrying a user or assistant
-   * message). Serializes predecessor reads for an accepted turn on a
-   * pre-existing chat — the chat row lock ensures two transactions do not
-   * both commit against the same baseline. A freshly inserted chat already
-   * carries this transaction's row lock; an existing chat is locked here
-   * (by the activity update) before any downstream state is read.
+   * Resolve or create the chat: the first message creates the chat (#86). The
+   * client supplies the id (routing + idempotency); the owner is always the
+   * session user. If the chat is absent, upsert it; a conflict means the id is
+   * already taken — by us (a concurrent first send) or by another tenant.
+   * Re-query to disambiguate: our own row becomes visible (relies on the
+   * default READ COMMITTED seeing the concurrent commit), a cross-tenant id
+   * stays invisible → 404 (no existence leak).
+   */
+  private async resolveChat(
+    chatsRepo: ChatsRepository,
+    input: PersistUserMessageAndRunInput,
+  ): Promise<{ chat: Chat; createdByUs: boolean }> {
+    let chat = await chatsRepo.findById(input.chatId, input.userId);
+    if (chat) return { chat, createdByUs: false };
+    chat = await chatsRepo.createIfAbsent({
+      id: input.chatId,
+      ownerUserId: input.userId,
+    });
+    if (chat) return { chat, createdByUs: true };
+    chat = await chatsRepo.findById(input.chatId, input.userId);
+    if (!chat) {
+      throw new NotFoundException(`Chat ${input.chatId} not found`);
+    }
+    return { chat, createdByUs: false };
+  }
+
+  /**
+   * The item a delivery send already stored under its message id, in any
+   * state. A retry repeats the id, so the stored item answers it before the
+   * duplicate-id check would refuse the id and before any Run starts
+   * (run-steering D2); the same id in another Chat is a duplicate. The Chat row
+   * lock serializes two sends of one id.
+   */
+  private async findStoredItem(
+    tx: Db,
+    input: PersistUserMessageAndRunInput,
+    createdByUs: boolean,
+  ): Promise<ChatDelivery | undefined> {
+    if (input.delivery === undefined) return undefined;
+    if (!createdByUs) {
+      await new ChatsRepository(tx).lock(input.chatId, input.userId);
+    }
+    const item = await new ChatDeliveriesRepository(tx).findById(
+      input.message.id,
+      input.userId,
+    );
+    if (item && item.chatId !== input.chatId) {
+      throw new ConflictException('Message id already exists');
+    }
+    return item;
+  }
+
+  /**
+   * Admit the turn: refuse an archived chat and a reused message id (a turn
+   * already carrying a user or assistant message). Serializes predecessor
+   * reads for an accepted turn on a pre-existing chat — the chat row lock
+   * ensures two transactions do not both commit against the same baseline. A
+   * freshly inserted chat already carries this transaction's row lock; an
+   * existing chat is locked here (by the activity update) before any
+   * downstream state is read.
    */
   private async admitTurn(
+    chat: Chat,
+    createdByUs: boolean,
     chatsRepo: ChatsRepository,
     messagesRepo: MessagesRepository,
     input: PersistUserMessageAndRunInput,
-  ): Promise<{ chat: Chat; userMessage: Message | undefined }> {
-    // First message creates the chat (#86): the client supplies the id
-    // (routing + idempotency); the owner is always the session user. If the
-    // chat is absent, upsert it; a conflict means the id is already taken —
-    // by us (a concurrent first send) or by another tenant. Re-query to
-    // disambiguate: our own row becomes visible (relies on the default READ
-    // COMMITTED seeing the concurrent commit), a cross-tenant id stays
-    // invisible → 404 (no existence leak).
-    let chat = await chatsRepo.findById(input.chatId, input.userId);
-    let createdByUs = false;
-    if (!chat) {
-      chat = await chatsRepo.createIfAbsent({
-        id: input.chatId,
-        ownerUserId: input.userId,
-      });
-      if (chat) {
-        createdByUs = true;
-      } else {
-        chat = await chatsRepo.findById(input.chatId, input.userId);
-      }
-      if (!chat) {
-        throw new NotFoundException(`Chat ${input.chatId} not found`);
-      }
-    }
-
+  ): Promise<Message | undefined> {
     // Archive guard (chat-project-archive): a freshly created chat
     // (createdByUs) is never archived, so this only fires for a pre-existing
     // archived chat — sending does NOT unarchive.
@@ -443,11 +559,9 @@ export class ChatLoopService {
       throw new ConflictException('Message id already exists');
     }
 
-    if (!createdByUs) {
-      chat = (await chatsRepo.touch(input.chatId, input.userId)) ?? chat;
-    }
+    if (!createdByUs) await chatsRepo.touch(input.chatId, input.userId);
 
-    return { chat, userMessage: turn.userMessage };
+    return turn.userMessage;
   }
 
   private async persistUserMessageIfAbsent(

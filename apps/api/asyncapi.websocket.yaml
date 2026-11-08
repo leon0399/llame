@@ -80,7 +80,7 @@ channels:
       ## Delivery
 
       Record messages (`*.upserted`, `*.deleted`, `pins.replaced`,
-      `run.updated`) carry the full current state of one record, never a
+      `chat.deliveries`, `run.updated`) carry the full current state of one record, never a
       delta, and `run.progress` carries a Run's current phase and step, so
       applying any message again is harmless. Messages for one owner are sent
       in commit order, and rapid changes to one record may be coalesced into
@@ -112,6 +112,8 @@ channels:
         $ref: '#/components/messages/machineDeleted'
       pinsReplaced:
         $ref: '#/components/messages/pinsReplaced'
+      chatDeliveries:
+        $ref: '#/components/messages/chatDeliveries'
       runUpdated:
         $ref: '#/components/messages/runUpdated'
       runProgress:
@@ -136,6 +138,7 @@ operations:
       - $ref: '#/channels/live/messages/machineUpserted'
       - $ref: '#/channels/live/messages/machineDeleted'
       - $ref: '#/channels/live/messages/pinsReplaced'
+      - $ref: '#/channels/live/messages/chatDeliveries'
       - $ref: '#/channels/live/messages/runUpdated'
       - $ref: '#/channels/live/messages/runProgress'
       - $ref: '#/channels/live/messages/resync'
@@ -272,6 +275,30 @@ components:
                   id: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
                   title: Postgres LISTEN reconnect handling
                   archivedAt: null
+    chatDeliveries:
+      name: chat.deliveries
+      title: Pending items of a Chat
+      summary: The Chat's complete pending items, in `GET /api/v1/chats/{chatId}/deliveries` order, after any change (a new item, a withdrawal, a delivery). An empty list means none is pending.
+      payload:
+        $ref: '#/components/schemas/ChatDeliveriesMessage'
+      examples:
+        - name: oneQueued
+          summary: One queued message waits for the running Run to complete.
+          payload:
+            type: chat.deliveries
+            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+            items:
+              - id: 7a1d4c2e-8b35-4f60-a9d7-3e5c1b0f8264
+                chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+                mode: queue
+                state: pending
+                position: 1
+                parts:
+                  - type: text
+                    text: And then summarize it for the release notes.
+                modelId: gpt-5.5
+                permissionMode: default
+                createdAt: '2026-10-16T09:12:30.004Z'
     runUpdated:
       name: run.updated
       title: Run created or status changed
@@ -432,6 +459,27 @@ components:
                 - $ref: ./openapi.json#/components/schemas/ProjectPinnedItemResponse
               discriminator:
                 propertyName: itemType
+    ChatDeliveriesMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - chatId
+          - items
+        properties:
+          type:
+            type: string
+            enum:
+              - chat.deliveries
+          chatId:
+            type: string
+            format: uuid
+          items:
+            type: array
+            items:
+              $ref: ./openapi.json#/components/schemas/ChatDeliveryResponse
     RunUpdatedMessage:
       schemaFormat: application/vnd.oai.openapi;version=3.0.0
       schema:

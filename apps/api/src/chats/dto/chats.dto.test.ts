@@ -205,6 +205,23 @@ describe('CreateMessageDto', () => {
     ).resolves.toMatchObject({ permissionMode: undefined });
   });
 
+  it('accepts only the delivery modes this API ships', async () => {
+    const modelId = 'system:openai:gpt-5.4-mini';
+
+    await expect(
+      pipe.transform({ modelId, delivery: 'queue', message }, metadata),
+    ).resolves.toMatchObject({ delivery: 'queue' });
+    await expect(
+      pipe.transform({ modelId, message }, metadata),
+    ).resolves.toMatchObject({ delivery: undefined });
+    // `steer` and `interrupt` ship in later layers; null is not "omitted".
+    for (const delivery of ['steer', 'interrupt', '', null, 7]) {
+      await expect(
+        pipe.transform({ modelId, delivery, message }, metadata),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+  });
+
   it('rejects a blank, null, or non-string effort', async () => {
     const modelId = 'system:openai:gpt-5.4-mini';
 

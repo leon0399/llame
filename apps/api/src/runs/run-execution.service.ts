@@ -379,6 +379,9 @@ import {
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { decidePermission } from '../tools/permissions/admit';
 import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
+import { promoteNextQueueItem } from './queue-promotion';
+import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
+import { type RunJob } from './run-queues';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -610,7 +613,12 @@ type FinishRunInput = {
 };
 
 type FinishRunResult =
-  | { outcome: 'won' | 'errored'; assistantMessage?: Message }
+  | {
+      outcome: 'won' | 'errored';
+      assistantMessage?: Message;
+      /** The Run a completed Run's transaction created for a queue item. */
+      promoted?: RunJob;
+    }
   | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message };
 
 /** The assembled context+tools an execution attempt runs against. */
@@ -966,6 +974,11 @@ export class RunExecutionService {
     @Optional()
     @Inject(GitSnapshotService)
     private readonly gitSnapshots?: Pick<GitSnapshotService, 'observe'>,
+    // Enqueues the Run a completed Run promotes from the Chat's queue. Absent
+    // only where no queue exists (unit fixtures): nothing is promoted then.
+    @Optional()
+    @Inject(RunDispatchService)
+    private readonly runDispatch?: Pick<RunDispatcher, 'dispatch'>,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -3986,6 +3999,32 @@ export class RunExecutionService {
    * never stored, equally unrecoverable and, unlike this, on the normal path.
    */
   private async finishRun(input: FinishRunInput): Promise<FinishRunResult> {
+    const finish = await this.commitFinishRun(input);
+    if (finish.outcome === 'won' && finish.promoted !== undefined) {
+      await this.dispatchPromotedRun(finish.promoted);
+    }
+    return finish;
+  }
+
+  /**
+   * Enqueue the Run a completion promoted, after its commit. `dispatch` fails
+   * that Run when the enqueue fails, which frees the Chat for the owner; the
+   * completed Run behind it stays completed, so the error is logged only.
+   */
+  private async dispatchPromotedRun(job: RunJob): Promise<void> {
+    try {
+      await this.runDispatch?.dispatch(job);
+    } catch (error) {
+      this.logger.error(
+        `Failed to enqueue promoted run ${job.runId}`,
+        loggableError(error),
+      );
+    }
+  }
+
+  private async commitFinishRun(
+    input: FinishRunInput,
+  ): Promise<FinishRunResult> {
     try {
       return await this.tenantDb.runAs(input.userId, (tx) =>
         this.finishRunInTransaction(tx, input),
@@ -4042,9 +4081,19 @@ export class RunExecutionService {
     }
     await this.persistWinningTurnBaselines(tx, input, finished);
     await events.append(input.runId, `run.${input.status}`, input.runPayload);
+    const promoted =
+      input.status === 'completed' && this.runDispatch !== undefined
+        ? await promoteNextQueueItem(tx, {
+            completed: finished,
+            models: this.models,
+            enabledPermissionModes:
+              this.instanceConfig.config.tools.permissionModes,
+          })
+        : undefined;
     return {
       outcome: 'won',
       assistantMessage,
+      ...(promoted !== undefined && { promoted }),
     };
   }
 

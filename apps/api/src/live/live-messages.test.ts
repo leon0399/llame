@@ -10,6 +10,7 @@ import type { LiveRecordLoader } from './live-record-loader';
 import {
   LIVE_MACHINE_NAME,
   liveChatRecord,
+  liveDeliveryRecord,
   liveMachineRecord,
   livePinRecords,
   liveProjectRecord,
@@ -50,6 +51,11 @@ describe('parseChangeNotification', () => {
       parse({ k: 'project', owner, project: chat, deleted: true }),
     ).toEqual({ k: 'project', owner, project: chat, deleted: true });
     expect(parse({ k: 'pin', owner })).toEqual({ k: 'pin', owner });
+    expect(parse({ k: 'chat_deliveries', owner, chat })).toEqual({
+      k: 'chat_deliveries',
+      owner,
+      chat,
+    });
     expect(parse({ k: 'run', owner, run, status: 'queued' })).toEqual(
       runStatus('queued'),
     );
@@ -79,6 +85,10 @@ describe('parseChangeNotification', () => {
     [
       'a non-boolean deleted flag',
       JSON.stringify({ k: 'project', owner, project: chat, deleted: 'yes' }),
+    ],
+    [
+      'pending items without a chat',
+      JSON.stringify({ k: 'chat_deliveries', owner }),
     ],
     ['run without status', JSON.stringify({ k: 'run', owner, run })],
     [
@@ -219,12 +229,16 @@ describe('recordJobFor', () => {
   const runRecord = liveRunRecord();
   const machineRecord = liveMachineRecord();
   const pinRecords = livePinRecords();
+  const deliveryRecord = liveDeliveryRecord();
   const machineLookup = vi.fn((name: string) =>
     Promise.resolve(name === LIVE_MACHINE_NAME ? machineRecord : undefined),
   );
   const loader: LiveRecordLoader = {
     chat: vi.fn((o: string, id: string) =>
       Promise.resolve(o === owner && id === chat ? chatRecord : undefined),
+    ),
+    deliveries: vi.fn((o: string, id: string) =>
+      Promise.resolve(o === owner && id === chat ? [deliveryRecord] : []),
     ),
     machine: machineLookup,
     project: vi.fn((o: string, id: string) =>
@@ -252,6 +266,14 @@ describe('recordJobFor', () => {
     expect(await load(runStatus('running_model'))).toEqual({
       type: 'run.updated',
       run: runRecord,
+    });
+  });
+
+  it("replaces a Chat's whole pending list on any change to an item", async () => {
+    expect(await load({ k: 'chat_deliveries', owner, chat })).toEqual({
+      type: 'chat.deliveries',
+      chatId: chat,
+      items: [deliveryRecord],
     });
   });
 

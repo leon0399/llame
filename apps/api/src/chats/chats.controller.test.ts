@@ -119,10 +119,11 @@ describe('ChatsController', () => {
     Object.assign(chatsService, service);
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
+      createDeliveryMessage: vi.fn<ChatLoopService['createDeliveryMessage']>(),
       finalizeAcceptedRun: vi.fn<ChatLoopService['finalizeAcceptedRun']>(),
     } satisfies Pick<
       ChatLoopService,
-      'createMessageStream' | 'finalizeAcceptedRun'
+      'createMessageStream' | 'createDeliveryMessage' | 'finalizeAcceptedRun'
     >;
     const followUpAdmission = {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
@@ -767,10 +768,11 @@ describe('ChatsController response plumbing', () => {
     } satisfies ChatsControllerService;
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
+      createDeliveryMessage: vi.fn<ChatLoopService['createDeliveryMessage']>(),
       finalizeAcceptedRun: vi.fn<ChatLoopService['finalizeAcceptedRun']>(),
     } satisfies Pick<
       ChatLoopService,
-      'createMessageStream' | 'finalizeAcceptedRun'
+      'createMessageStream' | 'createDeliveryMessage' | 'finalizeAcceptedRun'
     >;
     const followUpAdmission = {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),

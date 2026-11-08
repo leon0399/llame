@@ -62,35 +62,35 @@ async function blockerIsLive(input: {
   );
 }
 
-/**
- * Free the Chat's single-flight slot for the Run this transaction is about to
- * create: a live Run answers 409, and a stuck one is expired with a terminal
- * `run.expired` so the request that found it can proceed.
- */
-export async function clearActiveRunSlot(input: {
+type ActiveRunSlotInput = {
   tx: Db;
   chatId: string;
   userId: string;
   dispatch: Pick<RunDispatcher, 'jobState'>;
   instanceConfig: InstanceConfigReader;
-}): Promise<void> {
+};
+
+/**
+ * Judge the Chat's single-flight slot for the Run this transaction is about to
+ * create: `blocked` while a live Run holds it, `free` otherwise. A stuck Run
+ * is expired with a terminal `run.expired` first, so the request that found it
+ * can proceed.
+ */
+export async function claimActiveRunSlot(
+  input: ActiveRunSlotInput,
+): Promise<'free' | 'blocked'> {
   const runsRepo = new RunsRepository(input.tx);
   const eventsRepo = new RunEventsRepository(input.tx);
   const findActive = () =>
     runsRepo.findActiveByChatId(input.chatId, input.userId);
   const blocking = await findActive();
-  if (!blocking) return;
+  if (!blocking) return 'free';
   if (await blockerIsLive({ ...input, run: blocking })) {
     // Re-check the row once: `blocking` may have finished between the read
     // above and now, in which case the chat is simply free. Its job state
     // is not read again, so one request holds the chat row for at most one
     // bounded wait.
-    if (await findActive()) {
-      throw new ConflictException(
-        'Another run is already in flight for this chat',
-      );
-    }
-    return;
+    return (await findActive()) ? 'blocked' : 'free';
   }
 
   const message =
@@ -101,7 +101,7 @@ export async function clearActiveRunSlot(input: {
     'expired',
     { error: { message } },
   );
-  if (!expired) return;
+  if (!expired) return 'free';
   // The chat row is held first and the run row next, so finalizing the reply
   // after them keeps the worker's run-then-reply order.
   await finalizeRunReply(input.tx, {
@@ -113,4 +113,20 @@ export async function clearActiveRunSlot(input: {
     status: 'expired',
     message,
   });
+  return 'free';
+}
+
+/**
+ * Free the Chat's single-flight slot for the Run this transaction is about to
+ * create: a live Run answers 409, and a stuck one is expired first. A caller
+ * that can store the message another way uses `claimActiveRunSlot`.
+ */
+export async function clearActiveRunSlot(
+  input: ActiveRunSlotInput,
+): Promise<void> {
+  if ((await claimActiveRunSlot(input)) === 'blocked') {
+    throw new ConflictException(
+      'Another run is already in flight for this chat',
+    );
+  }
 }

@@ -17,6 +17,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiAcceptedResponse,
   ApiBody,
   ApiCookieAuth,
   ApiConflictResponse,
@@ -66,6 +67,10 @@ import {
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
+import {
+  ChatDeliveryResponse,
+  toChatDeliveryResponse,
+} from './dto/chat-deliveries.dto';
 import { toChatLatestRunResponse } from './dto/latest-run.dto';
 import {
   requestAbortSignal,
@@ -124,7 +129,7 @@ export class ChatsController {
     @Inject(ChatLoopService)
     private readonly chatLoopService: Pick<
       ChatLoopService,
-      'createMessageStream' | 'finalizeAcceptedRun'
+      'createMessageStream' | 'createDeliveryMessage' | 'finalizeAcceptedRun'
     >,
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
@@ -303,6 +308,13 @@ export class ChatsController {
       },
     },
   })
+  @ApiAcceptedResponse({
+    description:
+      'A send with `delivery` to a Chat with a live Run: the pending item ' +
+      '(also the answer to a retry of the same message id, in any state). ' +
+      'No Run and no message row were created.',
+    type: ChatDeliveryResponse,
+  })
   @ApiBadRequestResponse({
     description:
       'Malformed chat id or invalid message body, including a file part ' +
@@ -323,7 +335,8 @@ export class ChatsController {
   @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
   @ApiConflictResponse({
     description:
-      'Message id already exists, or another run is already in flight for this chat',
+      'Message id already exists, or another run is already in flight for ' +
+      'this chat and the send names no `delivery` mode',
   })
   async createMessage(
     @CurrentUser() userId: string,
@@ -334,7 +347,7 @@ export class ChatsController {
     const abort = requestAbortSignal(response);
 
     try {
-      const result = await this.chatLoopService.createMessageStream({
+      const send = {
         chatId: id,
         userId,
         modelId: input.modelId,
@@ -344,8 +357,21 @@ export class ChatsController {
         }),
         message: input.message,
         abortSignal: abort.signal,
-      });
+      };
+      const result =
+        input.delivery === undefined
+          ? await this.chatLoopService.createMessageStream(send)
+          : await this.chatLoopService.createDeliveryMessage({
+              ...send,
+              delivery: input.delivery,
+            });
 
+      if ('delivery' in result) {
+        response.status(202);
+        response.setHeader('Content-Type', 'application/json; charset=utf-8');
+        response.end(JSON.stringify(toChatDeliveryResponse(result.delivery)));
+        return;
+      }
       await this.answerWithRunStream(response, abort.signal, result);
     } catch (error) {
       throwModelDomainError(error);

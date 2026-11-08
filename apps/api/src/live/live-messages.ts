@@ -17,6 +17,7 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 
+import type { ChatDeliveryResponse } from '../chats/dto/chat-deliveries.dto';
 import type { ChatListItemResponse } from '../chats/dto/chats.dto';
 import { runStatus, type RunStatus } from '../db/schema/chats';
 import type { MachineResponse } from '../machines/dto/machines.dto';
@@ -39,6 +40,11 @@ export type RunPhase = RunProgressMessage['phase'];
 export type ServerLiveMessage =
   | { type: 'chat.upserted'; chat: ChatListItemResponse }
   | { type: 'chat.deleted'; chatId: string }
+  | {
+      type: 'chat.deliveries';
+      chatId: string;
+      items: Array<ChatDeliveryResponse>;
+    }
   | { type: 'machine.upserted'; machine: MachineResponse }
   | { type: 'machine.deleted'; name: string }
   | { type: 'project.upserted'; project: ProjectResponse }
@@ -53,6 +59,7 @@ export const LIVE_CHANGES_CHANNEL = 'llame_changes';
 
 export type ChangeNotification =
   | { k: 'chat'; owner: string; chat: string; deleted: boolean }
+  | { k: 'chat_deliveries'; owner: string; chat: string }
   | { k: 'machine'; machine: string; deleted: boolean }
   | { k: 'project'; owner: string; project: string; deleted: boolean }
   | { k: 'pin'; owner: string }
@@ -109,6 +116,8 @@ function parseKind(
       return chat && isBoolean(deleted)
         ? { k: 'chat', owner, chat, deleted }
         : undefined;
+    case 'chat_deliveries':
+      return chat ? { k: 'chat_deliveries', owner, chat } : undefined;
     case 'project': {
       const project = str(parsed, 'project');
       return project && isBoolean(deleted)
@@ -233,6 +242,15 @@ export function recordJobFor(n: ChangeNotification): RecordJob | undefined {
       return n.deleted
         ? ready({ type: 'chat.deleted', chatId: n.chat })
         : chatJob(n.owner, n.chat);
+    case 'chat_deliveries':
+      return {
+        key: `chat_deliveries:${n.chat}`,
+        load: async (loader) => ({
+          type: 'chat.deliveries',
+          chatId: n.chat,
+          items: await loader.deliveries(n.owner, n.chat),
+        }),
+      };
     case 'machine':
       return n.deleted
         ? ready({ type: 'machine.deleted', name: n.machine })
