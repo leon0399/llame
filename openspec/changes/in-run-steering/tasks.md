@@ -47,8 +47,10 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 1. proposal
 
-- [ ] 1.1 Validate the change: `pnpm exec openspec validate in-run-steering --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/in-run-steering/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
-- [ ] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
+- [x] 1.1 Validate the change: `pnpm exec openspec validate in-run-steering --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/in-run-steering/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
+  - Evidence: on `ee56846a`, `openspec validate in-run-steering --strict` reports the change valid; markdownlint reports 0 issues; the link check, `pnpm format:check`, and `git diff --check` are clean.
+- [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
+  - Evidence: round 1 (spec consistency and feasibility reviewers; 22 P1, 24 P2; fixes in `6abedb4f`) and round 2 (8 P1, 22 P2, 6 P3; fixes in `ee56846a`). design.md "Revision history" records each round. Round 2 still changed substance, so the review has not converged; the GitHub review loop is the next round.
 - [ ] 1.3 Obtain Leo's approval of the published revision.
 
 ## 2. queue
