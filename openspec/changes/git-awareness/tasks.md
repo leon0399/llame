@@ -96,8 +96,8 @@ layer that grows past about 2,000 authored lines.
 
 ## 8. finalize
 
-- [ ] 8.1 Create `git-awareness/finalize` from `session-details` with `$gh-stack` before any sync write.
-- [ ] 8.2 Run `$openspec-sync-specs`; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+- [x] 8.1 Create `git-awareness/finalize` from `session-details` with `$gh-stack` before any sync write.
+- [x] 8.2 Run `$openspec-sync-specs`; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
 - [ ] 8.3 Confirm every task above is checked, the `producer` PR lists #1615 and the `session-details` PR lists #1417 as closing references.
 
 ## Workflow follow-up
