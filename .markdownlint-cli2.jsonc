@@ -26,6 +26,7 @@
     "apps/api/src/tools/prompts/**",
     "apps/api/src/decisions/prompts/**",
     "apps/api/src/ranking/prompts/**",
+    "apps/api/src/git-state/prompts/**",
   ],
   "config": {
     // Prettier owns wrapping; specification tables and code often exceed 80 columns.

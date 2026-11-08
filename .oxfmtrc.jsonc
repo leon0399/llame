@@ -61,6 +61,7 @@
     "apps/api/src/tools/prompts/",
     "apps/api/src/decisions/prompts/",
     "apps/api/src/ranking/prompts/",
+    "apps/api/src/git-state/prompts/",
 
     // Vendored from shadcn CLI (upstream serialization).
     "packages/ui/src/styles/shadcn.css",
