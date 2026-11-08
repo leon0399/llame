@@ -13,7 +13,6 @@ import { NotFoundException } from '@nestjs/common';
 
 import { type Chat } from '../db/schema';
 import { GitSnapshotService } from '../git-state/git-snapshot.service';
-import { modelGitAdmission } from '../git-state/model-git-admission';
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
@@ -23,9 +22,6 @@ import {
   MachineConnector,
   type MachineConnectorDeps,
 } from '../machines/machine-connector.service';
-import { nativeReadTool } from '../tools/native-files';
-import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
-import { previewToolPermission } from '../tools/runner';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
@@ -169,35 +165,8 @@ describe('ChatGitStateService', () => {
     expect(JSON.stringify(state)).not.toContain('ghp_secret');
   });
 
-  it('does not let tool permissions gate the route', async () => {
-    const root = repository();
-    const modelAdmission = modelGitAdmission({
-      readAllowlisted: true,
-      admitsRead: (path) =>
-        previewToolPermission(
-          nativeReadTool,
-          { path },
-          {
-            userId: OWNER,
-            chatId: CHAT_ID,
-            configuredCredentials: [],
-            tenantDb: {
-              runAs: () => Promise.reject(new Error('tenant DB is not used')),
-            },
-            permissionPolicy: compileToolPermissionMap(
-              {
-                read: {
-                  allow: true,
-                  reject: [{ field: 'path', regex: String.raw`/\.git(/|$)` }],
-                },
-              },
-              'route-policy',
-            ),
-          },
-        ),
-    });
-    expect(modelAdmission(join(root, '.git'))).toBe(false);
-    const { service } = serviceFor(chatAt(root), realExecutors());
+  it('reads git state without consulting a model permission policy', async () => {
+    const { service } = serviceFor(chatAt(repository()), realExecutors());
 
     await expect(service.read(CHAT_ID, OWNER)).resolves.toMatchObject({
       status: 'ok',

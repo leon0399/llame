@@ -48,4 +48,17 @@ describe('toGitStateResponse', () => {
     expect(body).not.toContain('rawRef');
     expect(body).not.toContain('"raw"');
   });
+
+  it('omits step, total and from when the view has none', () => {
+    const view: GitStateView = {
+      ...VIEW,
+      operation: { kind: 'merge' },
+      entries: [{ xy: ' M', path: 'c.ts' }],
+    };
+
+    expect(toGitStateResponse({ kind: 'state', view })).toStrictEqual({
+      status: 'ok',
+      ...view,
+    });
+  });
 });
