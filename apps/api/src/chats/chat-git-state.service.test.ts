@@ -250,8 +250,8 @@ describe('ChatGitStateService', () => {
     const locate = vi.spyOn(executors, 'locate');
     const { service, getChatById } = serviceFor(undefined, executors);
 
-    await expect(service.read(CHAT_ID, OWNER)).rejects.toBeInstanceOf(
-      NotFoundException,
+    await expect(service.read(CHAT_ID, OWNER)).rejects.toThrow(
+      new NotFoundException(`Chat ${CHAT_ID} not found`),
     );
     expect(getChatById).toHaveBeenCalledWith(CHAT_ID, OWNER);
     expect(locate).not.toHaveBeenCalled();
