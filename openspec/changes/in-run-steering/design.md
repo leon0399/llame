@@ -325,6 +325,8 @@ and is reviewed in the `web` layer's Storybook stories.
 
 ## Revision history
 
+- **v5 (2026-11-08):** Rebased on master after git-awareness (#1621–#1634): the `context-injection`
+  delta now starts from the canonical list that includes `git`; `interrupted` stays first.
 - **v4 (2026-11-08):** GitHub review round on #1637 (CodeRabbit 2 threads + 1 nit, pullfrog 4
   threads + 1 body finding). Accepted: an item id from another Chat is a 409 duplicate; `GET`
   answers the possibly empty list, conditional updates only on `PATCH`/`DELETE`; baselines only on
