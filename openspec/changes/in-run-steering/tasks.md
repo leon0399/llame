@@ -51,7 +51,8 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: on `ee56846a`, `openspec validate in-run-steering --strict` reports the change valid; markdownlint reports 0 issues; the link check, `pnpm format:check`, and `git diff --check` are clean.
 - [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
   - Evidence: round 1 (spec consistency and feasibility reviewers; 22 P1, 24 P2; fixes in `6abedb4f`) and round 2 (8 P1, 22 P2, 6 P3; fixes in `ee56846a`). design.md "Revision history" records each round. Round 2 still changed substance, so the review has not converged; the GitHub review loop is the next round.
-- [ ] 1.3 Obtain Leo's approval of the published revision.
+- [x] 1.3 Obtain Leo's approval of the published revision.
+  - Evidence: Leo, in chat on 2026-11-08: "Spec is approved." This approves the published revision `9167d271`, including the bash-interrupt deviation and the accepted limits L1–L3.
 
 ## 2. queue
 
