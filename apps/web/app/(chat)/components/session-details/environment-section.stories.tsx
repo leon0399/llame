@@ -8,6 +8,8 @@ import {
   SidebarProvider,
 } from "@workspace/ui/components/sidebar";
 
+import type { GitStateOkResponse } from "@/lib/services/git-state/queries";
+
 import {
   EnvironmentSection,
   type EnvironmentSectionProps,
@@ -24,6 +26,33 @@ const onlineDevbox = {
   daemonProtocolVersion: 1,
   daemonVersion: "0.0.1",
   roots: ["/home/box/work"],
+};
+
+const upstream: NonNullable<GitStateOkResponse["upstream"]> = {
+  name: "origin/main",
+  gone: false,
+  ahead: 0,
+  behind: 0,
+  updatedAt: "2026-11-08T09:12:00.000Z",
+};
+
+/** The route's `ok` view of a clean repository; stories override fields. */
+const okState: GitStateOkResponse = {
+  status: "ok",
+  toplevel: "/home/box/work/shop",
+  rootRelative: "",
+  branch: "main",
+  detached: false,
+  head: { short: "abc1234", oid: "abc1234abc1234abc1234abc1234abc1234abc12" },
+  upstream,
+  operation: null,
+  counts: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
+  entries: [],
+  omitted: 0,
+  submodules: [],
+  commits: [],
+  remotes: [],
+  remotesOmitted: 0,
 };
 
 const meta = {
@@ -45,6 +74,7 @@ const meta = {
     chatLoaded: true,
     workspaceRoot: DEVBOX_ROOT,
     checkout: null,
+    gitState: { status: "unbound" },
     machineName: "devbox",
     machine: onlineDevbox,
     machineLoading: false,
@@ -139,8 +169,8 @@ export const RegisteredWorktree: Story = {
       repository: "shop",
       remote: "github.com/acme/shop",
       kind: "worktree",
-      branch: "llame/clear-field-0192",
     },
+    gitState: { ...okState, branch: "llame/clear-field-0192" },
   },
   play: async ({ canvas }) => {
     await expect(
@@ -150,6 +180,184 @@ export const RegisteredWorktree: Story = {
     ).toHaveAttribute("href", "https://github.com/acme/shop");
     await expect(canvas.getByText("llame/clear-field-0192")).toBeVisible();
     await expect(canvas.getByText("Worktree")).toBeVisible();
+  },
+};
+
+/**
+ * The registered checkout records `main`, but the repository has `feature/x`
+ * checked out: the block shows the live branch, its upstream, and the change
+ * counts.
+ *
+ * @summary Session details shows the live branch
+ */
+export const SessionDetailsShowsTheLiveBranch: Story = {
+  tags: ["ai-generated"],
+  args: {
+    checkout: {
+      repository: "shop",
+      remote: "github.com/acme/shop",
+      kind: "main",
+    },
+    gitState: {
+      ...okState,
+      branch: "feature/x",
+      upstream: {
+        ...upstream,
+        name: "origin/feature/x",
+        ahead: 2,
+        behind: 1,
+      },
+      counts: { staged: 2, unstaged: 3, untracked: 1, conflicted: 0 },
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("feature/x")).toBeVisible();
+    await expect(canvas.queryByText("main")).toBeNull();
+    await expect(
+      canvas.getByText(
+        "origin/feature/x · 2 ahead, 1 behind · as of 2026-11-08 09:12 UTC",
+      ),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText("2 staged · 3 unstaged · 1 untracked"),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * The route reports why it has no state; its line stands where the branch
+ * would be.
+ *
+ * @summary Session details shows an absence line
+ */
+export const SessionDetailsShowsAnAbsenceLine: Story = {
+  tags: ["ai-generated"],
+  args: {
+    gitState: {
+      status: "unavailable",
+      reason: "machine_unavailable",
+      line: "git state unavailable: Machine unavailable",
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText("git state unavailable: Machine unavailable"),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * The folder is not a repository: the route's line stands where the branch
+ * would be.
+ *
+ * @summary Session details says the folder is not a git repository
+ */
+export const NotAGitRepository: Story = {
+  tags: ["ai-generated"],
+  args: {
+    gitState: { status: "not_a_repository", line: "not a git repository" },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("not a git repository")).toBeVisible();
+  },
+};
+
+/**
+ * A Workspace root that is a repository but no registered checkout: no
+ * repository link, yet the live branch and counts show.
+ *
+ * @summary A bound folder without a checkout record shows git state
+ */
+export const BoundFolderWithoutCheckoutRecord: Story = {
+  tags: ["ai-generated"],
+  args: {
+    checkout: null,
+    gitState: {
+      ...okState,
+      branch: "trunk",
+      upstream: null,
+      counts: { staged: 0, unstaged: 4, untracked: 0, conflicted: 0 },
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("trunk")).toBeVisible();
+    await expect(canvas.getByText("No upstream")).toBeVisible();
+    await expect(canvas.getByText("4 unstaged")).toBeVisible();
+    await expect(canvas.queryByText("Worktree")).toBeNull();
+  },
+};
+
+/**
+ * A detached HEAD names the commit; a gone upstream and an operation in
+ * progress are stated.
+ *
+ * @summary Detached HEAD in a rebase, upstream gone
+ */
+export const DetachedHeadInRebase: Story = {
+  tags: ["ai-generated"],
+  args: {
+    gitState: {
+      ...okState,
+      branch: null,
+      detached: true,
+      upstream: {
+        ...upstream,
+        name: "origin/old",
+        gone: true,
+        ahead: null,
+        behind: null,
+        updatedAt: null,
+      },
+      operation: { kind: "rebase", step: 3, total: 7 },
+      counts: { staged: 0, unstaged: 0, untracked: 0, conflicted: 2 },
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Detached HEAD at abc1234")).toBeVisible();
+    await expect(canvas.getByText("origin/old · upstream gone")).toBeVisible();
+    await expect(
+      canvas.getByText("rebase in progress, step 3 of 7"),
+    ).toBeVisible();
+    await expect(canvas.getByText("2 conflicted")).toBeVisible();
+  },
+};
+
+/** An upstream with no reflog has no update time, and a clean tree says so. */
+export const UpstreamUpdateTimeUnknown: Story = {
+  tags: ["ai-generated"],
+  args: {
+    gitState: {
+      ...okState,
+      upstream: { ...upstream, updatedAt: null },
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText("origin/main · 0 ahead, 0 behind · update time unknown"),
+    ).toBeVisible();
+    await expect(canvas.getByText("No changes")).toBeVisible();
+  },
+};
+
+/** While the route is read, one skeleton row stands in for the block. */
+export const GitStateLoading: Story = {
+  tags: ["ai-generated"],
+  args: { gitState: { status: "loading" } },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(
+      canvasElement.querySelector("[data-sidebar=menu-skeleton]"),
+    ).not.toBeNull();
+    await expect(canvas.getByText("/home/box/work/shop")).toBeVisible();
+    await expect(canvas.queryByText("main")).toBeNull();
+  },
+};
+
+/** A failed read says so instead of showing nothing. */
+export const GitStateReadFailed: Story = {
+  tags: ["ai-generated"],
+  args: { gitState: { status: "error" } },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Git state could not be read")).toBeVisible();
   },
 };
 

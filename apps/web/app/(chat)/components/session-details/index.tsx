@@ -20,6 +20,7 @@ import {
 } from "@/lib/services/machines/locator";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 import { useCheckoutsQuery } from "@/lib/services/checkouts/queries";
+import { useChatGitStateQuery } from "@/lib/services/git-state/queries";
 import {
   useProjectById,
   useProjectRepositoryLinksQuery,
@@ -36,6 +37,7 @@ import {
   EnvironmentSection,
   environmentSummary,
   type EnvironmentCheckout,
+  type EnvironmentGitState,
   type EnvironmentSectionProps,
 } from "./environment-section";
 import { SectionList } from "./section-list";
@@ -109,8 +111,22 @@ function useWorkspaceCheckout(
     repository: link?.alias ?? repository?.displayName ?? "Repository",
     remote: repository?.canonicalRemote ?? null,
     kind: checkout.kind,
-    branch: checkout.branch,
   };
+}
+
+/** The live repository state, read while the panel is open on a bound Chat. */
+function useGitState(
+  chatId: string,
+  workspaceRoot: string | null,
+): EnvironmentGitState {
+  const { isMobile, open, openMobile } = useSidebar();
+  const query = useChatGitStateQuery(
+    chatId,
+    workspaceRoot,
+    isMobile ? openMobile : open,
+  );
+  if (query.isError) return { status: "error" };
+  return query.data ?? { status: "loading" };
 }
 
 /** The Chat's environment, read from the caches the header already loads. */
@@ -128,10 +144,12 @@ function useEnvironment(chatId: string): EnvironmentSectionProps {
     workspaceRoot,
     chat?.projectId ?? undefined,
   );
+  const gitState = useGitState(chatId, workspaceRoot);
   return {
     chatLoaded: chat !== undefined,
     workspaceRoot,
     checkout,
+    gitState,
     machineName,
     machine: findMachineByName(machinesQuery.data, machineName),
     // A disabled query also reads as pending, so only a Machine root waits.

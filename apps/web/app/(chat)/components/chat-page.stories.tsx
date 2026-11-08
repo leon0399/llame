@@ -18,7 +18,10 @@ import { vi, type Mock } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
-import type { ChatListItemResponse } from "@/lib/api/generated/models";
+import type {
+  ChatListItemResponse,
+  GitStateOkResponse,
+} from "@/lib/api/generated/models";
 import { listPermissionModes } from "@/lib/api/generated/permission-modes/permission-modes";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import type {
@@ -2047,13 +2050,16 @@ export const RunReceiptWithoutSwitch: Story = {
 
 const LIST_ROUTE = "GET /api/v1/chats";
 const DETAIL_ROUTE = `GET /api/v1/chats/${CHAT_ID}`;
-// Session details read the checkout catalog for a bound chat, to name its
-// repository and branch; these stories are about the chat card, not that.
+const GIT_STATE_ROUTE = `GET /api/v1/chats/${CHAT_ID}/git-state`;
+// Session details read the checkout catalog and the live git state for a
+// bound chat, to show its repository and branch; these stories are about the
+// chat card, not that.
 const CATALOG_ROUTES = ["GET /api/v1/checkouts", "GET /api/v1/repositories"];
+const DETAILS_ROUTES = [...CATALOG_ROUTES, GIT_STATE_ROUTE];
 
-/** The routes sent so far, without the session details' catalog reads. */
+/** The routes sent so far, without the session details' reads. */
 function chatRoutes() {
-  return sentRoutes().filter((route) => !CATALOG_ROUTES.includes(route));
+  return sentRoutes().filter((route) => !DETAILS_ROUTES.includes(route));
 }
 const LLAME_ROOT = "/home/operator/projects/llame";
 const NEXT_ROOT = "/home/operator/projects/next";
@@ -2106,6 +2112,8 @@ function serveChatCard(listed: boolean) {
         () => Promise.resolve(jsonResponse([])),
       ]),
     ),
+    [GIT_STATE_ROUTE]: () =>
+      Promise.resolve(jsonResponse({ status: "unbound" })),
     [LIST_ROUTE]: (input) =>
       Promise.resolve(
         jsonResponse(
@@ -2151,6 +2159,87 @@ async function panelShows(canvasElement: HTMLElement, root: string) {
     ).toBeVisible(),
   );
 }
+
+/** Opens a bound chat whose git-state route answers `respond`. */
+function serveGitState(respond: () => Response) {
+  serveChatCard(true);
+  routeAlso({ [GIT_STATE_ROUTE]: () => Promise.resolve(respond()) });
+}
+
+/**
+ * The panel reads the git-state route for the bound chat and shows the live
+ * branch it answers.
+ *
+ * @summary an ok git-state answer shows the live branch in session details
+ */
+export const GitStateShowsLiveBranch: Story = {
+  tags: ["ai-generated"],
+  parameters: HEADED_CHAT,
+  render: (args) => <ChatUnderHeader {...args} />,
+  beforeEach: () =>
+    serveGitState(() =>
+      jsonResponse({
+        status: "ok",
+        toplevel: LLAME_ROOT,
+        rootRelative: "",
+        branch: "feature/live-state",
+        detached: false,
+        head: { short: "abc1234", oid: "abc1234".padEnd(40, "0") },
+        upstream: null,
+        operation: null,
+        counts: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
+        entries: [],
+        omitted: 0,
+        submodules: [],
+        commits: [],
+        remotes: [],
+        remotesOmitted: 0,
+      } satisfies GitStateOkResponse),
+    ),
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement);
+    const panel = within(
+      within(canvasElement).getByLabelText("Session details"),
+    );
+    await waitFor(() =>
+      expect(panel.getByText("feature/live-state")).toBeVisible(),
+    );
+    await expect(
+      canvasElement.querySelector("[data-sidebar=menu-skeleton]"),
+    ).toBeNull();
+  },
+};
+
+/**
+ * A git-state read the api fails (500) says so instead of staying a skeleton.
+ *
+ * @summary a failed git-state read shows the read-failed line
+ */
+export const GitStateReadFails: Story = {
+  tags: ["ai-generated"],
+  parameters: HEADED_CHAT,
+  render: (args) => <ChatUnderHeader {...args} />,
+  beforeEach: () =>
+    serveGitState(() =>
+      jsonResponse(
+        {
+          statusCode: 500,
+          error: "Internal Server Error",
+          message: "Git state unavailable",
+        },
+        500,
+      ),
+    ),
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement);
+    const panel = within(
+      within(canvasElement).getByLabelText("Session details"),
+    );
+    await waitFor(() =>
+      expect(panel.getByText("Git state could not be read")).toBeVisible(),
+    );
+  },
+};
 
 // Released by the story to end the first reply.
 let endFirstReply: () => void = () => {};
