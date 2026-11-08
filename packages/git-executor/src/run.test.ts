@@ -159,7 +159,58 @@ describe("runGitProcess", () => {
       signal: AbortSignal.abort(),
     });
 
-    expect(result).toEqual({ status: "timed_out", stdout: "", stderr: "" });
+    expect(result).toEqual({
+      status: "timed_out",
+      stdout: "",
+      stderr: "",
+      truncated: false,
+    });
+  });
+
+  it("starts git with GIT_CEILING_DIRECTORIES only when a ceiling is given", async () => {
+    const previousPath = process.env["PATH"];
+    const directory = mkdtempSync(join(tmpdir(), "git-executor-ceiling-"));
+    created.push(directory);
+    writeFileSync(join(directory, "git"), "#!/bin/sh\nenv\n", {
+      mode: 0o755,
+    });
+    process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+    try {
+      const without = await runGitProcess([], { timeoutMs: 5000 });
+      const pinned = await runGitProcess([], {
+        timeoutMs: 5000,
+        ceiling: "/some/parent",
+      });
+
+      expect(without.stdout).not.toMatch(/^GIT_CEILING_DIRECTORIES=/mu);
+      expect(pinned.stdout).toMatch(
+        /^GIT_CEILING_DIRECTORIES=\/some\/parent$/mu,
+      );
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
+  });
+
+  it("reports truncated when stdout exceeds the 1 MiB bound", async () => {
+    const previousPath = process.env["PATH"];
+    const directory = mkdtempSync(join(tmpdir(), "git-executor-large-"));
+    created.push(directory);
+    const script = (bytes: number) =>
+      `#!/bin/sh\nhead -c ${bytes} /dev/zero | tr '\\0' a\n`;
+    try {
+      writeFileSync(join(directory, "git"), script(1_048_577), { mode: 0o755 });
+      process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+      const over = await runGitProcess([], { timeoutMs: 10_000 });
+      writeFileSync(join(directory, "git"), script(1_048_576), { mode: 0o755 });
+      const exact = await runGitProcess([], { timeoutMs: 10_000 });
+
+      expect(over).toMatchObject({ status: "ok", truncated: true });
+      expect(over.stdout).toHaveLength(1_048_576);
+      expect(exact).toMatchObject({ status: "ok", truncated: false });
+      expect(exact.stdout).toHaveLength(1_048_576);
+    } finally {
+      process.env["PATH"] = previousPath;
+    }
   });
 
   it("reports a non-zero exit as a typed failure with git's own text", async () => {

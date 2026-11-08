@@ -1,4 +1,8 @@
 export { inspectRepository } from "./inspect";
+export { locateRepository } from "./locate";
+export type { LocateInput } from "./locate";
+export { stateRepository } from "./state";
+export type { StateInput } from "./state";
 export { statusRepository } from "./status";
 export type { WorktreeAddInput } from "./worktrees";
 export {
@@ -17,6 +21,10 @@ export type {
   GitFailure,
   GitInspectResult,
   GitInspectSuccess,
+  GitLocateResult,
+  GitLocateSuccess,
+  GitStateResult,
+  GitStateSuccess,
   GitStatusResult,
   GitWorktreeAddResult,
   GitWorktreeListResult,

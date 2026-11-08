@@ -16,27 +16,23 @@ import { gitEnvironment } from "./env";
 const STDERR_BOUND = 4096;
 const STDOUT_BOUND = 1_048_576;
 
+/** What a git process wrote. */
+type GitOutput = {
+  readonly stdout: string;
+  readonly stderr: string;
+  /** The standard output exceeded its bound and was cut. */
+  readonly truncated: boolean;
+};
+
 export type GitProcessResult =
-  | {
-      readonly status: "ok";
-      readonly stdout: string;
-      readonly stderr: string;
-    }
-  | {
-      readonly status: "failed";
-      readonly exitCode: number;
-      readonly stdout: string;
-      readonly stderr: string;
-    }
-  | {
-      readonly status: "timed_out";
-      readonly stdout: string;
-      readonly stderr: string;
-    };
+  | ({ readonly status: "ok" } & GitOutput)
+  | ({ readonly status: "failed"; readonly exitCode: number } & GitOutput)
+  | ({ readonly status: "timed_out" } & GitOutput);
 
 type CollectedOutput = {
   readonly push: (chunk: Buffer) => void;
   readonly text: () => string;
+  readonly truncated: () => boolean;
 };
 
 /**
@@ -52,27 +48,42 @@ function collect(limit: number): CollectedOutput {
   const chunks: Array<string> = [];
   const decoder = new StringDecoder("utf8");
   let length = 0;
+  let truncated = false;
   return {
     push: (chunk) => {
-      if (length >= limit) return;
-      const text = decoder.write(chunk).slice(0, limit - length);
+      if (length >= limit) {
+        truncated = true;
+        return;
+      }
+      const decoded = decoder.write(chunk);
+      const text = decoded.slice(0, limit - length);
+      truncated ||= text.length < decoded.length;
       length += text.length;
       chunks.push(text);
     },
     text: () => chunks.join(""),
+    truncated: () => truncated,
   };
 }
 
 function exitOutcome(
   timedOut: boolean,
   code: number | null,
-  output: { readonly stdout: string; readonly stderr: string },
+  output: GitOutput,
 ): GitProcessResult {
   if (timedOut) return { status: "timed_out", ...output };
   return code === 0
     ? { status: "ok", ...output }
     : { status: "failed", exitCode: code ?? -1, ...output };
 }
+
+/** The result of a call whose signal was aborted before git started. */
+const ABORTED: GitProcessResult = {
+  status: "timed_out",
+  stdout: "",
+  stderr: "",
+  truncated: false,
+};
 
 /** The one settlement of one git call: deadline, caller abort, first result. */
 type Completion = {
@@ -132,18 +143,29 @@ function watchCompletion(
  */
 export function runGitProcess(
   args: ReadonlyArray<string>,
-  options: { readonly timeoutMs: number; readonly signal?: AbortSignal },
+  options: {
+    readonly timeoutMs: number;
+    readonly signal?: AbortSignal;
+    /** Added to the fixed environment as `GIT_CEILING_DIRECTORIES`. */
+    readonly ceiling?: string;
+    /** Sets `GIT_NO_LAZY_FETCH`: a partial clone's read must not fetch. */
+    readonly noLazyFetch?: boolean;
+  },
 ): Promise<GitProcessResult> {
   const { promise, resolve } = Promise.withResolvers<GitProcessResult>();
   if (options.signal?.aborted) {
-    resolve({ status: "timed_out", stdout: "", stderr: "" });
+    resolve(ABORTED);
     return promise;
   }
   const stdout = collect(STDOUT_BOUND);
   const stderr = collect(STDERR_BOUND);
-  const output = () => ({ stdout: stdout.text(), stderr: stderr.text() });
+  const output = () => ({
+    stdout: stdout.text(),
+    stderr: stderr.text(),
+    truncated: stdout.truncated(),
+  });
   const child = spawn("git", args, {
-    env: gitEnvironment(),
+    env: gitEnvironment(options),
     // Its own process group, so the deadline can end the git children too; see
     // {@link killProcessGroup}. The pipes keep the call tied to the child.
     detached: true,

@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import type { GitFailure } from "@workspace/machine-protocol";
 
@@ -48,6 +48,36 @@ export function gitPrefixArguments(
   ];
 }
 
+/**
+ * The prefix of a call pinned to one git entry: the same overrides, plus no
+ * signature program from `git log`, no bare repository found by discovery
+ * (`R/HEAD` plus `R/commondir` would otherwise pass for one), and the entry's
+ * own directory as both the working directory and the work tree, so
+ * `core.worktree` is ignored. The environment's ceiling stops discovery at that
+ * directory; see {@link withGit}.
+ */
+function pinnedPrefixArguments(
+  hooksDirectory: string,
+  entryDirectory: string,
+): Array<string> {
+  return [
+    ...gitPrefixArguments(hooksDirectory, entryDirectory),
+    `--work-tree=${entryDirectory}`,
+    "-c",
+    "log.showSignature=false",
+    "-c",
+    "safe.bareRepository=explicit",
+  ];
+}
+
+/** A typed failure with the text git wrote, if any. */
+export function gitFailure(
+  type: Extract<GitFailure, { readonly stderr: string }>["type"],
+  stderr = "",
+): GitFailure {
+  return { status: "error", type, stderr };
+}
+
 /** The refusal a caller value earns before git starts. */
 export function invalidInput(
   message: string,
@@ -86,7 +116,7 @@ export function processFailure(
       : NOT_A_REPOSITORY.test(stderr)
         ? "not_a_repository"
         : "git_failed";
-  return { status: "error", type, stderr };
+  return gitFailure(type, stderr);
 }
 
 /**
@@ -97,16 +127,26 @@ export function processFailure(
  */
 export async function withGit<T>(
   directory: string,
-  options: GitCallOptions & { readonly timeoutMs: number },
+  options: GitCallOptions & {
+    readonly timeoutMs: number;
+    /** `directory` holds one git entry, and discovery must stop there: the
+     *  prefix is pinned and the parent of `directory` is a ceiling. */
+    readonly pinned?: boolean;
+  },
   work: (git: GitRunner) => Promise<T>,
 ): Promise<T> {
   const endsAt = Date.now() + options.timeoutMs;
   const hooksDirectory = await mkdtemp(join(tmpdir(), "llame-git-hooks-"));
-  const prefix = gitPrefixArguments(hooksDirectory, directory);
+  const prefix = options.pinned
+    ? pinnedPrefixArguments(hooksDirectory, directory)
+    : gitPrefixArguments(hooksDirectory, directory);
+  const ceiling = options.pinned ? dirname(directory) : undefined;
   const git: GitRunner = (args) =>
     runGitProcess([...prefix, ...args], {
       timeoutMs: endsAt - Date.now(),
       signal: options.signal,
+      ceiling,
+      noLazyFetch: options.pinned,
     });
   try {
     return await work(git);

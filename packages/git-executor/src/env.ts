@@ -19,13 +19,26 @@ const FIXED_ENVIRONMENT = {
 
 const INHERITED_ENVIRONMENT_NAMES = ["PATH", "HOME", "TMPDIR"] as const;
 
-export function gitEnvironment(): Record<string, string> {
+/**
+ * `ceiling`, when given, is the one caller value added: `GIT_CEILING_DIRECTORIES`,
+ * which stops git's discovery from walking up into that directory.
+ * `noLazyFetch` adds `GIT_NO_LAZY_FETCH=1`, so a read never contacts a promisor
+ * remote.
+ */
+export function gitEnvironment(
+  extra: { readonly ceiling?: string; readonly noLazyFetch?: boolean } = {},
+): Record<string, string> {
   const inherited = INHERITED_ENVIRONMENT_NAMES.flatMap((name) => {
     const value = process.env[name];
     return value === undefined ? [] : [[name, value] as const];
   });
-  return Object.fromEntries([
+  const environment: Record<string, string> = Object.fromEntries([
     ...Object.entries(FIXED_ENVIRONMENT),
     ...inherited,
   ]);
+  if (extra.ceiling !== undefined) {
+    environment["GIT_CEILING_DIRECTORIES"] = extra.ceiling;
+  }
+  if (extra.noLazyFetch) environment["GIT_NO_LAZY_FETCH"] = "1";
+  return environment;
 }
