@@ -10,6 +10,7 @@ import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import {
   deliverPendingSteering,
+  persistFirstEpochBaselines,
   type DeliveredBoundary,
 } from './segment-delivery';
 import { machineAttemptKey } from './machine-attempt';
@@ -32,7 +33,6 @@ import {
   type SshClientFactory,
 } from '../ssh/ssh-client';
 import { statHostPath } from '@workspace/native-file-tools';
-import { isRecord } from '@workspace/runtime-safety';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -69,11 +69,7 @@ import {
 import { type ModelClient, type SdkRefusal } from '../models/model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
-import {
-  ChatsRepository,
-  MessagesRepository,
-  isCompletedAssistantTurn,
-} from '../chats/chats-repository';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
@@ -174,7 +170,6 @@ import {
 } from './run-event-payload';
 import {
   finalizeRunReply,
-  isRunningUsage,
   ownsLiveReply,
   persistReply,
   runningReplyUsage,
@@ -182,6 +177,10 @@ import {
   type AssistantTurnTelemetry,
   type AssistantTurnWrite,
 } from './run-reply-finalizer';
+import {
+  currentSegmentState,
+  findEarlierSegmentBaseline,
+} from './run-segment-queries';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -303,6 +302,10 @@ import { modelGitAdmission } from '../git-state/model-git-admission';
 import { type GitObservation } from '../git-state/git-state-view';
 import { placeRailPart, refreshTurnGit, type TurnGit } from './turn-git';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
+import {
+  finalizeUsageCompleteness,
+  readCreatedFlags,
+} from './usage-completeness';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   aggregateTurnTelemetry,
@@ -1199,7 +1202,11 @@ export class RunExecutionService {
       // Deliberately never re-resolved or re-validated against current
       // configuration — a level the operator has since withdrawn is still sent
       // verbatim, and a run that stored none sends no provider option at all.
-      const startedEvent = await events.append(input.runId, 'run.started');
+      // The claim names its attempt, so the completeness check can tell the
+      // attempts of one segment from those of an earlier one by event order.
+      const startedEvent = await events.append(input.runId, 'run.started', {
+        attemptId: started.activeAttemptId,
+      });
       return {
         effort: started.effort ?? undefined,
         permissionMode: started.permissionMode,
@@ -1242,6 +1249,7 @@ export class RunExecutionService {
       attemptId,
       nativeDeliverySequence: claim.nativeDeliverySequence,
       firstSegment,
+      createdMessage: input.userMessage,
     });
     return this.chainSegments(attempt);
   }
@@ -1310,6 +1318,8 @@ export class RunExecutionService {
     nativeDeliverySequence: number;
     /** False for a segment that a delivery started. */
     firstSegment: boolean;
+    /** The message `run.created` names: the job's, whatever segment runs. */
+    createdMessage: RunUserMessage;
   }): Promise<AttemptRun> {
     const {
       input,
@@ -1319,6 +1329,7 @@ export class RunExecutionService {
       attemptId,
       nativeDeliverySequence,
       firstSegment,
+      createdMessage,
     } = attempt;
     const { client } = input;
     // A Continue Run starts from the kept parts its admission recorded, in the
@@ -1346,6 +1357,7 @@ export class RunExecutionService {
         },
         attemptId: delivery.attemptId,
         firstSegment: false,
+        createdMessage,
       });
 
     // Workspace validation is the first accepted-turn preparation step. Load
@@ -1440,6 +1452,7 @@ export class RunExecutionService {
         media,
         continued,
         gitObservation,
+        firstSegment,
       });
       prepared = firstStep.request;
       attemptContext = firstStep.context;
@@ -2875,7 +2888,8 @@ export class RunExecutionService {
                   chatId: input.chatId,
                   userId: input.userId,
                   untitled,
-                  userMessage: input.userMessage,
+                  // The message `run.created` names, not the delivered one.
+                  userMessage: createdMessage,
                 });
               }
             };
@@ -2905,6 +2919,7 @@ export class RunExecutionService {
                   telemetry: closingTelemetry,
                 },
                 models: this.instanceConfig.config.models,
+                baselines: attemptContext,
               }),
             );
             if (boundary.kind === 'delivered') {
@@ -4368,6 +4383,7 @@ export class RunExecutionService {
         live: input.assistantTurn,
         telemetry: input.synthesizedTurnTelemetry,
         models: this.instanceConfig.config.models,
+        baselines: input,
       });
       if (delivery.kind === 'delivered') {
         return {
@@ -4420,56 +4436,6 @@ export class RunExecutionService {
     };
   }
 
-  private async hasReplaceableAssistantUsage(
-    tx: Db,
-    userId: string,
-    runId: string,
-    chatId: string | undefined,
-    inReplyTo: string | null | undefined,
-  ): Promise<boolean> {
-    if (chatId === undefined || inReplyTo === undefined || inReplyTo === null) {
-      return false;
-    }
-    const { assistantMessage } = await new MessagesRepository(tx).findTurnState(
-      chatId,
-      userId,
-      inReplyTo,
-    );
-    if (
-      assistantMessage === undefined ||
-      isCompletedAssistantTurn(assistantMessage)
-    ) {
-      return false;
-    }
-    // The Run's own `running` reply is its turn in progress, not an earlier
-    // reply it replaces (design D3).
-    const usage = assistantMessage.usage;
-    return !isRunningUsage(usage) || usage.runId !== runId;
-  }
-
-  /**
-   * The two facts admission records in `run.created` and a later writer reads
-   * back: whether the reply it replaced had usage (D11), and whether it owes
-   * the turn the Regenerate notice (D9).
-   */
-  private async createdFlags(
-    tx: Db,
-    runId: string,
-    userId: string,
-  ): Promise<{ replacesUsage: boolean; notice: boolean }> {
-    const created = await new RunEventsRepository(tx).findFirstByType(
-      runId,
-      userId,
-      'run.created',
-    );
-    const payload = created?.payload;
-    const record = isRecord(payload) ? payload : {};
-    return {
-      replacesUsage: record['replacesUsage'] === true,
-      notice: record['notice'] === true,
-    };
-  }
-
   /** Finalizes usage completeness against owner-scoped Run and reply state. */
   private async finalizeAssistantTurnTelemetry(
     tx: Db,
@@ -4486,30 +4452,15 @@ export class RunExecutionService {
     if (!telemetry) {
       return;
     }
-
-    const chatId = assistantTurn?.chatId ?? run?.chatId;
-    const inReplyTo = assistantTurn?.inReplyTo ?? run?.messageId;
-    const receipts = await new SystemPromptReceiptsRepository(
-      tx,
-    ).findByOwnedRun(input.runId, input.userId);
-    // A follow-up Run's admission recorded whether its reply replaces one that
-    // already carried usage: the dispatch reset hides that usage from the read
-    // above, so the flag is the only trace of it (turn-actions D11).
-    const replacedUsage =
-      (await this.hasReplaceableAssistantUsage(
-        tx,
-        input.userId,
-        input.runId,
-        chatId,
-        inReplyTo,
-      )) ||
-      (run?.followUpAction != null &&
-        (await this.createdFlags(tx, input.runId, input.userId)).replacesUsage);
-    telemetry.complete =
-      telemetry.complete === true &&
-      run?.status === 'completed' &&
-      !receipts.some(({ attemptId }) => attemptId !== input.attemptId) &&
-      !replacedUsage;
+    await finalizeUsageCompleteness(tx, {
+      userId: input.userId,
+      runId: input.runId,
+      attemptId: input.attemptId,
+      run,
+      chatId: assistantTurn?.chatId ?? run?.chatId,
+      inReplyTo: assistantTurn?.inReplyTo ?? run?.messageId,
+      telemetry,
+    });
   }
 
   /**
@@ -4594,29 +4545,7 @@ export class RunExecutionService {
     finished: Run,
   ): Promise<void> {
     if (input.status !== 'completed') return;
-    const chatsRepo = new ChatsRepository(tx);
-    if (input.recencyDigestInitialization !== undefined) {
-      await chatsRepo.setRecencyDigestIfAbsent(
-        finished.chatId,
-        input.userId,
-        input.recencyDigestInitialization.baseline,
-        input.recencyDigestInitialization.told,
-      );
-    }
-    const freeze = input.skillCatalogFreeze;
-    if (freeze !== undefined) {
-      await chatsRepo.setSkillCatalogBaseline({
-        chatId: finished.chatId,
-        ownerUserId: input.userId,
-        baseline: freeze.baseline,
-        rebakedFrom: freeze.rebakedFrom,
-      });
-      await chatsRepo.updateSkillCatalogTold(
-        finished.chatId,
-        input.userId,
-        freeze.told,
-      );
-    }
+    await persistFirstEpochBaselines(tx, finished, input);
   }
 
   /**
@@ -5070,6 +4999,8 @@ export class RunExecutionService {
     continued: ContinueState | undefined;
     /** The attempt's one git observation; absent for an unbound Chat. */
     gitObservation: Promise<GitObservation> | undefined;
+    /** False for a segment a delivery started. */
+    firstSegment: boolean;
   }): Promise<PreparedFirstStep> {
     // One projection for the whole attempt: both passes and the compaction
     // trigger measure and send the same kept messages. The kept parts are the
@@ -5124,22 +5055,27 @@ export class RunExecutionService {
     );
     // The same admission the step composer will make on this request, so the
     // trigger sees the not-attached result the request will carry.
-    const trigger = await this.evaluateCompactionTrigger({
-      run: input.run,
-      prepared: estimated,
-      stagedParts: estimatePass.stagedParts,
-      historyRows: estimatePass.historyRows,
-      keptMessages: kept.messages,
-      keptRefCount: collectMediaRefs(kept.messages).length,
-      boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
-      media:
-        input.media &&
-        (await loadMediaSizing(
-          estimated.messages,
-          input.media,
-          this.mediaAdmissionContext(input.run.client),
-        )),
-    });
+    // Compaction plans only before the Run's first model step: a segment start,
+    // and a retry inside a later segment, send the history as it stands
+    // (run-steering D3).
+    const trigger = input.firstSegment
+      ? await this.evaluateCompactionTrigger({
+          run: input.run,
+          prepared: estimated,
+          stagedParts: estimatePass.stagedParts,
+          historyRows: estimatePass.historyRows,
+          keptMessages: kept.messages,
+          keptRefCount: collectMediaRefs(kept.messages).length,
+          boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
+          media:
+            input.media &&
+            (await loadMediaSizing(
+              estimated.messages,
+              input.media,
+              this.mediaAdmissionContext(input.run.client),
+            )),
+        })
+      : undefined;
     const summary =
       trigger === undefined
         ? undefined
@@ -5834,7 +5770,7 @@ export class RunExecutionService {
     // (turn-actions D9).
     const owesNotice =
       regenerateFirstDispatch &&
-      (await this.createdFlags(input.tx, input.input.runId, input.input.userId))
+      (await readCreatedFlags(input.tx, input.input.runId, input.input.userId))
         .notice;
     if (owesNotice) {
       stagedParts.push(
@@ -5900,13 +5836,19 @@ export class RunExecutionService {
     followUp: boolean,
   ): Promise<DisclosureBaseline> {
     const runsRepo = new RunsRepository(tx);
-    // An earlier attempt of this Run dispatched when its dispatch transaction
-    // wrote the Run's availability record (`[]` included). Its items stay on
-    // the trigger and its told state has advanced, so this attempt derives
-    // only what they do not already tell and appends it (design D2).
-    const ownAvailability =
-      (await runsRepo.findById(run.runId, run.userId))?.turnToolAvailability ??
-      null;
+    // A segment dispatches once: the Run's availability record names the
+    // latest segment that did, so only a request after the latest delivery
+    // makes this attempt a retry (run-steering D3).
+    const segment = await currentSegmentState(tx, run.runId, run.userId);
+    // An earlier attempt of this segment dispatched when its dispatch
+    // transaction wrote the Run's availability record (`[]` included). Its
+    // items stay on the trigger and its told state has advanced, so this
+    // attempt derives only what they do not already tell and appends it
+    // (design D2).
+    const ownAvailability = segment.dispatched
+      ? ((await runsRepo.findById(run.runId, run.userId))
+          ?.turnToolAvailability ?? null)
+      : null;
     // Model selection is established by any reply, failed and checkpointed
     // ones included (design D5): a failed reply's switch item was stored at its
     // dispatch, and a checkpoint can absorb every earlier reply.
@@ -5921,16 +5863,28 @@ export class RunExecutionService {
     // A follow-up Run can be the second Run of its own turn, so its baseline
     // is the most recent dispatched Run of that turn itself when there is one
     // (turn-actions D8); every other Run compares with the turns before it.
+    // A delivery moved the Run onto this message, so the Run's own earlier
+    // segment is the most recent dispatched turn, and only its replies reach
+    // it (run-steering D3).
+    const earlierSegment = segment.delivered
+      ? await findEarlierSegmentBaseline(tx, {
+          chatId: run.chatId,
+          userId: run.userId,
+          runId: run.runId,
+          beforeSeq: run.userMessage.seq,
+        })
+      : undefined;
     const previousDispatched = followUp
       ? await runsRepo.findDispatchedBaselineForTurn(run.chatId, run.userId, {
           messageId: run.userMessage.id,
           beforeSeq: run.userMessage.seq,
         })
-      : await runsRepo.findMostRecentDispatchedByChatMessageSequence(
+      : (earlierSegment ??
+        (await runsRepo.findMostRecentDispatchedByChatMessageSequence(
           run.chatId,
           run.userId,
           { beforeSeq: run.userMessage.seq },
-        );
+        )));
 
     // The follow-up lookup reaches this message's own earlier Run, so its
     // result already answers whether an earlier attempt of the turn told the

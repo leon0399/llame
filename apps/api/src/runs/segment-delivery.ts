@@ -9,7 +9,13 @@ import { randomUUID } from 'node:crypto';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { type ChatDelivery, type Message, type Run } from '../db/schema';
+import {
+  type Chat,
+  type ChatDelivery,
+  type Message,
+  type Run,
+  type SkillCatalogBaseline,
+} from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   finalizeRunReply,
@@ -18,6 +24,56 @@ import {
   type BillingCatalog,
 } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { finalizeUsageCompleteness } from './usage-completeness';
+
+/**
+ * The baselines only a successful turn establishes: the chat's first digest
+ * baseline and a first-epoch skill-catalog freeze. Both live only in the
+ * system prompt, so no history item accompanies them and they ride the
+ * attempt-fenced transaction that closes the turn.
+ */
+export type FirstEpochBaselines = {
+  recencyDigestInitialization?:
+    | {
+        baseline: NonNullable<Chat['recencyDigestBaseline']>;
+        told: NonNullable<Chat['recencyDigestTold']>;
+      }
+    | undefined;
+  skillCatalogFreeze?:
+    | {
+        baseline: SkillCatalogBaseline;
+        rebakedFrom: string | null;
+        told: NonNullable<Chat['skillCatalogTold']>;
+      }
+    | undefined;
+};
+
+export async function persistFirstEpochBaselines(
+  tx: Db,
+  run: { chatId: string; userId: string },
+  baselines: FirstEpochBaselines,
+): Promise<void> {
+  const chatsRepo = new ChatsRepository(tx);
+  const { recencyDigestInitialization: digest, skillCatalogFreeze: freeze } =
+    baselines;
+  if (digest !== undefined) {
+    await chatsRepo.setRecencyDigestIfAbsent(
+      run.chatId,
+      run.userId,
+      digest.baseline,
+      digest.told,
+    );
+  }
+  if (freeze !== undefined) {
+    await chatsRepo.setSkillCatalogBaseline({
+      chatId: run.chatId,
+      ownerUserId: run.userId,
+      baseline: freeze.baseline,
+      rebakedFrom: freeze.rebakedFrom,
+    });
+    await chatsRepo.updateSkillCatalogTold(run.chatId, run.userId, freeze.told);
+  }
+}
 
 export type BoundaryDelivery =
   | {
@@ -54,8 +110,36 @@ type DeliveryInput = {
   live?: AssistantTurnWrite;
   telemetry?: AssistantTurnTelemetry;
   models: BillingCatalog;
+  /**
+   * The first-epoch baselines the closing segment's attempt derived: a steer
+   * closes its reply `completed`, the successful turn that establishes them.
+   * An interrupt closes `aborted` and passes none.
+   */
+  baselines?: FirstEpochBaselines;
 };
 
+/**
+ * The steer closes the reply while the Run is live, so the Run's terminal
+ * status does not decide the completeness of its usage
+ * (run-usage-accounting).
+ */
+function finalizeClosingUsage(
+  tx: Db,
+  input: DeliveryInput,
+  locked: Run,
+  telemetry: AssistantTurnTelemetry,
+): Promise<void> {
+  return finalizeUsageCompleteness(tx, {
+    userId: locked.userId,
+    runId: locked.id,
+    attemptId: input.attemptId,
+    run: locked,
+    chatId: locked.chatId,
+    inReplyTo: input.live?.inReplyTo ?? locked.messageId,
+    telemetry,
+    closedBySteer: true,
+  });
+}
 /**
  * Close the segment's reply as `completed` and publish its usage, then store
  * ONE user message holding every item's parts in order.
@@ -66,6 +150,14 @@ async function closeSegmentAndStore(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<{ closedReply: Message | undefined; message: Message }> {
+  if (input.modelCompleted?.telemetry) {
+    await finalizeClosingUsage(
+      tx,
+      input,
+      locked,
+      input.modelCompleted.telemetry,
+    );
+  }
   const closedReply = await finalizeRunReply(tx, {
     run: locked,
     status: 'completed',
@@ -170,6 +262,9 @@ export async function deliverPendingSteering(
     locked,
     items,
   );
+  if (input.baselines !== undefined) {
+    await persistFirstEpochBaselines(tx, locked, input.baselines);
+  }
   const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
     items,
     message,

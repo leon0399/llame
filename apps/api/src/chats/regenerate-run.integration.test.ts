@@ -287,6 +287,9 @@ describeIfDb('a Regenerate Run', () => {
           .update(schema.runs)
           .set({ turnToolAvailability: [] })
           .where(eq(schema.runs.id, run.id));
+        await new RunEventsRepository(tx).append(run.id, 'model.requested', {
+          attemptId: crypto.randomUUID(),
+        });
       }
       const reply = await seedReplacedReply(tx, {
         chatId,

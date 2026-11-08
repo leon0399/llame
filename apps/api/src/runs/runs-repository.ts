@@ -70,7 +70,7 @@ function markFinishedUpdate(
 }
 
 /** A Run whose dispatch transaction ran: it wrote its availability record. */
-function dispatchedRunPredicate(): SQL {
+export function dispatchedRunPredicate(): SQL {
   return sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`;
 }
 

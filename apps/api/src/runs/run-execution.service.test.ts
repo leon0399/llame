@@ -12091,6 +12091,10 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         ...run,
         turnToolAvailability: record,
       });
+      // The earlier attempt's dispatch also recorded its request.
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        { ...event, eventType: 'model.requested' },
+      ]);
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
         trigger,
       ]);
@@ -12169,6 +12173,12 @@ describe('RunExecutionService runtime-context lifecycle', () => {
           ...run,
           turnToolAvailability: record,
         });
+        vi.spyOn(
+          RunEventsRepository.prototype,
+          'listByRunId',
+        ).mockResolvedValue(
+          record === null ? [] : [{ ...event, eventType: 'model.requested' }],
+        );
         vi.spyOn(
           MessagesRepository.prototype,
           'findByChatId',
@@ -12409,6 +12419,12 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       followUpAction: 'regenerate',
       turnToolAvailability,
     });
+    if (turnToolAvailability !== null) {
+      // A dispatched attempt also recorded its request.
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        { ...event, eventType: 'model.requested' },
+      ]);
+    }
     // The earlier Run of this same turn dispatched, which is the baseline a
     // follow-up Run compares against.
     vi.spyOn(
