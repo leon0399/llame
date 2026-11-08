@@ -133,6 +133,8 @@ Assumptions that follow from those decisions but that the grilling did not ask:
   reasoning part with no later part).
 - `turn-actions`: `The Continue Run log starts with the kept parts` (only the first segment of a
   Continue Run starts from the kept parts).
+- `chat-creation`: `The first-message creation path is unchanged` (a send with a delivery mode
+  during a live Run is a second exception).
 - `agent-skills`: `Explicit mentions load skills before the first model request` and
   `prompt-imports`: `Prompt imports persist as one preceding rail item` (a delivered message
   activates its skills and imports before the first request of its segment).

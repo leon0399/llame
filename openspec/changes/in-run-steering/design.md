@@ -17,14 +17,14 @@ with `ai@6.0.256`.
   (`run-execution.service.ts:2485-2560`); failure and abort in `onError` (`:2383-2483`). The
   clients own `stopWhen` (`models/openai-model-client.ts:129`). `prepareStep` calls `onStepStart`
   only when tools exist (`models/step-composer.ts:556`).
-- **Dispatch.** `dispatchAttempt` (`run-execution.service.ts:5594-5680`) fences the attempt,
+- **Dispatch.** `dispatchAttempt` (`run-execution.service.ts:5590-5680`) fences the attempt,
   stores accepted-turn items on the job's user message, creates or resets its reply, and appends
   `model.requested` once per attempt. A completed reply makes the dispatch throw
   `ReplyAlreadyCompletedError`, and the salvage branch settles the Run `completed`
-  (`:1361-1386`). `rebuildContextForChat` (`:2633-2700`) is the one history projection, keyed by a
+  (`:1361-1386`). `rebuildContextForChat` (`:2651-2696`) is the one history projection, keyed by a
   maximum `seq`.
 - **Replies.** `messages.in_reply_to` is unique (`db/schema/chats.ts:228-310`): one reply per
-  user row. `messages.seq` is dense per Chat (`chats/message-sequence.ts:47`). The finalizer finds
+  user row. `messages.seq` is dense per Chat (`chats/message-sequence.ts:48`). The finalizer finds
   the reply through `run.messageId` (`runs/run-reply-finalizer.ts:420-426`) and rebuilds a
   non-completed reply from the Run log.
 - **Follow-ups.** `latestTurnRun` requires `latestRun.messageId === userMessage.id`
@@ -48,7 +48,7 @@ with `ai@6.0.256`.
   (`apps/api/src/live/change-listener.ts`). Triggers are hand-written migrations
   (`20261016125611_live_change_notify.sql`). Payloads are ids only.
 - **Stream.** `RunStreamBridge` replays a Run's events into one AI SDK UI message from sequence 0
-  (`runs/run-stream-bridge.ts:419-423`); its poll loop has a private cursor (`:459-462`). The web re-attaches to a Run whose
+  (`runs/run-stream-bridge.ts:485`); its poll loop has a private cursor (`:459-462`). The web re-attaches to a Run whose
   stream ended while it still executes (`use-chat-history-sync.ts:72-74`).
 - **Web.** `chat-composer.tsx:112-115` swaps Send for Stop while a Run streams, and
   `use-chat-conversation.ts:103-107` drops Enter. Context items render only for a fixed producer
@@ -102,15 +102,17 @@ filter. Rejected: `run_events` as the queue; an item outlives its Run.
 `CreateMessageDto` gains optional `delivery`. Inside the admission transaction, after the chat
 row lock:
 
-1. Look up `chat_deliveries` by the message id. A hit answers that item; nothing else runs.
+1. Look up `chat_deliveries` by the message id. A hit in the same Chat answers that item and
+   nothing else runs; a hit in another Chat of the owner is a 409 duplicate.
 2. Run single-flight admission as today. A stuck blocker is expired as today.
 3. With a live blocker and `delivery`, insert the item and answer 202. Without `delivery`, 409.
 4. With no blocker, start a Run as today, whatever `delivery` says.
 
 An `interrupt` item, or a `PATCH` to `interrupt`, sends `NOTIFY llame_run_control` in the same
-transaction; Postgres delivers it on commit. `GET`, `PATCH`, and `DELETE` under
-`/api/v1/chats/:chatId/deliveries` are conditional updates `WHERE chat_id = :chatId AND state =
-'pending'`; zero rows give 409. A `PATCH` on an idle Chat promotes the item into a Run in the same transaction (the
+transaction; Postgres delivers it on commit. `GET /api/v1/chats/:chatId/deliveries` answers 200 with the pending items in order, possibly
+none. `PATCH` and `DELETE` on one item are conditional updates `WHERE id = :id AND chat_id =
+:chatId AND state = 'pending'`; zero rows give 404 when the item does not exist for this owner,
+and 409 when it is no longer pending. A `PATCH` on an idle Chat promotes the item into a Run in the same transaction (the
 promotion path of D5).
 
 ### D3: A segment is a new attempt with its own `streamText` call
@@ -138,9 +140,11 @@ The attempt machinery needs these changes to work per segment:
 - **Completeness.** `run.delivered` carries the new `attemptId`. The completeness check counts only
   receipts of attempts after the latest `run.delivered`, so a segment attempt does not mark the
   final reply incomplete.
-- **Baselines.** The delivery transaction writes the first-epoch baselines (`recencyDigest`
+- **Baselines.** A steer delivery writes the first-epoch baselines (`recencyDigest`
   initialization, `skillCatalogFreeze`) that `finishRun` writes for a completed first Run, when the
-  closed reply is the first segment of the Chat's first Run.
+  closed reply is the first segment of the Chat's first Run. A steer closes that reply
+  `completed`, which is the successful turn that `chat-recency-digest` requires. An interrupt
+  closes it `aborted` and writes no baseline.
 - **Title.** Title generation reads the message of `run.created`, not the Run's current message.
 
 `executeRun` keeps its signature. It returns a result, built on `wrapStreamTextResult`, whose
@@ -149,10 +153,12 @@ contract and the 319 test call sites keep their shape. `ModelStreamInput` gains 
 predicate that each client, the scripted client included, ORs into its own `stopWhen`; the SDK
 awaits async predicates after the step's tool calls settle (`ai` `dist/index.mjs:4221-4226`). The
 predicate runs one owner-scoped query for pending `steer` and `interrupt` items and for
-`cancel_requested_at`, so a lost cancel signal is also found at a step end. In `onFinish`, a stop
-that this predicate caused is a segment end: the executor runs D4 instead of `finishRun`. When D4
-finds no pending item (the owner withdrew it), the executor sends the next request in the same
-segment with another `streamText` call over the same reply.
+`cancel_requested_at`, so a lost cancel signal is also found at a step end. It records the reason
+it found in executor state, because `onFinish` carries no stop reason. A recorded cancellation
+wins: the executor settles the Run `cancelled`. Otherwise the stop is a segment end, and the
+executor runs D4 instead of `finishRun`. When D4 finds no pending item (the owner withdrew it),
+the executor sends the next request in the same segment with another `streamText` call over the
+same reply.
 
 Rejected: injecting steers as in-Run context items on the running reply. The owner's words would
 be assistant parts, a crash reset would delete them, and search and forks would not see an owner
@@ -319,6 +325,12 @@ and is reviewed in the `web` layer's Storybook stories.
 
 ## Revision history
 
+- **v4 (2026-11-08):** GitHub review round on #1637 (CodeRabbit 2 threads + 1 nit, pullfrog 4
+  threads + 1 body finding). Accepted: an item id from another Chat is a 409 duplicate; `GET`
+  answers the possibly empty list, conditional updates only on `PATCH`/`DELETE`; baselines only on
+  a steer delivery; the predicate records its stop reason and a cancellation wins; the Esc scenario
+  orders the second press after the delivery; `chat-creation` MODIFIED for the delivery exception;
+  citation drift fixed; cancellation-only step-end test added to task 3.1. Rejected: none.
 - **v3 (2026-11-08):** Round 2 (spec consistency 3 P1 / 12 P2; feasibility 5 P1 / 10 P2 / 6 P3;
   no P0). Accepted: follow-up rules only in the first segment (turn-actions delta); per-segment
   first-dispatch detection, baseline lookups, completeness by `run.delivered.attemptId`, title,

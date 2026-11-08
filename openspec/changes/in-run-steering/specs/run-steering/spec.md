@@ -55,13 +55,19 @@ pending, and they MUST NOT start before this message.
 ### Requirement: Admission of a pending item is idempotent on the message id
 
 The id of the sent message MUST become the id of the pending item. A send that repeats the id of
-a pending, delivered, or withdrawn item MUST answer with that item. It MUST NOT store a second item
-or start a Run. Admission MUST make this check before the check for duplicate message ids.
+a pending, delivered, or withdrawn item of the same Chat MUST answer with that item. It MUST NOT
+store a second item or start a Run. An id of an item in another Chat MUST get 409 as a duplicate.
+Admission MUST make this check before the check for duplicate message ids.
 
 #### Scenario: A retried send returns the stored item
 
 - **WHEN** the client sends the same queue item twice with one message id
 - **THEN** both answers name the same item, and the Chat holds one pending item
+
+#### Scenario: An item id from another Chat is a duplicate
+
+- **WHEN** the owner sends a message with the id of a pending item in another Chat
+- **THEN** the API answers 409, and neither Chat changes
 
 #### Scenario: A retry after delivery starts no Run
 
@@ -581,9 +587,9 @@ Otherwise they MUST request cancellation of the Run. A draft in the composer MUS
 
 #### Scenario: Esc twice stops everything
 
-- **WHEN** one steer and one queue item are pending, and the owner presses Esc twice
-- **THEN** the first press delivers the steer as an interrupt in the same Run
-- **AND** the second press cancels the Run, and the queue item stays pending and paused
+- **WHEN** one steer and one queue item are pending, and the owner presses Esc
+- **THEN** the steer is delivered as an interrupt in the same Run
+- **AND** a second press after that delivery cancels the Run, and the queue item stays pending and paused
 
 ### Requirement: The transcript shows delivered messages and interrupts
 

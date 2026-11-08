@@ -39,7 +39,7 @@ test it with items that the test harness stores directly.
 | `finalize`     | `web`          | Spec sync, task records, and archive movement only.                                                                                              | ~2,000            | none   |
 
 **Named budget exception: the proposal layer is about 2,500 authored lines.** It adds one
-capability with 42 requirements and modifies 14 requirements in 9 capabilities. Most MODIFIED
+capability with 42 requirements and modifies 15 requirements in 10 capabilities. Most MODIFIED
 blocks are long canonical requirements that must be copied whole and rewritten in Simplified
 Technical English. Measure it with `git diff --numstat origin/master` before publication. Each
 implementation layer is planned inside about 2,000 lines; `queue` and `segments` are at the limit.
@@ -69,7 +69,7 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 3. segments
 
-- [ ] 3.1 Add `stopWhenExtra` to `ModelStreamInput`, OR it into each client's `stopWhen` (the scripted client included), and query pending `steer` and `interrupt` items and `cancel_requested_at` at each step end. Keep the `executeRun` signature with a result that drains every segment (design D3). Verify "A steer during a tool call waits for the result", "A steer during a model response waits for the step end", "A steer after the cap gives a new budget", and "A delivered message restarts the step count" with the scripted model client and directly stored items.
+- [ ] 3.1 Add `stopWhenExtra` to `ModelStreamInput`, OR it into each client's `stopWhen` (the scripted client included), and query pending `steer` and `interrupt` items and `cancel_requested_at` at each step end. Keep the `executeRun` signature with a result that drains every segment (design D3). Verify "A steer during a tool call waits for the result", "A steer during a model response waits for the step end", "A steer after the cap gives a new budget", and "A delivered message restarts the step count" with the scripted model client and directly stored items. Also verify that a step-end stop caused only by a recorded cancellation settles the Run `cancelled`.
 - [ ] 3.2 Add the delivery transaction in Run-then-chat lock order, with the attempt and cancel fences: close the segment reply with its status and published usage, insert the delivered message with a new id, mark items, move `runs.message_id`, write the new attempt id, and append `run.delivered` (design D4). Verify "Two steers at one boundary", "The transcript order after a steer", "A crash before delivery keeps the item", "A superseded attempt cannot deliver", "A cancellation and a steer at one boundary", "A live client sees the segment usage", and "A delivered message executes in the active Run".
 - [ ] 3.3 Check pending items in the completing transaction, continue the segment when the stopped item is gone, and continue after a salvage completion that delivers (design D3, D5). Verify "A steer during the final answer" (with and without tools), "A withdrawal after the step end", and a salvage case with a pending item.
 - [ ] 3.4 Narrow crash recovery and settlers to the current segment: the Run's current message for every attempt, `hasMutation` and the rebuild window after the latest `run.delivered`, and the finalizer through the moved `message_id`. Verify "A crash retry keeps earlier segments", "A settled write in an earlier segment does not stop a retry", "A queue retry re-executes the loop from the start", "A finalizer leaves the reply of an earlier segment", "A rebuild covers only the current segment", "Step cap reached fails closed to answering", "A cancellation after a delivery leaves the earlier reply", and "A delivery does not restart the execution ceiling" with "A long steered Run reaches its budget".
@@ -91,7 +91,7 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 5. steer
 
-- [ ] 5.1 Accept `delivery: "steer"` and `PATCH` to `steer`. Verify "A steer during a Run is accepted as a pending item", "Steer now changes a queue item", "A retry after delivery starts no Run", and "A steer after completion starts a Run".
+- [ ] 5.1 Accept `delivery: "steer"` and `PATCH` to `steer`. Verify "A steer during a Run is accepted as a pending item", "Steer now changes a queue item", "A retry after delivery starts no Run", "An item id from another Chat is a duplicate", and "A steer after completion starts a Run".
 - [ ] 5.2 Move pending `steer` and `interrupt` items to the head of the queue in `markFinished` under the chat-row lock for every non-completed status, route `cancelActiveRunsForMessage` through it, and start a Run for a mode change on a paused item. Verify "A failed Run pauses the queue" for every terminal writer and "Steer now on a paused item", including invalid settings.
 - [ ] 5.3 End the UI stream segment at `run.delivered` and resume after the latest delivery through a start-sequence parameter (design D9). Verify "A live client sees the delivery", "A resume after a delivery replays only the current segment", and "Resume identifies the active Run first" in `run-stream-bridge.test.ts` and the `chats.controller` tests.
 - [ ] 5.4 Verify "Continue on a delivered message" and "Regenerate on a delivered message" in follow-up admission integration tests.
