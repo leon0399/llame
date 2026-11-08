@@ -269,13 +269,17 @@ code path serves both moments:
   item is stored on the assistant message after the tool part, as
   `context-injection` defines for in-Run items.
 
-Told state comes from effective history: the latest `git` item of the active
-epoch after the latest binding change (an `enter_workspace` that bound or
-switched, an exit, a detach, or a `workspace` snapshot). The producer compares
-rendered text, so a retry that resets a reply loses that reply's items and
-compares with the earlier one, and a fork compares with the history it
-copied. A checkpoint starts a new epoch, so the next request tells the state
-again. No column and no migration are needed.
+Told state comes from the reconstructed context: the producer finds its own
+latest `git` item in the active epoch after the latest binding change (an
+`enter_workspace` that bound or switched, an exit, a detach, or a `workspace`
+snapshot) and compares the new rendering with that item's stored text. A retry
+that resets a reply loses that reply's items and compares with the earlier
+one, and a fork compares with the history it copied. A checkpoint starts a new
+epoch, so the next request tells the state again. No column and no migration
+are needed. This follows the rule recorded for runtime plugins and context
+producers on [#1489](https://github.com/leon0399/llame/issues/1489): a
+producer infers what it told from what it sent, and adds no single-purpose
+column.
 
 `CONTEXT_ITEM_PRODUCERS` gains `git` after `workspace`.
 
