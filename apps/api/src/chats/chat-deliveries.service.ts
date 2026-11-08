@@ -33,7 +33,8 @@ export class ChatDeliveriesService {
   /**
    * Withdraw one pending item and return it with its parts, so the client can
    * put the text back for an edit. One conditional update decides the race
-   * with a delivery: an item that is no longer `pending` gets 409.
+   * with a delivery: an item that is no longer `pending` gets 409, and one
+   * that is not an item of the owner's Chat gets 404.
    */
   withdraw(
     chatId: string,
@@ -41,11 +42,11 @@ export class ChatDeliveriesService {
     userId: string,
   ): Promise<ChatDelivery> {
     return this.tenantDb.runAs(userId, async (tx) => {
-      await this.requireChat(new ChatsRepository(tx), chatId, userId);
       const items = new ChatDeliveriesRepository(tx);
       const withdrawn = await items.withdrawPending(chatId, deliveryId, userId);
       if (withdrawn) return withdrawn;
-      if (await items.findInChat(chatId, deliveryId, userId)) {
+      const existing = await items.findById(deliveryId, userId);
+      if (existing?.chatId === chatId) {
         throw new ConflictException('The item is no longer pending');
       }
       throw new NotFoundException(`Delivery ${deliveryId} not found`);

@@ -99,7 +99,6 @@ export function liveDeliveryRecord(
     chatId: LIVE_CHAT_ID,
     mode: 'queue',
     state: 'pending',
-    position: 1,
     parts: [{ type: 'text', text: 'then summarize it' }],
     modelId: 'gpt-5.5',
     permissionMode: 'default',

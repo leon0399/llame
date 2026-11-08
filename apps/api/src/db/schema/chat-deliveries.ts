@@ -16,8 +16,7 @@ import { type PermissionMode } from '../../tools/permissions/permission-mode';
 import { chats } from './chats';
 
 /** The producer kinds of a pending item; `run-steering` ships only `owner`. */
-export const chatDeliveryProducers = ['owner'] as const;
-export type ChatDeliveryProducer = (typeof chatDeliveryProducers)[number];
+export type ChatDeliveryProducer = 'owner';
 
 /** How a pending item reaches the Chat; the API accepts a mode once its layer ships. */
 export const chatDeliveryModes = ['steer', 'interrupt', 'queue'] as const;

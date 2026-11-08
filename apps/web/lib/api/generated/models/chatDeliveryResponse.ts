@@ -16,8 +16,6 @@ export interface ChatDeliveryResponse {
   chatId: string;
   mode: ChatDeliveryResponseMode;
   state: ChatDeliveryResponseState;
-  /** Order of the pending items; the lowest delivers first. */
-  position: number;
   parts: ChatDeliveryResponsePartsItem[];
   modelId: string;
   effort?: string;

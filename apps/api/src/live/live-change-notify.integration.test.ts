@@ -4,7 +4,8 @@
  *   owner comes from the row;
  * - a rolled-back write notifies nothing;
  * - a run_events insert resolves its owner and chat through runs;
- * - a payload never carries record content (title).
+ * - a payload never carries record content (title, pending item text);
+ * - a pending item change notifies the Chat it belongs to.
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
@@ -15,6 +16,7 @@ import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
@@ -195,6 +197,30 @@ describeIfDb('llame_notify_change triggers', () => {
       (p) =>
         p['k'] === 'run' && p['run'] === runId && p['status'] === 'completed',
     );
+  });
+
+  it('notifies a pending item change with a pointer payload that carries no content', async () => {
+    const chatId = await newChat(a, 'Queue chat');
+    const itemId = crypto.randomUUID();
+    await tenantDb.runAs(a, (tx) =>
+      new ChatDeliveriesRepository(tx).insertPending({
+        id: itemId,
+        chatId,
+        ownerUserId: a,
+        mode: 'queue',
+        parts: [{ type: 'text', text: 'secret queued text' }],
+        settings: {
+          modelId: 'system:openai:gpt-5.4-mini',
+          permissionMode: 'default',
+        },
+      }),
+    );
+
+    const payload = await waitForPayload(
+      (p) => p['k'] === 'chat_deliveries' && p['chat'] === chatId,
+    );
+    expect(payload).toEqual({ k: 'chat_deliveries', owner: a, chat: chatId });
+    expect(JSON.stringify(payload)).not.toContain('secret queued text');
   });
 
   it('notifies a machine status write without an owner', async () => {

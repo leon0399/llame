@@ -23,6 +23,7 @@ import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatLoopService } from './chat-loop.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -204,6 +205,10 @@ function makeService(options?: {
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
+  // Every send looks for a stored pending item of its message id first.
+  vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
+    undefined,
+  );
   const findTurnState = vi
     .spyOn(MessagesRepository.prototype, 'findTurnState')
     .mockResolvedValue({
@@ -490,6 +495,7 @@ describe('ChatLoopService.createMessageStream', () => {
     createIfAbsent.mockResolvedValue(chat);
 
     const stream = await service.createMessageStream(input);
+    if ('delivery' in stream) throw new Error('expected a started Run');
     const response = stream.toUIMessageStreamResponse();
 
     expect(createIfAbsent).toHaveBeenCalledWith({

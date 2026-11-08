@@ -22,7 +22,7 @@ import {
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
-  resolvePermissionMode,
+  resolveSendSettings,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
@@ -180,32 +180,14 @@ export class ChatLoopService {
     private readonly media: MediaDescriber,
   ) {}
 
-  async createMessageStream(
+  /**
+   * A plain chat send. It answers a stored pending item of the same message id
+   * (run-steering D2) and starts nothing then; otherwise it starts a Run.
+   */
+  createMessageStream(
     input: CreateMessageStreamInput,
-  ): Promise<ChatMessageStream> {
-    // Validate BEFORE any database work: a rejected message must not cost a
-    // transaction, and input that was invalid anyway stays a 400.
-    const turn = await this.validateTurn(input);
-    const targetRunId = randomUUID();
-
-    const { runId, userMessage, supersededRunIds } =
-      await this.persistUserMessageAndRun({
-        chatId: input.chatId,
-        userId: input.userId,
-        ...turn,
-        targetRunId,
-        takeCreationLock: true,
-      });
-
-    return this.finalizeAcceptedRun({
-      runId,
-      userMessage,
-      supersededRunIds,
-      chatId: input.chatId,
-      userId: input.userId,
-      modelId: input.modelId,
-      abortSignal: input.abortSignal,
-    });
+  ): Promise<ChatMessageStream | PendingDeliveryAnswer> {
+    return this.send(input, undefined);
   }
 
   /**
@@ -213,15 +195,24 @@ export class ChatLoopService {
    * it stores a pending item and answers it, with an idle Chat it is a plain
    * send. A retry of the same message id answers the stored item.
    */
-  async createDeliveryMessage(
+  createDeliveryMessage(
     input: CreateMessageStreamInput & { delivery: SendableDeliveryMode },
   ): Promise<ChatMessageStream | PendingDeliveryAnswer> {
+    return this.send(input, input.delivery);
+  }
+
+  private async send(
+    input: CreateMessageStreamInput,
+    delivery: SendableDeliveryMode | undefined,
+  ): Promise<ChatMessageStream | PendingDeliveryAnswer> {
+    // Validate BEFORE any database work: a rejected message must not cost a
+    // transaction, and input that was invalid anyway stays a 400.
     const turn = await this.validateTurn(input);
     const admitted = await this.persistUserMessageAndRun({
       chatId: input.chatId,
       userId: input.userId,
       ...turn,
-      delivery: input.delivery,
+      delivery,
       targetRunId: randomUUID(),
       takeCreationLock: true,
     });
@@ -247,13 +238,10 @@ export class ChatLoopService {
     permissionMode?: PermissionMode;
     message: ChatMessageInput;
   }): Promise<ValidatedChatTurn> {
-    const model = this.models.validateModelSelection(input.modelId);
-    // Resolved from the already-validated model, so an unavailable model is
-    // reported without the effort ever being considered.
-    const effort = this.models.resolveEffortSelection(model, input.effort);
-    const permissionMode = resolvePermissionMode(
-      input.permissionMode,
+    const { effort, permissionMode } = resolveSendSettings(
+      this.models,
       this.instanceConfig.config.tools.permissionModes,
+      input,
     );
     const message = this.sanitizeAndValidateMessage(input.message);
     return {
@@ -281,14 +269,19 @@ export class ChatLoopService {
     userId: string;
     turn: ValidatedChatTurn;
   }): Promise<{ runId: string }> {
-    const { runId, userMessage, supersededRunIds } =
-      await this.persistUserMessageAndRun({
-        chatId: input.chatId,
-        userId: input.userId,
-        ...input.turn,
-        targetRunId: randomUUID(),
-        takeCreationLock: false,
-      });
+    const admitted = await this.persistUserMessageAndRun({
+      chatId: input.chatId,
+      userId: input.userId,
+      ...input.turn,
+      targetRunId: randomUUID(),
+      takeCreationLock: false,
+    });
+    // The Chat of a create request is new, so no item of it can exist; an id
+    // of another Chat's item is refused in admission. This is the same refusal.
+    if ('delivery' in admitted) {
+      throw new ConflictException('Message id already exists');
+    }
+    const { runId, userMessage, supersededRunIds } = admitted;
     for (const supersededRunId of supersededRunIds) {
       this.aborts.abort(supersededRunId);
     }
@@ -359,12 +352,6 @@ export class ChatLoopService {
    * identity and the durable Run record.
    */
   private async persistUserMessageAndRun(
-    input: PersistUserMessageAndRunInput & { delivery?: undefined },
-  ): Promise<PersistUserMessageAndRunResult>;
-  private async persistUserMessageAndRun(
-    input: PersistUserMessageAndRunInput,
-  ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer>;
-  private async persistUserMessageAndRun(
     input: PersistUserMessageAndRunInput,
   ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer> {
     // Media ownership was decided by `validateTurn` before this transaction
@@ -377,8 +364,8 @@ export class ChatLoopService {
       const messagesRepo = new MessagesRepository(tx);
 
       const { chat, createdByUs } = await this.resolveChat(chatsRepo, input);
-      const stored = await this.findStoredItem(tx, input, createdByUs);
-      if (stored) return { delivery: stored };
+      const item = await this.findStoredItem(tx, chatsRepo, input, createdByUs);
+      if (item) return { delivery: item };
       const admittedMessage = await this.admitTurn(
         chat,
         createdByUs,
@@ -425,7 +412,8 @@ export class ChatLoopService {
    * while a live Run holds the slot. A delivery send stores the message as a
    * pending item instead: neither a message row nor a Run (run-steering D2).
    * Without a live blocker the send goes on to start its Run, whatever
-   * `delivery` says.
+   * `delivery` says. An id that already names a message of the owner, in any
+   * Chat, is a duplicate and is refused before the item is stored.
    */
   private async admitToSlot(
     tx: Db,
@@ -443,20 +431,24 @@ export class ChatLoopService {
       return undefined;
     }
     if ((await claimActiveRunSlot(slot)) === 'free') return undefined;
-    return {
-      delivery: await new ChatDeliveriesRepository(tx).insertPending({
-        id: input.message.id,
-        chatId: input.chatId,
-        ownerUserId: input.userId,
-        mode: input.delivery,
-        parts: input.parts,
-        settings: {
-          modelId: input.modelId,
-          ...(input.effort !== undefined && { effort: input.effort }),
-          permissionMode: input.permissionMode,
-        },
-      }),
-    };
+    const deliveries = new ChatDeliveriesRepository(tx);
+    if (await deliveries.messageIdTaken(input.message.id, input.userId)) {
+      throw new ConflictException('Message id already exists');
+    }
+    const created = await deliveries.insertPending({
+      id: input.message.id,
+      chatId: input.chatId,
+      ownerUserId: input.userId,
+      mode: input.delivery,
+      parts: input.parts,
+      settings: {
+        modelId: input.modelId,
+        ...(input.effort !== undefined && { effort: input.effort }),
+        permissionMode: input.permissionMode,
+      },
+    });
+    if (!created) throw new ConflictException('Message id already exists');
+    return { delivery: created };
   }
 
   /**
@@ -504,20 +496,21 @@ export class ChatLoopService {
   }
 
   /**
-   * The item a delivery send already stored under its message id, in any
+   * The pending item already stored under the message id of this send, in any
    * state. A retry repeats the id, so the stored item answers it before the
    * duplicate-id check would refuse the id and before any Run starts
-   * (run-steering D2); the same id in another Chat is a duplicate. The Chat row
-   * lock serializes two sends of one id.
+   * (run-steering D2); the same id held by an item of another Chat is a
+   * duplicate. A delivery send takes the Chat row lock first, which serializes
+   * two sends of one id; a plain send keeps the lock for `touch`, as before.
    */
   private async findStoredItem(
     tx: Db,
+    chatsRepo: ChatsRepository,
     input: PersistUserMessageAndRunInput,
     createdByUs: boolean,
   ): Promise<ChatDelivery | undefined> {
-    if (input.delivery === undefined) return undefined;
-    if (!createdByUs) {
-      await new ChatsRepository(tx).lock(input.chatId, input.userId);
+    if (input.delivery !== undefined && !createdByUs) {
+      await chatsRepo.lock(input.chatId, input.userId);
     }
     const item = await new ChatDeliveriesRepository(tx).findById(
       input.message.id,

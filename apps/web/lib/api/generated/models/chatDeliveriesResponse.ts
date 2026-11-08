@@ -8,5 +8,6 @@
 import type { ChatDeliveryResponse } from "./chatDeliveryResponse";
 
 export interface ChatDeliveriesResponse {
+  /** The pending items, first to deliver first. */
   items: ChatDeliveryResponse[];
 }

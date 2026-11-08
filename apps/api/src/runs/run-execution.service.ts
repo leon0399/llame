@@ -4000,25 +4000,30 @@ export class RunExecutionService {
    */
   private async finishRun(input: FinishRunInput): Promise<FinishRunResult> {
     const finish = await this.commitFinishRun(input);
-    if (finish.outcome === 'won' && finish.promoted !== undefined) {
-      await this.dispatchPromotedRun(finish.promoted);
+    if (
+      finish.outcome === 'won' &&
+      finish.promoted !== undefined &&
+      this.runDispatch !== undefined
+    ) {
+      await this.dispatchPromotedRun(this.runDispatch, finish.promoted);
     }
     return finish;
   }
 
   /**
    * Enqueue the Run a completion promoted, after its commit. `dispatch` fails
-   * that Run when the enqueue fails, which frees the Chat for the owner; the
-   * completed Run behind it stays completed, so the error is logged only.
+   * that Run when the enqueue fails, which frees the Chat for the owner, and
+   * logs it; the completed Run behind it stays completed, so the error is not
+   * propagated.
    */
-  private async dispatchPromotedRun(job: RunJob): Promise<void> {
+  private async dispatchPromotedRun(
+    dispatcher: Pick<RunDispatcher, 'dispatch'>,
+    job: RunJob,
+  ): Promise<void> {
     try {
-      await this.runDispatch?.dispatch(job);
-    } catch (error) {
-      this.logger.error(
-        `Failed to enqueue promoted run ${job.runId}`,
-        loggableError(error),
-      );
+      await dispatcher.dispatch(job);
+    } catch {
+      // Already logged and the promoted Run already failed by `dispatch`.
     }
   }
 

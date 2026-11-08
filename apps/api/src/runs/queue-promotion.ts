@@ -19,34 +19,14 @@ import {
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
-  resolvePermissionMode,
+  resolveSendSettings,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunJob } from './run-queues';
 
-/**
- * Whether a send with these settings would be accepted now: the model is in
- * the catalog, the effort is one of its levels, and the permission mode is
- * enabled. Media were resolved and owner-checked at admission, so they are not
- * resolved again.
- */
-function settingsStillValid(
-  settings: ChatDeliverySettings,
-  models: ModelSelectionValidator,
-  enabledModes: ReadonlyArray<PermissionMode>,
-): boolean {
-  try {
-    const model = models.validateModelSelection(settings.modelId);
-    if (settings.effort !== undefined) {
-      models.resolveEffortSelection(model, settings.effort);
-    }
-    resolvePermissionMode(settings.permissionMode, enabledModes);
-    return true;
-  } catch {
-    return false;
-  }
-}
+/** The item left `pending` between the locked read and its delivery. */
+class ItemNoLongerPending extends Error {}
 
 /**
  * Start the Run of the first pending queue item of the completed Run's Chat.
@@ -65,25 +45,45 @@ export async function promoteNextQueueItem(
   },
 ): Promise<RunJob | undefined> {
   const { chatId, userId } = input.completed;
-  await new ChatsRepository(tx).lock(chatId, userId);
-  const deliveries = new ChatDeliveriesRepository(tx);
-  const item = await deliveries.firstPendingQueueItem(chatId, userId);
-  if (
-    !item ||
-    !settingsStillValid(
-      item.settings,
-      input.models,
-      input.enabledPermissionModes,
-    )
-  ) {
-    return undefined;
+  // The locked Chat row decides: a missing or archived Chat promotes nothing.
+  const chat = await new ChatsRepository(tx).lock(chatId, userId);
+  if (!chat || chat.archivedAt !== null) return undefined;
+  const item = await new ChatDeliveriesRepository(tx).firstPendingQueueItem(
+    chatId,
+    userId,
+  );
+  if (!item || !settingsStillValid(item.settings, input)) return undefined;
+  // A savepoint, so an item that stopped being pending leaves no message and
+  // no Run behind while the completed Run's own settlement commits.
+  try {
+    return await tx.transaction((inner) => startItemRun(inner, item));
+  } catch (error) {
+    if (error instanceof ItemNoLongerPending) return undefined;
+    throw error;
   }
-  return startItemRun(tx, deliveries, item);
+}
+
+/**
+ * Media were resolved and owner-checked at admission, so only the settings a
+ * send re-checks are validated again, by the resolver a send uses.
+ */
+function settingsStillValid(
+  settings: ChatDeliverySettings,
+  input: {
+    models: ModelSelectionValidator;
+    enabledPermissionModes: ReadonlyArray<PermissionMode>;
+  },
+): boolean {
+  try {
+    resolveSendSettings(input.models, input.enabledPermissionModes, settings);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function startItemRun(
   tx: Db,
-  deliveries: ChatDeliveriesRepository,
   item: ChatDelivery,
 ): Promise<RunJob | undefined> {
   const message = await new MessagesRepository(tx).createUserMessageIfAbsent({
@@ -106,10 +106,12 @@ async function startItemRun(
     },
     message,
   );
-  await deliveries.markDelivered(item.id, item.ownerUserId, {
-    messageId: message.id,
-    runId: run.id,
-  });
+  const delivered = await new ChatDeliveriesRepository(tx).markDelivered(
+    item.id,
+    item.ownerUserId,
+    { messageId: message.id, runId: run.id },
+  );
+  if (!delivered) throw new ItemNoLongerPending();
   return {
     runId: run.id,
     chatId: item.chatId,

@@ -38,13 +38,6 @@ export class ChatDeliveryResponse {
   state!: ChatDeliveryState;
 
   @ApiProperty({
-    type: 'integer',
-    format: 'int64',
-    description: 'Order of the pending items; the lowest delivers first.',
-  })
-  position!: number;
-
-  @ApiProperty({
     type: 'array',
     items: { type: 'object', additionalProperties: true },
   })
@@ -64,7 +57,10 @@ export class ChatDeliveryResponse {
 }
 
 export class ChatDeliveriesResponse {
-  @ApiProperty({ type: () => [ChatDeliveryResponse] })
+  @ApiProperty({
+    type: () => [ChatDeliveryResponse],
+    description: 'The pending items, first to deliver first.',
+  })
   items!: Array<ChatDeliveryResponse>;
 }
 
@@ -76,7 +72,6 @@ export function toChatDeliveryResponse(
     chatId: item.chatId,
     mode: item.mode,
     state: item.state,
-    position: item.position,
     // The same egress as the history response: retained bytes and provider
     // metadata stay on the server.
     parts: withoutProviderMetadata(withoutRetainedMedia(item.parts)),

@@ -171,10 +171,6 @@ export const chatDeliveryResponseSchema = z.object({
   chatId: z.string().uuid(),
   mode: z.enum(["steer", "interrupt", "queue"]),
   state: z.enum(["pending", "delivered", "withdrawn"]),
-  position: z
-    .number()
-    .int()
-    .describe("Order of the pending items; the lowest delivers first."),
   parts: z.array(z.record(z.string(), z.any())),
   modelId: z.string(),
   effort: z.string().optional(),

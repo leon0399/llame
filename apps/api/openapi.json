@@ -5263,11 +5263,6 @@
             "type": "string",
             "enum": ["pending", "delivered", "withdrawn"]
           },
-          "position": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Order of the pending items; the lowest delivers first."
-          },
           "parts": {
             "type": "array",
             "items": {
@@ -5295,7 +5290,6 @@
           "chatId",
           "mode",
           "state",
-          "position",
           "parts",
           "modelId",
           "permissionMode",
@@ -5406,6 +5400,7 @@
         "type": "object",
         "properties": {
           "items": {
+            "description": "The pending items, first to deliver first.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChatDeliveryResponse"

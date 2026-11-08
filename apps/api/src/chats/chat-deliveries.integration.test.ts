@@ -16,12 +16,12 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { eq, sql } from 'drizzle-orm';
 import request from 'supertest';
-import { isRecord, isString } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
 import { chatDeliveries } from '../db/schema';
+import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   ModelNotAvailableError,
@@ -35,6 +35,7 @@ import {
   FakeModelsService,
   cookieOf,
   expectRegisteredUserId,
+  waitFor,
 } from '../testing/support';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -46,35 +47,6 @@ vi.setConfig({ testTimeout: 60_000 });
 const MODEL = 'system:openai:gpt-5.5';
 const SECOND_MODEL = 'system:openai:gpt-5.4';
 const THIRD_MODEL = 'system:openai:gpt-5.4-mini';
-
-async function waitFor(
-  condition: () => boolean | Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const started = Date.now();
-  while (!(await condition())) {
-    if (Date.now() - started > timeoutMs) {
-      throw new Error('Timed out waiting for condition');
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
-/** The Postgres error code under a Drizzle query error. */
-async function pgErrorCode(
-  attempt: Promise<unknown>,
-): Promise<string | undefined> {
-  try {
-    await attempt;
-  } catch (error) {
-    return isRecord(error) &&
-      isRecord(error.cause) &&
-      isString(error.cause.code)
-      ? error.cause.code
-      : undefined;
-  }
-  return undefined;
-}
 
 d('chat deliveries — the queue mode', () => {
   let app: INestApplication<Server>;
@@ -217,6 +189,10 @@ d('chat deliveries — the queue mode', () => {
     return send(chatId, { delivery: 'queue', ...body }, cookie);
   }
 
+  /** Poll a boolean condition with the shared `waitFor`. */
+  const until = (what: string, condition: () => Promise<boolean>) =>
+    waitFor(async () => ((await condition()) ? true : undefined), 20_000, what);
+
   const itemsOf = (chatId: string) =>
     tenantDb.runAs(userAId, (tx) =>
       tx.select().from(chatDeliveries).where(eq(chatDeliveries.chatId, chatId)),
@@ -336,7 +312,10 @@ d('chat deliveries — the queue mode', () => {
 
       const pendingSend = send(chatId, { id: fresh });
       const settled = pendingSend.then((res) => res);
-      await waitFor(async () => (await runsOf(chatId)).length === 2);
+      await until(
+        'the fresh Run',
+        async () => (await runsOf(chatId)).length === 2,
+      );
       const states = (await itemsOf(chatId)).map((item) => item.state);
       const res = await settled;
 
@@ -369,6 +348,68 @@ d('chat deliveries — the queue mode', () => {
 
       expect(res.status).toBe(409);
       expect(await itemsOf(second.chatId)).toEqual([]);
+    });
+  });
+
+  describe('message id collisions', () => {
+    it('A plain send that repeats the id of a pending item answers the item', async () => {
+      const { chatId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      const stored = await queue(chatId, { id });
+
+      const res = await send(chatId, { id });
+
+      expect(res.status).toBe(202);
+      expect(res.body).toEqual(stored.body);
+      expect(await runsOf(chatId)).toHaveLength(1);
+      expect(await itemsOf(chatId)).toHaveLength(1);
+    });
+
+    it('A plain send that repeats the id of an item in another Chat gets 409', async () => {
+      const first = await chatWithLiveRun();
+      const second = await createChat();
+      const id = crypto.randomUUID();
+      await queue(first.chatId, { id });
+
+      const res = await send(second, { id });
+
+      expect(res.status).toBe(409);
+      expect(await runsOf(second)).toEqual([]);
+    });
+
+    it('A delivery send that repeats the id of a message in another Chat gets 409', async () => {
+      const first = await createChat();
+      const second = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      expect((await send(first, { id })).status).toBe(200);
+
+      const res = await queue(second.chatId, { id });
+
+      expect(res.status).toBe(409);
+      expect(await itemsOf(second.chatId)).toEqual([]);
+    });
+
+    it('A stored item id is never stored twice', async () => {
+      const { chatId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      const insert = () =>
+        tenantDb.runAs(userAId, (tx) =>
+          new ChatDeliveriesRepository(tx).insertPending({
+            id,
+            chatId,
+            ownerUserId: userAId,
+            mode: 'queue',
+            parts: [{ type: 'text', text: 'x' }],
+            settings: { modelId: MODEL, permissionMode: 'default' },
+          }),
+        );
+
+      const first = await insert();
+      const second = await insert();
+
+      expect(first?.id).toBe(id);
+      expect(second).toBeUndefined();
+      expect(await itemsOf(chatId)).toHaveLength(1);
     });
   });
 
@@ -492,16 +533,20 @@ d('chat deliveries — the queue mode', () => {
       });
 
       // Owner B names the Chat of A: the composite key refuses it.
-      const wrongChatOwner = await pgErrorCode(
-        tenantDb.runAs(userBId, (tx) =>
-          new ChatDeliveriesRepository(tx).insertPending(item(userBId)),
-        ),
+      const wrongChatOwner = pgErrorCode(
+        await tenantDb
+          .runAs(userBId, (tx) =>
+            new ChatDeliveriesRepository(tx).insertPending(item(userBId)),
+          )
+          .catch((error: unknown) => error),
       );
       // Owner A written from the scope of B: row-level security refuses it.
-      const wrongScope = await pgErrorCode(
-        tenantDb.runAs(userBId, (tx) =>
-          new ChatDeliveriesRepository(tx).insertPending(item(userAId)),
-        ),
+      const wrongScope = pgErrorCode(
+        await tenantDb
+          .runAs(userBId, (tx) =>
+            new ChatDeliveriesRepository(tx).insertPending(item(userAId)),
+          )
+          .catch((error: unknown) => error),
       );
 
       expect(wrongChatOwner).toBe('23503');
@@ -528,7 +573,8 @@ d('chat deliveries — the queue mode', () => {
       await queue(chatId, { id: ids[2], modelId: MODEL });
 
       await settle(runId, 'completed');
-      await waitFor(
+      await until(
+        'three replies',
         async () =>
           (await messagesOf(chatId)).filter((m) => m.role === 'assistant')
             .length === 3,
@@ -570,7 +616,10 @@ d('chat deliveries — the queue mode', () => {
       await queue(chatId, { id, text: 'keep my id' });
 
       await settle(runId, 'completed');
-      await waitFor(async () => (await messagesOf(chatId)).length >= 3);
+      await until(
+        'the promoted turn',
+        async () => (await messagesOf(chatId)).length >= 3,
+      );
 
       const message = (await messagesOf(chatId)).find((m) => m.id === id);
       expect(message?.role).toBe('user');
@@ -591,7 +640,10 @@ d('chat deliveries — the queue mode', () => {
       const id = crypto.randomUUID();
       await queue(chatId, { id });
       await settle(runId, 'completed');
-      await waitFor(async () => (await messagesOf(chatId)).length >= 3);
+      await until(
+        'the promoted turn',
+        async () => (await messagesOf(chatId)).length >= 3,
+      );
       const runsBefore = await runsOf(chatId);
 
       const res = await queue(chatId, { id });
@@ -617,13 +669,67 @@ d('chat deliveries — the queue mode', () => {
       expect((await messagesOf(chatId)).some((m) => m.id === id)).toBe(true);
     });
 
+    it('A withdrawal that arrives while the item is being promoted gets 409', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      await queue(chatId, { id });
+      let withdrawal: Promise<{ status: number }> | undefined;
+      // The promotion has read the item and holds it; the withdrawal comes now.
+      const markDelivered = vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'markDelivered',
+      );
+      markDelivered.mockImplementationOnce(async function (
+        this: ChatDeliveriesRepository,
+        ...args: Parameters<ChatDeliveriesRepository['markDelivered']>
+      ) {
+        withdrawal = request(http)
+          .delete(`/api/v1/chats/${chatId}/deliveries/${id}`)
+          .set('Cookie', cookieA)
+          .then((res) => res);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        markDelivered.mockRestore();
+        return this.markDelivered(...args);
+      });
+
+      await settle(runId, 'completed');
+      const res = await withdrawal;
+
+      expect(res?.status).toBe(409);
+      await until('the promoted reply', async () =>
+        (await messagesOf(chatId)).some((m) => m.role === 'assistant'),
+      );
+      expect(
+        (await messagesOf(chatId)).filter((m) => m.role === 'user'),
+      ).toHaveLength(2);
+      expect(await runsOf(chatId)).toHaveLength(2);
+      expect((await itemsOf(chatId))[0]?.state).toBe('delivered');
+    });
+
+    it('An item of an archived Chat stays pending', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      await queue(chatId, {});
+      await tenantDb.runAs(userAId, (tx) =>
+        tx.execute(
+          sql`UPDATE chats SET archived_at = now() WHERE id = ${chatId}`,
+        ),
+      );
+
+      await settle(runId, 'completed');
+
+      expect((await itemsOf(chatId)).map((item) => item.state)).toEqual([
+        'pending',
+      ]);
+      expect(await runsOf(chatId)).toHaveLength(1);
+    });
+
     it('A completed follow-up Run promotes the first item too', async () => {
       const { chatId, runId } = await chatWithLiveRun({ followUp: true });
       const id = crypto.randomUUID();
       await queue(chatId, { id });
 
       await settle(runId, 'completed');
-      await waitFor(async () =>
+      await until('the promoted Run', async () =>
         (await runsOf(chatId)).some((run) => run.messageId === id),
       );
 

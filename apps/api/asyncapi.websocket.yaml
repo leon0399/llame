@@ -292,7 +292,6 @@ components:
                 chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
                 mode: queue
                 state: pending
-                position: 1
                 parts:
                   - type: text
                     text: And then summarize it for the release notes.

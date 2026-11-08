@@ -1,13 +1,16 @@
 /**
  * ChatDeliveriesRepository — owner-scoped access to `chat_deliveries`, the
- * pending items of a Chat (run-steering D1). Every query filters by the owner
- * and the Chat as defense-in-depth beside the table's forced RLS policy.
+ * pending items of a Chat (run-steering D1). Every query filters by the owner,
+ * and the Chat where it concerns one Chat's queue, as defense-in-depth beside
+ * the table's forced RLS policy.
  */
 
 import { and, asc, eq } from 'drizzle-orm';
 
 import {
   chatDeliveries,
+  chats,
+  messages,
   type ChatDelivery,
   type ChatDeliveryMode,
   type ChatDeliverySettings,
@@ -43,21 +46,28 @@ export class ChatDeliveriesRepository {
     return item;
   }
 
-  /** The owner's item in this Chat; the chat-scoped lookup of a withdrawal. */
-  async findInChat(
-    chatId: string,
-    id: string,
-    ownerUserId: string,
-  ): Promise<ChatDelivery | undefined> {
-    const item = await this.findById(id, ownerUserId);
-    return item?.chatId === chatId ? item : undefined;
+  /** Whether the owner already has a message with this id, in any Chat. */
+  async messageIdTaken(id: string, ownerUserId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(and(eq(messages.id, id), eq(chats.ownerUserId, ownerUserId)))
+      .limit(1);
+    return row !== undefined;
   }
 
-  /** A new pending item of the `owner` producer. */
-  async insertPending(input: NewChatDelivery): Promise<ChatDelivery> {
+  /**
+   * A new pending item of the `owner` producer; undefined when the id is
+   * already an item, which the caller answers as a duplicate message id.
+   */
+  async insertPending(
+    input: NewChatDelivery,
+  ): Promise<ChatDelivery | undefined> {
     const [created] = await this.db
       .insert(chatDeliveries)
       .values({ ...input, producer: 'owner', senderRef: null })
+      .onConflictDoNothing({ target: chatDeliveries.id })
       .returning();
     return created;
   }
@@ -74,7 +84,11 @@ export class ChatDeliveriesRepository {
       .orderBy(asc(chatDeliveries.position));
   }
 
-  /** The pending `queue` item the next completion promotes. */
+  /**
+   * The pending `queue` item the next completion promotes, row-locked so a
+   * withdrawal cannot slip in between this read and the delivery: it waits for
+   * the promotion to commit and then finds the item no longer pending.
+   */
   async firstPendingQueueItem(
     chatId: string,
     ownerUserId: string,
@@ -89,7 +103,8 @@ export class ChatDeliveriesRepository {
         ),
       )
       .orderBy(asc(chatDeliveries.position))
-      .limit(1);
+      .limit(1)
+      .for('update');
     return item;
   }
 
@@ -112,13 +127,17 @@ export class ChatDeliveriesRepository {
     return withdrawn;
   }
 
-  /** Mark a pending item delivered as the user message and Run it became. */
+  /**
+   * Mark a pending item delivered as the user message and Run it became.
+   * Returns false when the item was no longer pending (zero rows), so the
+   * caller rolls the promotion back.
+   */
   async markDelivered(
     id: string,
     ownerUserId: string,
     delivered: { messageId: string; runId: string },
-  ): Promise<void> {
-    await this.db
+  ): Promise<boolean> {
+    const rows = await this.db
       .update(chatDeliveries)
       .set({
         state: 'delivered',
@@ -132,7 +151,9 @@ export class ChatDeliveriesRepository {
           eq(chatDeliveries.ownerUserId, ownerUserId),
           eq(chatDeliveries.state, 'pending'),
         ),
-      );
+      )
+      .returning({ id: chatDeliveries.id });
+    return rows.length > 0;
   }
 
   private pendingOf(chatId: string, ownerUserId: string) {

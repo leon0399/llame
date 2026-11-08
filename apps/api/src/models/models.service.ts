@@ -121,6 +121,33 @@ export function resolvePermissionMode(
   return mode;
 }
 
+/**
+ * The model, effort, and permission mode of one send, resolved together: the
+ * model is in the catalog, the effort is one of its levels, and the mode is
+ * enabled. A chat send and the promotion of a pending item share this one
+ * check, so an item is promoted only under settings a send would be accepted
+ * with now. The effort is resolved from the already-validated model, so an
+ * unavailable model is reported without the effort ever being considered.
+ */
+export function resolveSendSettings(
+  models: ModelSelectionValidator,
+  enabledModes: ReadonlyArray<PermissionMode>,
+  requested: {
+    modelId: string;
+    effort?: string | undefined;
+    permissionMode?: PermissionMode | undefined;
+  },
+) {
+  const model = models.validateModelSelection(requested.modelId);
+  return {
+    effort: models.resolveEffortSelection(model, requested.effort),
+    permissionMode: resolvePermissionMode(
+      requested.permissionMode,
+      enabledModes,
+    ),
+  };
+}
+
 /** The only capability a run needs to obtain a client (#268). */
 export type ModelClientFactory = Pick<ModelsService, 'createClient'>;
 
