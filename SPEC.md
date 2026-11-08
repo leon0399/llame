@@ -107,7 +107,8 @@ sent with; each item starts one Run after the one before it completed, and an
 item whose model, effort, or permission mode a send would no longer accept stays
 pending. A Run that ends `failed`, `cancelled`, or `expired` promotes nothing,
 so the queue is paused until the owner sends a message, which starts its Run
-first, or withdraws an item. A send with `delivery` to an idle Chat starts a
+first, or a follow-up Run completes; withdrawing an item does not resume it. A
+Chat that is archived or gone promotes nothing. A send with `delivery` to an idle Chat starts a
 Run like any send. See
 [`run-steering`](openspec/changes/in-run-steering/specs/run-steering/spec.md)
 and [`durable-runs`](openspec/specs/durable-runs/spec.md).

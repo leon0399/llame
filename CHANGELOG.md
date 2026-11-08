@@ -19,7 +19,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   settings a send would refuse stays pending, and a Run that fails, is
   cancelled, or expires leaves the queue paused. The live channel sends a new
   `chat.deliveries` message with a Chat's pending items, and a fork copies no
-  pending item. The web composer has no queue control yet.
+  pending item. A send, with or without `delivery`, that repeats the id of an
+  item of the same Chat answers that item, and the id of an item or message of
+  another Chat gets 409. An archived Chat promotes nothing. The web composer
+  has no queue control yet.
 
 - **Session details shows the live git state of the bound repository.** The
   Repository block replaces the stored branch with the live branch (or the
