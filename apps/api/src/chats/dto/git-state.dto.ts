@@ -9,6 +9,7 @@ import {
   GIT_ABSENCE_LABELS,
   type GitAbsenceReason,
   type GitObservation,
+  type GitStateView,
 } from '../../git-state/git-state-view';
 
 const ABSENCE_REASONS = Object.keys(GIT_ABSENCE_LABELS);
@@ -194,12 +195,71 @@ export const GIT_STATE_RESPONSE_SCHEMA = {
   },
 };
 
+function upstreamFields(upstream: GitStateView['upstream']) {
+  return upstream === null
+    ? null
+    : {
+        name: upstream.name,
+        gone: upstream.gone,
+        ahead: upstream.ahead,
+        behind: upstream.behind,
+        updatedAt: upstream.updatedAt,
+      };
+}
+
+function operationFields(operation: GitStateView['operation']) {
+  return operation === null
+    ? null
+    : {
+        kind: operation.kind,
+        ...(operation.step !== undefined && { step: operation.step }),
+        ...(operation.total !== undefined && { total: operation.total }),
+      };
+}
+
+function listFields(view: GitStateView) {
+  return {
+    entries: view.entries.map((entry) => ({
+      xy: entry.xy,
+      path: entry.path,
+      ...(entry.from !== undefined && { from: entry.from }),
+    })),
+    submodules: [...view.submodules],
+    commits: view.commits.map(({ short, subject }) => ({ short, subject })),
+    remotes: view.remotes.map(({ name, value }) => ({ name, value })),
+  };
+}
+
+/**
+ * The response copies each declared field, so a property later added to the
+ * view never reaches the HTTP body unless the DTO declares it.
+ */
+function okFields(view: GitStateView) {
+  const { staged, unstaged, untracked, conflicted } = view.counts;
+  return {
+    toplevel: view.toplevel,
+    rootRelative: view.rootRelative,
+    branch: view.branch,
+    detached: view.detached,
+    head:
+      view.head === null
+        ? null
+        : { short: view.head.short, oid: view.head.oid },
+    upstream: upstreamFields(view.upstream),
+    operation: operationFields(view.operation),
+    counts: { staged, unstaged, untracked, conflicted },
+    ...listFields(view),
+    omitted: view.omitted,
+    remotesOmitted: view.remotesOmitted,
+  };
+}
+
 export function toGitStateResponse(
   observation: GitObservation,
 ): GitStateResponse {
   switch (observation.kind) {
     case 'state':
-      return { status: 'ok', ...observation.view };
+      return { status: 'ok', ...okFields(observation.view) };
     case 'not_a_repository':
       return {
         status: 'not_a_repository',
