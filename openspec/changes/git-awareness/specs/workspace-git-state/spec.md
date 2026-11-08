@@ -48,15 +48,21 @@ no entry exists, the result MUST be "not a git repository".
 
 ### Requirement: Git processes use only the admitted git entry
 
-Each git process of an observation MUST use the git entry as its git directory.
-The work tree MUST be the directory that holds the entry. Git MUST NOT search
-for another repository.
+Each git process of an observation MUST start in the directory that holds the
+git entry. Git MUST NOT search above that directory. The work tree MUST be that
+directory. Git MUST keep its check of repository ownership.
 
 #### Scenario: An invalid nearest entry does not expose a parent repository
 
 - **WHEN** `/repo/sub/.git` is an empty directory and `/repo/.git` is a valid repository
 - **THEN** the observation fails as "git state unavailable: git failed"
 - **AND** no git process reads `/repo/.git`
+
+#### Scenario: A repository of another user is refused
+
+- **WHEN** the nearest `.git` entry belongs to another user and no `safe.directory` entry names it
+- **THEN** the observation fails as "git state unavailable: git failed"
+- **AND** no filter or program from that repository configuration runs
 
 ### Requirement: A Machine observation stays inside the registered roots
 
@@ -73,9 +79,9 @@ holds the Workspace root. When the search finds no entry, the result MUST be
 ### Requirement: Machine git data outside the registered roots is refused
 
 On a Machine, the system MUST resolve the git directory, its common directory,
-and each object alternate. When one of them is outside the registered roots,
-the result MUST be "git state unavailable: repository outside the registered
-root".
+and each object alternate, with nested alternates. When one is outside the
+registered roots, the result MUST be "git state unavailable: repository outside
+the registered root".
 
 #### Scenario: A linked worktree with an outside main clone is refused
 
@@ -83,7 +89,7 @@ root".
 - **THEN** the result is "git state unavailable: repository outside the registered root"
 - **AND** no git process starts
 
-### Requirement: Model-facing git state needs `read` admission of the git entry
+### Requirement: Git state for the model needs `read` admission of the git entry
 
 Before a git process starts for a `git` item or an `enter_workspace` result,
 the `read` group MUST admit the git entry. `read` MUST be in `tools.allowed`.
@@ -245,6 +251,11 @@ absence here does not mean they do not exist."
 - **WHEN** `node_modules/` is untracked and holds 3,000 files
 - **THEN** the snapshot lists `node_modules/` as one untracked entry
 
+#### Scenario: The ignored-files statement is present
+
+- **WHEN** the repository ignores `.env` and `dist/`
+- **THEN** the snapshot lists neither and says "Ignored files are not listed; their absence here does not mean they do not exist."
+
 ### Requirement: Submodules are listed but not read
 
 The system MUST NOT read the state of a submodule for the model. The snapshot
@@ -270,9 +281,10 @@ names MUST stop at 100 characters.
 
 ### Requirement: Remotes are reported without credentials
 
-The snapshot MUST list each remote by name with its normalized `host/path`. A
-remote without a host MUST appear as its name and "local". A remote MUST NOT
-show a scheme, a user, a password, a token, a query, or a host path.
+The snapshot MUST list at most 10 remotes by name with the normalized
+`host/path`. A remote without a host MUST appear as "local". A remote MUST NOT
+show a scheme, a user, a password, a token, a query, or a host path. Names and
+normalized values MUST stop at 100 characters.
 
 #### Scenario: A fork reports both remotes
 
@@ -290,9 +302,14 @@ show a scheme, a user, a password, a token, a query, or a host path.
 - **WHEN** `backup` is `/srv/mirrors/llame.git`
 - **THEN** the snapshot shows `backup` as "local"
 
+#### Scenario: Remotes above the bound are counted
+
+- **WHEN** the repository has 12 remotes
+- **THEN** the snapshot lists 10 remotes and says "+2 more remotes"
+
 ### Requirement: Repository text is untrusted
 
-Branch names, commit subjects, paths, and remote names MUST pass the
+Branch names, commit subjects, paths, remote names, and remote values MUST pass the
 reserved-delimiter neutralization before the system renders them. A snapshot
 that holds such text MUST state the precedence of third-party content.
 
@@ -331,14 +348,20 @@ the closed list of the next requirement.
 
 Each reason MUST come from this list: "not permitted", "timeout", "Machine
 unavailable", "Machine daemon update required", and "executor unavailable".
-The list also holds "too many changes", "no repository inside the registered
-root", "repository outside the registered root", and "git failed". Each other
-failure MUST give "git failed".
+The list also holds "Workspace root not found", "too many changes", "no
+repository inside the registered root", "repository outside the registered
+root", and "git failed". Each other failure MUST give "git failed".
 
 #### Scenario: Too much status output is reported
 
 - **WHEN** the status output of the repository exceeds the output bound
 - **THEN** the observation gives "git state unavailable: too many changes"
+
+#### Scenario: A removed root is reported
+
+- **WHEN** the Workspace root no longer exists and a parent directory holds a repository
+- **THEN** the observation gives "git state unavailable: Workspace root not found"
+- **AND** no git process starts
 
 #### Scenario: A changed entry is a git failure
 
@@ -348,15 +371,21 @@ failure MUST give "git failed".
 ### Requirement: The git read is bounded and never blocks entry
 
 The executor MUST stop git after 3 seconds. The system MUST stop the whole
-observation after 5 seconds. Either limit MUST give "git state unavailable:
-timeout". A failed observation MUST NOT fail `enter_workspace`, an accepted
-turn, or a Run.
+observation, from the entry search to the result, after 5 seconds. Either limit
+MUST give "git state unavailable: timeout". A failed observation MUST NOT fail
+`enter_workspace`, an accepted turn, or a Run.
 
 #### Scenario: A slow repository times out
 
 - **WHEN** the git read takes longer than 3 seconds
 - **THEN** the observation gives "git state unavailable: timeout"
 - **AND** the Run continues to its model request
+
+#### Scenario: A known offline Machine sends no request
+
+- **WHEN** the Workspace Machine is offline when the observation starts
+- **THEN** the observation gives "git state unavailable: Machine unavailable" at once
+- **AND** no request goes to the Machine
 
 #### Scenario: A slow Machine session times out
 
@@ -428,7 +457,7 @@ the state again.
 
 #### Scenario: Re-entry tells the state again
 
-- **WHEN** the Chat enters the same root again after an exit
+- **WHEN** the Chat exits in one Run and enters the same root again in a later Run
 - **THEN** the next accepted turn carries a `git` item
 
 ### Requirement: Entry results carry the git snapshot
@@ -483,14 +512,15 @@ and the binding, and MUST NOT evaluate tool permissions.
 #### Scenario: A binding on another executor is unavailable
 
 - **WHEN** the Chat is bound to a local root of an executor that the process of the route does not hold
-- **THEN** the route answers "git state unavailable: executor unavailable"
+- **THEN** the route answers the `unavailable` status with the line "git state unavailable: executor unavailable"
 - **AND** no git call starts
 
 ### Requirement: The git state route is owner-isolated
 
 The route MUST answer 404 for a Chat that the caller does not own. A request
 without an authenticated identity MUST answer 401. The response MUST hold the
-same fields, bounds, and remote rules as the snapshot.
+same fields, bounds, and remote rules as the snapshot. An absence MUST carry
+its reason code and the same fixed line as the snapshot.
 
 #### Scenario: Another owner cannot read the state
 
@@ -511,8 +541,8 @@ same fields, bounds, and remote rules as the snapshot.
 ### Requirement: Session details shows the live repository state
 
 Session details MUST show the live branch or detached HEAD, the upstream with
-ahead and behind, and the change counts in its Environment section. It MUST
-show the absence line when the route reports one.
+ahead and behind, and the change counts for each bound Chat. It MUST show the
+absence line when the route reports one.
 
 #### Scenario: Session details shows the live branch
 
@@ -523,3 +553,8 @@ show the absence line when the route reports one.
 
 - **WHEN** the route reports "git state unavailable: Machine unavailable"
 - **THEN** Session details shows that line in place of the branch
+
+#### Scenario: A bound folder without a checkout record shows git state
+
+- **WHEN** the Chat is bound to a repository that is not a registered checkout
+- **THEN** Session details shows the live branch and counts of that repository

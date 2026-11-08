@@ -14,7 +14,7 @@ See [proposal.md](proposal.md) for motivation and the grilling record on
   only `PATH`, `HOME`, `TMPDIR` inherited), one shared deadline
   (`DEFAULT_GIT_TIMEOUT_MS` = 10 s, `invocation.ts`), and credential redaction
   of stderr. `run.ts` keeps at most 1 MiB of stdout and does not report the
-  cut.
+  cut. D1 replaces the `-C <path>` prefix for `git.state` only.
 - `packages/machine-protocol/src/git.ts` declares the methods; `GIT_METHODS`
   is the exact handshake list (`apps/machine/src/serve.ts:146`). The hub
   refuses an unlisted method per call
@@ -54,7 +54,9 @@ See [proposal.md](proposal.md) for motivation and the grilling record on
   `git -C` skips an invalid nearest `.git` and uses a parent repository;
   `FETCH_HEAD` is per worktree; a gone upstream prints `# branch.upstream`
   without `# branch.ab`; `log.showSignature` with `gpg.program` in repository
-  config runs that program from `git log`.
+  config runs that program from `git log`; `--git-dir` skips git's
+  repository-ownership check, while `-C` with `GIT_CEILING_DIRECTORIES` keeps
+  it.
 
 ## Goals / Non-Goals
 
@@ -88,7 +90,8 @@ for the same purpose.
 `git.locate {path}` walks from `path` toward `/`, or toward the outermost
 registered root that holds `path` on a Machine, and stats each `.git` entry. It
 starts no git process. It returns `{gitEntry, kind: "directory" | "file"}`,
-`not_a_repository`, or `no_repository_in_root`. Model-facing callers evaluate
+`not_a_repository`, `no_repository_in_root`, or `root_missing` when `path` is
+not an existing directory. Model-facing callers evaluate
 the `read` group on `gitEntry` before they call
 `git.state {path, gitEntry, limit, submodules, timeoutMs}`.
 
@@ -96,9 +99,18 @@ the `read` group on `gitEntry` before they call
 entry differs. It resolves the git directory (the entry itself, or the
 `gitdir:` target of a `.git` file), and on a Machine also the common directory
 and each line of `objects/info/alternates`; any of them outside the registered
-roots fails as `outside_registered_root`. Every git process then runs with
-`--git-dir=<git directory>` and `--work-tree=<directory of the entry>` in place
-of `-C`, so git performs no discovery and ignores `core.worktree`.
+roots fails as `outside_registered_root`; alternates are followed to their own
+`objects/info/alternates`. Every git process then runs with
+`-C <directory of the entry>`, `--work-tree=<directory of the entry>`, and
+`GIT_CEILING_DIRECTORIES=<parent of that directory>`. Discovery therefore stops
+at the entry: an invalid entry fails instead of exposing a parent repository,
+`core.worktree` is ignored, and git keeps its `safe.directory` ownership
+check. A repository of another user fails as `git_failed`. Configuration
+includes and the global configuration are not confined; the daemon checks
+repository data, not configuration files.
+
+Rejected: `--git-dir` pinning (round 1). It skips the ownership check, so a
+plain folder under `/tmp` could run another user's `/tmp/.git` filters.
 
 Rejected: one `git.state` that discovers with `git rev-parse`. It reads `.git`
 before admission (grilling D11), and git's discovery skips an invalid nearest
@@ -119,11 +131,12 @@ added to the prefix:
 3. `config --null --get-regexp ^remote\..*\.url$` (exit 1 means no remotes).
 4. `config --blob HEAD:.gitmodules --null --get-regexp ^submodule\..*\.path$`
    when HEAD exists and the blob exists.
-5. `reflog show -1 --date=unix --format=%gd <upstream ref>`, which prints
+5. Only when `# branch.ab` is present:
+   `reflog show -1 --date=unix --format=%gd <upstream ref>`, which prints
    `<ref>@{<epoch>}` for the last update of the upstream ref, and nothing when
    the ref has no reflog (a fresh clone, verified with git 2.55). A fetch that
    moves nothing adds no entry, so the time is the last change, never newer
-   than the data.
+   than the data. On a gone upstream the command exits 128, so it is skipped.
 6. `rev-parse --path-format=absolute --git-path MERGE_HEAD --git-path
    rebase-merge --git-path rebase-apply --git-path CHERRY_PICK_HEAD --git-path
    REVERT_HEAD --git-path BISECT_LOG`, then a filesystem stat of each. In
@@ -137,10 +150,9 @@ path, puts paths under the root first, keeps git's order inside each group, and
 returns at most `limit` entries plus `omitted`. Submodule paths share the
 bound after changed paths.
 
-The model-facing deadline is 3 s on the executor (`timeoutMs`). The hub wraps
-`locate` and `state` in one 5 s wall-clock deadline with an abort signal, and
-treats a Machine session that is not open within that time as `timed_out`.
-The removal guard passes the existing 10 s default.
+The model-facing deadline is 3 s on the executor (`timeoutMs`). The removal
+guard passes the existing 10 s default. The 5 s whole-observation deadline
+belongs to the snapshot service (D6).
 
 The result carries `toplevel`, `rootRelative`, `branch`, `detached`, `head`,
 `upstream` (`{name, gone, ahead, behind, updatedAt}`), `operation`
@@ -184,9 +196,14 @@ worktree directory deletes uncommitted submodule work.
 ### D6: The snapshot service owns admission and rendering
 
 `GitSnapshotService` in `apps/api` takes the binding, the executor target, and
-an admission callback:
+an admission callback. One `Promise.race` with a 5 s timer and an abort signal
+covers every step below, the local stat walk included; on expiry the service
+renders "timeout". A Machine that the attempt's reachability check, or the
+connector status for the route, reports offline renders "Machine unavailable"
+before any request.
 
-1. `locate`; `not_a_repository` and `no_repository_in_root` render their lines.
+1. `locate`; `not_a_repository`, `no_repository_in_root`, and `root_missing`
+   render their lines.
 2. Admission. The model path checks `read` in `tools.allowed` and
    `previewToolPermission(nativeReadTool, { path: gitEntry }, toolContext)`.
    The owner route passes an admission that allows (grilling D20) after it
@@ -197,15 +214,19 @@ an admission callback:
 4. Map failures: `timed_out` and the hub deadline to "timeout", Machine
    offline to "Machine unavailable", `machine_update_required` to "Machine
    daemon update required", `output_bound` to "too many changes",
-   `outside_registered_root` to its line, everything else to "git failed".
+   `root_missing` to "Workspace root not found", `outside_registered_root` to its
+   line, everything else to "git failed".
 5. Normalize remotes with `normalizeRemote` after dropping a query and a
-   fragment; a remote without a host renders as "local". Cut subjects at 72
-   characters and names at 100. Quote paths with control characters, `"`, or
+   fragment; a remote without a host renders as "local". Keep at most 10
+   remotes. Cut subjects at 72 characters, and names and normalized remotes at 100. Quote paths with control characters, `"`, or
    `\` in git's C style. Neutralize every repository string with
    `sanitizeAuthoredText`. Render `apps/api/src/chats/prompts/git-snapshot.md`.
 
 The service returns a structured view for the route and the rendered body for
-the producer and the tool result.
+the producer and the tool result. The `git` item payload is that view after
+step 5: it holds normalized remotes only, so raw URLs never reach the
+template, the stored part, or the route. An absence carries a closed reason
+code and its fixed line; the route returns both.
 
 Rendered body (illustrative):
 
@@ -234,7 +255,9 @@ renders its locator.
 ### D7: A `git` producer beside `workspace`, with its own told columns
 
 The observation runs once per attempt in preparation, outside the attempt's
-database transaction, concurrently with the turn-instruction load. The
+database transaction, after `prepareWorkspace` and concurrently with the
+Workspace MCP start, skill resolution, and prompt imports. The turn-instruction
+load cannot share that slot because it needs the estimate pass. The
 in-transaction derivation, including the second pass after a checkpoint, only
 compares the stored observation. `deriveGitContext` hashes the rendered body
 with SHA-256 and compares it with `chats.git_told` when `chats.git_told_from`
@@ -275,8 +298,10 @@ with the route admission of D6. The response is a union on `status`: `ok` with
 the structured view, `unbound`, `not_a_repository`, or `unavailable` with a
 closed `reason`. Remote URLs appear only normalized. Session details fetches it
 when the panel opens and on window focus, and shows branch, upstream, ahead
-and behind, and counts in a Repository block that replaces `BranchRow`.
-`RepositoryRow`, which names the catalog repository, stays. The route is an
+and behind, and counts in a Repository block that replaces `BranchRow`. The
+block shows for every bound Chat, also when the root is not a registered
+checkout. `RepositoryRow`, which names the catalog repository, and the
+worktree marker stay when a checkout row exists. The route is an
 internal API of the web client: its contract is the OpenAPI document, and its
 CHANGELOG line ships with the Session details layer that makes it visible.
 
@@ -287,14 +312,17 @@ CHANGELOG line ships with the Session details layer that makes it visible.
 - [A cold cache on a huge repository times out once] -> the next turn tells the
   real state; the item says it timed out.
 - [Repository config runs programs] -> hooks, fsmonitor, and signature display
-  are off. A configured clean filter, such as Git LFS, can still run during
-  `git status`, also in `read-only` mode. The removal guard has the same
-  exposure today. Writing `.git/config` already needs local write access, so
-  the config counts as trusted like the Workspace's own executables.
+  are off, and git's ownership check refuses a repository of another user. A
+  configured clean filter, such as Git LFS, can still run during `git status`
+  in a repository of the llame user, also in `read-only` mode. The removal
+  guard has the same exposure today.
 - [An offline Machine flips between unavailable and available] -> each flip is
   one short item; the `workspace` availability notice flips the same way.
 - [Repository text carries prompt injection] -> path quoting, neutralization,
   length limits, and the precedence statement.
+- [The guard refuses a worktree whose Machine clone uses alternates outside
+  the registered roots] -> accepted as fail-closed; removal had no such check
+  before, and the owner can remove the directory on the Machine.
 - [An old daemon loses worktree removal] -> **BREAKING** note in the
   CHANGELOG and `machines.md`; the error names the update.
 - [A mid-Run entry tells the state twice] -> accepted; it matches `workspace`.
@@ -318,6 +346,19 @@ None that change the specs or the stack. The Session details refresh cadence
 beyond open and focus can change after use.
 
 ## Revision history
+
+- **v3 (2026-11-08):** Round 2, two reviewers (spec consistency: 0 P0, 1 P1,
+  10 P2; feasibility: 0 P0, 1 P1, 6 P2). Fixed: pinning by `-C` with
+  `GIT_CEILING_DIRECTORIES` and `--work-tree`, which keeps the ownership check
+  that `--git-dir` skipped (verified by the reviewer); `permission-modes`
+  MODIFIED for the new "not permitted" channel; reflog only with `branch.ab`;
+  observation placed after `prepareWorkspace`; the snapshot service owns the
+  5 s deadline and checks Machine reachability first; `root_missing`; nested
+  alternates and an honest scope for configuration files; payload holds
+  normalized remotes only; remotes bounded; Session details for any binding;
+  route reason code and line; scenario wording; compaction exclusion and docs
+  moved into the `producer` layer. Not converged: round 2 produced substantive
+  fixes.
 
 - **v2 (2026-11-08):** Round 1, two reviewers (spec consistency: 1 P0, 7 P1,
   17 P2; feasibility: 2 P0, 8 P1, 13 P2). Fixed: git processes pinned with

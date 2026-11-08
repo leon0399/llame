@@ -124,14 +124,16 @@ Please confirm each:
 - `remote-machines`: "Machine daemons answer typed git methods" replaces
   `git.status` with `git.locate` and `git.state`; "Git methods are additive to
   the Machine protocol" gates each method by the handshake list. ADDED: "Machine
-  git discovery stays inside the registered root" and "Machine git state reads
-  only inside the registered roots".
+  git discovery stays inside the registered root" and "Machine git state
+  refuses repository data outside the registered roots".
 - `repositories`: "Executors expose typed git operations" replaces
   `git.status` with `git.locate` and `git.state`. ADDED: "Worktree removal
   reads a complete worktree state" fails closed on a gone upstream or an
   unreadable state and counts submodule changes.
 - `tool-call-permissions`: two ADDED requirements define the git entry check as
   the seventh named exception and state its mode and reject rules.
+- `permission-modes`: "The permission mode is not model-visible" adds the
+  "not permitted" git line to the closed list of policy channels.
 
 Deliberately unchanged, with the reading under which each holds:
 
@@ -174,6 +176,7 @@ Deliberately unchanged, with the reading under which each holds:
   OpenAPI.
 - `apps/web`: the Repository block in Session details.
 - Docs: `docs/product/operator/machines.md`, `repositories.md`,
+  `docs/product/reference/permission-modes.md`,
   `docs/product/reference/tools/enter-workspace.md`, a new reference page for
   the git snapshot, `CHANGELOG.md`.
 

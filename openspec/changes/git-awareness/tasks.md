@@ -30,8 +30,8 @@ master
 | `executor`        | `proposal`        | `locate` and `state` in `packages/git-executor`, the truncation flag, protocol types, fixture tests.    | ~1,800            | none         |
 | `machine`         | `executor`        | Daemon and hub methods with root confinement and deadlines, removal guard, `git.status` deletion, docs. | ~1,700            | none         |
 | `snapshot`        | `machine`         | The snapshot service: admission, failure mapping, bounds, quoting, remotes, neutralization, template.   | ~1,400            | none         |
-| `producer`        | `snapshot`        | Told columns and migration, Chat fixtures, the `git` producer, precedence, checkpoint and exit rules.   | ~1,800            | none         |
-| `entry-result`    | `producer`        | The `enter_workspace` `git` field, tool prompt, compaction instruction, reference docs, CHANGELOG.      | ~700              | none         |
+| `producer`        | `snapshot`        | Told columns, Chat fixtures, the `git` producer and its rules, compaction instruction, docs, CHANGELOG. | ~1,950            | none         |
+| `entry-result`    | `producer`        | The `enter_workspace` `git` field, tool prompt, entry reference, CHANGELOG line.                        | ~500              | none         |
 | `route`           | `entry-result`    | The owner route, its DTO, OpenAPI, and the regenerated client.                                          | ~700              | none         |
 | `session-details` | `route`           | The Repository block in Session details, stories, CHANGELOG.                                            | ~800              | #1615, #1417 |
 | `finalize`        | `session-details` | Spec sync, task records, archive.                                                                       | ~1,500            | none         |
@@ -52,8 +52,8 @@ layer that grows past about 2,000 authored lines.
 - [ ] 2.1 Create `git-awareness/executor` from `proposal` with `$gh-stack`.
 - [ ] 2.2 Add a `truncated` flag to `run.ts` and an `output_bound` member to `GitFailure`; verify a test that a stdout above 1 MiB reports `truncated`.
 - [ ] 2.3 Add `locateRepository({path, ceiling?})` with a stat walk and no git process, and its protocol result types; verify fixture tests for `A subdirectory root finds the repository entry`, `A linked worktree uses its own .git file`, `A plain folder is not a repository`, and a ceiling that returns `no_repository_in_root`.
-- [ ] 2.4 Add `stateRepository({path, gitEntry, limit, submodules, timeoutMs})` with the D1 re-locate and `--git-dir`/`--work-tree` pinning, the D2 argv, `log.showSignature=false`, and the `git_entry_changed`, `output_bound`, and `outside_registered_root` failures; verify `An invalid nearest entry does not expose a parent repository` and a repository config with `log.showSignature` and a `gpg.program` marker that never runs.
-- [ ] 2.5 Verify executor fixture tests against real git for `Fields match git`, `A detached HEAD is reported`, `A rebase in progress is reported`, `A merge conflict is reported`, `An am session is not reported as a rebase`, `An unborn branch is reported`, `Behind is dated`, `A linked worktree sees the main clone's fetch`, `No update record`, `A gone upstream is reported`, `Paths are relative to a subdirectory root`, `Root paths come first`, `Paths above the bound are counted` (entries and `omitted`), `An untracked directory is one entry`, `A submodule is listed without its state`, and `Five commits are listed`, plus `submodules: "check"` on a dirty submodule and a 3 s timeout as `timed_out`.
+- [ ] 2.4 Add `stateRepository({path, gitEntry, limit, submodules, timeoutMs})` with the D1 re-locate and the `-C`, `--work-tree`, and `GIT_CEILING_DIRECTORIES` pinning, the D2 argv, `log.showSignature=false`, and the `git_entry_changed`, `output_bound`, and `outside_registered_root` failures; verify `An invalid nearest entry does not expose a parent repository`, `A repository of another user is refused` with `GIT_TEST_ASSUME_DIFFERENT_OWNER`, a missing path as `root_missing`, and a repository config with `log.showSignature` and a `gpg.program` marker that never runs.
+- [ ] 2.5 Verify the structured executor result, not rendered text, in fixture tests against real git for `Fields match git`, `A detached HEAD is reported`, `A rebase in progress is reported`, `A merge conflict is reported`, `An am session is not reported as a rebase`, `An unborn branch is reported`, `Behind is dated`, `A linked worktree sees the main clone's fetch`, `No update record`, `A gone upstream is reported`, `Paths are relative to a subdirectory root`, `Root paths come first`, `Paths above the bound are counted` (entries and `omitted`), `An untracked directory is one entry`, `A submodule is listed without its state`, and `Five commits are listed`, plus `submodules: "check"` on a dirty submodule and a 3 s timeout as `timed_out`.
 - [ ] 2.6 Run `pnpm --filter @workspace/git-executor` and `@workspace/machine-protocol` `lint`, `typecheck`, `test:coverage`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 3. machine
@@ -68,25 +68,26 @@ layer that grows past about 2,000 authored lines.
 ## 4. snapshot
 
 - [ ] 4.1 Create `git-awareness/snapshot` from `machine` with `$gh-stack`.
-- [ ] 4.2 Add the snapshot service with the D6 sequence, an admission callback, and the failure map; verify service tests with fake executors that render each line of `Absence reasons are a closed list` and the service outcome of `An offline Machine is reported`, `An outdated daemon is reported`, `A git failure is reported without its error text`, `Too much status output is reported`, `A changed entry is a git failure`, `A slow repository times out`, `A slow Machine session times out`, `A repository above the registered root is not reported as absent`, and `A linked worktree with an outside main clone is refused`.
+- [ ] 4.2 Add the snapshot service with the D6 sequence, an admission callback, and the failure map; verify service tests with fake executors that render each line of `Absence reasons are a closed list` and the service outcome of `An offline Machine is reported`, `An outdated daemon is reported`, `A git failure is reported without its error text`, `Too much status output is reported`, `A changed entry is a git failure`, `A slow repository times out`, `A slow Machine session times out`, `A known offline Machine sends no request`, `A removed root is reported`, `A repository above the registered root is not reported as absent`, and `A linked worktree with an outside main clone is refused`.
 - [ ] 4.3 Wire model admission to `tools.allowed` and `previewToolPermission`; verify service tests for `A rejected git directory starts no git process`, `Read absent from the allowlist`, `A linked worktree needs only its own entry`, `Bash permission does not substitute`, `A bash reject does not hide git state`, `The git entry path is the evaluated value`, and `A reject clause refuses the git entry`.
-- [ ] 4.4 Add `git-snapshot.md`, remote normalization with query, fragment, and host-less handling, length limits, C-style path quoting, and `sanitizeAuthoredText`; verify `A path that read rejects is listed`, `A newline in a file name cannot forge a line`, `A fork reports both remotes`, `A token in a remote URL is removed` (rendered body), `A local remote hides its path`, `A branch name cannot close the envelope`, `A commit subject cannot grant capabilities`, and `Two observations of an unchanged repository match`.
+- [ ] 4.4 Add `git-snapshot.md`, remote normalization with query, fragment, and host-less handling, length limits, C-style path quoting, and `sanitizeAuthoredText`; verify `A path that read rejects is listed`, `A newline in a file name cannot forge a line`, `A fork reports both remotes`, `A token in a remote URL is removed` (rendered body), `A local remote hides its path`, `Remotes above the bound are counted`, `The ignored-files statement is present`, `A branch name cannot close the envelope`, `A commit subject cannot grant capabilities`, and `Two observations of an unchanged repository match`.
 - [ ] 4.5 Run api `lint`, `typecheck`, and focused tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 5. producer
 
 - [ ] 5.1 Create `git-awareness/producer` from `snapshot` with `$gh-stack`.
 - [ ] 5.2 Add `git_told` and `git_told_from` to `chats` with `pnpm db:generate` and update every Chat fixture; verify migration idempotence and `Another owner cannot read or write the git told state` as an RLS integration test.
-- [ ] 5.3 Observe once per attempt outside the transaction, add `git` to `CONTEXT_ITEM_PRODUCERS` after `workspace`, and add `deriveGitContext`, dispatch writes, checkpoint reset, and the unbound clear; verify `An unbound Chat gets no git state`, `A bound Chat gets git state`, every scenario of `The git producer tells changed state`, `The git told state follows the rail rules`, and `Exit and detach clear the git told state`, `Workspace and git snapshots share a turn`, `Read-only mode keeps git state`, and the item outcome of `A slow repository times out` (the Run continues).
-- [ ] 5.4 Run api `lint`, `typecheck`, `test:coverage`, the API integration suites for chats and compaction, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [ ] 5.3 Observe once per attempt outside the transaction, add `git` to `CONTEXT_ITEM_PRODUCERS` after `workspace`, and add `deriveGitContext`, dispatch writes, checkpoint reset, and the unbound clear; verify `An unbound Chat gets no git state`, `A bound Chat gets git state`, every scenario of `The git producer tells changed state`, `The git told state follows the rail rules`, and `Exit and detach clear the git told state`, `Workspace and git snapshots share a turn`, `Read-only mode keeps git state`, `A bypass turn changes the git line without the mode`, and the item outcome of `A slow repository times out` (the Run continues).
+- [ ] 5.4 Name the `git` producer and the `enter_workspace` `git` field in the compaction instruction; verify `The summary instruction names the git sources`.
+- [ ] 5.5 Document the snapshot, its absence lines, and its bounds in `docs/product/reference/`, add the git line to `docs/product/reference/permission-modes.md`, and add the dated CHANGELOG entry.
+- [ ] 5.6 Run api `lint`, `typecheck`, `test:coverage`, the API integration suites for chats and compaction, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 6. entry-result
 
 - [ ] 6.1 Create `git-awareness/entry-result` from `producer` with `$gh-stack`.
 - [ ] 6.2 Pass the snapshot service through the tool context and add the `git` field to every successful `enter_workspace` result; mention it in `apps/api/src/prompts/tools/enter_workspace.md`; verify `Entry narrates git state`, `Re-entry refreshes the state`, `Entry succeeds on a failed read`, and that the field leaves `git_told` unchanged.
-- [ ] 6.3 Name the `git` producer and the `git` result field in the compaction instruction; verify `The summary instruction names the git sources`.
-- [ ] 6.4 Document the snapshot, its absence lines, and its bounds in `docs/product/reference/`, update `docs/product/reference/tools/enter-workspace.md` Result, and add the dated CHANGELOG entry.
-- [ ] 6.5 Run api `lint`, `typecheck`, `test:coverage`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
+- [ ] 6.3 Update `docs/product/reference/tools/enter-workspace.md` Result and add a CHANGELOG line for the field.
+- [ ] 6.4 Run api `lint`, `typecheck`, `test:coverage`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 7. route
 
@@ -98,7 +99,7 @@ layer that grows past about 2,000 authored lines.
 ## 8. session-details
 
 - [ ] 8.1 Create `git-awareness/session-details` from `route` with `$gh-stack`.
-- [ ] 8.2 Replace `BranchRow` with a Repository block fed by the route on open and window focus, and keep `RepositoryRow`; verify stories for `Session details shows the live branch` and `Session details shows an absence line` with Storybook story tests.
+- [ ] 8.2 Replace `BranchRow` with a Repository block fed by the route on open and window focus, and keep `RepositoryRow`; verify stories for `Session details shows the live branch`, `Session details shows an absence line`, and `A bound folder without a checkout record shows git state` with Storybook story tests.
 - [ ] 8.3 Add the dated CHANGELOG entry; put `Closes #1615` and `Closes #1417` in the PR body.
 - [ ] 8.4 Run web `lint`, `typecheck`, `test:coverage`, the story tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 

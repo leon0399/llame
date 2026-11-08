@@ -83,6 +83,7 @@ any request. File tools and `bash` on that Machine MUST continue to work.
 `git.locate` MUST search only from the path up to the outermost registered root
 that holds it. It MUST read nothing above that root. When no `.git` entry exists
 in that range, it MUST return `no_repository_in_root`, not `not_a_repository`.
+A path that is not a directory MUST return `root_missing`.
 
 #### Scenario: A repository above the registered root is not found
 
@@ -90,12 +91,12 @@ in that range, it MUST return `no_repository_in_root`, not `not_a_repository`.
 - **THEN** `git.locate` returns `no_repository_in_root`
 - **AND** the daemon reads nothing above `/srv/app`
 
-### Requirement: Machine git state reads only inside the registered roots
+### Requirement: Machine git state refuses repository data outside the registered roots
 
 Before git starts, `git.state` MUST resolve the git directory, the common
-directory, and each object alternate. When one of them is outside the
-registered roots, it MUST return `outside_registered_root` and start no git
-process.
+directory, and each object alternate, with nested alternates. When one is
+outside the registered roots, it MUST return `outside_registered_root` and
+start no git process. This check does not cover git configuration files.
 
 #### Scenario: An outside common directory is refused
 
