@@ -242,15 +242,6 @@ export interface InRunTurnContext {
   readonly seenKeys: ReadonlySet<string>;
   /** The Run's own abort signal; a producer must stop loading once it fires. */
   readonly abortSignal?: AbortSignal;
-  /**
-   * The turn's git observation and the text of the `git` item the effective
-   * history last told. Absent for an unbound Chat; only the `git` producer
-   * reads it.
-   */
-  readonly git?: {
-    readonly observation: GitObservation;
-    readonly toldText: string | undefined;
-  };
 }
 
 /** One tool call a producer observes. */
@@ -310,6 +301,8 @@ export interface InRunAttempt {
 export interface InRunGitWorld {
   /** Observes one Workspace root under the attempt's admission; never rejects. */
   readonly observe: (root: string) => Promise<GitObservation>;
+  /** The Workspace root the Run's current step holds; undefined when unbound. */
+  readonly currentRoot: () => string | undefined;
   /**
    * The text of the `git` item the attempt already told: the turn's own item,
    * else the one the effective history holds; undefined when none holds.

@@ -1,10 +1,14 @@
-import { isRecord } from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
   isContextItemPart,
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { createRenderedContextItem } from '../chats/context-item-shared';
+import {
+  isWorkspaceDetachPayload,
+  isWorkspaceSnapshotPayload,
+} from '../chats/context-item-producers';
 import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
 import { renderGitObservation } from './git-state-render';
 import { type GitObservation } from './git-state-view';
@@ -28,38 +32,64 @@ export function createGitItem(input: {
 }
 
 /**
- * Whether a stored tool part is a successful entry that bound or switched the
- * root, or a successful exit. A same-root re-entry restarts nothing.
+ * What the effective history told about git: the text of the last `git` item,
+ * and the Workspace root the history leaves bound (`null` once detached,
+ * `undefined` when it names none).
  */
+export type GitToldState = {
+  readonly text: string | undefined;
+  readonly root: string | null | undefined;
+};
+
+export const NOTHING_TOLD: GitToldState = { text: undefined, root: undefined };
+
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- the argument is one stored jsonb part; `isRecord` parses it before anything inside it is read.
-function changesBinding(part: unknown): boolean {
-  if (!isRecord(part) || part['state'] !== 'output-available') return false;
-  if (part['type'] === `tool-${exitWorkspaceTool.id}`) return true;
-  if (part['type'] !== `tool-${enterWorkspaceTool.id}`) return false;
+function toolBinding(part: unknown): GitToldState | undefined {
+  if (!isRecord(part) || part['state'] !== 'output-available') return undefined;
+  if (part['type'] === `tool-${exitWorkspaceTool.id}`) {
+    return { text: undefined, root: null };
+  }
+  if (part['type'] !== `tool-${enterWorkspaceTool.id}`) return undefined;
   const output = part['output'];
-  return (
-    isRecord(output) &&
-    (output['state'] === 'bound' || output['state'] === 'switched')
-  );
+  if (
+    !isRecord(output) ||
+    (output['state'] !== 'bound' && output['state'] !== 'switched')
+  ) {
+    return undefined;
+  }
+  const root = output['root'];
+  return { text: undefined, root: isString(root) ? root : undefined };
 }
 
 /**
- * The full text of the `git` item the effective history last told, or
- * undefined when none holds. `parts` are the stored parts of the active
- * compaction epoch in message order. A binding change after the item — a
- * `workspace` item, a binding entry, or an exit — voids it, so the state is
- * told again. The envelope is deterministic (producer, form, body), so full
+ * The told state after one more stored part. A binding change voids the told
+ * text: a detach notice, a successful exit, an entry that bound or switched
+ * the root, and a `workspace` snapshot naming another root than the one bound.
+ * A same-root snapshot restarts nothing: it re-tells the binding the history
+ * already holds, as a fork or a mid-Run entry leaves it to do.
+ */
+export function advanceGitTold(
+  state: GitToldState,
+  part: unknown,
+): GitToldState {
+  if (!isContextItemPart(part)) return toolBinding(part) ?? state;
+  const { producer, payload } = part.data;
+  if (producer === 'git') return { ...state, text: part.data.text };
+  if (producer !== 'workspace') return state;
+  if (isWorkspaceDetachPayload(payload)) return { text: undefined, root: null };
+  if (!isWorkspaceSnapshotPayload(payload)) return state;
+  return payload.root === state.root
+    ? state
+    : { text: undefined, root: payload.root };
+}
+
+/**
+ * The told state of `parts`, the stored parts of the active compaction epoch in
+ * message order. The envelope is deterministic (producer, form, body), so full
  * text equality is body equality.
  */
-export function gitToldText(parts: Iterable<unknown>): string | undefined {
-  let told: string | undefined;
-  for (const part of parts) {
-    if (isContextItemPart(part)) {
-      if (part.data.producer === 'workspace') told = undefined;
-      else if (part.data.producer === 'git') told = part.data.text;
-    } else if (changesBinding(part)) {
-      told = undefined;
-    }
-  }
-  return told;
+export function gitToldState(parts: Iterable<unknown>): GitToldState {
+  let state = NOTHING_TOLD;
+  for (const part of parts) state = advanceGitTold(state, part);
+  return state;
 }

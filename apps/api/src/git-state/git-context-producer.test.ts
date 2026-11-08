@@ -54,47 +54,10 @@ async function step(producer: InRunAttemptProducer) {
 function worldOf(
   observe: (root: string) => Promise<GitObservation>,
   toldText?: string,
+  currentRoot: string | undefined = '/repo',
 ): InRunGitWorld {
-  return { observe: vi.fn(observe), toldText };
+  return { observe: vi.fn(observe), currentRoot: () => currentRoot, toldText };
 }
-
-describe('git producer, turn start', () => {
-  const prepare = (observation: GitObservation, toldText: string | undefined) =>
-    createGitProducer().prepareTurn?.({
-      runId: RUN_ID,
-      admitsRead: () => false,
-      seenKeys: new Set(),
-      git: { observation, toldText },
-    });
-
-  it('tells a state the history has not told', async () => {
-    const item = await prepare(CLEAN, undefined);
-
-    expect(item?.data.producer).toBe('git');
-    expect(item?.data.text).toBe(textOf(CLEAN));
-    expect(item?.data.runId).toBe(RUN_ID);
-  });
-
-  it('adds nothing when the history told the same text', async () => {
-    await expect(prepare(CLEAN, textOf(CLEAN))).resolves.toBeUndefined();
-  });
-
-  it('tells a changed state once', async () => {
-    const item = await prepare(FAILED, textOf(CLEAN));
-
-    expect(item?.data.text).toBe(textOf(FAILED));
-  });
-
-  it('tells nothing for an unbound Chat', async () => {
-    await expect(
-      createGitProducer().prepareTurn?.({
-        runId: RUN_ID,
-        admitsRead: () => false,
-        seenKeys: new Set(),
-      }),
-    ).resolves.toBeUndefined();
-  });
-});
 
 describe('git producer, in-Run entry', () => {
   it('stages the state after an entry that bound the root', async () => {
@@ -110,7 +73,11 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('observes the root the result names, not the submitted spelling', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN));
+    const world = worldOf(
+      () => Promise.resolve(CLEAN),
+      undefined,
+      '/real/repo',
+    );
     const producer = attempt(world);
 
     producer.observeToolCall?.({
@@ -183,7 +150,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('keeps telling when one step holds a binding entry and a re-entry', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN), textOf(CLEAN));
+    const world = worldOf(() => Promise.resolve(CLEAN), textOf(CLEAN), '/b');
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('switched', '/a'));
@@ -209,15 +176,14 @@ describe('git producer, in-Run entry', () => {
     expect(world.observe).not.toHaveBeenCalled();
   });
 
-  it('tells a failed read as the git failed absence', async () => {
-    const world = worldOf(() => Promise.reject(new Error('boom /secret')));
+  it('stages nothing when the step holds another root than the entry named', async () => {
+    const world = worldOf(() => Promise.resolve(CLEAN), undefined, '/other');
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('bound'));
-    const staged = await step(producer);
 
-    expect(staged.map((part) => part.data.text)).toEqual([textOf(FAILED)]);
-    expect(JSON.stringify(staged)).not.toContain('/secret');
+    expect(await step(producer)).toEqual([]);
+    expect(world.observe).not.toHaveBeenCalled();
   });
 
   it('does nothing without the git capability', async () => {

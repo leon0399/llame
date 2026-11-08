@@ -1,5 +1,9 @@
-import { createWorkspaceSnapshotItem } from '../chats/context-item-producers';
-import { createGitItem, gitToldText } from './git-item';
+import {
+  createWorkspaceDetachNoticeItem,
+  createWorkspaceSnapshotItem,
+} from '../chats/context-item-producers';
+import { createWorkspaceMachineAvailabilityItem } from '../chats/machine-context-item-producers';
+import { createGitItem, gitToldState } from './git-item';
 import { normalizeGitState } from './git-state-normalize';
 import { type GitObservation } from './git-state-view';
 
@@ -68,22 +72,22 @@ describe('createGitItem', () => {
     });
     expect(item.data.text).toContain('git state unavailable: timeout');
   });
-
-  it('renders identical text for an identical observation', () => {
-    expect(git(STATE).data.text).toBe(git(STATE).data.text);
-  });
 });
 
-describe('gitToldText', () => {
+describe('gitToldState', () => {
+  const told = (...parts: Array<unknown>) => gitToldState(parts).text;
+  const rootedAt = (root: string) =>
+    createWorkspaceSnapshotItem({ runId: RUN_ID, root });
+
   it('holds nothing for an empty history', () => {
-    expect(gitToldText([])).toBeUndefined();
+    expect(gitToldState([])).toEqual({ text: undefined, root: undefined });
   });
 
   it('is the text of the last git item', () => {
     const first = git({ kind: 'not_a_repository' });
     const last = git(STATE);
 
-    expect(gitToldText([first, { type: 'text', text: 'hi' }, last])).toBe(
+    expect(told(first, { type: 'text', text: 'hi' }, last)).toBe(
       last.data.text,
     );
   });
@@ -91,34 +95,77 @@ describe('gitToldText', () => {
   it('keeps a git item that follows the workspace snapshot of its turn', () => {
     const item = git(STATE);
 
-    expect(gitToldText([workspace(), item])).toBe(item.data.text);
+    expect(told(workspace(), item)).toBe(item.data.text);
   });
 
-  it('voids a git item when a workspace item follows it', () => {
-    expect(gitToldText([git(STATE), workspace()])).toBeUndefined();
+  it('voids a git item when a snapshot names another root', () => {
+    expect(told(git(STATE), rootedAt('/other'))).toBeUndefined();
+  });
+
+  it('keeps a git item across a same-root snapshot after an entry', () => {
+    const item = git(STATE);
+
+    expect(told(entry('bound'), item, workspace())).toBe(item.data.text);
+  });
+
+  it('keeps a git item across a same-root snapshot of the bound history', () => {
+    const item = git(STATE);
+
+    expect(told(workspace(), item, workspace())).toBe(item.data.text);
+  });
+
+  it('voids a git item when a snapshot names no root', () => {
+    const none = createWorkspaceSnapshotItem({ runId: RUN_ID, root: null });
+
+    expect(told(workspace(), git(STATE), none)).toBeUndefined();
+  });
+
+  it('voids a git item at a detach notice', () => {
+    const detach = createWorkspaceDetachNoticeItem({
+      runId: RUN_ID,
+      reason: 'root_missing',
+    });
+
+    expect(told(workspace(), git(STATE), detach)).toBeUndefined();
+    expect(gitToldState([workspace(), detach]).root).toBeNull();
+  });
+
+  it('keeps a git item across a Machine availability notice', () => {
+    const item = git(STATE);
+    const notice = createWorkspaceMachineAvailabilityItem({
+      runId: RUN_ID,
+      machine: 'box',
+      available: false,
+    });
+
+    expect(told(workspace(), item, notice)).toBe(item.data.text);
   });
 
   it.each(['bound', 'switched'] as const)(
     'voids a git item when an entry %s the root',
     (state) => {
-      expect(gitToldText([git(STATE), entry(state)])).toBeUndefined();
+      expect(told(git(STATE), entry(state))).toBeUndefined();
     },
   );
+
+  it('tracks the root an entry bound', () => {
+    expect(gitToldState([entry('switched')]).root).toBe('/repo');
+  });
 
   it('keeps a git item across a same-root re-entry', () => {
     const item = git(STATE);
 
-    expect(gitToldText([item, entry('unchanged')])).toBe(item.data.text);
+    expect(told(item, entry('unchanged'))).toBe(item.data.text);
   });
 
   it('keeps a git item across a failed entry', () => {
     const item = git(STATE);
     const failed = { ...entry('bound'), state: 'output-error' };
 
-    expect(gitToldText([item, failed])).toBe(item.data.text);
+    expect(told(item, failed)).toBe(item.data.text);
   });
 
-  it('voids a git item at a successful exit', () => {
+  it('voids a git item at a successful exit, leaving no root bound', () => {
     const exit = {
       type: 'tool-exit_workspace',
       toolCallId: 'call-2',
@@ -127,14 +174,15 @@ describe('gitToldText', () => {
       output: { status: 'success' },
     };
 
-    expect(gitToldText([git(STATE), exit])).toBeUndefined();
+    expect(gitToldState([git(STATE), exit])).toEqual({
+      text: undefined,
+      root: null,
+    });
   });
 
   it('tells the new item after an entry that bound the root', () => {
     const after = git({ kind: 'not_a_repository' });
 
-    expect(gitToldText([git(STATE), entry('switched'), after])).toBe(
-      after.data.text,
-    );
+    expect(told(git(STATE), entry('switched'), after)).toBe(after.data.text);
   });
 });

@@ -289,7 +289,7 @@ import {
 import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
 import { GIT_CONTEXT_PRODUCER } from '../git-state/git-context-producer';
-import { gitToldText } from '../git-state/git-item';
+import { gitToldState, type GitToldState } from '../git-state/git-item';
 import { observeWorkspaceRoot } from '../git-state/git-observe-root';
 import { GitSnapshotService } from '../git-state/git-snapshot.service';
 import { modelGitAdmission } from '../git-state/model-git-admission';
@@ -499,8 +499,8 @@ type PreparedAttemptContext = ModelRequestContext & {
   latestCheckpoint: CheckpointMessage | undefined;
   /** Canonical instruction paths the effective history already discloses. */
   seenInstructionPaths: ReadonlySet<string>;
-  /** The `git` text the effective history told since its last binding change. */
-  toldGitText: string | undefined;
+  /** What the effective history told about git, and the root it leaves bound. */
+  toldGit: GitToldState;
   /** First digest baseline; written only by the attempt that completes. */
   recencyDigestInitialization?: RecencyDigestInitialization;
   /** Written by the dispatch transaction, with the items it stores. */
@@ -1908,6 +1908,7 @@ export class RunExecutionService {
       input,
       turnInstructions,
       turnGit,
+      workspaceRoot,
       readInstructionPage,
       admitsRead,
     );
@@ -2667,7 +2668,7 @@ export class RunExecutionService {
     readonly context: ModelRequestContext;
     readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
-    readonly toldGitText: string | undefined;
+    readonly toldGit: GitToldState;
   }> {
     const messagesRepo = new MessagesRepository(tx);
     const checkpoint = await messagesRepo.findActiveCheckpoint(
@@ -2704,7 +2705,7 @@ export class RunExecutionService {
           : instructionsSeenPaths(continued.parts)),
       ]),
       // The same epoch, in order, with the kept parts of a Continue after it.
-      toldGitText: gitToldText([
+      toldGit: gitToldState([
         ...history.flatMap((message) => message.parts),
         ...(continued?.parts ?? []),
       ]),
@@ -4257,6 +4258,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     turn: TurnInstructions,
     turnGit: TurnGit,
+    workspaceRoot: WorkspaceRootCell,
     readPage: ReadPage,
     admitsRead: (path: string) => boolean,
   ): InRunAttemptProducer | undefined {
@@ -4272,7 +4274,7 @@ export class RunExecutionService {
       knowledge: this.knowledgeInstructionWorld(input, readPage),
       machines: turn.machines,
       abortSignal: input.abortSignal,
-      git: this.gitWorld(input, turnGit, admitsRead),
+      git: this.gitWorld(input, turnGit, workspaceRoot, admitsRead),
     };
     // The rail's order: the git item of one step precedes its instructions.
     return composeAttemptProducers([
@@ -4281,38 +4283,41 @@ export class RunExecutionService {
     ]);
   }
 
-  private gitDeps(snapshots: Pick<GitSnapshotService, 'observe'>) {
-    return { snapshots, executors: this.executorGit };
-  }
-
   /** What the `git` producer observes an in-Run entry with; none without the service. */
   private gitWorld(
     input: ExecuteRunInput,
     turnGit: TurnGit,
+    workspaceRoot: WorkspaceRootCell,
     admitsRead: (path: string) => boolean,
   ): InRunGitWorld | undefined {
     const snapshots = this.gitSnapshots;
     if (snapshots === undefined) return undefined;
     return {
       observe: (root) =>
-        observeWorkspaceRoot(this.gitDeps(snapshots), {
+        this.observeGit(snapshots, admitsRead, {
           root,
-          admit: this.gitAdmission(admitsRead),
           signal: input.abortSignal,
         }),
+      currentRoot: () => workspaceRoot.current(),
       toldText: turnGit.part?.data.text ?? turnGit.toldText,
     };
   }
 
-  /** The model's admission of a git entry: `read` allowlisted and admitted. */
-  private gitAdmission(
+  /** One git observation under the model's admission: `read` allowlisted and admitted. */
+  private observeGit(
+    snapshots: Pick<GitSnapshotService, 'observe'>,
     admitsRead: (path: string) => boolean,
-  ): (gitEntry: string) => boolean {
-    return modelGitAdmission({
-      readAllowlisted:
-        this.instanceConfig.config.tools.allowed.includes('read'),
-      admitsRead,
-    });
+    input: Omit<Parameters<typeof observeWorkspaceRoot>[1], 'admit'>,
+  ): Promise<GitObservation> {
+    const readAllowlisted =
+      this.instanceConfig.config.tools.allowed.includes('read');
+    return observeWorkspaceRoot(
+      { snapshots, executors: this.executorGit, readAllowlisted },
+      {
+        ...input,
+        admit: modelGitAdmission({ readAllowlisted, admitsRead }),
+      },
+    );
   }
 
   /**
@@ -4337,16 +4342,17 @@ export class RunExecutionService {
       workspaceRoot,
       effectivePermissionMode,
     );
-    return observeWorkspaceRoot(this.gitDeps(snapshots), {
-      root,
-      admit: this.gitAdmission((path) =>
-        previewToolPermission(nativeReadTool, { path }, toolContext),
-      ),
-      ...(machine !== undefined && {
-        reachable: () => Promise.resolve(machine.available),
-      }),
-      signal: input.abortSignal,
-    });
+    return this.observeGit(
+      snapshots,
+      (path) => previewToolPermission(nativeReadTool, { path }, toolContext),
+      {
+        root,
+        ...(machine !== undefined && {
+          reachable: () => Promise.resolve(machine.available),
+        }),
+        signal: input.abortSignal,
+      },
+    );
   }
 
   /** Best-effort standalone persist after the terminal transaction rolled back. */
@@ -4643,7 +4649,7 @@ export class RunExecutionService {
     return {
       ...built.context,
       seenInstructionPaths: built.seenInstructionPaths,
-      toldGitText: built.toldGitText,
+      toldGit: built.toldGit,
       historyRows: built.historyRows,
       triggerParts: built.historyRows.find(
         (row) => row.id === input.userMessage.id,
@@ -4728,11 +4734,10 @@ export class RunExecutionService {
       part: undefined,
       toldText: undefined,
     };
-    await refreshTurnGit({
-      producer: this.gitProducer,
+    refreshTurnGit({
       turn: turnGit,
       stagedParts: estimatePass.stagedParts,
-      historyTold: estimatePass.toldGitText,
+      history: estimatePass.toldGit,
       runId: input.run.runId,
     });
     // Every retained entry this request's markers name, from the rows the
@@ -4833,11 +4838,10 @@ export class RunExecutionService {
       );
       // A checkpoint starts a new epoch: the same observation is compared with
       // what the published history told, and no second git read runs.
-      await refreshTurnGit({
-        producer: this.gitProducer,
+      refreshTurnGit({
         turn: turnGit,
         stagedParts: context.stagedParts,
-        historyTold: context.toldGitText,
+        history: context.toldGit,
         runId: input.run.runId,
       });
       // The re-baked epoch begins at the checkpoint, so its rows carry their

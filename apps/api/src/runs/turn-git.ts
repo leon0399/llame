@@ -4,8 +4,12 @@ import {
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { type MessagePart } from '../chats/context-builder';
+import {
+  advanceGitTold,
+  createGitItem,
+  type GitToldState,
+} from '../git-state/git-item';
 import { type GitObservation } from '../git-state/git-state-view';
-import { type InRunContextProducer } from './in-run-context-items';
 
 /**
  * The accepted turn's git state: the attempt's one observation (absent for an
@@ -43,33 +47,31 @@ export function placeRailPart(
 /**
  * Recomputes the turn's `git` item against the attempt's effective history and
  * replaces the previous one in `stagedParts`, where the request assembly and the
- * dispatch transaction both see it. A `workspace` item this turn stages is a
- * binding change, so it voids what the history told. Calls no git: the
- * observation was read once for the attempt.
+ * dispatch transaction both see it. A `workspace` item this turn stages voids
+ * the told text when it changes the binding (the same rule the history follows).
+ * Calls no git: the observation was read once for the attempt.
  */
-export async function refreshTurnGit(input: {
-  readonly producer: InRunContextProducer | undefined;
+export function refreshTurnGit(input: {
   readonly turn: TurnGit;
   readonly stagedParts: Array<MessagePart>;
-  /** The `git` text the rebuilt history told since its last binding change. */
-  readonly historyTold: string | undefined;
+  /** What the rebuilt history told, with the root it leaves bound. */
+  readonly history: GitToldState;
   readonly runId: string;
-}): Promise<void> {
-  const { producer, turn, stagedParts } = input;
-  if (producer?.prepareTurn === undefined || turn.observation === undefined) {
-    return;
+}): void {
+  const { turn, stagedParts } = input;
+  if (turn.observation === undefined) return;
+  let state = input.history;
+  for (const staged of stagedParts) {
+    if (isContextItemPart(staged) && staged.data.producer === 'workspace') {
+      state = advanceGitTold(state, staged);
+    }
   }
-  const restarted = stagedParts.some(
-    (staged) =>
-      isContextItemPart(staged) && staged.data.producer === 'workspace',
-  );
-  turn.toldText = restarted ? undefined : input.historyTold;
-  const part = await producer.prepareTurn({
+  turn.toldText = state.text;
+  const item = createGitItem({
     runId: input.runId,
-    admitsRead: () => false,
-    seenKeys: new Set(),
-    git: { observation: turn.observation, toldText: turn.toldText },
+    observation: turn.observation,
   });
+  const part = item.data.text === turn.toldText ? undefined : item;
   const previous = turn.part;
   if (previous !== undefined) {
     const index = stagedParts.indexOf(previous);

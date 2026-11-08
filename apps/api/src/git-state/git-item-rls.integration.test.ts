@@ -13,7 +13,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 import { MessagesRepository, type Db } from '../chats/chats-repository';
 import * as schema from '../db/schema';
-import { createGitItem, gitToldText } from './git-item';
+import { createGitItem, gitToldState } from './git-item';
 import { type GitObservation } from './git-state-view';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -83,9 +83,13 @@ describeIfDb('git context items — cross-tenant isolation', () => {
       );
 
       expect(own.flatMap((row) => row.parts)).toEqual([item]);
-      expect(gitToldText(own.flatMap((row) => row.parts))).toBe(item.data.text);
+      expect(gitToldState(own.flatMap((row) => row.parts)).text).toBe(
+        item.data.text,
+      );
       expect(foreign).toEqual([]);
-      expect(gitToldText(foreign.flatMap((row) => row.parts))).toBeUndefined();
+      expect(
+        gitToldState(foreign.flatMap((row) => row.parts)).text,
+      ).toBeUndefined();
 
       const raw = await asUser(userBId, (tx) =>
         tx.execute(dsql`SELECT id FROM messages WHERE chat_id = ${chatId}`),

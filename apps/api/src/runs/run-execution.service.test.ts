@@ -140,6 +140,7 @@ import {
   createCompactionCheckpointPart,
   createModelChangeItem,
   createTemporalItem,
+  createWorkspaceSnapshotItem,
 } from '../chats/context-item-producers';
 import { resolveInstanceTimezone } from '../prompts/temporal-anchor';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
@@ -16915,8 +16916,13 @@ describe('RunExecutionService retained read media', () => {
 });
 
 describe('RunExecutionService git state', () => {
+  const roots: Array<string> = [];
+
   afterEach(() => {
     vi.restoreAllMocks();
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   const observationOf = (head: string): GitObservation => ({
@@ -16987,8 +16993,11 @@ describe('RunExecutionService git state', () => {
     };
   }
 
+  /** A fresh Workspace root, removed after the test. */
   function workspaceRootDir(): string {
-    return realpathSync(mkdtempSync(path.join(tmpdir(), 'git-state-')));
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'git-state-')));
+    roots.push(root);
+    return root;
   }
 
   /** Binds the Chat to `root`, with the Workspace snapshot already told. */
@@ -17008,6 +17017,22 @@ describe('RunExecutionService git state', () => {
   function turnMessage(seq: number): RunUserMessage {
     return { id: messageId, seq, parts: [{ type: 'text', text: 'hello' }] };
   }
+
+  const enterPart = (root: string, state = 'bound') => ({
+    type: 'tool-enter_workspace',
+    toolCallId: 'enter-1',
+    state: 'output-available',
+    input: { path: root },
+    output: { status: 'success', root, state },
+  });
+
+  const EXIT_PART = {
+    type: 'tool-exit_workspace',
+    toolCallId: 'exit-1',
+    state: 'output-available',
+    input: {},
+    output: { status: 'success' },
+  };
 
   /** The turn after `committed`, whose rows the history read returns. */
   function turnAfter(committed: Array<unknown>) {
@@ -17079,34 +17104,30 @@ describe('RunExecutionService git state', () => {
 
   it('tells the first bound turn once, after the workspace snapshot', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root, null);
-      const observe = observing(STATE);
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root, null);
+    const observe = observing(STATE);
 
-      const { model } = await runTurn(observe);
+    const { model } = await runTurn(observe);
 
-      expect(observe).toHaveBeenCalledOnce();
-      expect(observe.mock.calls[0]?.[0]).toMatchObject({
-        root,
-        target: { executorId: 'host-a', machine: undefined, path: root },
-      });
-      const staged = stagedPartsOf(repositories.storeAtDispatch);
-      const producers = staged.flatMap((part) =>
-        isContextItemPart(part) ? [part.data.producer] : [],
-      );
-      expect(producers.filter((name) => name !== 'temporal')).toEqual([
-        'workspace',
-        'git',
-      ]);
-      expect(gitItemsOf(repositories)[0]?.data.text).toBe(textOf(STATE));
-      // The model's first request carries the same text.
-      expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
-        'Branch: `main`',
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(observe).toHaveBeenCalledOnce();
+    expect(observe.mock.calls[0]?.[0]).toMatchObject({
+      root,
+      target: { executorId: 'host-a', machine: undefined, path: root },
+    });
+    const staged = stagedPartsOf(repositories.storeAtDispatch);
+    const producers = staged.flatMap((part) =>
+      isContextItemPart(part) ? [part.data.producer] : [],
+    );
+    expect(producers.filter((name) => name !== 'temporal')).toEqual([
+      'workspace',
+      'git',
+    ]);
+    expect(gitItemsOf(repositories)[0]?.data.text).toBe(textOf(STATE));
+    // The model's first request carries the same text.
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
+      'Branch: `main`',
+    );
   });
 
   /** Where an earlier item can sit in the effective history. */
@@ -17114,11 +17135,6 @@ describe('RunExecutionService git state', () => {
     [string, (item: AuthoredContextItemPart) => Array<unknown>]
   > = [
     ['an earlier turn', (item) => [item]],
-    [
-      'an earlier Run that failed after its dispatch stored it',
-      (item) => [item],
-    ],
-    ['the earlier item of a retry that reset its reply', (item) => [item]],
     [
       'a fork that copied the earlier turn',
       (item) => [{ type: 'text', text: 'copied' }, item],
@@ -17129,102 +17145,152 @@ describe('RunExecutionService git state', () => {
     'adds no item when %s told the same state',
     async (_name, history) => {
       const root = workspaceRootDir();
-      try {
-        const repositories = mockNormalExecutionRepositories();
-        bindChat(root);
-        const userTurn = turnAfter(history(itemOf(STATE)));
+      const repositories = mockNormalExecutionRepositories();
+      bindChat(root);
+      const userTurn = turnAfter(history(itemOf(STATE)));
 
-        await runTurn(observing(STATE), {}, userTurn);
+      await runTurn(observing(STATE), {}, userTurn);
 
-        expect(gitItemsOf(repositories)).toEqual([]);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
+      expect(gitItemsOf(repositories)).toEqual([]);
     },
   );
 
   it('compares with the in-Run item of an earlier reply', async () => {
     const root = workspaceRootDir();
-    try {
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      {
+        ...assistantMessage,
+        seq: 2,
+        parts: [enterPart(root), itemOf(STATE)],
+      },
+      { ...userMessage, seq: 3 },
+    ]);
+
+    await runTurn(observing(STATE), {}, turnMessage(3));
+
+    expect(gitItemsOf(repositories)).toEqual([]);
+  });
+
+  it('adds no item when the earlier Run that told the state failed', async () => {
+    const root = workspaceRootDir();
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1, parts: [itemOf(STATE)] },
+      {
+        ...assistantMessage,
+        seq: 2,
+        parts: [],
+        usage: { status: 'failed', complete: false },
+      },
+      { ...userMessage, seq: 3 },
+    ]);
+
+    await runTurn(observing(STATE), {}, turnMessage(3));
+
+    expect(gitItemsOf(repositories)).toEqual([]);
+  });
+
+  it('adds no item when a retry finds the item its earlier attempt stored', async () => {
+    const root = workspaceRootDir();
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...userMessage,
+        parts: [{ type: 'text', text: 'hello' }, itemOf(STATE)],
+      },
+    ]);
+
+    await runTurn(observing(STATE));
+
+    expect(gitItemsOf(repositories)).toEqual([]);
+  });
+
+  describe('a Workspace snapshot staged beside a told state', () => {
+    /** The Chat holds `root` but its told snapshot lags: this turn re-tells it. */
+    function lagging(root: string, earlier: Array<unknown>) {
       const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      const trigger = { ...userMessage, seq: 3 };
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-        { ...userMessage, seq: 1 },
-        {
-          ...assistantMessage,
-          seq: 2,
-          parts: [
-            {
-              type: 'tool-enter_workspace',
-              toolCallId: 'enter-1',
-              state: 'output-available',
-              input: { path: root },
-              output: { status: 'success', root, state: 'bound' },
-            },
-            itemOf(STATE),
-          ],
-        },
-        trigger,
+      bindChat(root, null);
+      return { repositories, userTurn: turnAfter(earlier) };
+    }
+
+    it('adds no item after a mid-Run bind of the same repository', async () => {
+      const root = workspaceRootDir();
+      const { repositories, userTurn } = lagging(root, [
+        enterPart(root),
+        itemOf(STATE),
       ]);
 
-      await runTurn(observing(STATE), {}, turnMessage(3));
+      await runTurn(observing(STATE), {}, userTurn);
 
+      expect(
+        stagedItemsOf(repositories.storeAtDispatch, 'workspace'),
+      ).toHaveLength(1);
       expect(gitItemsOf(repositories)).toEqual([]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+    });
 
-  it('tells a changed state exactly once', async () => {
-    const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      const userTurn = turnAfter([itemOf(STATE)]);
-
-      await runTurn(observing(MOVED), {}, userTurn);
-
-      expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
-        textOf(MOVED),
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('tells the unchanged state again after an exit in an earlier reply', async () => {
-    const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      const trigger = { ...userMessage, seq: 3 };
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-        { ...userMessage, seq: 1, parts: [itemOf(STATE)] },
-        {
-          ...assistantMessage,
-          seq: 2,
-          parts: [
-            {
-              type: 'tool-exit_workspace',
-              toolCallId: 'exit-1',
-              state: 'output-available',
-              input: {},
-              output: { status: 'success' },
-            },
-          ],
-        },
-        trigger,
+    it("adds no item on a fork's first Run over an unchanged repository", async () => {
+      const root = workspaceRootDir();
+      const { repositories, userTurn } = lagging(root, [
+        createWorkspaceSnapshotItem({ runId, root }),
+        itemOf(STATE),
       ]);
 
-      await runTurn(observing(STATE), {}, turnMessage(3));
+      await runTurn(observing(STATE), {}, userTurn);
+
+      expect(
+        stagedItemsOf(repositories.storeAtDispatch, 'workspace'),
+      ).toHaveLength(1);
+      expect(gitItemsOf(repositories)).toEqual([]);
+    });
+
+    it('tells the state again when the root changed', async () => {
+      const root = workspaceRootDir();
+      const { repositories, userTurn } = lagging(root, [
+        createWorkspaceSnapshotItem({ runId, root: '/old/repo' }),
+        itemOf(STATE),
+      ]);
+
+      await runTurn(observing(STATE), {}, userTurn);
 
       expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
         textOf(STATE),
       ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    });
+  });
+
+  it('tells a changed state exactly once', async () => {
+    const root = workspaceRootDir();
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    const userTurn = turnAfter([itemOf(STATE)]);
+
+    await runTurn(observing(MOVED), {}, userTurn);
+
+    expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
+      textOf(MOVED),
+    ]);
+  });
+
+  it('tells the unchanged state again after an exit in an earlier reply', async () => {
+    const root = workspaceRootDir();
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1, parts: [itemOf(STATE)] },
+      { ...assistantMessage, seq: 2, parts: [EXIT_PART] },
+      { ...userMessage, seq: 3 },
+    ]);
+
+    await runTurn(observing(STATE), {}, turnMessage(3));
+
+    expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
+      textOf(STATE),
+    ]);
   });
 
   /** A model that enters `root` in its first step, then answers. */
@@ -17261,6 +17327,7 @@ describe('RunExecutionService git state', () => {
     root: string,
     observe: GitSnapshotService['observe'],
     extra: Partial<ExecutionServiceOptions> = {},
+    userTurn?: RunUserMessage,
   ) {
     const { client, model } = enterThenAnswerClient(root);
     const execution = makeExecutionService(
@@ -17269,7 +17336,10 @@ describe('RunExecutionService git state', () => {
       'host-a',
       gitOptions(observe, extra),
     );
-    const result = await execution.service.executeRun(executionInput(client));
+    const result = await execution.service.executeRun({
+      ...executionInput(client),
+      ...(userTurn !== undefined && { userMessage: userTurn }),
+    });
     await expect(result.text).resolves.toBe('answer');
     return { model, execution };
   }
@@ -17290,195 +17360,147 @@ describe('RunExecutionService git state', () => {
 
   it('tells an entry that bound the root after its tool result, leaving the result literal', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      serveEntry('bound');
-      const observe = observing(STATE);
+    const repositories = mockNormalExecutionRepositories();
+    serveEntry('bound');
+    const observe = observing(STATE);
 
-      const { model } = await runEntry(root, observe);
+    const { model } = await runEntry(root, observe);
 
-      expect(observe).toHaveBeenCalledOnce();
-      expect(observe.mock.calls[0]?.[0]).toMatchObject({ root });
-      expect(entryTail(repositories).slice(0, 2)).toEqual([
-        'tool-enter_workspace',
-        'git',
-      ]);
-      const toolPart = replyParts(repositories).find(
-        (part) => isRecord(part) && part['type'] === 'tool-enter_workspace',
-      );
-      expect(JSON.stringify(toolPart)).not.toContain('Branch');
-      // The next request carries the item after the tool result, and only there.
-      const second = JSON.stringify(model.doStreamCalls[1]?.prompt);
-      expect(second).toContain('Branch: `main`');
-      expect(second.indexOf('Branch: `main`')).toBeGreaterThan(
-        second.indexOf('"tool-result"'),
-      );
-      expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain(
-        'Branch: `main`',
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(observe).toHaveBeenCalledOnce();
+    expect(observe.mock.calls[0]?.[0]).toMatchObject({ root });
+    expect(entryTail(repositories).slice(0, 2)).toEqual([
+      'tool-enter_workspace',
+      'git',
+    ]);
+    const toolPart = replyParts(repositories).find(
+      (part) => isRecord(part) && part['type'] === 'tool-enter_workspace',
+    );
+    expect(JSON.stringify(toolPart)).not.toContain('Branch');
+    // The next request carries the item after the tool result, and only there.
+    const second = JSON.stringify(model.doStreamCalls[1]?.prompt);
+    expect(second).toContain('Branch: `main`');
+    expect(second.indexOf('Branch: `main`')).toBeGreaterThan(
+      second.indexOf('"tool-result"'),
+    );
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain(
+      'Branch: `main`',
+    );
   });
 
   it('adds nothing for a same-root re-entry whose state did not change', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      serveEntry('unchanged');
-      const userTurn = turnAfter([itemOf(STATE)]);
-      const observe = observing(STATE);
-      const { client } = enterThenAnswerClient(root);
-      const execution = makeExecutionService(
-        client,
-        undefined,
-        'host-a',
-        gitOptions(observe),
-      );
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    serveEntry('unchanged');
+    const observe = observing(STATE);
 
-      const result = await execution.service.executeRun({
-        ...executionInput(client),
-        userMessage: userTurn,
-      });
-      await expect(result.text).resolves.toBe('answer');
+    await runEntry(root, observe, {}, turnAfter([itemOf(STATE)]));
 
-      // Read once at turn start and once for the entry; neither adds an item.
-      expect(observe).toHaveBeenCalledTimes(2);
-      expect(gitItemsOf(repositories)).toEqual([]);
-      expect(entryTail(repositories)).not.toContain('git');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    // Read once at turn start and once for the entry; neither adds an item.
+    expect(observe).toHaveBeenCalledTimes(2);
+    expect(gitItemsOf(repositories)).toEqual([]);
+    expect(entryTail(repositories)).not.toContain('git');
   });
 
   it('tells a same-root re-entry whose state changed', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      serveEntry('unchanged');
-      const userTurn = turnAfter([itemOf(STATE)]);
-      const { client } = enterThenAnswerClient(root);
-      const execution = makeExecutionService(
-        client,
-        undefined,
-        'host-a',
-        // The turn start still sees the told state; the commit lands before the entry.
-        gitOptions(observing(STATE, MOVED)),
-      );
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    serveEntry('unchanged');
 
-      const result = await execution.service.executeRun({
-        ...executionInput(client),
-        userMessage: userTurn,
-      });
-      await expect(result.text).resolves.toBe('answer');
+    // The turn start still sees the told state; the commit lands before the entry.
+    await runEntry(
+      root,
+      observing(STATE, MOVED),
+      {},
+      turnAfter([itemOf(STATE)]),
+    );
 
-      expect(gitItemsOf(repositories)).toEqual([]);
-      const told = replyParts(repositories).filter(
-        (part) => isContextItemPart(part) && part.data.producer === 'git',
-      );
-      expect(
-        told.map((part) => isContextItemPart(part) && part.data.text),
-      ).toEqual([textOf(MOVED)]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(gitItemsOf(repositories)).toEqual([]);
+    const told = replyParts(repositories).filter(
+      (part) => isContextItemPart(part) && part.data.producer === 'git',
+    );
+    expect(
+      told.map((part) => isContextItemPart(part) && part.data.text),
+    ).toEqual([textOf(MOVED)]);
+  });
+
+  it('tells an entry in a later Run after an exit voided the told state', async () => {
+    const root = workspaceRootDir();
+    const repositories = mockNormalExecutionRepositories();
+    serveEntry('bound');
+    const userTurn = turnAfter([enterPart(root), itemOf(STATE), EXIT_PART]);
+
+    await runEntry(root, observing(STATE), {}, userTurn);
+
+    expect(entryTail(repositories).slice(0, 2)).toEqual([
+      'tool-enter_workspace',
+      'git',
+    ]);
   });
 
   it('keeps the entry successful when its read fails, with a closed absence line', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      serveEntry('bound');
-      const observe = vi
-        .fn<GitSnapshotService['observe']>()
-        .mockRejectedValue(new Error('fatal: boom /private/path'));
+    const repositories = mockNormalExecutionRepositories();
+    serveEntry('bound');
+    const observe = vi
+      .fn<GitSnapshotService['observe']>()
+      .mockRejectedValue(new Error('fatal: boom /private/path'));
 
-      await runEntry(root, observe);
+    await runEntry(root, observe);
 
-      const items = replyParts(repositories).filter(
-        (part) => isContextItemPart(part) && part.data.producer === 'git',
-      );
-      expect(
-        items.map((part) => isContextItemPart(part) && part.data.text),
-      ).toEqual([textOf({ kind: 'unavailable', reason: 'git_failed' })]);
-      expect(JSON.stringify(items)).not.toContain('/private/path');
-      const toolPart = replyParts(repositories).find(
-        (part) => isRecord(part) && part['type'] === 'tool-enter_workspace',
-      );
-      expect(toolPart).toMatchObject({ state: 'output-available' });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('tells a failed turn-start read as an absence and still runs', async () => {
-    const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      const observe = vi
-        .fn<GitSnapshotService['observe']>()
-        .mockResolvedValue({ kind: 'unavailable', reason: 'timeout' });
-
-      await runTurn(observe);
-
-      expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
-        textOf({ kind: 'unavailable', reason: 'timeout' }),
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    const items = replyParts(repositories).filter(
+      (part) => isContextItemPart(part) && part.data.producer === 'git',
+    );
+    expect(
+      items.map((part) => isContextItemPart(part) && part.data.text),
+    ).toEqual([textOf({ kind: 'unavailable', reason: 'git_failed' })]);
+    expect(JSON.stringify(items)).not.toContain('/private/path');
+    const toolPart = replyParts(repositories).find(
+      (part) => isRecord(part) && part['type'] === 'tool-enter_workspace',
+    );
+    expect(toolPart).toMatchObject({ state: 'output-available' });
   });
 
   it('starts the read beside the other preparation reads, not before them', async () => {
     const root = workspaceRootDir();
-    try {
-      mockNormalExecutionRepositories();
-      bindChat(root);
-      // The history read happens in the estimate pass, after the observation
-      // started. The observation only finishes once that read has happened,
-      // so a turn that awaited the read before preparing would never end.
-      const historyRead = Promise.withResolvers<void>();
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
-        () => {
-          historyRead.resolve();
-          return Promise.resolve([userMessage]);
-        },
-      );
-      const observe = vi
-        .fn<GitSnapshotService['observe']>()
-        .mockImplementation(async () => {
-          await historyRead.promise;
-          return STATE;
-        });
+    mockNormalExecutionRepositories();
+    bindChat(root);
+    // The history read happens in the estimate pass, after the observation
+    // started. The observation only finishes once that read has happened,
+    // so a turn that awaited the read before preparing would never end.
+    const historyRead = Promise.withResolvers<void>();
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+      () => {
+        historyRead.resolve();
+        return Promise.resolve([userMessage]);
+      },
+    );
+    const observe = vi
+      .fn<GitSnapshotService['observe']>()
+      .mockImplementation(async () => {
+        await historyRead.promise;
+        return STATE;
+      });
 
-      await runTurn(observe);
+    await runTurn(observe);
 
-      expect(observe).toHaveBeenCalledOnce();
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(observe).toHaveBeenCalledOnce();
   });
 
   it('never fails the Run when the observation rejects', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      const observe = vi
-        .fn<GitSnapshotService['observe']>()
-        .mockRejectedValue(new Error('boom'));
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    const observe = vi
+      .fn<GitSnapshotService['observe']>()
+      .mockRejectedValue(new Error('boom'));
 
-      await runTurn(observe);
+    await runTurn(observe);
 
-      expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
-        textOf({ kind: 'unavailable', reason: 'git_failed' }),
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
+      textOf({ kind: 'unavailable', reason: 'git_failed' }),
+    ]);
   });
 
   /** An observation that reports the model's own admission of the git entry. */
@@ -17504,191 +17526,175 @@ describe('RunExecutionService git state', () => {
 
   it('tells "not permitted" when the read group rejects the git entry', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
 
-      await runTurn(admissionObserver(), {
-        permissionPolicy: GIT_ENTRY_REJECTED,
-      });
+    await runTurn(admissionObserver(), {
+      permissionPolicy: GIT_ENTRY_REJECTED,
+    });
 
-      expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
-        textOf(NOT_PERMITTED),
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
+      textOf(NOT_PERMITTED),
+    ]);
   });
 
-  it('tells "not permitted" when read is not allowlisted', async () => {
+  it('tells "not permitted" without locating when read is not allowlisted', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    const executors = localExecutors();
+    const locate = vi.spyOn(executors, 'locate');
+    const observe = admissionObserver();
 
-      await runTurn(admissionObserver(), { allowed: ['enter_workspace'] });
+    await runTurn(observe, {
+      allowed: ['enter_workspace'],
+      executorGit: executors,
+    });
 
-      expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
-        textOf(NOT_PERMITTED),
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(locate).not.toHaveBeenCalled();
+    expect(observe).not.toHaveBeenCalled();
+    expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
+      textOf(NOT_PERMITTED),
+    ]);
   });
 
   it.each(['default', 'read-only'] as const)(
     'keeps the git state in a %s turn',
     async (mode) => {
       const root = workspaceRootDir();
-      try {
-        const repositories = mockNormalExecutionRepositories();
-        repositories.markStarted.mockResolvedValue({
-          ...run,
-          activeAttemptId: testAttemptId,
-          permissionMode: mode,
-          followUpAction: null,
-          sourceRunId: null,
-        });
-        bindChat(root);
+      const repositories = mockNormalExecutionRepositories();
+      repositories.markStarted.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+        permissionMode: mode,
+        followUpAction: null,
+        sourceRunId: null,
+      });
+      bindChat(root);
 
-        await runTurn(admissionObserver(), {
-          permissionModes: ['default', 'read-only'],
-          permissionPolicy: compileToolPermissionMap(
-            { enter_workspace: { allow: true }, read: { allow: true } },
-            'read-policy',
-          ),
-        });
+      await runTurn(admissionObserver(), {
+        permissionModes: ['default', 'read-only'],
+        permissionPolicy: compileToolPermissionMap(
+          { enter_workspace: { allow: true }, read: { allow: true } },
+          'read-policy',
+        ),
+      });
 
-        expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
-          textOf(STATE),
-        ]);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
+      expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
+        textOf(STATE),
+      ]);
     },
   );
 
   it('tells the state after a "not permitted" turn when the next turn is bypass, without naming the mode', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      repositories.markStarted.mockResolvedValue({
-        ...run,
-        activeAttemptId: testAttemptId,
-        permissionMode: 'bypass',
-        followUpAction: null,
-        sourceRunId: null,
-      });
-      bindChat(root);
-      const userTurn = turnAfter([itemOf(NOT_PERMITTED)]);
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      permissionMode: 'bypass',
+      followUpAction: null,
+      sourceRunId: null,
+    });
+    bindChat(root);
+    const userTurn = turnAfter([itemOf(NOT_PERMITTED)]);
 
-      const { model } = await runTurn(
-        admissionObserver(),
-        {
-          permissionModes: ['default', 'bypass'],
-          permissionPolicy: GIT_ENTRY_REJECTED,
-        },
-        userTurn,
-      );
+    const { model } = await runTurn(
+      admissionObserver(),
+      {
+        permissionModes: ['default', 'bypass'],
+        permissionPolicy: GIT_ENTRY_REJECTED,
+      },
+      userTurn,
+    );
 
-      const items = gitItemsOf(repositories);
-      expect(items.map((item) => item.data.text)).toEqual([textOf(STATE)]);
-      const sent = JSON.stringify([
-        items,
-        model.doStreamCalls[0]?.prompt,
-      ]).toLowerCase();
-      expect(sent).not.toContain('bypass');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    const items = gitItemsOf(repositories);
+    expect(items.map((item) => item.data.text)).toEqual([textOf(STATE)]);
+    const sent = JSON.stringify([
+      items,
+      model.doStreamCalls[0]?.prompt,
+    ]).toLowerCase();
+    expect(sent).not.toContain('bypass');
   });
 
   it('re-tells the state in the epoch a published checkpoint starts, from one read', async () => {
     const root = workspaceRootDir();
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChat(root);
-      serveCheckpointPublication();
-      // The first build's history names the state; the history the published
-      // checkpoint leaves live does not.
-      const trigger = { ...userMessage, seq: 3 };
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
-        .mockResolvedValueOnce([
-          ...committedTurn({ parts: [itemOf(STATE)] }),
-          trigger,
-        ])
-        .mockResolvedValue([trigger]);
-      let contextWindowTokens = 1;
-      const base = createFakeModelClient(['answer']);
-      const client: ModelClient = {
-        ...base,
-        get contextWindowTokens() {
-          return contextWindowTokens;
-        },
-      };
-      const observe = observing(STATE);
-      const execution = makeExecutionService(
-        client,
-        undefined,
-        'host-a',
-        gitOptions(observe),
-      );
-      execution.summarizeCheckpoint.mockImplementation(() => {
-        contextWindowTokens = 128_000;
-        return Promise.resolve(checkpointSummary(2));
-      });
+    const repositories = mockNormalExecutionRepositories();
+    bindChat(root);
+    serveCheckpointPublication();
+    // The first build's history names the state; the history the published
+    // checkpoint leaves live does not.
+    const trigger = { ...userMessage, seq: 3 };
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+      .mockResolvedValueOnce([
+        ...committedTurn({ parts: [itemOf(STATE)] }),
+        trigger,
+      ])
+      .mockResolvedValue([trigger]);
+    let contextWindowTokens = 1;
+    const base = createFakeModelClient(['answer']);
+    const client: ModelClient = {
+      ...base,
+      get contextWindowTokens() {
+        return contextWindowTokens;
+      },
+    };
+    const observe = observing(STATE);
+    const execution = makeExecutionService(
+      client,
+      undefined,
+      'host-a',
+      gitOptions(observe),
+    );
+    execution.summarizeCheckpoint.mockImplementation(() => {
+      contextWindowTokens = 128_000;
+      return Promise.resolve(checkpointSummary(2));
+    });
 
-      const result = await execution.service.executeRun({
-        ...executionInput(client),
-        userMessage: turnMessage(3),
-      });
-      await expect(result.text).resolves.toBe('answer');
+    const result = await execution.service.executeRun({
+      ...executionInput(client),
+      userMessage: turnMessage(3),
+    });
+    await expect(result.text).resolves.toBe('answer');
 
-      expect(execution.summarizeCheckpoint).toHaveBeenCalledOnce();
-      expect(observe).toHaveBeenCalledOnce();
-      expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
-        textOf(STATE),
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledOnce();
+    expect(observe).toHaveBeenCalledOnce();
+    expect(gitItemsOf(repositories).map((item) => item.data.text)).toEqual([
+      textOf(STATE),
+    ]);
   });
 
   it('stages the git item before the instructions item of the same step', async () => {
     const root = workspaceRootDir();
     writeFileSync(path.join(root, 'AGENTS.md'), 'run the tests\n');
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      serveEntry('bound');
-      // The producer's page reads go through the native read tool.
-      vi.spyOn(nativeReadTool, 'execute').mockImplementation(
-        (_context, input) => {
-          const file = input.path.slice(0, input.path.lastIndexOf(':raw:'));
-          const content = readFileSync(file, 'utf8');
-          return Promise.resolve({
-            status: 'success' as const,
-            kind: 'file' as const,
-            path: file,
-            representation: 'raw' as const,
-            content,
-            requestedRange: null,
-            shownRange: { startLine: 1, endLine: 2 },
-            truncated: false,
-          });
-        },
-      );
+    const repositories = mockNormalExecutionRepositories();
+    serveEntry('bound');
+    // The producer's page reads go through the native read tool.
+    vi.spyOn(nativeReadTool, 'execute').mockImplementation(
+      (_context, input) => {
+        const file = input.path.slice(0, input.path.lastIndexOf(':raw:'));
+        const content = readFileSync(file, 'utf8');
+        return Promise.resolve({
+          status: 'success' as const,
+          kind: 'file' as const,
+          path: file,
+          representation: 'raw' as const,
+          content,
+          requestedRange: null,
+          shownRange: { startLine: 1, endLine: 2 },
+          truncated: false,
+        });
+      },
+    );
 
-      await runEntry(root, observing(STATE), {
-        inRunProducer: createInstructionsProducer(),
-      });
+    await runEntry(root, observing(STATE), {
+      inRunProducer: createInstructionsProducer(),
+    });
 
-      expect(entryTail(repositories).slice(0, 3)).toEqual([
-        'tool-enter_workspace',
-        'git',
-        'instructions',
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(entryTail(repositories).slice(0, 3)).toEqual([
+      'tool-enter_workspace',
+      'git',
+      'instructions',
+    ]);
   });
 });

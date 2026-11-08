@@ -26,8 +26,11 @@ The map of every context surface is [context documents](context-documents.md).
   last `git` item the Chat's history carries since the last binding change. A
   turn that finds the repository unchanged adds nothing: the earlier item still
   holds.
-- A binding change tells the state again: a `workspace` snapshot or notice, an
-  `enter_workspace` that binds or switches the root, or an `exit_workspace`. An
+- A binding change tells the state again: a `workspace` detach notice, a
+  `workspace` snapshot that names another root than the one the history left
+  bound, an `enter_workspace` that binds or switches the root, or an
+  `exit_workspace`. A snapshot of the root the history already holds, as in a
+  fork or after a mid-Run entry, changes nothing. An
   exit leaves the Chat without a Workspace, so the turn after it carries the
   `workspace` snapshot and no `git` item.
 - After an [`enter_workspace`](tools/enter-workspace.md) that binds or switches

@@ -2,10 +2,12 @@ import {
   createContextItemPart,
   type AuthoredContextItemPart,
 } from '../chats/context-item';
-import { createWorkspaceSnapshotItem } from '../chats/context-item-producers';
-import { createGitProducer } from '../git-state/git-context-producer';
+import {
+  createWorkspaceDetachNoticeItem,
+  createWorkspaceSnapshotItem,
+} from '../chats/context-item-producers';
 import type { MessagePart } from '../chats/context-builder';
-import { createGitItem } from '../git-state/git-item';
+import { createGitItem, type GitToldState } from '../git-state/git-item';
 import { type GitObservation } from '../git-state/git-state-view';
 import { placeRailPart, refreshTurnGit, type TurnGit } from './turn-git';
 
@@ -68,30 +70,32 @@ describe('placeRailPart', () => {
 });
 
 describe('refreshTurnGit', () => {
-  const producer = createGitProducer();
   const fresh = (observation: GitObservation | undefined): TurnGit => ({
     observation,
     part: undefined,
     toldText: undefined,
   });
+  const history = (
+    text: string | undefined,
+    root: string | null | undefined = '/repo',
+  ): GitToldState => ({ text, root });
+  const refresh = (
+    turn: TurnGit,
+    stagedParts: Array<MessagePart>,
+    told: GitToldState,
+  ) => refreshTurnGit({ turn, stagedParts, history: told, runId: RUN_ID });
 
-  it('does nothing for an unbound Chat', async () => {
+  it('does nothing for an unbound Chat', () => {
     const turn = fresh(undefined);
     const staged: Array<MessagePart> = [];
 
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: undefined,
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(undefined));
 
     expect(staged).toEqual([]);
     expect(turn.part).toBeUndefined();
   });
 
-  it('stages the item after the workspace snapshot', async () => {
+  it('stages the item after the workspace snapshot', () => {
     const turn = fresh(CLEAN);
     const workspace = createWorkspaceSnapshotItem({
       runId: RUN_ID,
@@ -99,75 +103,70 @@ describe('refreshTurnGit', () => {
     });
     const staged: Array<MessagePart> = [workspace, item('instructions')];
 
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: undefined,
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(undefined));
 
     expect(staged[0]).toBe(workspace);
     expect(staged[1]).toBe(turn.part);
     expect(turn.part?.data.text).toBe(textOf(CLEAN));
   });
 
-  it('adds nothing when the history told the same text', async () => {
+  it('adds nothing when the history told the same text', () => {
     const turn = fresh(CLEAN);
     const staged: Array<MessagePart> = [];
 
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: textOf(CLEAN),
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(textOf(CLEAN)));
 
     expect(staged).toEqual([]);
     expect(turn.toldText).toBe(textOf(CLEAN));
   });
 
-  it('tells again when this turn stages a workspace item', async () => {
+  it('tells again when this turn stages a snapshot of another root', () => {
     const turn = fresh(CLEAN);
     const staged: Array<MessagePart> = [
-      createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/repo' }),
+      createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/other' }),
     ];
 
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: textOf(CLEAN),
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(textOf(CLEAN)));
 
-    expect(staged).toEqual([staged[0], turn.part]);
     expect(staged[1]).toBe(turn.part);
     expect(turn.part?.data.text).toBe(textOf(CLEAN));
     expect(turn.toldText).toBeUndefined();
   });
 
-  it('replaces its earlier item on a second pass with the same observation', async () => {
+  it('adds nothing when this turn re-tells the root the history holds', () => {
+    const turn = fresh(CLEAN);
+    const staged: Array<MessagePart> = [
+      createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/repo' }),
+    ];
+
+    refresh(turn, staged, history(textOf(CLEAN)));
+
+    expect(staged).toHaveLength(1);
+    expect(turn.part).toBeUndefined();
+  });
+
+  it('tells again when this turn stages a detach notice', () => {
+    const turn = fresh(CLEAN);
+    const staged: Array<MessagePart> = [
+      createWorkspaceDetachNoticeItem({
+        runId: RUN_ID,
+        reason: 'root_missing',
+      }),
+    ];
+
+    refresh(turn, staged, history(textOf(CLEAN)));
+
+    expect(turn.part?.data.text).toBe(textOf(CLEAN));
+  });
+
+  it('replaces its earlier item on a second pass with the same observation', () => {
     const turn = fresh(FAILED);
     const staged: Array<MessagePart> = [];
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: undefined,
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(undefined));
     const first = turn.part;
 
     // A checkpoint published: the rebuilt history holds no git item.
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: undefined,
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(undefined));
 
     expect(staged).toHaveLength(1);
     expect(staged[0]).toBe(turn.part);
@@ -175,24 +174,12 @@ describe('refreshTurnGit', () => {
     expect(turn.part?.data.text).toBe(first?.data.text);
   });
 
-  it('drops its earlier item when the rebuilt history already told the state', async () => {
+  it('drops its earlier item when the rebuilt history already told the state', () => {
     const turn = fresh(CLEAN);
     const staged: Array<MessagePart> = [];
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: undefined,
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(undefined));
 
-    await refreshTurnGit({
-      producer,
-      turn,
-      stagedParts: staged,
-      historyTold: textOf(CLEAN),
-      runId: RUN_ID,
-    });
+    refresh(turn, staged, history(textOf(CLEAN)));
 
     expect(staged).toEqual([]);
     expect(turn.part).toBeUndefined();

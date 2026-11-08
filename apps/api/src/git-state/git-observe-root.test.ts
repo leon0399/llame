@@ -12,7 +12,11 @@ describe('observeWorkspaceRoot', () => {
     const reachable = () => Promise.resolve(true);
 
     const result = await observeWorkspaceRoot(
-      { snapshots: { observe }, executors: { locate: () => TARGET } },
+      {
+        snapshots: { observe },
+        executors: { locate: () => TARGET },
+        readAllowlisted: true,
+      },
       { root: '/repo', admit, reachable },
     );
 
@@ -25,12 +29,30 @@ describe('observeWorkspaceRoot', () => {
     });
   });
 
+  it('is not permitted without the read allowlist, locating nothing', async () => {
+    const observe = vi.fn();
+    const locate = vi.fn();
+
+    await expect(
+      observeWorkspaceRoot(
+        {
+          snapshots: { observe },
+          executors: { locate },
+          readAllowlisted: false,
+        },
+        { root: '/repo', admit },
+      ),
+    ).resolves.toEqual({ kind: 'unavailable', reason: 'not_permitted' });
+    expect(locate).not.toHaveBeenCalled();
+    expect(observe).not.toHaveBeenCalled();
+  });
+
   it('is executor unavailable in a worker without git', async () => {
     const observe = vi.fn();
 
     await expect(
       observeWorkspaceRoot(
-        { snapshots: { observe }, executors: undefined },
+        { snapshots: { observe }, executors: undefined, readAllowlisted: true },
         { root: '/repo', admit },
       ),
     ).resolves.toEqual({ kind: 'unavailable', reason: 'executor_unavailable' });
@@ -44,7 +66,11 @@ describe('observeWorkspaceRoot', () => {
 
     await expect(
       observeWorkspaceRoot(
-        { snapshots: { observe: vi.fn() }, executors: { locate } },
+        {
+          snapshots: { observe: vi.fn() },
+          executors: { locate },
+          readAllowlisted: true,
+        },
         { root: 'machine://x/srv', admit },
       ),
     ).resolves.toEqual({ kind: 'unavailable', reason: 'executor_unavailable' });
@@ -57,7 +83,11 @@ describe('observeWorkspaceRoot', () => {
 
       await expect(
         observeWorkspaceRoot(
-          { snapshots: { observe }, executors: { locate: () => TARGET } },
+          {
+            snapshots: { observe },
+            executors: { locate: () => TARGET },
+            readAllowlisted: true,
+          },
           { root: '/repo', admit },
         ),
       ).resolves.toEqual({ kind: 'unavailable', reason: 'git_failed' });

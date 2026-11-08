@@ -1,24 +1,16 @@
 import { isString } from '@workspace/runtime-safety';
 
-import { type AuthoredContextItemPart } from '../chats/context-item';
 import {
   type InRunAttempt,
   type InRunAttemptProducer,
   type InRunContextProducer,
   type InRunToolCall,
-  type InRunTurnContext,
 } from '../runs/in-run-context-items';
 import { enterWorkspaceTool } from '../tools/workspace';
 import { createGitItem } from './git-item';
-import { type GitObservation } from './git-state-view';
 
 /** The `git` producer's providers' token. */
 export const GIT_CONTEXT_PRODUCER = Symbol('GIT_CONTEXT_PRODUCER');
-
-const GIT_FAILED: GitObservation = {
-  kind: 'unavailable',
-  reason: 'git_failed',
-};
 
 /** A settled entry the next step tells: its root, and whether it is a new binding. */
 type SettledEntry = { readonly root: string; readonly newBinding: boolean };
@@ -60,13 +52,13 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
       const entry = pending;
       pending = undefined;
       if (world === undefined || entry === undefined) return;
-      let observation: GitObservation;
-      try {
-        observation = await world.observe(entry.root);
-      } catch {
-        observation = GIT_FAILED;
-      }
-      const item = createGitItem({ runId: attempt.runId, observation });
+      // The step began after the entry settled: a root other than the entry's
+      // means the entry's binding is not the one this step holds.
+      if (world.currentRoot() !== entry.root) return;
+      const item = createGitItem({
+        runId: attempt.runId,
+        observation: await world.observe(entry.root),
+      });
       if (!entry.newBinding && item.data.text === told) return;
       told = item.data.text;
       step.stage(item);
@@ -75,26 +67,11 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
 }
 
 /**
- * The `git` producer (openspec `workspace-git-state`): the turn's item when the
- * observed text differs from what the effective history told, and an in-Run
- * item after an entry that bound or switched the root, or re-entered it with a
- * changed state. It holds no state beyond one attempt and adds no column.
+ * The `git` producer (openspec `workspace-git-state`): an in-Run item after an
+ * entry that bound or switched the root, or re-entered it with a changed state.
+ * The turn's own item is staged by `refreshTurnGit`. It holds no state beyond
+ * one attempt and adds no column.
  */
 export function createGitProducer(): InRunContextProducer {
-  return {
-    beginAttempt: createAttemptProducer,
-    prepareTurn(
-      context: InRunTurnContext,
-    ): Promise<AuthoredContextItemPart | undefined> {
-      const { git } = context;
-      if (git === undefined) return Promise.resolve(undefined);
-      const item = createGitItem({
-        runId: context.runId,
-        observation: git.observation,
-      });
-      return Promise.resolve(
-        item.data.text === git.toldText ? undefined : item,
-      );
-    },
-  };
+  return { beginAttempt: createAttemptProducer };
 }
