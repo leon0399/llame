@@ -98,7 +98,7 @@ export class WorktreeRemovalService {
       );
     }
     if (
-      (upstream === null || upstream.gone) &&
+      (upstream === null || upstream.gone || upstream.ahead === null) &&
       !(await this.holdsBaseCommit(ownerUserId, checkout, state.head))
     ) {
       throw repositoryFailure(
@@ -106,7 +106,7 @@ export class WorktreeRemovalService {
         'The worktree has no upstream and its HEAD is not the recorded base commit.',
       );
     }
-    if (upstream !== null && (upstream.ahead ?? 0) > 0) {
+    if (upstream !== null && upstream.ahead !== null && upstream.ahead > 0) {
       throw repositoryFailure(
         'worktree_not_clean',
         'The worktree holds commits its upstream does not have.',

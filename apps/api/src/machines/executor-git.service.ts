@@ -94,21 +94,17 @@ export function localGitSurface(): LocalGit {
   };
 }
 
+/** The round-trip margin added to a daemon operation's own deadline. */
+const MACHINE_MARGIN_MS = 15_000;
+
 /**
  * The budget one Machine git call carries: the daemon's longest operation plus
  * the round trip, so the daemon's own typed timeout answers first instead of
  * the hub's budget. A cancelled or expired call still ends git, because the
  * request signal reaches every subcommand.
  */
-export const MACHINE_GIT_BUDGET_MS = WORKTREE_ADD_TIMEOUT_MS + 15_000;
-
-/** The params with the caller's deadline, when it set one. */
-function withTimeout(
-  params: GitStateParams,
-  timeoutMs: number | undefined,
-): GitStateParams {
-  return timeoutMs === undefined ? params : { ...params, timeoutMs };
-}
+export const MACHINE_GIT_BUDGET_MS =
+  WORKTREE_ADD_TIMEOUT_MS + MACHINE_MARGIN_MS;
 
 /** The executor one submitted address runs on, and the path it names there. */
 export type ExecutorTarget = {
@@ -435,12 +431,10 @@ export class ExecutorGit {
   async state(
     target: ExecutorTarget,
     address: string,
-    input: {
-      readonly gitEntry: string;
-      readonly limit: number;
-      readonly submodules: 'skip' | 'check';
-      readonly timeoutMs?: number;
-    },
+    input: Pick<
+      GitStateParams,
+      'gitEntry' | 'limit' | 'submodules' | 'timeoutMs'
+    >,
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<GitStateResult> {
     const { gitEntry, limit, submodules, timeoutMs } = input;
@@ -452,21 +446,18 @@ export class ExecutorGit {
     const path = this.executorPath(target, address);
     const entry = this.executorPath(target, gitEntry);
     return this.ask(target.machine, GIT_STATE_METHOD, {
-      build: (envelope, display) =>
-        withTimeout(
-          {
-            envelope,
-            options: display,
-            path,
-            gitEntry: entry,
-            limit,
-            submodules,
-          },
-          timeoutMs,
-        ),
+      build: (envelope, display) => ({
+        envelope,
+        options: display,
+        path,
+        gitEntry: entry,
+        limit,
+        submodules,
+        timeoutMs,
+      }),
       read: readGitStateResult,
       signal: options.signal,
-      budgetMs: (timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS) + 15_000,
+      budgetMs: (timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS) + MACHINE_MARGIN_MS,
     });
   }
 

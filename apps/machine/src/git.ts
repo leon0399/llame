@@ -21,6 +21,7 @@ import {
 } from "@workspace/machine-protocol";
 import {
   addWorktree,
+  invalidInput,
   inspectRepository,
   listWorktrees,
   locateRepository,
@@ -127,14 +128,9 @@ function outermostRoot(
   context: OperationContext,
   path: string,
 ): string | undefined {
-  const holding = context.guard.roots.filter((root) =>
-    isInsideRoots([root], path),
-  );
-  return holding.reduce<string | undefined>(
-    (outer, root) =>
-      outer === undefined || root.length < outer.length ? root : outer,
-    undefined,
-  );
+  return context.guard.roots
+    .filter((root) => isInsideRoots([root], path))
+    .sort((first, second) => first.length - second.length)[0];
 }
 
 export async function locateOperation(
@@ -161,10 +157,6 @@ export async function locateOperation(
   };
 }
 
-function invalid(message: string): GitFailure {
-  return { status: "error", type: "invalid_input", message };
-}
-
 const MAXIMUM_STATE_LIMIT = 1000;
 
 function readStateBounds(
@@ -174,12 +166,12 @@ function readStateBounds(
   | GitFailure {
   const { limit, submodules } = source;
   if (!isIntegerValue(limit) || limit < 0 || limit > MAXIMUM_STATE_LIMIT) {
-    return invalid(
+    return invalidInput(
       `limit must be a whole number from 0 to ${String(MAXIMUM_STATE_LIMIT)}`,
     );
   }
   if (submodules !== "skip" && submodules !== "check") {
-    return invalid('submodules must be "skip" or "check"');
+    return invalidInput('submodules must be "skip" or "check"');
   }
   return { limit, submodules };
 }
@@ -209,7 +201,7 @@ export async function stateOperation(
   const result = await stateRepository(
     {
       path: guarded.canonical,
-      gitEntry: entry.canonical,
+      gitEntry: entry.path,
       limit: bounds.limit,
       submodules: bounds.submodules,
       ceiling: outermostRoot(context, guarded.canonical),

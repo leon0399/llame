@@ -397,6 +397,48 @@ describe('WorktreeRemovalService', () => {
     expect(deleteCheckout).not.toHaveBeenCalled();
   });
 
+  it('keeps a worktree whose upstream is present but its ahead count unknown', async () => {
+    const source = clone();
+    const { directory, head } = worktree(source, 'llame/x');
+    runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
+    rowOf(checkoutRow(directory));
+    const executorsOf = executors();
+    vi.spyOn(executorsOf, 'state').mockResolvedValue({
+      status: 'ok',
+      toplevel: directory,
+      rootRelative: '',
+      branch: 'llame/x',
+      detached: false,
+      head,
+      upstream: {
+        name: 'main',
+        gone: false,
+        ahead: null,
+        behind: null,
+        updatedAt: null,
+      },
+      operation: null,
+      counts: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
+      entries: [],
+      omitted: 0,
+      submodules: [],
+      commits: [],
+      remotes: [],
+    });
+    const { removal, deleteCheckout } = service({ executors: executorsOf });
+
+    await expect(
+      failureOf(removal.remove('owner-1', 'checkout-1')),
+    ).resolves.toStrictEqual({
+      code: 'worktree_not_clean',
+      status: 409,
+      message:
+        'The worktree has no upstream and its HEAD is not the recorded base commit.',
+    });
+    expect(existsSync(directory)).toBe(true);
+    expect(deleteCheckout).not.toHaveBeenCalled();
+  });
+
   it('A dirty submodule keeps the worktree', async () => {
     const source = clone();
     const library = clone();

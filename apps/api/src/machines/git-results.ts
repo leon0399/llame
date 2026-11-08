@@ -26,7 +26,7 @@ import {
 } from '@workspace/machine-protocol';
 
 import { formatMachineLocator, MACHINE_SCHEME } from './machine-locator';
-import { isCount, isFlag, isText } from './machine-results';
+import { isCount, isFlag, isText, isTextList } from './machine-results';
 
 /** One path field of a git result, as the canonical locator of this Machine. */
 function readLocatorPath(
@@ -268,19 +268,6 @@ function readStateCommits(
   return commits;
 }
 
-function readTextList(
-  value: SerializableValue,
-): ReadonlyArray<string> | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const items: ReadonlyArray<SerializableValue> = value;
-  const texts: Array<string> = [];
-  for (const entry of items) {
-    if (!isText(entry)) return undefined;
-    texts.push(entry);
-  }
-  return texts;
-}
-
 type StateHead = Pick<
   GitStateSuccess,
   'branch' | 'detached' | 'head' | 'upstream' | 'operation'
@@ -320,7 +307,7 @@ function readStateChanges(
 ): StateChanges | undefined {
   const counts = readStateCounts(value['counts']);
   const entries = readStateEntries(value['entries']);
-  const submodules = readTextList(value['submodules']);
+  const submodules = value['submodules'];
   const commits = readStateCommits(value['commits']);
   const remotes = readGitRemotes(value['remotes']);
   const { omitted } = value;
@@ -328,7 +315,7 @@ function readStateChanges(
     counts === undefined ||
     entries === undefined ||
     !isCount(omitted) ||
-    submodules === undefined ||
+    !isTextList(submodules) ||
     commits === undefined ||
     remotes === undefined
   )

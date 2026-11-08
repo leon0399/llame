@@ -1,4 +1,4 @@
-export { DEFAULT_GIT_TIMEOUT_MS } from "./invocation";
+export { DEFAULT_GIT_TIMEOUT_MS, invalidInput } from "./invocation";
 export { inspectRepository } from "./inspect";
 export { locateRepository } from "./locate";
 export type { LocateInput } from "./locate";

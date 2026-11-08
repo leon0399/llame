@@ -170,7 +170,9 @@ export function isFlag(value: SerializableValue): value is boolean {
   return typeof value === 'boolean';
 }
 
-function isTextList(value: SerializableValue): value is ReadonlyArray<string> {
+export function isTextList(
+  value: SerializableValue,
+): value is ReadonlyArray<string> {
   return Array.isArray(value) && value.every(isText);
 }
 
