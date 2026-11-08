@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
+- **Session details shows the live git state of the bound repository.** The
+  Repository block replaces the stored branch with the live branch (or the
+  detached HEAD), the upstream with ahead and behind and the time of its last
+  local update, the change counts, and any operation in progress. It shows for
+  every bound Chat, also when the root is not a registered checkout, and it
+  shows the absence line when git state is unavailable. The panel reads it when
+  it opens and when the window gains focus. This closes the stale branch in
+  #1417. The state comes from the new owner route
+  `GET /api/v1/chats/:id/git-state`.
+
 - **The assistant sees the git state of the Workspace repository.** A Chat bound
   to a Workspace now carries one `git` context item with the branch, upstream
   ahead and behind, HEAD, an operation in progress, change counts and the first

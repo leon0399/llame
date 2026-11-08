@@ -6,6 +6,9 @@ import {
   ArrowUpRightIcon,
   FolderIcon,
   GitBranchIcon,
+  GitCommitIcon,
+  GitCompareArrowsIcon,
+  GitMergeIcon,
   FolderKanbanIcon,
   MonitorIcon,
   ServerIcon,
@@ -33,6 +36,12 @@ import { CopyPathButton } from "@/components/copy-path-button";
 import { ForgeMark } from "@/components/forge-mark";
 import { machinePathFromRoot } from "@/lib/services/machines/locator";
 import type { MachineResponse } from "@/lib/services/machines/queries";
+import type {
+  GitStateNotARepositoryResponse,
+  GitStateOkResponse,
+  GitStateUnavailableResponse,
+  GitStateUnboundResponse,
+} from "@/lib/services/git-state/queries";
 import { forgePage } from "@/lib/services/repositories/forge";
 
 const FAILURE_LABELS: Record<
@@ -58,9 +67,16 @@ export interface EnvironmentCheckout {
   /** Its canonical remote, null when it has none. */
   remote: string | null;
   kind: "main" | "worktree";
-  /** Null for a detached HEAD. */
-  branch: string | null;
 }
+
+/** What the git-state route said, or that it is still being read or failed. */
+export type EnvironmentGitState =
+  | { status: "loading" }
+  | { status: "error" }
+  | GitStateOkResponse
+  | GitStateUnboundResponse
+  | GitStateNotARepositoryResponse
+  | GitStateUnavailableResponse;
 
 export interface EnvironmentSectionProps {
   /** False until the Chat's card is in the cache; every row is a skeleton
@@ -71,6 +87,8 @@ export interface EnvironmentSectionProps {
   /** The checkout that root is; null when it is none, undefined while the
    *  checkout and repository reads settle. */
   checkout: EnvironmentCheckout | null | undefined;
+  /** The live state of the repository the root is in. */
+  gitState: EnvironmentGitState;
   /** Machine the root names; undefined for a local root. */
   machineName: string | undefined;
   /** Status of that Machine; undefined while loading or when unconfigured. */
@@ -267,24 +285,132 @@ function RepositoryRow({ checkout }: { checkout: EnvironmentCheckout }) {
   );
 }
 
-/** The branch the Workspace has checked out, marked when the Workspace is a
- *  worktree rather than the clone itself. */
-function BranchRow({ checkout }: { checkout: EnvironmentCheckout }) {
+const WORKTREE_MARKER = (
+  <span className="shrink-0 text-xs text-muted-foreground">Worktree</span>
+);
+
+function branchLabel(state: GitStateOkResponse) {
+  if (!state.detached) return state.branch ?? "No branch";
+  return `Detached HEAD at ${state.head?.short ?? "unknown"}`;
+}
+
+/** The branch the Workspace repository has checked out right now, marked when
+ *  the Workspace is a worktree rather than the clone itself. */
+function BranchRow({
+  label,
+  muted = false,
+  worktree,
+}: {
+  label: string;
+  muted?: boolean;
+  worktree: boolean;
+}) {
   return (
     <SidebarMenuItem>
-      <span className="flex h-8 min-w-0 items-center gap-2 pr-2 pl-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0">
+      <span
+        className={cn(
+          "flex h-8 min-w-0 items-center gap-2 pr-2 pl-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0",
+          muted && "text-muted-foreground",
+        )}
+      >
         <GitBranchIcon />
         <span className="min-w-0 flex-1 truncate font-mono text-xs">
-          {checkout.branch ?? "Detached HEAD"}
+          {label}
         </span>
-        {checkout.kind === "worktree" ? (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            Worktree
-          </span>
-        ) : null}
+        {worktree ? WORKTREE_MARKER : null}
       </span>
     </SidebarMenuItem>
   );
+}
+
+function upstreamLabel({ upstream }: GitStateOkResponse) {
+  if (upstream === null) return "No upstream";
+  if (upstream.gone) return `${upstream.name} · upstream gone`;
+  const counts = `↑${upstream.ahead ?? 0} ↓${upstream.behind ?? 0}`;
+  const updated =
+    upstream.updatedAt === null
+      ? "update time unknown"
+      : `as of ${upstream.updatedAt.slice(0, 16).replace("T", " ")} UTC`;
+  return `${upstream.name} · ${counts} · ${updated}`;
+}
+
+function countsLabel({ counts }: GitStateOkResponse) {
+  const entries: Array<[number, string]> = [
+    [counts.staged, "staged"],
+    [counts.unstaged, "unstaged"],
+    [counts.untracked, "untracked"],
+    [counts.conflicted, "conflicted"],
+  ];
+  const parts = entries.flatMap(([count, name]) =>
+    count > 0 ? [`${count} ${name}`] : [],
+  );
+  return parts.length === 0 ? "No changes" : parts.join(" · ");
+}
+
+function operationLabel({ operation }: GitStateOkResponse) {
+  if (operation === null) return null;
+  const step =
+    operation.step !== undefined && operation.total !== undefined
+      ? `, step ${operation.step} of ${operation.total}`
+      : "";
+  return `${operation.kind} in progress${step}`;
+}
+
+/** The live repository block: branch, upstream, change counts, and any
+ *  operation in progress. */
+function GitStateOkRows({
+  state,
+  worktree,
+}: {
+  state: GitStateOkResponse;
+  worktree: boolean;
+}) {
+  const operation = operationLabel(state);
+  return (
+    <>
+      <BranchRow label={branchLabel(state)} worktree={worktree} />
+      <StaticRow icon={<GitCompareArrowsIcon />} muted>
+        <span className="text-xs">{upstreamLabel(state)}</span>
+      </StaticRow>
+      <StaticRow icon={<GitCommitIcon />} muted>
+        <span className="text-xs">{countsLabel(state)}</span>
+      </StaticRow>
+      {operation === null ? null : (
+        <StaticRow icon={<GitMergeIcon />}>
+          <span className="text-xs">{operation}</span>
+        </StaticRow>
+      )}
+    </>
+  );
+}
+
+/** The Repository block of a bound Chat, fed by the git-state route. */
+function GitStateRows({
+  gitState,
+  worktree,
+}: {
+  gitState: EnvironmentGitState;
+  worktree: boolean;
+}) {
+  switch (gitState.status) {
+    case "loading":
+      return <SkeletonRow />;
+    case "error":
+      return (
+        <BranchRow
+          label="Git state could not be read"
+          muted
+          worktree={worktree}
+        />
+      );
+    case "unbound":
+      return null;
+    case "not_a_repository":
+    case "unavailable":
+      return <BranchRow label={gitState.line} muted worktree={worktree} />;
+    case "ok":
+      return <GitStateOkRows state={gitState} worktree={worktree} />;
+  }
 }
 
 function ProjectRow({ project }: { project: EnvironmentProject }) {
@@ -300,17 +426,18 @@ function ProjectRow({ project }: { project: EnvironmentProject }) {
   );
 }
 
-/** Where a bound Chat runs, the repository and branch it is in when the
- *  root is a registered checkout, and its Workspace path. */
+/** Where a bound Chat runs, the repository it is in when the root is a
+ *  registered checkout, the live git state, and its Workspace path. */
 function BoundRows({
   workspaceRoot,
   checkout,
+  gitState,
   machineName,
   machine,
   machineLoading,
 }: Pick<
   EnvironmentSectionProps,
-  "checkout" | "machineName" | "machine" | "machineLoading"
+  "checkout" | "gitState" | "machineName" | "machine" | "machineLoading"
 > & {
   workspaceRoot: string;
 }) {
@@ -325,12 +452,11 @@ function BoundRows({
           loading={machineLoading}
         />
       )}
-      {checkout == null ? null : (
-        <>
-          <RepositoryRow checkout={checkout} />
-          <BranchRow checkout={checkout} />
-        </>
-      )}
+      {checkout == null ? null : <RepositoryRow checkout={checkout} />}
+      <GitStateRows
+        gitState={gitState}
+        worktree={checkout?.kind === "worktree"}
+      />
       <WorkspaceRow workspaceRoot={workspaceRoot} />
     </>
   );

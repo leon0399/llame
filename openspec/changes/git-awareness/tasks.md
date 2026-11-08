@@ -89,9 +89,9 @@ layer that grows past about 2,000 authored lines.
 
 ## 7. session-details
 
-- [ ] 7.1 Create `git-awareness/session-details` from `route` with `$gh-stack`.
-- [ ] 7.2 Replace `BranchRow` with a Repository block fed by the route on open and window focus, and keep `RepositoryRow`; verify stories for `Session details shows the live branch`, `Session details shows an absence line`, and `A bound folder without a checkout record shows git state` with Storybook story tests.
-- [ ] 7.3 Add the dated CHANGELOG entry; put `Closes #1417` in the PR body.
+- [x] 7.1 Create `git-awareness/session-details` from `route` with `$gh-stack`.
+- [x] 7.2 Replace `BranchRow` with a Repository block fed by the route on open and window focus, and keep `RepositoryRow`; verify stories for `Session details shows the live branch`, `Session details shows an absence line`, and `A bound folder without a checkout record shows git state` with Storybook story tests.
+- [x] 7.3 Add the dated CHANGELOG entry; put `Closes #1417` in the PR body.
 - [ ] 7.4 Run web `lint`, `typecheck`, `test:coverage`, the story tests, `pnpm format:check`, `git diff --check`; publish; SR; ready; GR; update the Project.
 
 ## 8. finalize
