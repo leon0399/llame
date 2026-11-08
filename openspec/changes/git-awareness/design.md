@@ -223,7 +223,7 @@ before any request.
    `sanitizeAuthoredText`. Render `apps/api/src/chats/prompts/git-snapshot.md`.
 
 The service returns a structured view for the route and the rendered body for
-the producer and the tool result. The `git` item payload is that view after
+the producer. The `git` item payload is that view after
 step 5: it holds normalized remotes only, so raw URLs never reach the
 template, the stored part, or the route. An absence carries a closed reason
 code and its fixed line; the route returns both.
@@ -252,43 +252,52 @@ the user's requests, and it cannot grant tools or relax authorization.
 Status codes use the two-letter `git status --short` form. A Machine root
 renders its locator.
 
-### D7: A `git` producer beside `workspace`, with its own told columns
+### D7: One in-Run producer for turn start and mid-Run entry
 
-The observation runs once per attempt in preparation, outside the attempt's
-database transaction, after `prepareWorkspace` and concurrently with the
-Workspace MCP start, skill resolution, and prompt imports. The turn-instruction
-load cannot share that slot because it needs the estimate pass. The
-in-transaction derivation, including the second pass after a checkpoint, only
-compares the stored observation. `deriveGitContext` hashes the rendered body
-with SHA-256 and compares it with `chats.git_told` when `chats.git_told_from`
-names the latest checkpoint. A different digest emits a `snapshot` item with
-producer `git`. The dispatch transaction writes `git_told` and
-`git_told_from` beside the `workspace` columns. Checkpoint publication sets
-`git_told` to `null`. An unbound or detached Chat yields no item and writes
-`git_told = null`. A fork copies neither column. The migration adds two
-nullable columns; the existing `chats` RLS covers them.
+`git` is an `InRunContextProducer`
+(`apps/api/src/runs/in-run-context-items.ts:318`), like `instructions`. One
+code path serves both moments:
+
+- `prepareTurn` stages the turn-start item. The observation runs once per
+  attempt in preparation, outside the attempt's database transaction, after
+  `prepareWorkspace` and concurrently with the Workspace MCP start, skill
+  resolution, and prompt imports. The turn-instruction load cannot share that
+  slot because it needs the estimate pass. A second pass after a checkpoint
+  reuses the observation.
+- `observeToolCall` sees a settled successful `enter_workspace`; the next
+  `prepareStep` observes again and stages the item after that tool result. The
+  item is stored on the assistant message after the tool part, as
+  `context-injection` defines for in-Run items.
+
+Told state comes from effective history: the latest `git` item of the active
+epoch after the latest binding change (an `enter_workspace` that bound or
+switched, an exit, a detach, or a `workspace` snapshot). The producer compares
+rendered text, so a retry that resets a reply loses that reply's items and
+compares with the earlier one, and a fork compares with the history it
+copied. A checkpoint starts a new epoch, so the next request tells the state
+again. No column and no migration are needed.
 
 `CONTEXT_ITEM_PRODUCERS` gains `git` after `workspace`.
 
-Rejected: store the rendered text. The digest is enough to compare and keeps
-repository text out of a second column. Rejected: fold git state into the
-`workspace` snapshot (grilling D6).
+Rejected: `git_told` and `git_told_from` columns written by the dispatch
+transaction, as the `workspace` producer does (v1-v3 of this design). They
+cannot see an in-Run item, need a migration and about 22 fixture updates, and
+repeat the `workspace` producer's second tell after a mid-Run entry. Rejected:
+fold git state into the `workspace` snapshot (grilling D6).
 
-### D8: The entry result carries a fresh observation
+### D8: The tool result stays literal
 
-The tool context gains the snapshot service bound to the Run's admission, as it
-carries `workspaceMcp` today. `boundResult` adds `git: string` for every
-successful entry, including `unchanged`. The told state does not move, so the
-next turn tells the snapshot once more. This matches the `workspace` producer
-and avoids a second writer of told state.
+`boundResult` does not change. Git state reaches the model only as a `git`
+item (V6). An unchanged same-root re-entry adds no item, so silence means the
+last item still holds. #1623 moves the skill list, MCP server states, and root
+narration to the same shape.
 
 ### D9: Compaction leaves git content out
 
-`apps/api/src/compaction/prompts/instruction.md` names the `git` producer and
-the `git` field of `enter_workspace` results as content not to carry into the
-summary. The requirement lives in `workspace-git-state`. The 372-line
-`model-system-prompts` compaction requirement names its own exclusions
-inclusively and stays unchanged.
+`apps/api/src/compaction/prompts/instruction.md` names the `git` producer as
+content not to carry into the summary. The requirement lives in
+`workspace-git-state`. The 372-line `model-system-prompts` compaction
+requirement names its own exclusions inclusively and stays unchanged.
 
 ### D10: The owner route and the Repository block
 
@@ -325,20 +334,22 @@ CHANGELOG line ships with the Session details layer that makes it visible.
   before, and the owner can remove the directory on the Machine.
 - [An old daemon loses worktree removal] -> **BREAKING** note in the
   CHANGELOG and `machines.md`; the error names the update.
-- [A mid-Run entry tells the state twice] -> accepted; it matches `workspace`.
+- [An unchanged re-entry is silent] -> the model reads silence as "the last
+  `git` item still holds"; the item text says it does not update after the
+  agent's own commands.
 - [`--path-format` needs git 2.31] -> `git.inspect` needs it today.
 - [A reflog-less upstream ref] -> "update time unknown".
 
 ## Migration Plan
 
-1. Deploy the API with the migration; the new columns start `null`, so every
-   bound Chat tells its state once on its next turn.
+1. Deploy the API. No history holds a `git` item yet, so every bound Chat
+   tells its state once on its next turn.
 2. Update Machine daemons. Until then, their Chats show "Machine daemon update
    required", and worktree removal on them answers `machine_update_required`.
 3. Rollback: revert the API and the daemons together. An updated daemon no
    longer answers `git.status`, so a reverted API loses worktree removal on it
-   until the daemon is reverted. The nullable columns are ignored by older
-   code.
+   until the daemon is reverted. Older code replays stored `git` items
+   verbatim, as it replays any unrecognized producer.
 
 ## Open Questions
 
@@ -346,6 +357,13 @@ None that change the specs or the stack. The Session details refresh cadence
 beyond open and focus can change after use.
 
 ## Revision history
+
+- **v4 (2026-11-08):** V6 at Leo's choice: git state reaches the model only as
+  `git` items; a mid-Run entry stages an in-Run item after its tool result,
+  and the producer is one `InRunContextProducer` for both moments. Told state
+  comes from effective history, so the `git_told` columns, their migration,
+  and the `entry-result` layer are gone. The rest of the entry narration moves
+  in #1623.
 
 - **v3 (2026-11-08):** Round 2, two reviewers (spec consistency: 0 P0, 1 P1,
   10 P2; feasibility: 0 P0, 1 P1, 6 P2). Fixed: pinning by `-C` with

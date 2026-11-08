@@ -20,11 +20,12 @@ git state, and the owner sees the same state live. Feature issue:
 ## What Changes
 
 - A new rail context producer `git` with form `snapshot` tells the model the
-  git state of the Workspace repository at entry and at each accepted turn,
-  only when the rendered text differs from what the chat was last told, and
-  again after each compaction checkpoint.
-- A successful `enter_workspace` result carries the same rendered text in a
-  new `git` field, including a same-root re-entry.
+  git state of the Workspace repository at each accepted turn, only when the
+  rendered text differs from what the chat was last told, and again after each
+  compaction checkpoint.
+- After a successful `enter_workspace` that binds or switches the root, the
+  same producer stages an in-Run `git` item after the tool result. The tool
+  result itself carries no git state.
 - The snapshot holds the branch or a detached HEAD, HEAD, the upstream with
   ahead and behind dated by the upstream ref's last local update, an
   in-progress operation, change counts, up to 20 root-relative paths with the
@@ -44,9 +45,8 @@ git state, and the owner sees the same state live. Feature issue:
 - A new owner-only route `GET /api/v1/chats/:id/git-state` returns the
   live state for the chat's Workspace. Session details shows it as a
   Repository block in Environment instead of the stored checkout branch.
-- The compaction summary instruction excludes `git` snapshot content and the
-  `git` field of `enter_workspace` results, because the producer tells the
-  state again after each checkpoint.
+- The compaction summary instruction excludes `git` item content, because the
+  producer tells the state again after each checkpoint.
 - The worktree-removal guard fails closed on a gone upstream and keeps
   counting changes inside submodules.
 
@@ -76,9 +76,8 @@ Assumptions that follow from those decisions but were not asked:
   the silent pre-evaluation of an instruction import. The model sees the
   outcome as the "not permitted" line.
 - `read` must be in `tools.allowed`, as for instruction loading.
-- A mid-Run `enter_workspace` does not advance the told state, so the next
-  accepted turn tells the snapshot again once. The `workspace` producer
-  already behaves this way.
+- A same-root re-entry with an unchanged repository adds no `git` item; silence
+  means the last item still holds.
 - The Session details route uses the same 20-path bound as the model.
 - A configured clean filter, such as Git LFS, can run during `git status`,
   also in `read-only` mode. The removal guard has the same exposure today.
@@ -104,9 +103,13 @@ Please confirm each:
   unavailable: repository outside the registered root".
 - V5, grilling D25: `Closes #1615` moves from the producer layer to the
   Session details layer, because #1615's acceptance includes Session details.
-  The producer layer splits in two (`producer`, `entry-result`) to stay within
-  the review budget, and the protocol types ship with the executor layer
-  because `git-executor` re-exports them.
+  The protocol types ship with the executor layer because `git-executor`
+  re-exports them.
+- V6, grilling D6 (chosen by Leo on 2026-11-08): no `git` field in the
+  `enter_workspace` result. A mid-Run entry stages an in-Run `git` item, and
+  the producer derives its told state from effective history instead of
+  `git_told` columns. #1623 moves the skill list, MCP states, and root
+  narration to the same shape.
 
 ## Capabilities
 
@@ -114,8 +117,8 @@ Please confirm each:
 
 - `workspace-git-state`: observation of a Workspace repository's git state,
   its admission, content, bounds, and absence lines; the `git` context
-  producer and its told state; the `enter_workspace` result field; and the
-  owner route for Session details.
+  producer at turn start and after entry, with told state from history; and
+  the owner route for Session details.
 
 ### Modified Capabilities
 
@@ -144,12 +147,14 @@ Deliberately unchanged, with the reading under which each holds:
   before the Run's first model step": it requires the instruction to name the
   standing-context delimiters and the `recency-digest` producer; naming the
   `git` sources as well does not contradict it.
-- `workspace-entry` "Workspace entry validates and authorizes both submitted
-  and canonical paths": the result "SHALL include" the listed fields; an added
-  `git` field does not contradict an inclusive list.
 - `workspace-entry` "In-Run Workspace transitions are narrated by tool
-  results": the `git` field narrates repository state, not Workspace state,
-  and nothing enters the system prompt.
+  results": the result keeps narrating Workspace state; repository state
+  reaches the model as an in-Run `git` item, and nothing enters the system
+  prompt.
+- `context-injection` "Server-authored context is injected as discrete items on
+  one rail" (scenario "An in-Run item follows its triggering tool result") and
+  "An item is either persisted-literal or bind-time": the `git` item is one more
+  in-Run item and follows them unchanged.
 - `tool-call-permissions` "Match submitted string values without
   serialization artifacts": its exceptions are those "defined below" in the
   capability; the ADDED requirement is one more named exception.
@@ -171,9 +176,8 @@ Deliberately unchanged, with the reading under which each holds:
 - `packages/machine-protocol`, `apps/machine`: the two methods, the handshake
   list, registered-root confinement.
 - `apps/api`: hub dispatch and result parsing, the removal guard, the
-  snapshot service, the `git` producer with a migration for its told state,
-  the `enter_workspace` result, the compaction instruction, the new route,
-  OpenAPI.
+  snapshot service, the `git` in-Run producer, the compaction instruction, the
+  new route, OpenAPI. No migration.
 - `apps/web`: the Repository block in Session details.
 - Docs: `docs/product/operator/machines.md`, `repositories.md`,
   `docs/product/reference/permission-modes.md`,

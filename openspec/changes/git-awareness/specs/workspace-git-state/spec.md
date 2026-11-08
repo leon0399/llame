@@ -91,8 +91,8 @@ the registered root".
 
 ### Requirement: Git state for the model needs `read` admission of the git entry
 
-Before a git process starts for a `git` item or an `enter_workspace` result,
-the `read` group MUST admit the git entry. `read` MUST be in `tools.allowed`.
+Before a git process starts for a `git` item, the `read` group MUST admit the
+git entry. `read` MUST be in `tools.allowed`.
 Otherwise the result MUST be "git state unavailable: not permitted". The check
 MUST follow the git entry rules of `tool-call-permissions`.
 
@@ -295,7 +295,7 @@ normalized values MUST stop at 100 characters.
 
 - **WHEN** `origin` is `https://ghp_secret@github.com/leon0399/llame.git`
 - **THEN** the snapshot shows `origin` as `github.com/leon0399/llame`
-- **AND** the text `ghp_secret` appears in no snapshot, item, or entry result
+- **AND** the text `ghp_secret` appears in no snapshot, item, or tool result
 
 #### Scenario: A local remote hides its path
 
@@ -395,7 +395,8 @@ MUST give "git state unavailable: timeout". A failed observation MUST NOT fail
 #### Scenario: Entry succeeds on a failed read
 
 - **WHEN** `enter_workspace` binds a root and the git read fails
-- **THEN** the entry succeeds and its result holds the absence line
+- **THEN** the entry succeeds
+- **AND** the next model step carries a `git` item with the absence line
 
 ### Requirement: The git producer tells changed state
 
@@ -423,32 +424,37 @@ differs from the text last told in the active compaction epoch.
 - **WHEN** the Workspace Machine is offline at an accepted turn
 - **THEN** the turn carries a `git` item that says "git state unavailable: Machine unavailable"
 
-### Requirement: The git told state follows the rail rules
+### Requirement: The git told state comes from effective history
 
-The dispatch transaction MUST store the told text digest and the latest
-checkpoint identity for the Chat. A checkpoint publication MUST reset the told
-digest. A retry MUST follow the keep-and-append rule of `context-injection`.
+The told text MUST be the text of the latest `git` item in effective history.
+That item MUST follow the latest Workspace binding change of the active
+compaction epoch. The system MUST NOT store a separate git told state.
 
 #### Scenario: A failed Run keeps its told state
 
-- **WHEN** a Run dispatched a `git` item and then failed
+- **WHEN** a Run sent a `git` item to the model and then failed
 - **THEN** a later accepted turn with the same text adds no `git` item
 
-#### Scenario: A fork re-tells the state
+#### Scenario: A reset reply drops its told state
 
-- **WHEN** an owner forks a bound Chat
-- **THEN** the first Run of the fork carries a `git` item
+- **WHEN** a retry replaces the reply that held an in-Run `git` item
+- **THEN** the retry compares with the `git` item before that reply
 
-#### Scenario: Another owner cannot read or write the git told state
+#### Scenario: A fork keeps the told state of its history
 
-- **WHEN** owner B queries or updates owner A's Chat row
-- **THEN** the datastore returns and changes no git told state of owner A
+- **WHEN** an owner forks a bound Chat and the repository has not changed
+- **THEN** the first Run of the fork adds no `git` item
 
-### Requirement: Exit and detach clear the git told state
+#### Scenario: Another owner cannot read git items
 
-An exit or a detach MUST make the `git` producer emit nothing for that turn.
-The dispatch transaction MUST clear the git told digest, so a later entry tells
-the state again.
+- **WHEN** owner B reads the messages of owner A's Chat
+- **THEN** no `git` item of owner A returns
+
+### Requirement: A binding change restarts the git told state
+
+An exit or a detach MUST make the `git` producer emit nothing. An entry that
+binds or switches the root MUST count as a new binding, so the producer tells
+the state again. A same-root re-entry MUST NOT restart the told state.
 
 #### Scenario: Exit adds no git item
 
@@ -458,35 +464,41 @@ the state again.
 #### Scenario: Re-entry tells the state again
 
 - **WHEN** the Chat exits in one Run and enters the same root again in a later Run
-- **THEN** the next accepted turn carries a `git` item
+- **THEN** the next model step after that entry carries a `git` item
 
-### Requirement: Entry results carry the git snapshot
+### Requirement: Entry triggers an in-Run git item
 
-A successful `enter_workspace` result MUST hold a `git` field with the rendered
-snapshot or absence line. A same-root re-entry MUST observe the state again.
-The field MUST NOT change the told state.
+A successful `enter_workspace` can bind or switch the root. Then the next model
+step of the Run MUST carry a `git` item after the tool result. After a
+same-root re-entry, it MUST carry one only when the text changed. The tool
+result MUST NOT hold git state.
 
-#### Scenario: Entry narrates git state
+#### Scenario: Entry narrates git state after the result
 
 - **WHEN** `enter_workspace` binds a clean repository during a Run
-- **THEN** the result holds a `git` field with the branch and the clean state
+- **THEN** the next model step carries a `git` item with the branch and the clean state after the tool result
+- **AND** the tool result holds no git state
 
-#### Scenario: Re-entry refreshes the state
+#### Scenario: Re-entry after a commit tells the new state
 
 - **WHEN** the model enters the bound root again after a commit
-- **THEN** the result `git` field shows the new HEAD commit
+- **THEN** the next model step carries a `git` item with the new HEAD commit
+
+#### Scenario: Re-entry without a change adds no item
+
+- **WHEN** the model enters the bound root again and the repository has not changed
+- **THEN** the next model step carries no new `git` item
 
 ### Requirement: Compaction does not carry git state
 
-The compaction summary instruction MUST tell the model not to carry git state
-into the summary. This rule MUST cover a `git` item and the `git` field of an
-`enter_workspace` result. This exclusion depends on the instruction and on
-model compliance.
+The compaction summary instruction MUST tell the model not to carry the content
+of a `git` item into the summary. This exclusion depends on the instruction and
+on model compliance.
 
 #### Scenario: The summary instruction names the git sources
 
 - **WHEN** a compaction prepares its summary instruction
-- **THEN** the instruction names the `git` producer and the `git` field of `enter_workspace` results as content to leave out
+- **THEN** the instruction names the `git` producer as content to leave out
 
 ### Requirement: The owner reads live git state for a Chat
 
