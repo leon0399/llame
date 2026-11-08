@@ -4,11 +4,11 @@ import {
   getSchemaPath,
 } from '@nestjs/swagger';
 
+import { renderGitObservation } from '../../git-state/git-state-render';
 import {
   GIT_ABSENCE_LABELS,
   type GitAbsenceReason,
   type GitObservation,
-  type GitStateView,
 } from '../../git-state/git-state-view';
 
 const ABSENCE_REASONS = Object.keys(GIT_ABSENCE_LABELS);
@@ -123,19 +123,19 @@ export class GitStateOkResponse {
   counts!: GitStateCounts;
 
   @ApiProperty({ type: [GitStateEntry] })
-  entries!: Array<GitStateEntry>;
+  entries!: ReadonlyArray<GitStateEntry>;
 
   @ApiProperty({ type: 'integer' })
   omitted!: number;
 
   @ApiProperty({ type: [String] })
-  submodules!: Array<string>;
+  submodules!: ReadonlyArray<string>;
 
   @ApiProperty({ type: [GitStateCommit] })
-  commits!: Array<GitStateCommit>;
+  commits!: ReadonlyArray<GitStateCommit>;
 
   @ApiProperty({ type: [GitStateRemote] })
-  remotes!: Array<GitStateRemote>;
+  remotes!: ReadonlyArray<GitStateRemote>;
 
   @ApiProperty({ type: 'integer' })
   remotesOmitted!: number;
@@ -150,8 +150,8 @@ export class GitStateNotARepositoryResponse {
   @ApiProperty({ enum: ['not_a_repository'] })
   status!: 'not_a_repository';
 
-  @ApiProperty({ enum: ['not a git repository'] })
-  line!: 'not a git repository';
+  @ApiProperty({ description: '`not a git repository`' })
+  line!: string;
 }
 
 export class GitStateUnavailableResponse {
@@ -179,56 +179,37 @@ export const GIT_STATE_RESPONSE_MODELS = [
 ];
 
 /** The route's body: a union on `status`. */
-export function gitStateResponseSchema() {
-  return {
-    oneOf: GIT_STATE_RESPONSE_MODELS.map((model) => ({
-      $ref: getSchemaPath(model),
-    })),
-    discriminator: {
-      propertyName: 'status',
-      mapping: {
-        ok: getSchemaPath(GitStateOkResponse),
-        unbound: getSchemaPath(GitStateUnboundResponse),
-        not_a_repository: getSchemaPath(GitStateNotARepositoryResponse),
-        unavailable: getSchemaPath(GitStateUnavailableResponse),
-      },
+export const GIT_STATE_RESPONSE_SCHEMA = {
+  oneOf: GIT_STATE_RESPONSE_MODELS.map((model) => ({
+    $ref: getSchemaPath(model),
+  })),
+  discriminator: {
+    propertyName: 'status',
+    mapping: {
+      ok: getSchemaPath(GitStateOkResponse),
+      unbound: getSchemaPath(GitStateUnboundResponse),
+      not_a_repository: getSchemaPath(GitStateNotARepositoryResponse),
+      unavailable: getSchemaPath(GitStateUnavailableResponse),
     },
-  };
-}
-
-function mutableView(view: GitStateView): GitStateOkResponse {
-  return {
-    status: 'ok',
-    toplevel: view.toplevel,
-    rootRelative: view.rootRelative,
-    branch: view.branch,
-    detached: view.detached,
-    head: view.head && { ...view.head },
-    upstream: view.upstream && { ...view.upstream },
-    operation: view.operation && { ...view.operation },
-    counts: { ...view.counts },
-    entries: view.entries.map((entry) => ({ ...entry })),
-    omitted: view.omitted,
-    submodules: [...view.submodules],
-    commits: view.commits.map((commit) => ({ ...commit })),
-    remotes: view.remotes.map((remote) => ({ ...remote })),
-    remotesOmitted: view.remotesOmitted,
-  };
-}
+  },
+};
 
 export function toGitStateResponse(
   observation: GitObservation,
 ): GitStateResponse {
   switch (observation.kind) {
     case 'state':
-      return mutableView(observation.view);
+      return { status: 'ok', ...observation.view };
     case 'not_a_repository':
-      return { status: 'not_a_repository', line: 'not a git repository' };
+      return {
+        status: 'not_a_repository',
+        line: renderGitObservation(observation),
+      };
     case 'unavailable':
       return {
         status: 'unavailable',
         reason: observation.reason,
-        line: `git state unavailable: ${GIT_ABSENCE_LABELS[observation.reason]}`,
+        line: renderGitObservation(observation),
       };
   }
 }

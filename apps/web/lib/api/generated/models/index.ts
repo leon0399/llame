@@ -83,7 +83,6 @@ export * from "./gitStateCounts";
 export * from "./gitStateEntry";
 export * from "./gitStateHead";
 export * from "./gitStateNotARepositoryResponse";
-export * from "./gitStateNotARepositoryResponseLine";
 export * from "./gitStateNotARepositoryResponseStatus";
 export * from "./gitStateOkResponse";
 export * from "./gitStateOkResponseStatus";

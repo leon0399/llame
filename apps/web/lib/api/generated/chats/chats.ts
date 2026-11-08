@@ -414,7 +414,7 @@ export const getChatCreationRecord = async (
   return data;
 };
 
-export type getChatGitStateError = void | void | void;
+export type getChatGitStateError = void | void | void | void;
 
 export const getGetChatGitStateUrl = (id: string) => {
   return `/api/v1/chats/${id}/git-state`;

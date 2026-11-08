@@ -175,4 +175,15 @@ describe('the git state route over HTTP', () => {
   it('refuses an anonymous request', async () => {
     await stateOf().expect(401);
   });
+
+  // The route's own ceiling (30/min per IP). Last: it spends that budget.
+  it('THROTTLE: rapid git state reads are rejected with 429', async () => {
+    let tooMany = 0;
+    for (let i = 0; i < 35; i += 1) {
+      const res = await stateOf(owner);
+      if (res.status === 429) tooMany += 1;
+      else expect(res.status).toBe(200);
+    }
+    expect(tooMany).toBeGreaterThan(0);
+  });
 });

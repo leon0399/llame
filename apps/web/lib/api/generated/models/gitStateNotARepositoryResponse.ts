@@ -5,10 +5,10 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
-import type { GitStateNotARepositoryResponseLine } from "./gitStateNotARepositoryResponseLine";
 import type { GitStateNotARepositoryResponseStatus } from "./gitStateNotARepositoryResponseStatus";
 
 export interface GitStateNotARepositoryResponse {
   status: GitStateNotARepositoryResponseStatus;
-  line: GitStateNotARepositoryResponseLine;
+  /** `not a git repository` */
+  line: string;
 }

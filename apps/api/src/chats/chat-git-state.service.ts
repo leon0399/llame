@@ -4,7 +4,6 @@ import { observeWorkspaceRoot } from '../git-state/git-observe-root';
 import { GitSnapshotService } from '../git-state/git-snapshot.service';
 import { ExecutorGitError } from '../machines/executor-git-error';
 import { ExecutorGit } from '../machines/executor-git.service';
-import { MachineConnector } from '../machines/machine-connector.service';
 import { ChatsService } from './chats.service';
 import { toGitStateResponse, type GitStateResponse } from './dto/git-state.dto';
 
@@ -24,8 +23,6 @@ export class ChatGitStateService {
     private readonly snapshots: Pick<GitSnapshotService, 'observe'>,
     @Inject(ExecutorGit)
     private readonly executors: Pick<ExecutorGit, 'locate'>,
-    @Inject(MachineConnector)
-    private readonly connector: Pick<MachineConnector, 'reachable'>,
   ) {}
 
   async read(chatId: string, ownerUserId: string): Promise<GitStateResponse> {
@@ -35,7 +32,6 @@ export class ChatGitStateService {
     const root = chat.workspaceRoot;
     if (root === null) return { status: 'unbound' };
 
-    let machine: string | undefined;
     const observation = await observeWorkspaceRoot(
       {
         snapshots: this.snapshots,
@@ -50,7 +46,6 @@ export class ChatGitStateService {
                 'The Chat is bound to another executor.',
               );
             }
-            machine = target.machine;
             return target;
           },
         },
@@ -58,11 +53,6 @@ export class ChatGitStateService {
       {
         root,
         admit: () => true,
-        // A key of its own: a Run attempt's cached verdict never answers here.
-        reachable: () =>
-          machine === undefined
-            ? Promise.resolve(true)
-            : this.connector.reachable(machine, `route:${crypto.randomUUID()}`),
       },
     );
     return toGitStateResponse(observation);

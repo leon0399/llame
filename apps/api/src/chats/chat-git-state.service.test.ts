@@ -13,17 +13,23 @@ import { NotFoundException } from '@nestjs/common';
 
 import { type Chat } from '../db/schema';
 import { GitSnapshotService } from '../git-state/git-snapshot.service';
+import { modelGitAdmission } from '../git-state/model-git-admission';
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
+import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
 import {
-  ExecutorGit,
-  localGitSurface,
-  type ExecutorTarget,
-} from '../machines/executor-git.service';
-import { MachineConnector } from '../machines/machine-connector.service';
-import { createProtocolPeer } from '../testing/machine-protocol-peer';
+  MachineConnector,
+  type MachineConnectorDeps,
+} from '../machines/machine-connector.service';
+import { nativeReadTool } from '../tools/native-files';
+import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { previewToolPermission } from '../tools/runner';
+import {
+  createProtocolPeer,
+  type ProtocolPeerOptions,
+} from '../testing/machine-protocol-peer';
 import { ChatGitStateService } from './chat-git-state.service';
 
 for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'])
@@ -98,11 +104,14 @@ function chatAt(
   };
 }
 
-function realExecutors(): ExecutorGit {
+function realExecutors(
+  options: ProtocolPeerOptions = {},
+  machines?: MachineConnectorDeps['machines'],
+): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
-    machines: undefined,
-    transportFactory: createProtocolPeer().factory,
+    machines,
+    transportFactory: createProtocolPeer(options).factory,
     idleCloseMs: 1000,
   });
   connectors.push(connector);
@@ -115,9 +124,7 @@ function realExecutors(): ExecutorGit {
 
 function serviceFor(
   chat: Chat | undefined,
-  executors: Pick<ExecutorGit, 'locate'> &
-    Pick<ExecutorGit, 'locateEntry' | 'state'>,
-  reachable = vi.fn<MachineConnector['reachable']>(),
+  executors: Pick<ExecutorGit, 'locate' | 'locateEntry' | 'state'>,
 ) {
   const getChatById = vi
     .fn<(id: string, owner: string) => Promise<Chat | undefined>>()
@@ -126,9 +133,8 @@ function serviceFor(
     { getChatById },
     new GitSnapshotService(executors),
     executors,
-    { reachable },
   );
-  return { service, getChatById, reachable };
+  return { service, getChatById };
 }
 
 describe('ChatGitStateService', () => {
@@ -163,18 +169,40 @@ describe('ChatGitStateService', () => {
     expect(JSON.stringify(state)).not.toContain('ghp_secret');
   });
 
-  it('does not let tool permissions gate the entry', async () => {
+  it('does not let tool permissions gate the route', async () => {
     const root = repository();
-    const executors = realExecutors();
-    const observe = vi.spyOn(GitSnapshotService.prototype, 'observe');
-    const { service } = serviceFor(chatAt(root), executors);
+    const modelAdmission = modelGitAdmission({
+      readAllowlisted: true,
+      admitsRead: (path) =>
+        previewToolPermission(
+          nativeReadTool,
+          { path },
+          {
+            userId: OWNER,
+            chatId: CHAT_ID,
+            configuredCredentials: [],
+            tenantDb: {
+              runAs: () => Promise.reject(new Error('tenant DB is not used')),
+            },
+            permissionPolicy: compileToolPermissionMap(
+              {
+                read: {
+                  allow: true,
+                  reject: [{ field: 'path', regex: String.raw`/\.git(/|$)` }],
+                },
+              },
+              'route-policy',
+            ),
+          },
+        ),
+    });
+    expect(modelAdmission(join(root, '.git'))).toBe(false);
+    const { service } = serviceFor(chatAt(root), realExecutors());
 
-    const state = await service.read(CHAT_ID, OWNER);
-
-    expect(state.status).toBe('ok');
-    const [input] = observe.mock.calls[0] ?? [];
-    expect(input?.admit(join(root, '.git'))).toBe(true);
-    observe.mockRestore();
+    await expect(service.read(CHAT_ID, OWNER)).resolves.toMatchObject({
+      status: 'ok',
+      branch: 'main',
+    });
   });
 
   it('answers a Chat that is not a repository with its line', async () => {
@@ -229,30 +257,25 @@ describe('ChatGitStateService', () => {
     expect(locate).not.toHaveBeenCalled();
   });
 
-  it('asks a Machine root for reachability under its own key', async () => {
-    const executors = realExecutors();
-    const target: ExecutorTarget = {
-      executorId: 'machine:nas',
-      machine: 'nas',
-      path: '/srv/repo',
-    };
-    vi.spyOn(executors, 'locate').mockReturnValue(target);
-    const locateEntry = vi.spyOn(executors, 'locateEntry');
-    const reachable = vi.fn().mockResolvedValue(false);
+  it('answers an offline Machine as unavailable without touching the reachability cache', async () => {
+    const executors = realExecutors(
+      { openFailure: () => 'ssh: connect to host nas port 22: refused' },
+      {
+        ssh: { knownHostsFile: '/dev/null' },
+        hosts: { nas: { destination: 'nas.example' } },
+      },
+    );
+    const reachable = vi.spyOn(connectors[0], 'reachable');
     const { service } = serviceFor(
       chatAt('machine://nas/srv/repo', 'machine:nas'),
       executors,
-      reachable,
     );
 
-    await expect(service.read(CHAT_ID, OWNER)).resolves.toMatchObject({
+    await expect(service.read(CHAT_ID, OWNER)).resolves.toEqual({
       status: 'unavailable',
       reason: 'machine_unavailable',
+      line: 'git state unavailable: Machine unavailable',
     });
-    expect(reachable).toHaveBeenCalledExactlyOnceWith(
-      'nas',
-      expect.stringMatching(/^route:[0-9a-f-]{36}$/),
-    );
-    expect(locateEntry).not.toHaveBeenCalled();
+    expect(reachable).not.toHaveBeenCalled();
   });
 });

@@ -1142,6 +1142,9 @@
           },
           "404": {
             "description": "Chat not found or not owned"
+          },
+          "429": {
+            "description": "Too many git state reads"
           }
         },
         "security": [
@@ -5694,7 +5697,7 @@
           },
           "line": {
             "type": "string",
-            "enum": ["not a git repository"]
+            "description": "`not a git repository`"
           }
         },
         "required": ["status", "line"]
