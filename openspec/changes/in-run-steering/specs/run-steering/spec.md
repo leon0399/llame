@@ -306,6 +306,17 @@ next model request in the same segment. It MUST NOT complete.
 - **WHEN** the Run stops a step for a pending steer, and the owner withdraws the steer before the delivery
 - **THEN** the Run sends the next model request in the same segment and does not complete
 
+### Requirement: A withdrawn interrupt keeps the cut reasoning out of the request
+
+An interrupt can stop work, and the owner can withdraw the item before the delivery. The Run MUST
+then continue the same reply. The reasoning part that the interrupt cut MUST NOT replay, and no
+`interrupted` notice is added.
+
+#### Scenario: A withdrawal after an interrupt stopped work
+
+- **WHEN** an interrupt stops a response during a reasoning part, and the owner withdraws the item before the delivery
+- **THEN** the Run continues the same reply, and its next request does not carry the cut reasoning part
+
 ### Requirement: A delivery does not happen after a cancellation
 
 A delivery MUST NOT happen when a cancellation of the Run is recorded. The items MUST stay pending,

@@ -158,7 +158,8 @@ it found in executor state, because `onFinish` carries no stop reason. A recorde
 wins: the executor settles the Run `cancelled`. Otherwise the stop is a segment end, and the
 executor runs D4 instead of `finishRun`. When D4 finds no pending item (the owner withdrew it),
 the executor sends the next request in the same segment with another `streamText` call over the
-same reply.
+same reply. After an interrupt stop, that continuation omits reasoning parts marked
+`providerMetadata.llame.interrupted`; the settled calls already carry their results.
 
 Rejected: injecting steers as in-Run context items on the running reply. The owner's words would
 be assistant parts, a crash reset would delete them, and search and forks would not see an owner
@@ -214,8 +215,10 @@ Each process whose job-queue profile consumes `runs` (`concurrencyFor('runs') !=
 includes an API process that runs Runs) holds one postgres.js `LISTEN llame_run_control`
 connection, built like `PostgresChangeListener`. The payload is `{runId, kind}` with `kind`
 `interrupt` or `cancel`. The abort registry stores `{controller, segmentController, userId}`. The payload is a pointer: the
-listener confirms `cancel_requested_at` or a pending `interrupt` item in the owner's tenant scope
-before it acts. A `cancel` aborts the Run controller. An `interrupt` aborts the segment controller
+listener confirms, in the owner's tenant scope, that `cancel_requested_at` is set or the Run no
+longer exists (chat deletion cascades the Run away), or that an `interrupt` item is pending. The
+confirmation also reads `runs.active_attempt_id`; the registry stores the attempt id of its
+segment controller, and an interrupt aborts only when the two match. A `cancel` aborts the Run controller. An `interrupt` aborts the segment controller
 only while a model request or a tool call is in flight; otherwise the item waits for the next step
 end or final answer, as a steer does. On every
 (re)connect the listener re-reads, in each owner's tenant scope, the cancellation and pending
@@ -246,6 +249,10 @@ every other tool. The attempt tool binding gives each dynamic MCP tool `cancel`.
      recorded `native.result`, so a later retry does not see an unsettled attempt;
    - a call that never started: `cancelled` with the not-executed text.
 5. It runs D4 with cause `interrupt` and the stopped `bash` and MCP calls in `stoppedCalls`.
+
+The tool context carries the attempt id, and native admission (`isCurrentDelivery`) also requires
+`runs.active_attempt_id` to equal it under the same Run row lock, so a call of the interrupted
+segment that waited on the delivery's lock cannot record a `native.attempt` after `run.delivered`.
 
 The next segment's dispatch authors the `interrupted` item from the `run.delivered` payload, as an
 accepted-turn producer, first in precedence. `background` is a reserved enum value with no
@@ -284,7 +291,9 @@ and `live-protocol.ts` are regenerated.
 The Send control becomes a `ButtonGroup` with a `DropdownMenu` while a Run is active: Steer
 (Enter), Interrupt, Queue (Mod+Enter, `aria-keyshortcuts`). The pending stack renders rows from
 `GET /deliveries` plus live updates, with achromatic `rounded-md` rows per `DESIGN.md`. A delivery send is a plain
-`fetch` to the messages route, outside the `useChat` transport, because its answer is 202 JSON.
+`fetch` to the messages route, outside the `useChat` transport, because its answer is 202 JSON. A
+non-202 success means the Run had ended and the send started a Run: the client releases the body
+and attaches to the new Run through the existing resume path.
 Edit is `DELETE`; the response fills the composer, and the next send uses a new message id. Stop and Esc
 `PATCH` the first pending steer to `interrupt` when one exists, otherwise they send the cancel
 request. `message-visibility.ts` gains a renderer for the `interrupted` producer. Turn actions
@@ -315,7 +324,11 @@ follow `latestRun.messageId`, which a delivery moves.
 
 Additive: the `chat_deliveries` table with RLS and the composite key, and the trigger migration.
 Old clients never send `delivery` and keep the 409. Rollback stops the web from sending `delivery`
-first, then drops the trigger and the table; delivered messages stay ordinary user rows, and Runs
+first and stops delivery admission. It then waits until no item is `pending` (running Runs deliver
+or promote them; the owner withdraws the rest) and until no non-terminal Run has a `run.delivered`
+event, because an older worker would complete such a Run through its salvage branch without
+answering the delivered message. Only then does it roll back workers and drop the trigger and the
+table; delivered messages stay ordinary user rows, and Runs
 keep their moved `message_id`.
 
 ## Open Questions
@@ -325,6 +338,12 @@ and is reviewed in the `web` layer's Storybook stories.
 
 ## Revision history
 
+- **v6 (2026-11-09):** Second GitHub review round on #1637 (10 accepted, 6 rejected): baselines on
+  the first steer delivery only (task 4.3); the context-injection scenario keeps "binding"; a
+  withdrawn interrupt does not replay the cut reasoning (new scenario); chat deletion confirms by
+  a missing Run; interrupts bind to the confirmed segment attempt; native admission checks the
+  active attempt; a delivery send that started a Run resumes it; rollback waits for pending items
+  and delivered Runs.
 - **v5 (2026-11-08):** Rebased on master after git-awareness (#1621–#1634): the `context-injection`
   delta now starts from the canonical list that includes `git`; `interrupted` stays first.
 - **v4 (2026-11-08):** GitHub review round on #1637 (CodeRabbit 2 threads + 1 nit, pullfrog 4

@@ -102,7 +102,7 @@ rule of a retry after a dispatch.
 #### Scenario: A retry's new item follows the stored items
 
 - **WHEN** an earlier attempt of a Run stored `instructions` and `skill-catalog` items in its dispatch transaction
-- **AND** a retry of the Run detaches the Workspace bind
+- **AND** a retry of the Run detaches the Workspace binding
 - **THEN** the retry stores its `workspace` detach narration after the stored items and before the user text, although `workspace` ranks before `instructions`
 - **AND** the stored items keep their positions, and replay keeps the order that results
 
