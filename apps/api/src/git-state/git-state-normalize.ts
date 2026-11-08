@@ -14,10 +14,7 @@ const LOCAL_REMOTE = 'local';
 
 /** Cut at `limit` characters without splitting a surrogate pair. */
 function cut(value: string, limit: number): string {
-  const characters = Array.from(value);
-  return characters.length <= limit
-    ? value
-    : characters.slice(0, limit).join('');
+  return Array.from(value).slice(0, limit).join('');
 }
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:\/\//iu;
@@ -28,7 +25,6 @@ const UNSAFE_VALUE = /[@\s\p{Cc}]/u;
 
 /** Git's rule: a value with no `://` and no `:` before its first `/` is a path. */
 function isLocalPath(value: string): boolean {
-  if (SCHEME.test(value)) return false;
   const colon = value.indexOf(':');
   const slash = value.indexOf('/');
   return colon === -1 || (slash !== -1 && slash < colon);
@@ -55,14 +51,12 @@ function remoteValue(url: string): string {
   if (scheme?.[0].toLowerCase() === 'file://') return LOCAL_REMOTE;
   const afterScheme =
     scheme === null ? withoutTail : withoutTail.slice(scheme[0].length);
-  const at = afterScheme.lastIndexOf('@');
   const credentialFree =
-    scheme !== null && at !== -1
-      ? `${scheme[0]}${afterScheme.slice(at + 1)}`
-      : withoutTail;
+    scheme === null
+      ? withoutTail
+      : `${scheme[0]}${afterScheme.slice(afterScheme.lastIndexOf('@') + 1)}`;
   const normalized = normalizeRemote(credentialFree);
   const hostless =
-    normalized === '' ||
     normalized.startsWith('/') ||
     normalized.startsWith('.') ||
     normalized.startsWith('~') ||
