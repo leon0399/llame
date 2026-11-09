@@ -74,6 +74,7 @@ vi.mock('@sentry/nestjs', async (importOriginal) => ({
 
 import type {
   Chat,
+  ChatDelivery,
   MediaObject,
   Message,
   ModelToolDeclaration,
@@ -17865,5 +17866,966 @@ describe('RunExecutionService git state', () => {
       'git',
       'instructions',
     ]);
+  });
+});
+
+describe('RunExecutionService executeRun — run segments', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const deliveredId = '77777777-7777-4777-8777-777777777777';
+  const deliveredMessage: Message = {
+    ...userMessage,
+    id: deliveredId,
+    seq: 3,
+    parts: [{ type: 'text', text: 'steer now' }],
+  };
+  const pendingItem: ChatDelivery = {
+    id: '88888888-8888-4888-8888-888888888888',
+    chatId,
+    ownerUserId: userId,
+    producer: 'owner',
+    senderRef: null,
+    mode: 'steer',
+    parts: [{ type: 'text', text: 'steer now' }],
+    settings: { modelId: 'fake-model', permissionMode: 'default' },
+    state: 'pending',
+    position: 1,
+    deliveredMessageId: null,
+    runId: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  /**
+   * A capturing client whose every `streamText` call is recorded, and whose
+   * result carries what a continuation call reads from the one before.
+   */
+  function makeSegmentClient(produced: Array<ModelMessage> = []) {
+    const calls: Array<StreamOptions> = [];
+    const client: ModelClient = {
+      model: 'fake-model',
+      provider: 'fake',
+      contextWindowTokens: 128_000,
+      pricing: { inputUsdPer1M: 2, outputUsdPer1M: 6 },
+      streamText: (options) => {
+        calls.push(options);
+        // The tests drive the callbacks directly; only `response` is read, by a
+        // continuation call.
+        return Object.assign(unusedStreamResult(), {
+          response: Promise.resolve({ messages: produced }),
+        });
+      },
+    };
+    return { client, calls };
+  }
+
+  /** The repositories as a Run holding `items` finds them at a boundary. */
+  function serveDelivery(
+    items: Array<ChatDelivery>,
+    locked: Run | undefined = { ...run, activeAttemptId: testAttemptId },
+  ) {
+    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
+      locked,
+    );
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+    const lockPending = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+      .mockResolvedValue(items);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'markDelivered',
+    ).mockResolvedValue(true);
+    const createUser = vi
+      .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
+      .mockResolvedValue(deliveredMessage);
+    return { lockPending, createUser };
+  }
+
+  /** One declared tool, so the call carries the step callbacks. */
+  function toolService(client: ModelClient) {
+    return makeExecutionService(
+      client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const }),
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+  }
+
+  const finishToolCalls = {
+    text: '',
+    usage: ZERO_USAGE,
+    finishReason: 'tool-calls' as const,
+    stepCount: 2,
+  };
+
+  it('stops the call when the step end finds a pending item and not otherwise', async () => {
+    mockNormalExecutionRepositories();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+
+    signal.mockResolvedValueOnce('delivery');
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    signal.mockResolvedValueOnce(undefined);
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(false);
+    expect(signal).toHaveBeenCalledWith({ runId, chatId, userId });
+  });
+
+  it('delivers a pending item at a step boundary and starts the next segment', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const continued = vi
+      .spyOn(RunEventsRepository.prototype, 'findFirstByType')
+      .mockResolvedValue(undefined);
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const result = await execution.service.executeRun({
+      ...executionInput(segment.client),
+      followUpAction: 'continue',
+    });
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('delivery');
+    await options?.stopWhenExtra?.();
+    const { createUser } = serveDelivery([pendingItem]);
+
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: pendingItem.parts }),
+    );
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+    ).toMatchObject({ status: 'completed', finishReason: 'tool-calls' });
+    expect(appended.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'model.requested',
+      'model.completed',
+      'run.delivered',
+    ]);
+    expect(spies.markFinished).not.toHaveBeenCalled();
+
+    await result.consumeStream();
+
+    expect(segment.calls).toHaveLength(2);
+    expect(spies.storeAtDispatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: deliveredId }),
+    );
+    // Only the first segment resumes a Continue Run's state.
+    expect(continued).toHaveBeenCalledTimes(1);
+    expect(spies.markStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the Run live when the final answer meets a pending item', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+    serveDelivery([pendingItem]);
+    await segment.calls[0]?.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'model.requested',
+      'model.completed',
+      'run.delivered',
+    ]);
+    expect(spies.markFinished).not.toHaveBeenCalled();
+
+    await result.consumeStream();
+
+    expect(segment.calls).toHaveLength(2);
+    expect(spies.storeAtDispatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: deliveredId }),
+    );
+  });
+
+  it('continues the segment in another call when a step end left nothing to deliver', async () => {
+    mockNormalExecutionRepositories();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const produced: Array<ModelMessage> = [
+      { role: 'assistant', content: 'working' },
+    ];
+    const segment = makeSegmentClient(produced);
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const }),
+      }),
+      undefined,
+      { ...withDeclaredTool(), maxStepsPerRun: 5 },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+    const first = segment.calls[0];
+    expect(first?.maxSteps).toBe(5);
+    signal.mockResolvedValueOnce('delivery');
+    await first?.stopWhenExtra?.();
+    // The pending item is gone by the time the call ends: nothing to deliver.
+    serveDelivery([]);
+    await first?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    expect(segment.calls).toHaveLength(2);
+    const second = segment.calls[1];
+    // The segment's steps so far count against the operator's cap.
+    expect(second?.maxSteps).toBe(3);
+    expect(second?.messages).toEqual([...(first?.messages ?? []), ...produced]);
+  });
+
+  it('settles cancelled when a cancellation is recorded at the boundary', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('delivery');
+    await options?.stopWhenExtra?.();
+    const { createUser } = serveDelivery([pendingItem], {
+      ...run,
+      activeAttemptId: testAttemptId,
+      cancelRequestedAt: now,
+    });
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(createUser).not.toHaveBeenCalled();
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({ error: { message: 'Run was cancelled.' } }),
+    );
+    expect(appended.at(-1)).toEqual({
+      type: 'run.cancelled',
+      payload: { status: 'cancelled', message: 'Run was cancelled.' },
+    });
+  });
+
+  it('settles cancelled when the step end found a recorded cancellation', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('cancel');
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(lock).not.toHaveBeenCalled();
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({ error: { message: 'Run was cancelled.' } }),
+    );
+    expect(appended.at(-1)).toEqual({
+      type: 'run.cancelled',
+      payload: { status: 'cancelled', message: 'Run was cancelled.' },
+    });
+  });
+
+  it('completes a Run that no step end stopped, whatever the stop cause held', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    // A stale cause: the call ended for its own reason, not at our stop.
+    signal.mockResolvedValueOnce('cancel');
+    await options?.stopWhenExtra?.();
+    await options?.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 2,
+    });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      {
+        attemptId: testAttemptId,
+      },
+    );
+    expect(appended.at(-1)).toEqual({
+      type: 'run.completed',
+      payload: undefined,
+    });
+  });
+  it('keeps the Run live and starts no segment when the boundary is fenced', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('delivery');
+    await options?.stopWhenExtra?.();
+    // Another attempt superseded this one: its row lock finds no live Run.
+    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
+      undefined,
+    );
+    await options?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    expect(segment.calls).toHaveLength(1);
+    expect(spies.markFinished).not.toHaveBeenCalled();
+    expect(appended.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'model.requested',
+    ]);
+  });
+
+  it('settles an aborted Run cancelled even when the step end saw a pending item', async () => {
+    const controller = new AbortController();
+    const spies = mockNormalExecutionRepositories();
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(
+      executionInput(segment.client, controller.signal),
+    );
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('delivery');
+    await options?.stopWhenExtra?.();
+    controller.abort();
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(lock).not.toHaveBeenCalled();
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.anything(),
+    );
+  });
+
+  it('runs a delivered segment from the Run row, not from the job', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      messageId: deliveredId,
+    });
+    const findMessage = vi
+      .spyOn(MessagesRepository.prototype, 'findById')
+      .mockResolvedValue(deliveredMessage);
+    const continued = vi
+      .spyOn(RunEventsRepository.prototype, 'findFirstByType')
+      .mockResolvedValue(undefined);
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      followUpAction: 'continue',
+    });
+
+    expect(findMessage).toHaveBeenCalledWith(chatId, userId, deliveredId);
+    expect(spies.storeAtDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: deliveredId }),
+    );
+    // A delivered segment never applies the job's follow-up rules.
+    expect(continued).not.toHaveBeenCalled();
+    expect(segment.calls).toHaveLength(1);
+  });
+
+  it('settles a Run cancelled when its dispatch finds a recorded cancellation', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.updateForAttempt.mockResolvedValue({
+      ...run,
+      cancelRequestedAt: now,
+    });
+    const appended = recordAppendedEvents();
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await expect(
+      execution.service.executeRun(executionInput(segment.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    const message = 'Run was cancelled before model inference.';
+    expect(segment.calls).toHaveLength(0);
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({ error: { message } }),
+    );
+    expect(appended.at(-1)).toEqual({
+      type: 'run.cancelled',
+      payload: { status: 'cancelled', message },
+    });
+  });
+
+  it('starts the delivered segment when a salvaged answer meets a pending item', async () => {
+    const spies = mockNormalExecutionRepositories();
+    // A completed reply already stands: the dispatch cannot start a second one.
+    spies.upsertRunningReply.mockResolvedValueOnce(undefined);
+    serveDelivery([pendingItem]);
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+
+    expect(segment.calls).toHaveLength(1);
+    expect(spies.storeAtDispatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: deliveredId }),
+    );
+    expect(spies.markFinished).not.toHaveBeenCalled();
+  });
+
+  it('sends the Run effort to the model only when the Run has one', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const plain = makeSegmentClient();
+    await makeExecutionService(plain.client).service.executeRun(
+      executionInput(plain.client),
+    );
+    expect(plain.calls[0]).not.toHaveProperty('effort');
+
+    spies.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      effort: 'high',
+    });
+    const efforted = makeSegmentClient();
+    await makeExecutionService(efforted.client).service.executeRun(
+      executionInput(efforted.client),
+    );
+    expect(efforted.calls[0]?.effort).toBe('high');
+  });
+
+  it('listens for the parent abort once, and not on a signal that already aborted', async () => {
+    mockNormalExecutionRepositories();
+    const live = new AbortController();
+    const listen = vi.spyOn(live.signal, 'addEventListener');
+    const segment = makeSegmentClient();
+    await makeExecutionService(segment.client).service.executeRun(
+      executionInput(segment.client, live.signal),
+    );
+    const abortListeners = listen.mock.calls.filter(
+      ([type]) => type === 'abort',
+    );
+    expect(abortListeners).toHaveLength(1);
+    expect(abortListeners[0]?.[2]).toEqual({ once: true });
+
+    const spies = mockNormalExecutionRepositories();
+    const late = new AbortController();
+    const lateListen = vi.spyOn(late.signal, 'addEventListener');
+    // The abort lands after the claim, before the request goes out.
+    spies.storeAtDispatch.mockImplementation(() => {
+      late.abort();
+      return Promise.resolve({ applied: true });
+    });
+    const second = makeSegmentClient();
+    await makeExecutionService(second.client).service.executeRun(
+      executionInput(second.client, late.signal),
+    );
+    expect(lateListen).not.toHaveBeenCalledWith(
+      'abort',
+      expect.any(Function),
+      expect.anything(),
+    );
+  });
+
+  it('settles a Run cancelled when the request throws after an abort', async () => {
+    const controller = new AbortController();
+    const spies = mockNormalExecutionRepositories();
+    const client: ModelClient = {
+      ...makeSegmentClient().client,
+      streamText: () => {
+        controller.abort();
+        throw new Error('provider rejected the request');
+      },
+    };
+
+    await expect(
+      makeExecutionService(client).service.executeRun(
+        executionInput(client, controller.signal),
+      ),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.anything(),
+    );
+  });
+
+  it('fails the Run without a cancellation when the request throws and nothing aborted', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const client: ModelClient = {
+      ...makeSegmentClient().client,
+      streamText: () => {
+        throw new Error('provider rejected the request');
+      },
+    };
+
+    await expect(
+      makeExecutionService(client).service.executeRun(executionInput(client)),
+    ).rejects.toThrow('provider rejected the request');
+
+    expect(spies.markFinished).toHaveBeenCalledTimes(1);
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.anything(),
+    );
+  });
+
+  it('publishes no in-Run snapshot for a step that staged nothing', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    await segment.calls[0]?.onStepStart?.({ messages: [], stepNumber: 1 });
+
+    expect(spies.updateRunningReplyParts).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['not_available', 'not_available'],
+    ['invalid_input', 'invalid_input'],
+  ] as const)(
+    'records a %s call with its own result type',
+    async (reason, type) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const segment = makeSegmentClient();
+      const execution = toolService(segment.client);
+
+      await execution.service.executeRun(executionInput(segment.client));
+      segment.calls[0]?.onUnavailableToolCall?.({
+        toolCallId: 'call-x',
+        toolName: toolDeclaration.id,
+        input: {},
+        reason,
+        sdkRefusal: { errorText: 'refused', input: {} },
+      });
+      await segment.calls[0]?.onFinish?.({
+        text: '',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+
+      expect(
+        appended.find((entry) => entry.type === 'tool.completed')?.payload,
+      ).toMatchObject({ output: { status: 'error', type } });
+    },
+  );
+
+  it('logs a stream error under its chat and fails the Run with a plain error', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const logged = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    await segment.calls[0]?.onError?.({ error: new Error('boom') });
+
+    expect(logged).toHaveBeenCalledWith(
+      `Stream error for chat ${chatId}`,
+      expect.anything(),
+    );
+    // An error without a stall code adds no `code` key at all.
+    expect(spies.markFinished.mock.calls[0]?.[3]).toStrictEqual({
+      error: { message: 'boom' },
+      attemptId: testAttemptId,
+    });
+  });
+
+  it('leaves a parent abort to its own settlement when the stream then ends', async () => {
+    const controller = new AbortController();
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const logged = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    replayAppendedEvents(appended);
+    let releaseTool: (result: { status: 'success' }) => void = () => {};
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () =>
+          new Promise<{ status: 'success' }>((resolve) => {
+            releaseTool = resolve;
+          }),
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    await execution.service.executeRun(
+      executionInput(segment.client, controller.signal),
+    );
+    const options = segment.calls[0];
+    const call = options && executeBoundTool(options, { q: 'slow' }, 'call-9');
+    await Promise.resolve();
+    controller.abort();
+    releaseTool({ status: 'success' });
+    await call;
+    const settled = appended.length;
+    const finishes = spies.markFinished.mock.calls.length;
+
+    await options?.onError?.({ error: new Error('aborted') });
+    await options?.onFinish?.({
+      text: '',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended).toHaveLength(settled);
+    expect(spies.markFinished).toHaveBeenCalledTimes(finishes);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it('records reasoning that carries provider metadata as text alone', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    options?.onReasoningDelta?.('thinking', 'rs_1:0', {
+      openai: { itemId: 'rs_1' },
+    });
+    await options?.onFinish?.({
+      text: '',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const deltas = appended.filter((entry) => entry.type === 'reasoning.delta');
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]?.payload).toMatchObject({ text: 'thinking' });
+  });
+
+  it('coalesces reasoning under one id into one event', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    options?.onReasoningDelta?.('think', 'rs_1:0');
+    options?.onReasoningDelta?.('ing', 'rs_1:0');
+    await options?.onFinish?.({
+      text: '',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const deltas = appended.filter((entry) => entry.type === 'reasoning.delta');
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]?.payload).toMatchObject({ text: 'thinking' });
+  });
+
+  it('stamps reasoning with the step it arrived in', async () => {
+    const spies = mockNormalExecutionRepositories();
+    recordAppendedEvents();
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+    const signature = { anthropic: { signature: 'sig' } };
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    await options?.onStepStart?.({ messages: [], stepNumber: 2 });
+    options?.onReasoningDelta?.('', 'r-withheld', signature);
+    options?.onReasoningDelta?.('visible', 'r-visible');
+    await options?.onFinish?.({
+      text: '',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 3,
+    });
+
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          {
+            type: 'reasoning',
+            text: '',
+            providerMetadata: signature,
+            step: 2,
+          },
+          { type: 'reasoning', text: 'visible', step: 2 },
+        ],
+      }),
+    );
+  });
+
+  it('holds buffered text for an empty delivery that carries nothing', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    options?.onTextDelta?.('buffered', '0:msg_1');
+    options?.onTextDelta?.('', '0:msg_1');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(appended.map((entry) => entry.type)).not.toContain('model.delta');
+  });
+
+  it('does not start the delta age clock for an empty metadata delivery', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const clock = vi.spyOn(Date, 'now');
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    clock.mockReturnValue(1000);
+    // An item that never writes text: its start binds to no stored part.
+    options?.onTextDelta?.('', '0:msg_9', { openai: { itemId: 'msg_9' } });
+    clock.mockReturnValue(2000);
+    options?.onTextDelta?.('first', '0:msg_1');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(appended.map((entry) => entry.type)).not.toContain('model.delta');
+  });
+
+  it('runs the finishing work of a Run whose reply write stored nothing', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.createAssistantReplyIfAbsent.mockResolvedValue(undefined);
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    await segment.calls[0]?.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(execution.titles.maybeGenerateTitle).toHaveBeenCalled();
+  });
+
+  it('runs the finishing work of a Run whose answer was salvaged after the terminal write failed', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markFinished.mockRejectedValue(new Error('run row unavailable'));
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    await segment.calls[0]?.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalled();
+    expect(execution.titles.maybeGenerateTitle).toHaveBeenCalled();
+  });
+
+  it('skips the finishing work when the terminal write failed and nothing was salvaged', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markFinished.mockRejectedValue(new Error('run row unavailable'));
+    spies.createAssistantReplyIfAbsent.mockRejectedValue(
+      new Error('reply unavailable'),
+    );
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    await segment.calls[0]?.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(execution.titles.maybeGenerateTitle).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['cancelled', false],
+    ['expired', true],
+  ] as const)(
+    'runs the finishing work of a Run another writer ended %s: %s',
+    async (finalStatus, runsFinishingWork) => {
+      const spies = mockNormalExecutionRepositories();
+      spies.markFinished.mockResolvedValue(undefined);
+      spies.findById.mockResolvedValue({ ...run, status: finalStatus });
+      const segment = makeSegmentClient();
+      const execution = makeExecutionService(segment.client);
+
+      await execution.service.executeRun(executionInput(segment.client));
+      await segment.calls[0]?.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+
+      expect(
+        vi.mocked(execution.titles.maybeGenerateTitle).mock.calls.length > 0,
+      ).toBe(runsFinishingWork);
+    },
+  );
+
+  it('reports a cancelled step-end settlement that lost its progress as an error turn', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    // Only the settlement the attempt itself writes is lost; the terminal
+    // settler's own write then succeeds.
+    let completions = 0;
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType, payload) => {
+        if (eventType === 'tool.completed' && (completions += 1) === 1) {
+          return Promise.reject(new Error('event log unavailable'));
+        }
+        appended.push({ type: eventType, payload });
+        return Promise.resolve(event);
+      },
+    );
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+    // The attempt's own `running` reply, rebuilt from the log it left.
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      () => Promise.resolve(durableEventsFrom(appended)),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: runningReply({ runId, attemptId: testAttemptId }),
+    });
+    vi.spyOn(NativeFilesRepository.prototype, 'priorOutcome').mockResolvedValue(
+      undefined,
+    );
+    const updateReply = vi
+      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
+      .mockResolvedValue(assistantMessage);
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => new Promise<{ status: 'success' }>(() => {}),
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    // A call is still open when the step end's cancellation ends the stream.
+    void (options && executeBoundTool(options, { q: 'slow' }, 'call-open'));
+    await Promise.resolve();
+    signal.mockResolvedValueOnce('cancel');
+    await options?.stopWhenExtra?.();
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(spies.markFinished).toHaveBeenCalledTimes(1);
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'Run progress could not be persisted.' },
+      }),
+    );
+    expect(updateReply.mock.calls[0]?.[0]?.usage).toMatchObject({
+      status: 'error',
+    });
   });
 });
