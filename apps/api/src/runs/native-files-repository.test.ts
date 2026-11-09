@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { asDouble } from '../testing/support';
 import { NativeFilesRepository } from './native-files-repository';
 
 type StoredEvent = { eventType: string; payload: unknown };
@@ -171,5 +172,103 @@ describe('NativeFilesRepository segment mutation scope', () => {
       'run-1',
       'run.delivered',
     ]);
+  });
+});
+
+type SelectChain = {
+  from: () => SelectChain;
+  where: () => SelectChain;
+  orderBy: () => SelectChain;
+  for: () => SelectChain;
+  limit: () => Promise<Array<unknown> | undefined>;
+};
+
+/** A repository whose successive queries answer `answers` in order, recording each. */
+function sequencedRepository(...answers: Array<Array<unknown>>) {
+  const pending = [...answers];
+  const chain: SelectChain = {
+    from: () => chain,
+    where: () => chain,
+    orderBy: () => chain,
+    for: () => chain,
+    limit: () => Promise.resolve(pending.shift()),
+  };
+  const select = vi.fn(() => chain);
+  const db = asDouble<Db>({ select });
+  return { repository: new NativeFilesRepository(db), select };
+}
+
+describe('NativeFilesRepository.isCurrentDelivery', () => {
+  const base = { runId: 'run-1', userId: 'user-1' };
+
+  it('is false without reading anything when the caller has no delivery sequence', async () => {
+    const { repository, select } = sequencedRepository();
+
+    await expect(
+      repository.isCurrentDelivery({ ...base, deliverySequence: undefined }),
+    ).resolves.toBe(false);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('is false when the Run row is not visible to the owner', async () => {
+    const { repository, select } = sequencedRepository([]);
+
+    await expect(
+      repository.isCurrentDelivery({ ...base, deliverySequence: 3 }),
+    ).resolves.toBe(false);
+    expect(select).toHaveBeenCalledTimes(1);
+  });
+
+  it('is true when the latest started sequence is the caller sequence', async () => {
+    const { repository } = sequencedRepository(
+      [{ activeAttemptId: 'attempt-9' }],
+      [{ sequence: 3 }],
+    );
+
+    await expect(
+      repository.isCurrentDelivery({ ...base, deliverySequence: 3 }),
+    ).resolves.toBe(true);
+  });
+
+  it('is false when a later started sequence superseded the caller sequence', async () => {
+    const { repository } = sequencedRepository(
+      [{ activeAttemptId: 'attempt-9' }],
+      [{ sequence: 7 }],
+    );
+
+    await expect(
+      repository.isCurrentDelivery({ ...base, deliverySequence: 3 }),
+    ).resolves.toBe(false);
+  });
+
+  it('is false for a named attempt that is no longer the active attempt', async () => {
+    const { repository, select } = sequencedRepository(
+      [{ activeAttemptId: 'attempt-2' }],
+      [{ sequence: 3 }],
+    );
+
+    await expect(
+      repository.isCurrentDelivery({
+        ...base,
+        deliverySequence: 3,
+        attemptId: 'attempt-1',
+      }),
+    ).resolves.toBe(false);
+    expect(select).toHaveBeenCalledTimes(1);
+  });
+
+  it('is true for a named attempt that is the active attempt', async () => {
+    const { repository } = sequencedRepository(
+      [{ activeAttemptId: 'attempt-1' }],
+      [{ sequence: 3 }],
+    );
+
+    await expect(
+      repository.isCurrentDelivery({
+        ...base,
+        deliverySequence: 3,
+        attemptId: 'attempt-1',
+      }),
+    ).resolves.toBe(true);
   });
 });

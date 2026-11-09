@@ -11,8 +11,10 @@ import {
   buildContext,
   type MessagePart,
   type ModelMessage,
+  projectStoredReplyParts,
   type StoredMessage,
 } from './context-builder';
+import { createTemporalItem } from './context-item-producers';
 
 const MODEL = 'test-model';
 
@@ -203,5 +205,145 @@ describe('an interrupted reply that ends in reasoning', () => {
     );
 
     expect(replayed).toEqual([{ type: 'text', text: 'answer' }]);
+  });
+});
+
+describe('the edges of the interrupted-reply rule', () => {
+  const signed = { anthropic: { signature: 'SIGNED' } };
+  const thought: MessagePart = {
+    type: 'reasoning',
+    text: 'thought',
+    providerMetadata: signed,
+  };
+  const text: MessagePart = { type: 'text', text: 'answer' };
+  const rolesOf = (messages: Array<ModelMessage>) =>
+    messages.map(({ role }) => role);
+
+  it('projects no assistant message when the reply holds nothing but unmarked reasoning', () => {
+    const { messages } = buildContext(
+      [
+        user(),
+        stored({
+          role: 'assistant',
+          usage: interruptedUsage,
+          parts: [thought],
+        }),
+      ],
+      { systemPrompt: 'prompt', modelId: MODEL },
+    );
+
+    expect(rolesOf(messages)).toEqual(['user']);
+  });
+
+  it('keeps every part of an interrupted reply that ends in text', () => {
+    expect(
+      project(
+        stored({
+          role: 'assistant',
+          usage: interruptedUsage,
+          parts: [thought, text],
+        }),
+      ),
+    ).toEqual([
+      { type: 'reasoning', text: 'thought', providerOptions: signed },
+      { type: 'text', text: 'answer' },
+    ]);
+  });
+
+  it('keeps a reasoning part that a context item follows', () => {
+    const item = createTemporalItem({
+      runId: '11111111-1111-4111-8111-111111111111',
+      instant: new Date('2026-11-08T10:00:00Z'),
+      timeZone: 'UTC',
+    });
+
+    const replayed = project(
+      stored({
+        role: 'assistant',
+        usage: interruptedUsage,
+        parts: [text, thought, item],
+      }),
+    );
+
+    expect(replayed).toEqual([
+      { type: 'text', text: 'answer' },
+      { type: 'reasoning', text: 'thought', providerOptions: signed },
+    ]);
+  });
+
+  it('drops reasoning that follows the last call of its step, and keeps the call result', () => {
+    const call: MessagePart = {
+      type: 'tool-read',
+      toolCallId: 'call_1',
+      state: 'output-available',
+      input: { path: '/tmp/a' },
+      output: { status: 'success', content: 'a' },
+      outcome: 'success',
+      classification: 'read_only',
+      step: 0,
+    };
+    const { messages } = buildContext(
+      [
+        user(),
+        stored({
+          role: 'assistant',
+          usage: interruptedUsage,
+          parts: [call, { ...thought, step: 0 }],
+        }),
+      ],
+      { systemPrompt: 'prompt', modelId: MODEL },
+    );
+
+    expect(rolesOf(messages)).toEqual(['user', 'assistant', 'tool']);
+    expect(
+      replayedParts(messages).map((part) =>
+        isRecord(part) ? part['type'] : part,
+      ),
+    ).toEqual(['tool-call']);
+  });
+
+  it('replays the reasoning of an unmarked part whose metadata carries another llame key', () => {
+    const replayed = project(
+      stored({
+        role: 'assistant',
+        usage: { status: 'completed', modelId: MODEL },
+        parts: [
+          {
+            type: 'reasoning',
+            text: 'thought',
+            providerMetadata: { ...signed, llame: { interrupted: false } },
+          },
+          text,
+        ],
+      }),
+    );
+
+    expect(
+      replayed.map((part) => (isRecord(part) ? part['type'] : part)),
+    ).toEqual(['reasoning', 'text']);
+  });
+
+  it('does not treat a reply that failed with an interrupted flag as one an interrupt closed', () => {
+    expect(
+      project(
+        stored({
+          role: 'assistant',
+          usage: { status: 'failed', interrupted: true, modelId: MODEL },
+          parts: [thought, text],
+        }),
+      ),
+    ).toEqual([{ type: 'text', text: 'answer' }]);
+  });
+
+  it('keeps trailing reasoning when a Continue Run or compaction replays the parts', () => {
+    const { messages } = projectStoredReplyParts([text, thought], {
+      privateParts: true,
+      mediaKey: (index) => `key-${index}`,
+    });
+
+    expect(replayedParts(messages)).toEqual([
+      { type: 'text', text: 'answer' },
+      { type: 'reasoning', text: 'thought', providerOptions: signed },
+    ]);
   });
 });

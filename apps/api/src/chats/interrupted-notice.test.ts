@@ -69,6 +69,27 @@ describe('createInterruptedItem', () => {
   });
 });
 
+describe('createInterruptedItem guards', () => {
+  it('escapes both angle brackets of a call id as unicode escapes', () => {
+    const item = createInterruptedItem({
+      runId: RUN_ID,
+      stoppedCalls: [{ toolName: 'bash', toolCallId: 'a<b>c' }],
+    });
+
+    expect(item.data.text).toContain(String.raw`call id "a\u003cb\u003ec"`);
+    expect(item.data.text).not.toContain('a<b>c');
+  });
+
+  it('refuses a stopped call with an empty tool name', () => {
+    expect(() =>
+      createInterruptedItem({
+        runId: RUN_ID,
+        stoppedCalls: [{ toolName: '', toolCallId: 'call_1' }],
+      }),
+    ).toThrow('Invalid server-authored interrupted notice metadata');
+  });
+});
+
 describe('the interrupted notice in a delivered message', () => {
   it('The notice comes first: it ranks before every other producer', () => {
     expect(CONTEXT_ITEM_PRODUCERS[0]).toBe('interrupted');

@@ -325,4 +325,23 @@ describe('RunControlListenerService interrupts', () => {
     expect(pending).toHaveBeenCalled();
     expect(segment?.signal.aborted).toBe(false);
   });
+
+  it('keeps the segment and logs the reason when the pending-interrupt read fails', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    const { segment, onNotify, flush, runAs } = await boot(visible, {
+      segmentAttemptId: ATTEMPT_ID,
+      readFailure: new Error('db down'),
+    });
+
+    onNotify(interrupt);
+    await vi.waitFor(() => expect(runAs).toHaveBeenCalled());
+    await flush();
+
+    expect(warn).toHaveBeenCalledWith(
+      `Run-control interrupt check failed for run ${RUN_ID}: db down`,
+    );
+    expect(segment?.signal.aborted).toBe(false);
+  });
 });

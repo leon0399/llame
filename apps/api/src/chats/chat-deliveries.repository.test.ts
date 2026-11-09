@@ -1,3 +1,4 @@
+import { type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -175,5 +176,56 @@ describe('ChatDeliveriesRepository.changePendingMode', () => {
     ).resolves.toBe(changed);
 
     expect(withoutStamp(sets)).toEqual([{ mode: 'steer' }]);
+  });
+});
+
+describe('ChatDeliveriesRepository.hasPendingInterrupt', () => {
+  /** A repository whose select answers `rows` and records the SQL it built. */
+  function repositoryAnswering(rows: Array<{ id: string }>) {
+    const real: Db = drizzle.mock({ schema });
+    const queries: Array<{ sql: string; params: Array<unknown> }> = [];
+    // Builds the real query, but stops it at the end of the chain.
+    const select = (fields: { id: typeof schema.chatDeliveries.id }) => ({
+      from: (table: typeof schema.chatDeliveries) => {
+        const base = real.select(fields).from(table).$dynamic();
+        return {
+          where: (condition: SQL | undefined) => {
+            const filtered = base.where(condition);
+            return {
+              limit: (count: number) => {
+                queries.push(filtered.limit(count).toSQL());
+                return Promise.resolve(rows);
+              },
+            };
+          },
+        };
+      },
+    });
+    return {
+      repository: new ChatDeliveriesRepository(asDouble<Db>({ select })),
+      queries,
+    };
+  }
+
+  it('is true when the Chat holds a pending interrupt item', async () => {
+    const { repository, queries } = repositoryAnswering([{ id: 'item-1' }]);
+
+    await expect(repository.hasPendingInterrupt(chatId, userId)).resolves.toBe(
+      true,
+    );
+
+    const [query] = queries;
+    expect(query?.sql).toMatch(/^select "id" from "chat_deliveries" where /);
+    expect(query?.params).toEqual(
+      expect.arrayContaining([chatId, userId, 'pending', 'interrupt']),
+    );
+  });
+
+  it('is false when the Chat holds none', async () => {
+    const { repository } = repositoryAnswering([]);
+
+    await expect(repository.hasPendingInterrupt(chatId, userId)).resolves.toBe(
+      false,
+    );
   });
 });

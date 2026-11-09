@@ -2216,6 +2216,43 @@ describe('an owner interrupt in the stored transcript (run-steering D7, D8)', ()
     ]);
   });
 
+  it('marks the cut reasoning part past a tool request that has no result yet', () => {
+    const collector = createAssistantPartCollector();
+    collector.reasoning('half a thought');
+    collector.toolRequested('call_1');
+
+    collector.markInterrupted();
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: 'half a thought',
+        providerMetadata: { llame: { interrupted: true } },
+      },
+    ]);
+  });
+
+  it('stores only the interrupt marker on a settled call whose result is not cancelled', () => {
+    const part = toolActivityPart({
+      toolCallId: 'call_1',
+      toolName: 'bash',
+      input: {},
+      result: {
+        status: 'error',
+        type: 'outcome_unknown',
+        message: 'The command was stopped.',
+      },
+      interrupted: true,
+    });
+
+    expect(part).toMatchObject({
+      resultProviderMetadata: { llame: { interrupted: true } },
+    });
+    expect(part.resultProviderMetadata).toEqual({
+      llame: { interrupted: true },
+    });
+  });
+
   it('marks nothing when the stop did not cut a reasoning part', () => {
     const collector = createAssistantPartCollector();
     collector.reasoning('finished thought');

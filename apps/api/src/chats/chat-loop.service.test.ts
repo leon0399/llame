@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { type Mock } from 'vitest';
+
 import { type Chat, type Message, type Run } from '../db/schema';
 import {
   type Db,
@@ -122,18 +124,18 @@ const input = {
 type Savepoint = {
   transaction: <T>(callback: (inner: Db) => Promise<T>) => Promise<T>;
   /** The creation lock's `pg_try_advisory_xact_lock` read. */
-  execute: () => Promise<Array<{ locked: boolean }>>;
+  execute: Mock<() => Promise<Array<{ locked: boolean }>>>;
 };
 
-function fakeTx(creationLockHeld = true): Db {
+function fakeTx(creationLockHeld = true): Db & Savepoint {
   const savepoint: Savepoint = {
     transaction: (callback) => callback(tx),
-    execute: () => Promise.resolve([{ locked: creationLockHeld }]),
+    execute: vi.fn(() => Promise.resolve([{ locked: creationLockHeld }])),
   };
   // ChatLoopService only uses tx.transaction as a savepoint around
   // RunsRepository.create and tx.execute for the creation lock; every
   // repository method is prototype-spied.
-  const tx = asDouble<Db>(savepoint);
+  const tx = asDouble<Db & Savepoint>(savepoint);
   return tx;
 }
 
@@ -279,6 +281,7 @@ function makeService(options?: {
 
   return {
     service,
+    execute: tx.execute,
     runAs,
     dispatchRun,
     createUiMessageStreamResponse,
@@ -1021,6 +1024,43 @@ describe('ChatLoopService.createDeliveryMessage', () => {
     expect(createRun).not.toHaveBeenCalled();
     expect(dispatchRun).not.toHaveBeenCalled();
     expect(createUiMessageStreamResponse).not.toHaveBeenCalled();
+  });
+
+  it('sends the live Run an interrupt pointer after storing an interrupt item', async () => {
+    const { service, insertPending, execute } = makeBlockedService();
+
+    await service.createDeliveryMessage({
+      ...input,
+      message: ids,
+      delivery: 'interrupt',
+    });
+
+    expect(insertPending).toHaveBeenCalledTimes(1);
+    expect(insertPending.mock.calls[0]?.[0].mode).toBe('interrupt');
+    const notifications = execute.mock.calls.filter((call) =>
+      JSON.stringify(call).includes(
+        JSON.stringify(
+          JSON.stringify({ runId: blocking.id, kind: 'interrupt' }),
+        ),
+      ),
+    );
+    expect(notifications).toHaveLength(1);
+  });
+
+  it('sends no pointer after storing a queue item', async () => {
+    const { service, execute } = makeBlockedService();
+
+    await service.createDeliveryMessage({
+      ...input,
+      message: ids,
+      delivery: 'queue',
+    });
+
+    expect(
+      execute.mock.calls.filter((call) =>
+        JSON.stringify(call).includes('llame_run_control'),
+      ),
+    ).toHaveLength(0);
   });
 
   it('keeps the effort the send named in the stored settings', async () => {
