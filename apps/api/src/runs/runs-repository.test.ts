@@ -365,6 +365,16 @@ describe('RunsRepository', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it('sends no control pointer when the cancel guard matched no run', async () => {
+    const { db, execute } = makeDb({ update: [[]] });
+
+    await expect(
+      new RunsRepository(db).requestCancel(run.id, run.userId),
+    ).resolves.toBeUndefined();
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('records the completed attempt only for a completed run and never the availability record', async () => {
     const { db, calls } = makeDb({ update: [[run], [run]] });
     const repository = new RunsRepository(db);

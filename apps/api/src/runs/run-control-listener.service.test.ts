@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RunAbortRegistry } from './run-abort-registry';
@@ -16,7 +17,15 @@ async function boot(
   visibleRun:
     | { cancelRequestedAt: Date | null; status?: 'cancelled' }
     | undefined,
-  { registered = true }: { registered?: boolean } = {},
+  {
+    registered = true,
+    concurrency = 1,
+    readFailure,
+  }: {
+    registered?: boolean;
+    concurrency?: number | null;
+    readFailure?: unknown;
+  } = {},
 ) {
   const aborts = new RunAbortRegistry();
   const controller = registered
@@ -29,10 +38,14 @@ async function boot(
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       visibleRun as never,
     );
-  const runAs = vi.fn((_userId: string, fn: (tx: never) => Promise<FoundRun>) =>
-    // SAFETY: the stubbed repository never touches the transaction.
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion
-    fn(undefined as never),
+  const runAs = vi.fn(
+    (_userId: string, fn: (tx: never) => Promise<FoundRun>) =>
+      readFailure === undefined
+        ? // SAFETY: the stubbed repository never touches the transaction.
+          // eslint-disable-next-line typescript/no-unsafe-type-assertion
+          fn(undefined as never)
+        : // eslint-disable-next-line typescript/prefer-promise-reject-errors
+          Promise.reject(readFailure),
   );
   const listener = {
     onNotify: (_raw: string) => {},
@@ -46,7 +59,7 @@ async function boot(
   };
   const service = new RunControlListenerService(
     listener,
-    { concurrencyFor: () => 1 },
+    { concurrencyFor: () => concurrency },
     // SAFETY: only `runAs` is used by the listener.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     { runAs } as never,
@@ -59,10 +72,21 @@ async function boot(
     await flush();
   }
   async function flush(): Promise<void> {
-    for (const result of runAs.mock.results) await result.value;
+    for (const result of runAs.mock.results) {
+      await Promise.resolve(result.value).catch(() => {});
+    }
     await Promise.resolve();
   }
-  return { controller, onNotify, onListen, settled, flush, runAs };
+  return {
+    controller,
+    onNotify,
+    onListen,
+    settled,
+    flush,
+    runAs,
+    listener,
+    service,
+  };
 }
 
 describe('RunControlListenerService', () => {
@@ -151,5 +175,67 @@ describe('RunControlListenerService', () => {
 
     expect(runAs).not.toHaveBeenCalled();
     expect(controller.signal.aborted).toBe(false);
+  });
+
+  it('does not listen in a process that does not consume runs', async () => {
+    const { listener } = await boot(undefined, { concurrency: null });
+
+    expect(listener.listen).not.toHaveBeenCalled();
+  });
+
+  it('closes the listener connection on shutdown', async () => {
+    const { listener, service } = await boot(undefined);
+
+    await service.onModuleDestroy();
+
+    expect(listener.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a dropped malformed notification', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    const { onNotify } = await boot(undefined);
+
+    onNotify('not json');
+
+    expect(warn).toHaveBeenCalledWith(
+      'Dropped malformed run-control notification',
+    );
+  });
+
+  it('keeps the Run and logs the reason when the owner-scope read fails', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    const { controller, onNotify, flush, runAs } = await boot(undefined, {
+      readFailure: new Error('db down'),
+    });
+
+    onNotify(cancel);
+    await vi.waitFor(() => expect(runAs).toHaveBeenCalled());
+    await flush();
+
+    expect(warn).toHaveBeenCalledWith(
+      `Run-control check failed for run ${RUN_ID}: db down`,
+    );
+    expect(controller.signal.aborted).toBe(false);
+  });
+
+  it('logs an unknown reason when the read fails with a non-Error', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    const { onNotify, flush, runAs } = await boot(undefined, {
+      readFailure: 'boom',
+    });
+
+    onNotify(cancel);
+    await vi.waitFor(() => expect(runAs).toHaveBeenCalled());
+    await flush();
+
+    expect(warn).toHaveBeenCalledWith(
+      `Run-control check failed for run ${RUN_ID}: unknown`,
+    );
   });
 });
