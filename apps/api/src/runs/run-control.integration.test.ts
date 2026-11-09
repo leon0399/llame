@@ -5,7 +5,7 @@
  * recorded through the API context must stop the Run the worker context
  * executes, with the channel as the only link between them.
  *
- * TEST_DATABASE_URL-gated, like every other *.integration.test.ts here.
+ * Requires TEST_DATABASE_URL; throws at load instead of skipping.
  */
 
 import { sql } from 'drizzle-orm';
@@ -28,13 +28,15 @@ import {
 
 const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'expired'];
 
-const describeIfDb = process.env['TEST_DATABASE_URL']
-  ? describe
-  : describe.skip;
+if (!process.env['TEST_DATABASE_URL']) {
+  throw new Error(
+    'run-control.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
 
 vi.setConfig({ testTimeout: 60_000 });
 
-describeIfDb('run control across processes', () => {
+describe('run control across processes', () => {
   let worker: WorkerHarness;
   let api: WorkerHarness;
   let workerRegistry: RunAbortRegistry;
