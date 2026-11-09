@@ -44,6 +44,7 @@ import {
 } from "@/lib/services/permission-modes/queries";
 import {
   notificationLabel,
+  deliveredMessageId,
   streamingRunId,
   isInterruptedStream,
   type StreamCompletion,
@@ -417,6 +418,9 @@ type UseChatEngineArgs = {
   /** The run a just-ended stream belonged to, when that stream ended while the
    *  run was still executing (see `isInterruptedStream`). */
   onStreamInterrupted: (runId: string | null) => void;
+  /** The stream of a Run segment ended at a delivered message; the Run goes
+   *  on (run-steering D9). */
+  onSegmentDelivered: (messageId: string) => void;
   untrackChat: (chatId: string) => void;
   refreshChatData: () => void;
 };
@@ -448,6 +452,14 @@ function handleChatFinish(
     }
     args.onSendFailed();
     args.refreshChatData();
+    return;
+  }
+  // A delivery ends the segment, not the Run: it neither finished the turn nor
+  // left the registry's tracked run behind, and the next segment attaches once
+  // history holds the delivered message.
+  const deliveredId = deliveredMessageId(status.message);
+  if (deliveredId !== null) {
+    args.onSegmentDelivered(deliveredId);
     return;
   }
   // The user watched this finish → drop it from the active-run registry so the

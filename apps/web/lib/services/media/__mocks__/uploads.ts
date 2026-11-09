@@ -24,3 +24,8 @@ export const uploadAttachment = fn(
   (_file: File): Promise<MediaDescriptor> =>
     new Promise<MediaDescriptor>(() => {}),
 ).mockName("uploadAttachment");
+
+/** Stories set the stored upload a restored attachment reads. */
+export const fetchMediaDescriptor = fn(
+  (_locator: string): Promise<MediaDescriptor | null> => Promise.resolve(null),
+).mockName("fetchMediaDescriptor");

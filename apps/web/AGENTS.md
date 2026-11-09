@@ -46,6 +46,13 @@ to the API's `WEB_ORIGIN`, and run the API with `NODE_ENV=development`.
   [`lib/api/AGENTS.md`](lib/api/AGENTS.md).
 - Chat send, reconnect, and run-event streams bypass generated bindings and use
   `authAwareFetch`; generated calls must not buffer them.
+- A send with a `delivery` mode (steer, interrupt, queue) also bypasses the
+  generated bindings and `useChat`: while a Run is live its answer is 202 JSON,
+  and any other success is the stream of the Run it started, which the client
+  releases before it attaches through the resume path
+  (`lib/services/chat/deliveries.ts`). A delivered message ends its segment's
+  stream; `use-run-handoff.ts` waits for history to hold that message, then
+  attaches the next segment.
 - Chat history is TanStack Query state. Seed SSR data through hydration or
   `initialData`; do not pass it directly into `useChat` state. Disable draft
   message queries until the Chat exists.

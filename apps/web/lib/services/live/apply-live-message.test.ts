@@ -9,6 +9,7 @@ import type {
 import { activeRunsQueryKeys } from "../chat/active-runs";
 import { chatQueryKeys, type ChatResponse } from "../chat/queries";
 import type { ChatSearchResult } from "../chat/search";
+import type { ChatDeliveriesResponse } from "../../api/generated/models";
 import { machinesQueryKeys } from "../machines/queries";
 import { pinQueryKeys } from "../pins/queries";
 import type { PinnedItem } from "../pins/types";
@@ -394,6 +395,39 @@ describe("applyLiveMessage", () => {
         .map((query) => JSON.stringify(query.queryKey)),
     );
     expect(refetched).toEqual([JSON.stringify(pinnedKey)]);
+  });
+
+  it("replaces the pending items of the Chat a chat.deliveries message names", () => {
+    const client = new QueryClient();
+    const item = {
+      id: ID.b,
+      chatId: ID.a,
+      mode: "queue" as const,
+      state: "pending" as const,
+      parts: [{ type: "text", text: "later" }],
+      modelId: "system:openai:model-one",
+      permissionMode: "default" as const,
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    client.setQueryData(chatQueryKeys.deliveries(ID.a), { items: [] });
+    client.setQueryData(chatQueryKeys.deliveries(ID.c), { items: [] });
+
+    applyLiveMessage(client, {
+      type: "chat.deliveries",
+      chatId: ID.a,
+      items: [item],
+    });
+
+    expect(
+      client.getQueryData<ChatDeliveriesResponse>(
+        chatQueryKeys.deliveries(ID.a),
+      ),
+    ).toEqual({ items: [item] });
+    expect(
+      client.getQueryData<ChatDeliveriesResponse>(
+        chatQueryKeys.deliveries(ID.c),
+      ),
+    ).toEqual({ items: [] });
   });
 
   it("replaces a Machine in place, appends a new one, and leaves an unfetched list alone", () => {

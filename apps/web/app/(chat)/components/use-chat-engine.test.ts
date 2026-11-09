@@ -98,6 +98,8 @@ function historySyncProps(
     setMessages: vi.fn(),
     latestRun: null,
     interruption: null,
+    awaitedMessageId: null,
+    onHandoffAttached: vi.fn(),
     ...overrides,
   };
 }
@@ -173,5 +175,43 @@ describe("useChatHistorySync", () => {
     current = { ...current, resume: true };
     rerender(current);
     expect(props.resumeStream).toHaveBeenCalledTimes(1);
+  });
+
+  describe("the hand-off to the next Run segment", () => {
+    const delivered: HistorySyncProps["messages"] = [
+      { id: "delivered", role: "user", parts: [] },
+    ];
+
+    it("waits until the live log holds the delivered message", () => {
+      const props = historySyncProps({
+        status: "ready",
+        awaitedMessageId: "delivered",
+      });
+      const { rerender } = renderHistorySync(props);
+      expect(props.resumeStream).not.toHaveBeenCalled();
+
+      rerender({ ...props, messages: delivered });
+      expect(props.resumeStream).toHaveBeenCalledTimes(1);
+      expect(props.onHandoffAttached).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits until the segment's stream has ended", () => {
+      const props = historySyncProps({
+        status: "streaming",
+        messages: delivered,
+        awaitedMessageId: "delivered",
+      });
+      const { rerender } = renderHistorySync(props);
+      expect(props.resumeStream).not.toHaveBeenCalled();
+
+      rerender({ ...props, status: "ready" });
+      expect(props.resumeStream).toHaveBeenCalledTimes(1);
+    });
+
+    it("attaches nothing when no message is awaited", () => {
+      const props = historySyncProps({ status: "ready", messages: delivered });
+      renderHistorySync(props);
+      expect(props.resumeStream).not.toHaveBeenCalled();
+    });
   });
 });

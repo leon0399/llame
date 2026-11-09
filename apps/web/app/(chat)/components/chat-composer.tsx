@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import type { ChatStatus } from "ai";
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
@@ -24,6 +24,10 @@ import {
 } from "./composer-attachments";
 import { ComposerLocationPill } from "./composer-location-pill";
 import {
+  DeliverySendButton,
+  type MenuDeliveryMode,
+} from "./composer-delivery-send";
+import {
   type ComposerProject,
   ComposerProjectChip,
   ComposerProjectSubmenu,
@@ -37,8 +41,10 @@ import type { ComposerAttachments } from "./use-composer-attachments";
 import type { ComposerLocation } from "./use-composer-location";
 
 type ChatComposerSendButtonProps = {
-  status: ChatStatus;
+  /** A Run of the Chat is active: the split Send button and Stop show. */
+  runActive: boolean;
   onStop: () => void;
+  onDeliver: (mode: MenuDeliveryMode) => void;
   modelReadyForSend: boolean;
   /** Held Stop before the Run id arrives (design M2/M3 S4). */
   pendingStop: boolean;
@@ -97,22 +103,31 @@ function SendButton({ modelReadyForSend }: { modelReadyForSend: boolean }) {
   );
 }
 
-/** The send affordance, swapped for a stop control while a turn is in
- *  flight. S1–S3 show an enabled Stop icon; S4 shows a disabled spinner
- *  while a held Stop waits for the Run id (design M3). */
+/** The send affordance. Idle, a plain Send. While a Run is active, Stop beside
+ *  the split Send (Steer, with Interrupt and Queue in its menu). S1–S3 show an
+ *  enabled Stop icon; S4 shows a disabled spinner while a held Stop waits for
+ *  the Run id (design M3). */
 function ChatComposerSendButton({
-  status,
+  runActive,
   onStop,
+  onDeliver,
   modelReadyForSend,
   pendingStop,
 }: ChatComposerSendButtonProps) {
-  if (pendingStop) {
-    return <StoppingButton />;
+  if (!runActive && !pendingStop) {
+    return <SendButton modelReadyForSend={modelReadyForSend} />;
   }
-  if (status === "streaming" || status === "submitted") {
-    return <StopButton onStop={onStop} />;
-  }
-  return <SendButton modelReadyForSend={modelReadyForSend} />;
+  return (
+    <div className="flex items-center gap-1">
+      {pendingStop ? <StoppingButton /> : <StopButton onStop={onStop} />}
+      {runActive && (
+        <DeliverySendButton
+          disabled={!modelReadyForSend}
+          onDeliver={onDeliver}
+        />
+      )}
+    </div>
+  );
 }
 
 /** The row under the input card: the permission mode on the left, the model
@@ -139,8 +154,9 @@ type ChatComposerFormProps = {
   input: string;
   onInputChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  status: ChatStatus;
+  runActive: boolean;
   onStop: () => void;
+  onDeliver: (mode: MenuDeliveryMode) => void;
   modelReadyForSend: boolean;
   pendingStop: boolean;
   disabled: boolean;
@@ -165,8 +181,9 @@ function preventWhenDisabled(
 
 type ChatComposerToolbarProps = Pick<
   ChatComposerFormProps,
-  | "status"
+  | "runActive"
   | "onStop"
+  | "onDeliver"
   | "modelReadyForSend"
   | "pendingStop"
   | "attachments"
@@ -246,8 +263,9 @@ function ComposerToolbarStart({
 /** The toolbar under the textarea: the `+` menu and the project chip on the
  *  left, send/stop on the right. */
 function ChatComposerToolbar({
-  status,
+  runActive,
   onStop,
+  onDeliver,
   modelReadyForSend,
   pendingStop,
   ...start
@@ -257,8 +275,9 @@ function ChatComposerToolbar({
       <ComposerToolbarStart {...start} />
       <div className="ml-auto">
         <ChatComposerSendButton
-          status={status}
+          runActive={runActive}
           onStop={onStop}
+          onDeliver={onDeliver}
           modelReadyForSend={
             modelReadyForSend && !start.locked && !start.attachments.sendBlocked
           }
@@ -267,6 +286,14 @@ function ChatComposerToolbar({
       </div>
     </PromptInputToolbar>
   );
+}
+
+/** While a Run is active Enter steers and Mod+Enter queues. */
+function queueOnModEnter({
+  runActive,
+  onDeliver,
+}: Pick<ChatComposerFormProps, "runActive" | "onDeliver">) {
+  return runActive ? () => onDeliver("queue") : undefined;
 }
 
 /** Prompt chrome locked via fieldset while markdown chunks load. */
@@ -294,6 +321,7 @@ function ChatComposerForm({
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           onPaste={pasteFilesInto(attachments.add)}
+          onModEnter={queueOnModEnter(toolbar)}
           placeholder="Describe a task or ask a question"
           disabled={disabled}
           // Deliberate: chat page sole purpose is this composer.
@@ -318,7 +346,13 @@ type ChatComposerProps = {
   onInputChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   status: ChatStatus;
+  /** A Run of the Chat is active, which the page knows beyond the stream's
+   *  `status` (a Run between two segments has no open stream). Defaults to
+   *  the stream being in flight. */
+  runActive?: boolean;
   onStop: () => void;
+  /** A send in `mode`, from the split Send button's menu or Mod+Enter. */
+  onDeliver?: (mode: MenuDeliveryMode) => void;
   modelReadyForSend: boolean;
   modelSendUnavailableReason: string | null;
   /** Held Stop before the Run id arrives (design M2/M3 S4). */
@@ -358,6 +392,8 @@ function ComposerNotices({
   );
 }
 
+function noDeliver() {}
+
 /** The composer itself — the message textarea, attachments, permission mode,
  *  model/effort selectors and the send/stop affordance — with no placement
  *  of its own, so a page can set it into its own layout (the project page
@@ -369,6 +405,9 @@ export function ChatComposerBody({
   project,
   location,
   failure = null,
+  status,
+  runActive = status === "streaming" || status === "submitted",
+  onDeliver = noDeliver,
   ...form
 }: ChatComposerProps) {
   return (
@@ -381,6 +420,8 @@ export function ChatComposerBody({
       />
       <ChatComposerForm
         {...form}
+        runActive={runActive}
+        onDeliver={onDeliver}
         pendingStop={pendingStop}
         disabled={disabled}
         project={project}
@@ -391,13 +432,18 @@ export function ChatComposerBody({
 }
 
 /** The chat page's bottom composer bar: `ChatComposerBody` docked at the
- *  foot of the transcript, centred to the reading width. */
-export function ChatComposer(props: ChatComposerProps) {
+ *  foot of the transcript, centred to the reading width, with the pending
+ *  stack (when the page has one) above it. */
+export function ChatComposer({
+  pending,
+  ...props
+}: ChatComposerProps & { pending?: ReactNode }) {
   return (
     // `pb-1.5` matches the settings row's `mt-1.5`, so the row sits evenly
     // between the input card and the page edge.
     <div className="bg-background z-10 shrink-0 px-3 pb-1.5 md:px-5">
       <div className="mx-auto max-w-3xl">
+        {pending}
         <ChatComposerBody {...props} />
       </div>
     </div>

@@ -48,6 +48,7 @@ import {
 } from "./group-assistant-parts";
 import { hasVisibleContent, isVisibleSegment } from "./message-visibility";
 import { InstructionsPart } from "./instructions-part";
+import { InterruptedNoticePart } from "./interrupted-notice-part";
 import { MessageAttachments } from "./message-attachments";
 import { MessageCopyButton } from "./message-copy-button";
 import { MessageForkButton } from "./message-fork-button";
@@ -65,6 +66,7 @@ import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import {
+  interruptedNoticePart,
   isInstructionsPart,
   isPromptImportsPart,
   messageSeqFromMetadata,
@@ -475,13 +477,22 @@ function MessageSegments({
   });
 }
 
-/** The regenerate notice a user turn carries (turn-actions D9/D13), rendered
- *  above its bubble with the transcript's context-item styling: the notice is
+/** The notices a user turn carries, rendered above its bubble with the
+ *  transcript's context-item styling: the interrupt of a delivered message
+ *  (run-steering) and the regenerate notice (turn-actions D9/D13). They are
  *  server-authored context, not something the owner wrote. */
 function MessageNotice({ message }: { message: UIMessage }) {
-  const notice = message.role === "user" ? regenerateNoticePart(message) : null;
-  if (notice === null) return null;
-  return <RegenerateNoticePart payload={notice.data.payload} />;
+  if (message.role !== "user") return null;
+  const interrupted = interruptedNoticePart(message);
+  const regenerated = regenerateNoticePart(message);
+  return (
+    <>
+      {interrupted === null ? null : <InterruptedNoticePart />}
+      {regenerated === null ? null : (
+        <RegenerateNoticePart payload={regenerated.data.payload} />
+      )}
+    </>
+  );
 }
 
 /** The row's bubble: the pending shimmer or the stored parts. A turn whose

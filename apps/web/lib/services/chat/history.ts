@@ -207,6 +207,24 @@ export type RegenerateNoticePart = {
   };
 };
 
+/**
+ * A server-authored context item on the delivered USER message of an
+ * interrupt (run-steering): the owner stopped the previous step. The model
+ * reads its `text`, naming the calls the interrupt stopped; the owner sees one
+ * fixed sentence, so the payload stays opaque here.
+ */
+export type InterruptedNoticePart = {
+  type: "data-context";
+  data: {
+    v: 1;
+    producer: "interrupted";
+    form: "notice";
+    runId: string;
+    payload: object;
+    text?: string;
+  };
+};
+
 /** The `data.payload` shape of a model-switch context item, validated on its
  *  own — a real sub-boundary of `isModelSwitchPart`, not an arbitrary split. */
 function isModelSwitchPayload(
@@ -432,9 +450,22 @@ export function regenerateNoticePart(message: {
   return message.parts.find(isRegenerateNoticePart) ?? null;
 }
 
+export function isInterruptedNoticePart(
+  value: unknown,
+): value is InterruptedNoticePart {
+  return isNonNullObject(contextItemEnvelope(value, "interrupted")?.payload);
+}
+
+/** The `interrupted` notice a delivered user message carries, or null. */
+export function interruptedNoticePart(message: {
+  parts: ReadonlyArray<unknown>;
+}): InterruptedNoticePart | null {
+  return message.parts.find(isInterruptedNoticePart) ?? null;
+}
+
 /** Whether this app renders a server context item on that role: the
- *  model-switch marker, the prompt-imports disclosure, and the regenerate
- *  notice that ride a user message, and the instructions item, which rides
+ *  model-switch marker, the prompt-imports disclosure, the regenerate
+ *  and interrupted notices that ride a user message, and the instructions item, which rides
  *  either role. A type predicate, so the caller keeps the narrowed part. */
 function isRenderableControlPart(
   role: UIMessage["role"],
@@ -443,12 +474,14 @@ function isRenderableControlPart(
   | ModelSwitchPart
   | InstructionsPart
   | PromptImportsPart
-  | RegenerateNoticePart {
+  | RegenerateNoticePart
+  | InterruptedNoticePart {
   return role === "user"
     ? isModelSwitchPart(part) ||
         isInstructionsPart(part) ||
         isPromptImportsPart(part) ||
-        isRegenerateNoticePart(part)
+        isRegenerateNoticePart(part) ||
+        isInterruptedNoticePart(part)
     : isInstructionsPart(part);
 }
 
@@ -477,7 +510,8 @@ function trustedContextParts(message: {
       | ModelSwitchPart
       | InstructionsPart
       | PromptImportsPart
-      | RegenerateNoticePart;
+      | RegenerateNoticePart
+      | InterruptedNoticePart;
   }> = [];
   let index = 0;
   for (const part of message.parts) {

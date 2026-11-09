@@ -1,9 +1,10 @@
-import { uploadMedia } from "../../api/generated/media/media";
+import { getMedia, uploadMedia } from "../../api/generated/media/media";
 import type {
   MediaDescriptorResponse,
   MediaPdfDescriptorResponse,
 } from "../../api/generated/models";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
+import { mediaIdFromLocator } from "./urls";
 
 /** A stored upload's descriptor: an image's, carrying `width`/`height`, or a
  *  PDF's, carrying `pages`. */
@@ -28,6 +29,20 @@ export const ATTACHABLE_PDF_TYPE = "application/pdf";
 export async function uploadAttachment(file: File): Promise<MediaDescriptor> {
   return uploadMedia(
     { file },
+    undefined,
+    createAuthenticatedBrowserFetch(globalThis.fetch),
+  );
+}
+
+/** The descriptor of a stored upload named by its `media://` locator, or
+ *  `null` for any other locator. Rejects when the read fails. */
+export async function fetchMediaDescriptor(
+  locator: string,
+): Promise<MediaDescriptor | null> {
+  const id = mediaIdFromLocator(locator);
+  if (id === null) return null;
+  return getMedia(
+    id,
     undefined,
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );

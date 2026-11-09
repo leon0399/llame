@@ -73,6 +73,7 @@ const NO_ATTACHMENTS: ComposerAttachments = {
   retry: fn(),
   clear: fn(),
   restore: fn(),
+  restoreFiles: fn(),
   accept: "image/png,image/jpeg,image/gif,image/webp",
   attachDisabled: false,
   blockReason: null,
@@ -196,6 +197,7 @@ const meta = {
     onInputChange: fn(),
     onSubmit: fn(),
     onStop: fn(),
+    onDeliver: fn(),
     status: "ready",
     modelReadyForSend: true,
     modelSendUnavailableReason: null,
@@ -252,6 +254,138 @@ export const ControlStates: Story = {
 };
 
 const PLACEHOLDER = "Describe a task or ask a question";
+
+/** The page's real submit handler prevents the native submit; so must this
+ *  spy, or the frame navigates away. */
+const preventSubmit = fn((event: React.FormEvent<HTMLFormElement>) =>
+  event.preventDefault(),
+);
+
+/**
+ * With no Run active the composer shows the plain Send button, and nothing of
+ * the delivery modes.
+ *
+ * @summary idle composer shows plain Send
+ */
+export const IdleSendIsPlain: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("button", { name: "Send message" }),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Steer" })).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "More ways to send" }),
+    ).toBeNull();
+  },
+};
+
+/**
+ * While a Run is active the main Send action steers, and Enter in the textarea
+ * submits it; Stop stays beside the split button.
+ *
+ * @summary Enter submits the Steer action during a Run
+ */
+export const EnterSteersDuringARun: Story = {
+  tags: ["ai-generated"],
+  args: {
+    status: "streaming",
+    input: "also check the logs",
+    onSubmit: preventSubmit,
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.keyboard("{Enter}");
+
+    await expect(args.onSubmit).toHaveBeenCalledOnce();
+    await expect(args.onDeliver).not.toHaveBeenCalled();
+    const steer = canvas.getByRole("button", { name: "Steer" });
+    await expect(steer).toHaveAttribute("aria-keyshortcuts", "Enter");
+    await expect(
+      canvas.getByRole("button", { name: "Stop generation" }),
+    ).toBeEnabled();
+  },
+};
+
+/**
+ * Mod+Enter queues instead of steering: the keystroke never reaches the form's
+ * submit.
+ *
+ * @summary Mod+Enter queues during a Run
+ */
+export const ModEnterQueues: Story = {
+  tags: ["ai-generated"],
+  args: {
+    status: "streaming",
+    input: "after this one",
+    onSubmit: preventSubmit,
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+
+    await expect(args.onDeliver).toHaveBeenCalledOnce();
+    await expect(args.onDeliver).toHaveBeenCalledWith("queue");
+    await expect(args.onSubmit).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * The Send menu offers Interrupt and Queue. Queue names its shortcut for
+ * assistive technology, and neither choice submits the form.
+ *
+ * @summary the Send menu sends an interrupt or a queue item
+ */
+export const SendMenuOffersInterruptAndQueue: Story = {
+  tags: ["ai-generated"],
+  // An open Base UI menu leaves aria-hidden focus guards that axe's
+  // aria-hidden-focus rule misreads (as in AddMenu above).
+  parameters: {
+    a11y: {
+      config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
+    },
+  },
+  args: {
+    status: "streaming",
+    input: "stop, do this",
+    onSubmit: preventSubmit,
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    const menu = canvas.getByRole("button", { name: "More ways to send" });
+    await userEvent.click(menu);
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: /Interrupt/ }),
+    );
+    await expect(args.onDeliver).toHaveBeenLastCalledWith("interrupt");
+
+    await userEvent.click(menu);
+    const queue = await screen.findByRole("menuitem", { name: /Queue/ });
+    await expect(queue).toHaveAttribute(
+      "aria-keyshortcuts",
+      expect.stringMatching(/^(Meta|Control)\+Enter$/),
+    );
+    await userEvent.click(queue);
+    await expect(args.onDeliver).toHaveBeenLastCalledWith("queue");
+    await expect(args.onSubmit).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * Between two segments of a Run no stream is open, yet the Run is active: the
+ * split Send button shows, and the page's `runActive` decides.
+ *
+ * @summary the page can mark a Run active without an open stream
+ */
+export const RunActiveBetweenSegments: Story = {
+  tags: ["ai-generated"],
+  args: { status: "ready", runActive: true },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByRole("button", { name: "Steer" })).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Stop generation" }),
+    ).toBeEnabled();
+  },
+};
 
 /** Uploads that resolve immediately with a descriptor for the file: an image
  *  descriptor for an image, a PDF descriptor for a PDF. */

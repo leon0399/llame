@@ -1,6 +1,7 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 
 import { activeRunsQueryKeys } from "../chat/active-runs";
+import { setDeliveries } from "../chat/deliveries";
 import {
   chatListFiltersFromKey,
   chatQueryKeys,
@@ -31,6 +32,7 @@ import type {
  *   pinned-only lists, which keep pin order;
  * - pinned-item cards and search results take the new title or name;
  * - a deletion removes the record everywhere;
+ * - `chat.deliveries` replaces the Chat's pending-item list;
  * - `pins.replaced` replaces the pin list;
  * - `machine.upserted` replaces the Machine with that name in the Machines
  *   list, or appends it when the list does not have it yet; `machine.deleted`
@@ -50,6 +52,8 @@ export function applyLiveMessage(
       return applyChat(queryClient, message.chat);
     case "chat.deleted":
       return removeChat(queryClient, message.chatId);
+    case "chat.deliveries":
+      return setDeliveries(queryClient, message.chatId, message.items);
     case "machine.upserted":
       return applyMachine(queryClient, message.machine);
     case "machine.deleted":

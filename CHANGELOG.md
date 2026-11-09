@@ -2,6 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
+- **Steer a Run from the composer.** While a Run is active, Send becomes a
+  split button: Steer is the main action (Enter), and its menu offers Interrupt
+  and Queue (Mod+Enter queues). Messages that wait for the Run show in a stack
+  above the composer, in delivery order. A queue row offers Steer now,
+  Interrupt now, Edit, and Delete; a steer row offers Interrupt now, Edit, and
+  Delete. Edit withdraws the message and puts its text and attachments back in
+  the composer. When the Run delivers a message, the stream of that segment
+  ends, the page adopts history, and it attaches for the next segment, so the
+  transcript reads first reply, delivered message, second reply, and the turn's
+  actions follow the delivered message. A delivered message that interrupted a
+  reply shows a muted "You interrupted the previous step" notice. Stop and Esc
+  interrupt the first pending steer; with none, they cancel the Run, and a
+  draft in the composer never changes. With no live Run and messages still
+  pending, the stack says nothing runs until the owner sends or steers one.
+
 - **Interrupt a live Run through the API.** An owner can send a message with
   `delivery: "interrupt"` while a Run is live, or change a pending `steer` or
   `queue` item to `interrupt` with `PATCH

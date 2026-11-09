@@ -191,6 +191,20 @@ All values below are read from the real primitives in `packages/ui/src/component
 - **Dimensions:** `16rem` (256px) expanded, collapses to `3rem` (48px) icon-rail, `18rem` on mobile (off-canvas sheet).
 - **Active/hover state** is a background fill shift (`hover:bg-sidebar-accent`), not a colored left-border or accent bar — consistent with the no-chrome philosophy.
 
+### Split button (`button-group.tsx`, `dropdown-menu.tsx`)
+
+- **Shape:** a `ButtonGroup` of two ghost icon buttons: the main action, and a chevron trigger for a `DropdownMenu`. The group squares the touching corners and rounds the outer ones, so the pair reads as one control.
+- **Main action first:** the default is the common, safe choice. The composer's Send becomes Steer while a Run is active; Interrupt and Queue wait in the menu, so the action that holds a message back is never the default.
+- **Menu rows:** icon, label, and a `Kbd` hint where a shortcut exists; the item also carries `aria-keyshortcuts`, and the `Kbd` is `aria-hidden`. Enter is the main action; Mod+Enter, shown as the platform's modifier, takes a menu row.
+- **Beside Stop:** an active Run keeps its Stop button next to the group, never inside it.
+
+### Pending rows (`pending-deliveries.tsx`)
+
+- **Surface:** one row per waiting message, in delivery order, above the input card: `rounded-md`, a 1px border, `bg-background`, no shadow, no tint. The mode is a small Slate word (`Queued`, `Steer`, `Interrupt`), not a colored badge.
+- **Text:** at most two lines (`line-clamp-2`); Edit reveals the rest, which is why an ellipsis is honest here.
+- **Actions:** ghost `icon-sm` buttons at the row's end, each named by a tooltip and a screen-reader label: Steer now (queue rows), Interrupt now (queue and steer rows), Edit, Delete. An action a row cannot take is absent, not disabled.
+- **Paused:** when no Run is live, one Slate line above the rows says nothing runs until the owner sends or steers an item. It is text, not an alert: a paused queue is a state, not a failure.
+
 ### Overlays
 
 Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (toasts; the app mount places them `top-right`) — all use the `--popover` surface, hairline borders, the shared radius scale, and the kit's light shadow. Keep overlays on these primitives rather than hand-rolling.

@@ -88,6 +88,8 @@ export const chatQueryKeys = {
   detail: (chatId: string) => [...chatQueryKeys.all, chatId] as const,
   messages: (chatId: string) =>
     [...chatQueryKeys.detail(chatId), "messages"] as const,
+  deliveries: (chatId: string) =>
+    [...chatQueryKeys.detail(chatId), "deliveries"] as const,
   targetMessages: (chatId: string, targetSeq: number) =>
     [...chatQueryKeys.messages(chatId), "target", targetSeq] as const,
 };
