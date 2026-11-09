@@ -201,7 +201,7 @@ type UseChatSideEffectsArgs = {
   refreshChatBinding: () => void;
   latestRun: ChatLatestRunResponse | null;
   interruption: StreamInterruption | null;
-  awaitedMessageId: string | null;
+  awaitedMessageIds: ReadonlyArray<string>;
   onHandoffAttached: () => void;
 };
 
@@ -223,7 +223,7 @@ function useChatSideEffects({
   refreshChatBinding,
   latestRun,
   interruption,
-  awaitedMessageId,
+  awaitedMessageIds,
   onHandoffAttached,
 }: UseChatSideEffectsArgs) {
   useChatHistorySync({
@@ -236,7 +236,7 @@ function useChatSideEffects({
     setMessages,
     latestRun,
     interruption,
-    awaitedMessageId,
+    awaitedMessageIds,
     onHandoffAttached,
   });
   useChatPresenceEffects({
@@ -346,7 +346,7 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
     chatId,
     latestRun,
     interruption: streamInterruption.interruption,
-    awaitedMessageId: handoff.awaited,
+    awaitedMessageIds: handoff.awaited,
     onHandoffAttached: handoff.settle,
   });
 

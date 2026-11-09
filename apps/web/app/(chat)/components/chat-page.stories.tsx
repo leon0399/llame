@@ -2706,15 +2706,51 @@ function pendingItem(
   };
 }
 
+const EDITABLE_MEDIA_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a0b";
+
+/** A pending item with text and one stored image. */
+const EDITABLE_ITEM: ChatDeliveryResponse = {
+  ...pendingItem("q1", "queue", "check the docs later"),
+  parts: [
+    { type: "text", text: "check the docs later" },
+    {
+      type: "file",
+      url: `media://${EDITABLE_MEDIA_ID}`,
+      mediaType: "image/png",
+      filename: "notes.png",
+    },
+  ],
+};
+
 /** The history read of a Chat whose Run is live, with `rows`. */
-function liveHistory(
-  rows: Array<ChatMessageResponse>,
-  messageId = "m1",
-): () => Promise<Response> {
-  return () =>
-    Promise.resolve(
-      jsonResponse({ messages: rows, latestRun: liveRun(messageId) }),
-    );
+function liveHistory(rows: Array<ChatMessageResponse>, messageId = "m1") {
+  return Promise.resolve(
+    jsonResponse({ messages: rows, latestRun: liveRun(messageId) }),
+  );
+}
+
+/** The history after the Run's first segment delivered the steer message
+ *  `m2`: the segment's reply and the message are durable rows. */
+function historyAfterDelivery(steerText: string) {
+  return [
+    ...HISTORY,
+    rawChatMessage({
+      id: "a1",
+      chatId: CHAT_ID,
+      role: "assistant",
+      seq: 2,
+      inReplyTo: "m1",
+      parts: [{ type: "text", text: "first segment reply" }],
+      usage: { runId: LIVE_RUN_ID, status: "completed" },
+    }),
+    rawChatMessage({
+      id: "m2",
+      chatId: CHAT_ID,
+      role: "user",
+      seq: 3,
+      parts: [{ type: "text", text: steerText }],
+    }),
+  ];
 }
 
 /** What a delivery send carries, read from the request. */
@@ -2726,17 +2762,24 @@ async function deliverySent() {
   return body;
 }
 
-/** The api's answer to a delivery while a Run is live: 202 and the item. */
-async function acceptDelivery(input: RequestInfo | URL) {
-  const body = await requestOf(input).clone().json();
-  return jsonResponse(
-    pendingItem(
-      body.message.id,
-      body.delivery,
-      body.message.parts[0]?.text ?? "",
-    ),
-    202,
-  );
+/** The api's routes while a Run is live: a delivery is answered 202 with its
+ *  item, and the pending list then holds it. */
+function acceptingDeliveries() {
+  const accepted: Array<ChatDeliveryResponse> = [];
+  return {
+    [SEND_ROUTE]: async (input: RequestInfo | URL) => {
+      const body = await requestOf(input).clone().json();
+      const item = pendingItem(
+        body.message.id,
+        body.delivery,
+        body.message.parts[0]?.text ?? "",
+      );
+      accepted.push(item);
+      return jsonResponse(item, 202);
+    },
+    [DELIVERIES_ROUTE]: () =>
+      Promise.resolve(jsonResponse({ items: accepted })),
+  };
 }
 
 /** Opens the story's chat with the composer ready and the Run live. */
@@ -2748,13 +2791,12 @@ async function openedLiveRun(canvasElement: HTMLElement) {
   return input;
 }
 
-/** A stream of one Run segment: `text`, then `end` runs, then nothing more
- *  unless `end` closes the stream itself. */
+/** A stream of one Run segment: `text`, then nothing more. With `delivered` it
+ *  ends at that message instead, after `before` ran: the delivery of a steer,
+ *  which closes the segment's stream. */
 function segmentStream(
   text: string,
-  end: (writer: {
-    write: (chunk: { type: "data-run-delivered"; data: unknown }) => void;
-  }) => Promise<void> | void,
+  delivered?: { messageId: string; before?: () => Promise<void> | void },
 ) {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
@@ -2763,8 +2805,16 @@ function segmentStream(
         writer.write({ type: "text-start", id: "text-1" });
         writer.write({ type: "text-delta", id: "text-1", delta: text });
         writer.write({ type: "text-end", id: "text-1" });
-        await end(writer);
-        await new Promise<void>(() => {});
+        if (delivered === undefined) {
+          await new Promise<void>(() => {});
+          return;
+        }
+        await delivered.before?.();
+        writer.write({
+          type: "data-run-delivered",
+          data: { messageId: delivered.messageId },
+        });
+        writer.write({ type: "finish", finishReason: "stop" });
       },
     }),
   });
@@ -2780,7 +2830,7 @@ export const EnterSteersDuringARun: Story = {
   tags: ["ai-generated"],
   parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
   beforeEach: () => {
-    routeAlso({ [SEND_ROUTE]: acceptDelivery });
+    routeAlso(acceptingDeliveries());
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -2808,7 +2858,7 @@ export const QueueIsAnExplicitChoice: Story = {
   tags: ["ai-generated"],
   parameters: liveRunParameters,
   beforeEach: () => {
-    routeAlso({ [SEND_ROUTE]: acceptDelivery });
+    routeAlso(acceptingDeliveries());
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -2837,7 +2887,7 @@ export const InterruptFromTheSendMenu: Story = {
   tags: ["ai-generated"],
   parameters: liveRunParameters,
   beforeEach: () => {
-    routeAlso({ [SEND_ROUTE]: acceptDelivery });
+    routeAlso(acceptingDeliveries());
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -2891,13 +2941,11 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
                 }),
               ],
           sentId ?? "m1",
-        )(),
+        ),
       [RESUME_ROUTE]: () => {
         resumes += 1;
         return Promise.resolve(
-          resumes === 1
-            ? emptyResponse()
-            : segmentStream("new run reply", () => {}),
+          resumes === 1 ? emptyResponse() : segmentStream("new run reply"),
         );
       },
     });
@@ -2915,12 +2963,50 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
 };
 
 /**
- * Edit withdraws a pending item and puts its text back in the composer; the
- * row leaves the stack.
+ * Edit withdraws a pending item and puts its text and attachments back in the
+ * composer; the row leaves the stack.
  *
- * @summary Edit puts the text back
+ * @summary Edit puts the text and attachments back
  */
 export const EditPutsTheTextBack: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [EDITABLE_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    vi.mocked(uploads.fetchMediaDescriptor).mockResolvedValue(
+      uploaded(EDITABLE_MEDIA_ID, "notes.png"),
+    );
+    routeAlso({
+      [`DELETE ${DELIVERY_ROUTE("q1")}`]: () =>
+        Promise.resolve(jsonResponse({ ...EDITABLE_ITEM, state: "withdrawn" })),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedLiveRun(canvasElement);
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+
+    await waitFor(() =>
+      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+    );
+    await expect(composer(canvasElement)).toHaveValue("check the docs later");
+    const list = await canvas.findByRole("list", { name: "Attachments" });
+    await expect(
+      within(list).getByRole("img", { name: "notes.png" }),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * Text typed while the Edit's withdrawal is in flight stays in the composer,
+ * below the withdrawn text.
+ *
+ * @summary Edit keeps text typed during the withdrawal
+ */
+export const EditKeepsTextTypedMeanwhile: Story = {
   tags: ["ai-generated"],
   parameters: {
     latestRun: liveRun(),
@@ -2928,25 +3014,27 @@ export const EditPutsTheTextBack: Story = {
   } satisfies ChatPageParameters,
   beforeEach: () => {
     routeAlso({
-      [`DELETE ${DELIVERY_ROUTE("q1")}`]: () =>
-        Promise.resolve(
-          jsonResponse({
-            ...pendingItem("q1", "queue", "check the docs later"),
-            state: "withdrawn",
-          }),
-        ),
+      [`DELETE ${DELIVERY_ROUTE("q1")}`]: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return jsonResponse({
+          ...pendingItem("q1", "queue", "check the docs later"),
+          state: "withdrawn",
+        });
+      },
     });
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await openedLiveRun(canvasElement);
+    const input = await openedLiveRun(canvasElement);
     const stack = await canvas.findByRole("region", PENDING_REGION);
-    await userEvent.click(within(stack).getByRole("button", { name: "Edit" }));
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+    await userEvent.type(input, "typed meanwhile");
 
     await waitFor(() =>
-      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+      expect(composer(canvasElement)).toHaveValue(
+        "check the docs later\n\ntyped meanwhile",
+      ),
     );
-    await expect(composer(canvasElement)).toHaveValue("check the docs later");
   },
 };
 
@@ -2971,22 +3059,12 @@ export const DeliveredItemLeavesTheStack: Story = {
           jsonResponse({ statusCode: 409, message: "Already delivered" }, 409),
         );
       },
+      // The delivered message has a new id, not the item's.
       [HISTORY_ROUTE]: () =>
         liveHistory(
-          delivered
-            ? [
-                ...HISTORY,
-                rawChatMessage({
-                  id: "s1",
-                  chatId: CHAT_ID,
-                  role: "user",
-                  seq: 2,
-                  parts: [{ type: "text", text: "use the other table" }],
-                }),
-              ]
-            : HISTORY,
-          delivered ? "s1" : "m1",
-        )(),
+          delivered ? historyAfterDelivery("use the other table") : HISTORY,
+          delivered ? "m2" : "m1",
+        ),
     });
   },
   play: async ({ canvasElement }) => {
@@ -2994,7 +3072,7 @@ export const DeliveredItemLeavesTheStack: Story = {
     await openedLiveRun(canvasElement);
     const stack = await canvas.findByRole("region", PENDING_REGION);
     await userEvent.click(
-      within(stack).getByRole("button", { name: "Interrupt now" }),
+      within(stack).getByRole("button", { name: /^Interrupt now/ }),
     );
 
     await waitFor(() =>
@@ -3006,8 +3084,9 @@ export const DeliveredItemLeavesTheStack: Story = {
 
 /**
  * Esc interrupts while a steer is pending: the first press turns the steer
- * into an interrupt. After that delivery the second press cancels the Run, the
- * queue item stays pending, and the draft in the composer never changes.
+ * into an interrupt. After that delivery, between two segments, the second
+ * press cancels the Run through the Chat's newest Run, the queue item stays
+ * pending, and the draft in the composer never changes.
  *
  * @summary Esc twice stops everything
  */
@@ -3021,18 +3100,47 @@ export const EscTwiceStopsEverything: Story = {
     ],
   } satisfies ChatPageParameters,
   beforeEach: () => {
+    let interruptApplied = () => {};
+    const applied = new Promise<void>((resolve) => {
+      interruptApplied = resolve;
+    });
+    let delivered = false;
+    let resumes = 0;
     routeAlso({
-      [`PATCH ${DELIVERY_ROUTE("s1")}`]: () =>
-        Promise.resolve(
+      [`PATCH ${DELIVERY_ROUTE("s1")}`]: () => {
+        interruptApplied();
+        return Promise.resolve(
           jsonResponse(
             pendingItem("s1", "interrupt", "switch to the other branch"),
           ),
+        );
+      },
+      // The first segment streams until the interrupt applies and delivers its
+      // message; the next segment has no stream yet.
+      [RESUME_ROUTE]: () => {
+        resumes += 1;
+        return Promise.resolve(
+          resumes === 1
+            ? segmentStream("working on it", {
+                messageId: "m2",
+                before: async () => {
+                  await applied;
+                  delivered = true;
+                },
+              })
+            : emptyResponse(),
+        );
+      },
+      [HISTORY_ROUTE]: () =>
+        liveHistory(
+          delivered
+            ? historyAfterDelivery("switch to the other branch")
+            : HISTORY,
+          delivered ? "m2" : "m1",
         ),
-      // The Run streams until the owner cancels it.
-      [RESUME_ROUTE]: () =>
-        Promise.resolve(segmentStream("working on it", () => {})),
     });
-    runIdToCancel.mockReturnValue(LIVE_RUN_ID);
+    // Between segments no stream message names the Run.
+    runIdToCancel.mockReturnValue(null);
     cancelRun.mockResolvedValue(undefined);
   },
   play: async ({ canvasElement }) => {
@@ -3050,18 +3158,24 @@ export const EscTwiceStopsEverything: Story = {
     });
     await expect(cancelRun).not.toHaveBeenCalled();
 
-    // The Run delivers the interrupt: the live list no longer holds it.
+    // The Run delivers the interrupt: the live list no longer holds it, and
+    // history shows its message while the next segment is not attached.
     applyLiveMessage(queryClient, {
       type: "chat.deliveries",
       chatId: CHAT_ID,
       items: [pendingItem("q1", "queue", "then run the tests")],
     });
+    await transcriptShows(canvasElement, "switch to the other branch");
     await waitFor(() =>
-      expect(canvas.queryByText("switch to the other branch")).toBeNull(),
+      expect(
+        sentRoutes().filter((route) => route === RESUME_ROUTE),
+      ).toHaveLength(2),
     );
 
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(cancelRun).toHaveBeenCalledWith(LIVE_RUN_ID));
+    await waitFor(async () => {
+      await userEvent.keyboard("{Escape}");
+      expect(cancelRun).toHaveBeenCalledWith(LIVE_RUN_ID);
+    });
     await expect(canvas.getByText("then run the tests")).toBeVisible();
     await expect(composer(canvasElement)).toHaveValue("my unsent draft");
     await expect(
@@ -3192,57 +3306,22 @@ export const NextSegmentAttachesAfterDelivery: Story = {
     routeAlso({
       [RESUME_ROUTE]: () => {
         resumes += 1;
-        if (resumes === 1) {
-          return Promise.resolve(
-            createUIMessageStreamResponse({
-              stream: createUIMessageStream({
-                execute: ({ writer }) => {
-                  writer.write({ type: "start", messageId: LIVE_RUN_ID });
-                  writer.write({ type: "text-start", id: "text-1" });
-                  writer.write({
-                    type: "text-delta",
-                    id: "text-1",
-                    delta: "first segment reply",
-                  });
-                  writer.write({ type: "text-end", id: "text-1" });
+        return Promise.resolve(
+          resumes === 1
+            ? segmentStream("first segment reply", {
+                messageId: "m2",
+                before: () => {
                   delivered = true;
-                  writer.write({
-                    type: "data-run-delivered",
-                    data: { messageId: "m2" },
-                  });
-                  writer.write({ type: "finish", finishReason: "stop" });
                 },
-              }),
-            }),
-          );
-        }
-        return Promise.resolve(segmentStream("second segment reply", () => {}));
+              })
+            : segmentStream("second segment reply"),
+        );
       },
       [HISTORY_ROUTE]: () =>
         liveHistory(
-          delivered
-            ? [
-                ...HISTORY,
-                rawChatMessage({
-                  id: "a1",
-                  chatId: CHAT_ID,
-                  role: "assistant",
-                  seq: 2,
-                  inReplyTo: "m1",
-                  parts: [{ type: "text", text: "first segment reply" }],
-                  usage: { runId: LIVE_RUN_ID, status: "completed" },
-                }),
-                rawChatMessage({
-                  id: "m2",
-                  chatId: CHAT_ID,
-                  role: "user",
-                  seq: 3,
-                  parts: [{ type: "text", text: "steer message" }],
-                }),
-              ]
-            : HISTORY,
+          delivered ? historyAfterDelivery("steer message") : HISTORY,
           delivered ? "m2" : "m1",
-        )(),
+        ),
     });
   },
   play: async ({ canvasElement }) => {
@@ -3253,6 +3332,62 @@ export const NextSegmentAttachesAfterDelivery: Story = {
     const second = transcriptText(canvasElement, "second segment reply");
     await expect(precedes(first, steer)).toBe(true);
     await expect(precedes(steer, second)).toBe(true);
+    await expect(
+      sentRoutes().filter((route) => route === RESUME_ROUTE),
+    ).toHaveLength(2);
+  },
+};
+
+/**
+ * The steer item's id is not its delivered message's id. When the live list
+ * drops the item after the stream named the message but before history is
+ * adopted, the next segment still attaches.
+ *
+ * @summary the next segment attaches when the live update comes first
+ */
+export const LiveUpdateBeforeHistoryStillAttaches: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [pendingItem("s1", "steer", "steer message")],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    let delivered = false;
+    let listShrunk = false;
+    let resumes = 0;
+    routeAlso({
+      [RESUME_ROUTE]: () => {
+        resumes += 1;
+        return Promise.resolve(
+          resumes === 1
+            ? segmentStream("first segment reply", {
+                messageId: "m2",
+                before: () => {
+                  delivered = true;
+                },
+              })
+            : segmentStream("second segment reply"),
+        );
+      },
+      [HISTORY_ROUTE]: async () => {
+        if (!delivered) return liveHistory(HISTORY);
+        if (!listShrunk) {
+          listShrunk = true;
+          applyLiveMessage(queryClient, {
+            type: "chat.deliveries",
+            chatId: CHAT_ID,
+            items: [],
+          });
+        }
+        // The page reacts to the live update before this read is adopted.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return liveHistory(historyAfterDelivery("steer message"), "m2");
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await readyComposer(canvasElement);
+    await transcriptShows(canvasElement, "second segment reply");
     await expect(
       sentRoutes().filter((route) => route === RESUME_ROUTE),
     ).toHaveLength(2);

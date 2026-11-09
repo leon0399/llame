@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 
 export type RunHandoff = {
-  /** The delivered message the next attach waits for, or null. */
-  awaited: string | null;
-  /** Starts a hand-off to the segment that follows `messageId`. */
+  /** The ids the next attach waits for: it starts once any of them is in the
+   *  log. Empty when no hand-off is pending. */
+  awaited: ReadonlyArray<string>;
+  /** Starts a hand-off to the segment that follows a message with this id. */
   begin: (messageId: string) => void;
   /** Marks a message that must never hand off (the owner withdrew it). */
   skip: (messageId: string) => void;
@@ -18,19 +19,20 @@ export type RunHandoff = {
  * the live log holds the delivered message: the stream's last reply must give
  * way to the durable one first, or the resumed stream would continue it.
  *
- * `begin` names the message to wait for and re-reads history. Each message
- * hands off once, however many signals name it: the segment's stream, a 409 on
- * an action, and the pending list shrinking all report the same delivery.
+ * A delivered steer gets a new id, but the pending list only knows the item's
+ * id, and the message id can arrive first or last. So `begin` adds every id it
+ * is given and re-reads history; the attach starts when any one of them shows
+ * up. Each id hands off once, however many signals name it.
  */
 export function useRunHandoff(refreshChatMessages: () => void): RunHandoff {
-  const [awaited, setAwaited] = useState<string | null>(null);
+  const [awaited, setAwaited] = useState<ReadonlyArray<string>>([]);
   const handled = useRef(new Set<string>());
 
   const begin = useCallback(
     (messageId: string) => {
       if (handled.current.has(messageId)) return;
       handled.current.add(messageId);
-      setAwaited(messageId);
+      setAwaited((current) => [...current, messageId]);
       refreshChatMessages();
     },
     [refreshChatMessages],
@@ -41,7 +43,7 @@ export function useRunHandoff(refreshChatMessages: () => void): RunHandoff {
     handled.current.add(messageId);
   }, []);
 
-  const settle = useCallback(() => setAwaited(null), []);
+  const settle = useCallback(() => setAwaited([]), []);
 
   return { awaited, begin, skip, settle };
 }

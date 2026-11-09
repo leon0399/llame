@@ -58,13 +58,13 @@ export const QueueRow: Story = {
     const row = within(canvas.getByRole("listitem"));
     await expect(row.getByText("Queued")).toBeVisible();
 
-    await userEvent.click(row.getByRole("button", { name: "Steer now" }));
+    await userEvent.click(row.getByRole("button", { name: /^Steer now/ }));
     await expect(args.onSteerNow).toHaveBeenCalledWith(args.items[0]);
-    await userEvent.click(row.getByRole("button", { name: "Interrupt now" }));
+    await userEvent.click(row.getByRole("button", { name: /^Interrupt now/ }));
     await expect(args.onInterruptNow).toHaveBeenCalledWith(args.items[0]);
-    await userEvent.click(row.getByRole("button", { name: "Edit" }));
+    await userEvent.click(row.getByRole("button", { name: /^Edit/ }));
     await expect(args.onEdit).toHaveBeenCalledWith(args.items[0]);
-    await userEvent.click(row.getByRole("button", { name: "Delete" }));
+    await userEvent.click(row.getByRole("button", { name: /^Delete/ }));
     await expect(args.onDelete).toHaveBeenCalledWith(args.items[0]);
   },
 };
@@ -81,9 +81,9 @@ export const SteerRow: Story = {
   play: async ({ canvas }) => {
     const row = within(canvas.getByRole("listitem"));
     await expect(row.getByText("Steer")).toBeVisible();
-    await expect(row.queryByRole("button", { name: "Steer now" })).toBeNull();
+    await expect(row.queryByRole("button", { name: /^Steer now/ })).toBeNull();
     await expect(
-      row.getByRole("button", { name: "Interrupt now" }),
+      row.getByRole("button", { name: /^Interrupt now/ }),
     ).toBeVisible();
   },
 };
@@ -100,11 +100,11 @@ export const InterruptRow: Story = {
   play: async ({ canvas }) => {
     const row = within(canvas.getByRole("listitem"));
     await expect(
-      row.queryByRole("button", { name: "Interrupt now" }),
+      row.queryByRole("button", { name: /^Interrupt now/ }),
     ).toBeNull();
-    await expect(row.queryByRole("button", { name: "Steer now" })).toBeNull();
-    await expect(row.getByRole("button", { name: "Edit" })).toBeVisible();
-    await expect(row.getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(row.queryByRole("button", { name: /^Steer now/ })).toBeNull();
+    await expect(row.getByRole("button", { name: /^Edit/ })).toBeVisible();
+    await expect(row.getByRole("button", { name: /^Delete/ })).toBeVisible();
   },
 };
 
@@ -138,6 +138,13 @@ export const OrderedRows: Story = {
     await expect(rows[0]).toHaveTextContent("first in line");
     await expect(rows[1]).toHaveTextContent("second in line");
     await expect(rows[2]).toHaveTextContent("1 attachment");
+    // Each row's buttons name their item, so rows stay apart.
+    await expect(
+      within(rows[0]!).getByRole("button", { name: "Edit: first in line" }),
+    ).toBeVisible();
+    await expect(
+      within(rows[1]!).getByRole("button", { name: "Edit: second in line" }),
+    ).toBeVisible();
   },
 };
 

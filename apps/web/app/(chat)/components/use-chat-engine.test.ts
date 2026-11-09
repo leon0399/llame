@@ -98,7 +98,7 @@ function historySyncProps(
     setMessages: vi.fn(),
     latestRun: null,
     interruption: null,
-    awaitedMessageId: null,
+    awaitedMessageIds: [],
     onHandoffAttached: vi.fn(),
     ...overrides,
   };
@@ -185,7 +185,7 @@ describe("useChatHistorySync", () => {
     it("waits until the live log holds the delivered message", () => {
       const props = historySyncProps({
         status: "ready",
-        awaitedMessageId: "delivered",
+        awaitedMessageIds: ["delivered"],
       });
       const { rerender } = renderHistorySync(props);
       expect(props.resumeStream).not.toHaveBeenCalled();
@@ -199,7 +199,7 @@ describe("useChatHistorySync", () => {
       const props = historySyncProps({
         status: "streaming",
         messages: delivered,
-        awaitedMessageId: "delivered",
+        awaitedMessageIds: ["delivered"],
       });
       const { rerender } = renderHistorySync(props);
       expect(props.resumeStream).not.toHaveBeenCalled();
@@ -212,6 +212,19 @@ describe("useChatHistorySync", () => {
       const props = historySyncProps({ status: "ready", messages: delivered });
       renderHistorySync(props);
       expect(props.resumeStream).not.toHaveBeenCalled();
+    });
+
+    it("attaches when the delivered message's id is any of the awaited ids", () => {
+      // A steer item's id and the delivered message's new id are both awaited.
+      const props = historySyncProps({
+        status: "ready",
+        awaitedMessageIds: ["item-id", "delivered"],
+      });
+      const { rerender } = renderHistorySync(props);
+      expect(props.resumeStream).not.toHaveBeenCalled();
+
+      rerender({ ...props, messages: delivered });
+      expect(props.resumeStream).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ChatStatus, UIMessage } from "ai";
@@ -14,6 +14,7 @@ import type {
 } from "@/lib/api/generated/models";
 import {
   changeDeliveryMode,
+  deliveriesQueryOptions,
   deliveryFiles,
   deliveryText,
   firstPendingSteer,
@@ -49,7 +50,7 @@ type DeliveryContext = {
 /** The composer's draft: what a send takes and an edit fills. */
 type DraftState = {
   input: string;
-  setInput: (value: string) => void;
+  setInput: Dispatch<SetStateAction<string>>;
   attachments: ComposerAttachments;
 };
 
@@ -118,8 +119,9 @@ async function editItem(
   const withdrawn = await withdrawItem(ctx, item);
   if (withdrawn === null) return;
   const text = deliveryText(withdrawn);
-  draft.setInput(
-    draft.input.trim() === "" ? text : `${text}\n\n${draft.input}`,
+  // The owner may have typed during the round trip: their draft stays.
+  draft.setInput((current) =>
+    current.trim() === "" ? text : `${text}\n\n${current}`,
   );
   await draft.attachments.restoreFiles(deliveryFiles(withdrawn));
 }
@@ -166,11 +168,11 @@ async function sendComposed(
       ctx.begin(message.id);
       return;
     }
-    updateDeliveries(ctx.queryClient, ctx.chatId, (current) =>
-      current.some((item) => item.id === result.item.id)
-        ? current
-        : [...current, result.item],
-    );
+    // Whether the item still waits is the server's to say: a delivery can
+    // have taken it before this response arrived.
+    void ctx.queryClient.invalidateQueries({
+      queryKey: deliveriesQueryOptions(ctx.chatId).queryKey,
+    });
   } catch {
     draft.setInput(message.text);
     draft.attachments.restore(sent);

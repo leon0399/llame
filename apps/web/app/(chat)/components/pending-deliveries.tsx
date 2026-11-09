@@ -36,6 +36,13 @@ function previewText(item: ChatDeliveryResponse): string {
   const files = deliveryFiles(item).length;
   return files === 1 ? "1 attachment" : `${files} attachments`;
 }
+/** The accessible name of a row button: the action and a short excerpt of the
+ *  item, so rows with the same actions stay apart. */
+function actionName(action: string, item: ChatDeliveryResponse) {
+  const preview = previewText(item);
+  const excerpt = preview.length > 40 ? `${preview.slice(0, 40)}…` : preview;
+  return `${action}: ${excerpt}`;
+}
 
 type RowActionsProps = { item: ChatDeliveryResponse } & Omit<
   PendingDeliveriesProps,
@@ -54,6 +61,7 @@ function HurryActions({
       {item.mode === "queue" && (
         <IconButtonTooltip
           label="Steer now"
+          aria-label={actionName("Steer now", item)}
           size="icon-sm"
           onClick={() => onSteerNow(item)}
         >
@@ -63,6 +71,7 @@ function HurryActions({
       {item.mode !== "interrupt" && (
         <IconButtonTooltip
           label="Interrupt now"
+          aria-label={actionName("Interrupt now", item)}
           size="icon-sm"
           onClick={() => onInterruptNow(item)}
         >
@@ -82,6 +91,7 @@ function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
       <HurryActions {...hurry} />
       <IconButtonTooltip
         label="Edit"
+        aria-label={actionName("Edit", item)}
         size="icon-sm"
         onClick={() => onEdit(item)}
       >
@@ -89,6 +99,7 @@ function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
       </IconButtonTooltip>
       <IconButtonTooltip
         label="Delete"
+        aria-label={actionName("Delete", item)}
         size="icon-sm"
         onClick={() => onDelete(item)}
       >

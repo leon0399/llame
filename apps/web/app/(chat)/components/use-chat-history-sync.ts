@@ -36,10 +36,10 @@ type UseChatHistorySyncArgs = {
   /** The Run whose stream ended while it was still executing (see
    *  `isInterruptedStream`), or null. */
   interruption: StreamInterruption | null;
-  /** The delivered message the next segment's attach waits for, or null (see
-   *  `useRunHandoff`). */
-  awaitedMessageId: string | null;
-  /** Called as the attach for `awaitedMessageId` starts. */
+  /** The ids the next segment's attach waits for: it starts once any one is in
+   *  the live log (see `useRunHandoff`). */
+  awaitedMessageIds: ReadonlyArray<string>;
+  /** Called as the hand-off attach starts. */
   onHandoffAttached: () => void;
 };
 
@@ -103,18 +103,20 @@ export function useChatHistorySync(args: UseChatHistorySyncArgs) {
  *  the delivered message in the log and the segment's stream has ended. The
  *  attach is not the mount probe's, so it does not take that slot. */
 function useHandoffAttach({
-  awaitedMessageId,
+  awaitedMessageIds,
   status,
   messages,
   attach,
   onHandoffAttached,
 }: UseChatHistorySyncArgs & { attach: () => void }) {
   useEffect(() => {
-    if (awaitedMessageId === null || status !== "ready") return;
-    if (!messages.some((message) => message.id === awaitedMessageId)) return;
+    if (awaitedMessageIds.length === 0 || status !== "ready") return;
+    if (!messages.some((message) => awaitedMessageIds.includes(message.id))) {
+      return;
+    }
     onHandoffAttached();
     attach();
-  }, [awaitedMessageId, status, messages, attach, onHandoffAttached]);
+  }, [awaitedMessageIds, status, messages, attach, onHandoffAttached]);
 }
 
 /**
