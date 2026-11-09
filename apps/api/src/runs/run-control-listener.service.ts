@@ -5,16 +5,15 @@ import {
   type OnApplicationBootstrap,
   type OnModuleDestroy,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import postgres, { type Sql } from 'postgres';
 
+import type { ChangeListener } from '../live/change-listener';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   WorkerProfileService,
   type WorkerConcurrencyResolver,
 } from '../instance-config/worker-profile.service';
 import { RunAbortRegistry } from './run-abort-registry';
-import { parseRunControl, RUN_CONTROL_CHANNEL } from './run-control';
+import { parseRunControl, RUN_CONTROL_LISTENER } from './run-control';
 import { RunsRepository } from './runs-repository';
 
 /**
@@ -34,11 +33,10 @@ export class RunControlListenerService
   implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(RunControlListenerService.name);
-  private client: Sql | undefined;
 
   constructor(
-    @Inject(ConfigService)
-    private readonly config: Pick<ConfigService, 'get' | 'getOrThrow'>,
+    @Inject(RUN_CONTROL_LISTENER)
+    private readonly listener: ChangeListener,
     @Inject(WorkerProfileService)
     private readonly workerProfile: WorkerConcurrencyResolver,
     @Inject(TenantDbService)
@@ -49,21 +47,16 @@ export class RunControlListenerService
 
   async onApplicationBootstrap(): Promise<void> {
     // A process that does not consume `runs` executes none, so it has nothing
-    // to stop. Offline OpenAPI generation boots AppModule against no database.
+    // to stop.
     if (this.workerProfile.concurrencyFor('runs') === null) return;
-    if (this.config.get<string>('LLAME_OPENAPI_GENERATION') === '1') return;
-    this.client = postgres(this.config.getOrThrow<string>('POSTGRES_URL'), {
-      max: 1,
-    });
-    await this.client.listen(
-      RUN_CONTROL_CHANNEL,
+    await this.listener.listen(
       (raw) => void this.onNotify(raw),
       () => void this.recheckExecuting(),
     );
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.client?.end({ timeout: 5 });
+    await this.listener.close();
   }
 
   private async onNotify(raw: string): Promise<void> {

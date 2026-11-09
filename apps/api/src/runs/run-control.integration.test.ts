@@ -126,7 +126,8 @@ describeIfDb('run control across processes', () => {
     // the Runs it executes finds the recorded cancellation.
     await worker.db.execute(
       sql`select pg_terminate_backend(pid) from pg_stat_activity
-          where pid <> pg_backend_pid() and query ilike 'listen%llame_run_control%'`,
+          where pid <> pg_backend_pid() and datname = current_database()
+          and query ilike 'listen%llame_run_control%'`,
     );
 
     const run = await settled(seed.runId);

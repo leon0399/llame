@@ -43,13 +43,8 @@ export class RunAbortRegistry {
     return [...this.entries].map(([runId, { userId }]) => ({ runId, userId }));
   }
 
-  /** Abort an in-flight run if it executes in this process. Returns whether it did. */
-  abort(runId: string): boolean {
-    const entry = this.entries.get(runId);
-    if (!entry) {
-      return false;
-    }
-    entry.controller.abort();
-    return true;
+  /** Abort an in-flight run if it executes in this process. */
+  abort(runId: string): void {
+    this.entries.get(runId)?.controller.abort();
   }
 }

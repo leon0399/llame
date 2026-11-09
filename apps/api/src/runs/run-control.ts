@@ -6,6 +6,8 @@ import { type Db } from '../db/tenant-db.service';
 /** The Postgres channel that carries Run control to the process executing a Run. */
 export const RUN_CONTROL_CHANNEL = 'llame_run_control';
 
+export const RUN_CONTROL_LISTENER = Symbol('RUN_CONTROL_LISTENER');
+
 export type RunControlKind = 'cancel' | 'interrupt';
 
 export type RunControlMessage = { runId: string; kind: RunControlKind };
