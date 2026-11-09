@@ -43,78 +43,128 @@ For a non-terminal Run, the request SHALL durably record the cancellation and re
 
 ### Requirement: A recorded cancellation settles the Run as cancelled
 
-A worker claims a Run when it assigns an attempt by transitioning a non-terminal Run into execution: for a `queued` Run that is `queued` → `running_model`, and for crash-recovery reclaim that is `running_model` → `running_model` with a new attempt. A Run whose cancellation is recorded before that claim SHALL NOT be claimed and SHALL be settled `cancelled` without any model request, in every deployment topology.
+A worker claims a Run when it assigns an attempt and moves a non-terminal Run into execution. For
+a `queued` Run, that move is `queued` → `running_model`. For a crash-recovery reclaim, it is
+`running_model` → `running_model` with a new attempt. A Run whose cancellation is recorded before
+that claim MUST NOT be claimed. It MUST be settled `cancelled` without a model request, in every
+deployment topology.
 
-After the claim, when the Run executes in the process that receives the cancellation request, attempt preparation continues to its next abort checkpoint (no further model request), any in-flight compaction request SHALL be aborted, and the Run SHALL be settled `cancelled`. When the Run executes in a different process, a cancellation recorded after the claim is outside this requirement until cross-process cancellation ships ([#207](https://github.com/leon0399/llame/issues/207)).
+After the claim, the cancellation MUST reach the worker that executes the Run, in the same process
+or in another process. Attempt preparation then continues to its next abort checkpoint and makes no
+further model request. The worker MUST abort an in-flight model request or compaction request. It
+MUST settle the Run `cancelled`. The recorded cancellation stays the source of truth when the
+signal to the worker is lost. The worker MUST then observe it before its next model request.
 
-Settlement SHALL append the terminal `run.cancelled` event and SHALL follow the first-writer-wins terminal rule of `durable-runs`, so a Run that reached another terminal state first keeps it. A Run deleted together with its Chat leaves no Run to settle and is outside this requirement.
+Settlement MUST append the terminal `run.cancelled` event. It MUST follow the first-writer-wins
+terminal rule of `durable-runs`, so a Run that reached another terminal state first keeps it. A
+Run that is deleted together with its Chat leaves no Run to settle, and this requirement does not
+apply to it.
 
-A Run settled `cancelled` before its model request is recorded as sent (`model.requested`) SHALL persist no assistant message. A Run cancelled after that point SHALL persist its assistant turn with the output observed before cancellation, as `durable-runs` specifies for partial output; when no output was observed, that turn SHALL have no parts. Tool calls open at cancellation SHALL be settled as `tool-calling` specifies. The usage recorded on a cancelled turn is outside this capability.
+A Run settled `cancelled` before its model request is recorded as sent (`model.requested`) MUST
+persist no assistant message. After a delivery of `run-steering`, this applies to the current
+segment: the delivered message then gets no reply, and earlier replies do not change. A Run cancelled after that point MUST persist its assistant turn
+with the output observed before the cancellation, as `durable-runs` specifies for partial output.
+When the Run observed no output, that turn MUST have no parts. The Run MUST settle the tool calls
+that are open at the cancellation as `tool-calling` specifies. This capability does not specify
+the usage that a cancelled turn records.
 
 #### Scenario: A queued Run is settled without a model request
 
-- **WHEN** cancellation is recorded while the Run is still queued
-- **THEN** the worker that picks it up settles it `cancelled` without making any model request
-- **AND** the Run's event log ends with `run.cancelled`
+- **WHEN** a cancellation is recorded while the Run is still queued
+- **THEN** the worker that picks it up settles it `cancelled` without a model request
+- **AND** the event log of the Run ends with `run.cancelled`
 - **AND** no assistant message is persisted for its user message
 
 #### Scenario: A cancellation racing pickup is still honored
 
-- **WHEN** cancellation is recorded after a worker read the Run as uncancelled but before that worker claimed it
-- **THEN** the Run is not claimed and is settled `cancelled` without any model request
+- **WHEN** a cancellation is recorded after a worker read the Run as not cancelled and before that worker claimed it
+- **THEN** the worker does not claim the Run and settles it `cancelled` without a model request
 
 #### Scenario: Cancellation during preparation prevents the model request
 
-- **WHEN** cancellation is recorded, in the process executing the Run, after the claim and while the attempt is preparing its model request
-- **THEN** the attempt makes no further model request and the Run is settled `cancelled`
+- **WHEN** a cancellation is recorded after the claim, while the attempt prepares its model request
+- **THEN** the attempt makes no further model request, and the Run is settled `cancelled`
 - **AND** no assistant message is persisted for its user message
 
 #### Scenario: Cancellation during a model request with no output records an empty turn
 
-- **WHEN** cancellation is recorded, in the process executing the Run, after `model.requested` and before any model output
-- **THEN** the in-flight model request is aborted and the Run is settled `cancelled`
+- **WHEN** a cancellation is recorded after `model.requested` and before model output
+- **THEN** the worker aborts the in-flight model request and settles the Run `cancelled`
 - **AND** the persisted assistant turn has no parts
 
 #### Scenario: Cancellation after output keeps the partial turn
 
-- **WHEN** cancellation is recorded, in the process executing the Run, after model output was observed
+- **WHEN** a cancellation is recorded after the Run observed model output
 - **THEN** the Run is settled `cancelled`
 - **AND** the persisted assistant turn holds the observed output
 
 #### Scenario: A Run that finished first keeps its outcome
 
-- **WHEN** the Run reaches `completed` before its recorded cancellation is observed
-- **THEN** the Run stays `completed` and no `run.cancelled` event is appended
+- **WHEN** the Run reaches `completed` before the worker observes its recorded cancellation
+- **THEN** the Run stays `completed`, and no `run.cancelled` event is appended
+
+#### Scenario: A cancellation reaches a worker in another process
+
+- **WHEN** the API and the worker run in different processes, and the owner cancels a Run during a model request
+- **THEN** the worker aborts that model request and settles the Run `cancelled`
+
+#### Scenario: A lost signal still cancels the Run
+
+- **WHEN** the signal to the worker of the Run is lost after the cancellation is recorded
+- **THEN** the worker observes the recorded cancellation before its next model request
+- **AND** the Run is settled `cancelled`
 
 ### Requirement: The Run stream identifies its Run at acceptance
 
-When the API accepts an owner's message and answers with its UI message stream, the first frame of that stream SHALL be a UI message stream `start` frame whose `messageId` is the accepted Run's id, the same id the cancellation request accepts. The frame SHALL be delivered once the Run is accepted and enqueued, without waiting for any Run event or model output. The resume stream for a chat's active Run SHALL begin with the same frame before replaying the Run's events. Each stream SHALL carry exactly one `start` frame.
+The API can accept an owner message and answer with its UI message stream. The first frame of that
+stream MUST then be a UI message stream `start` frame. Its `messageId` MUST be the id of the
+accepted Run, the same id that the cancellation request accepts. The API MUST send the frame when
+the Run is accepted and enqueued. It MUST NOT wait for a Run event or model output.
 
-The frame SHALL be sent only on streams already scoped to the authenticated owner. A resume request for a chat that has no active Run of the authenticated owner, including another owner's chat, SHALL keep its existing no-content response and carry no frame.
+A stream MUST cover one segment of the Run, as `run-steering` defines segments. The resume
+stream of the active Run of a Chat MUST start with the same frame. It MUST then replay the events
+of the current segment. Each stream MUST carry exactly one `start` frame.
+
+The API MUST send the frame only on streams in the scope of the authenticated owner. A resume
+request for a Chat that has no active Run of the authenticated owner MUST keep its no-content
+answer and carry no frame. This applies also to the Chat of another owner.
 
 #### Scenario: The Run id arrives before any model output
 
-- **WHEN** the owner sends a message and the accepted Run has produced no events beyond its creation
-- **THEN** the response's first frame is a `start` frame whose `messageId` is the Run id
-- **AND** that frame is received while the Run has produced no model output
+- **WHEN** the owner sends a message, and the accepted Run has no events after its creation
+- **THEN** the first frame of the answer is a `start` frame whose `messageId` is the Run id
+- **AND** the client receives that frame while the Run has no model output
 
 #### Scenario: The early id cancels the Run
 
-- **WHEN** a client cancels the Run named by the `start` frame before any worker claims it
-- **THEN** the Run is settled `cancelled` without any model request
+- **WHEN** a client cancels the Run that the `start` frame names before a worker claims it
+- **THEN** the Run is settled `cancelled` without a model request
 - **AND** no assistant message is persisted for the user message
 
 #### Scenario: Resume identifies the active Run first
 
-- **WHEN** the owner resumes a chat whose Run is active
-- **THEN** the resume stream's first frame is a `start` frame whose `messageId` is that Run's id, followed by its replayed events
+- **WHEN** the owner resumes a Chat whose Run is active
+- **THEN** the first frame of the resume stream is a `start` frame whose `messageId` is the id of that Run
+- **AND** the replayed events of the current segment follow it
 
 #### Scenario: The start frame is not repeated
 
-- **WHEN** a Run's model output, tool activity, or terminal event arrives on a stream that already carried its `start` frame
+- **WHEN** model output, tool activity, or the terminal event of a Run arrives on a stream that already carried its `start` frame
 - **THEN** the stream carries no second `start` frame
 
 #### Scenario: Another owner's chat yields no frame
 
-- **WHEN** an authenticated user resumes a chat owned by another user that has an active Run
-- **THEN** the response is the no-content response and carries no frame naming that Run
+- **WHEN** an authenticated user resumes a Chat of another user that has an active Run
+- **THEN** the answer is the no-content answer and carries no frame that names that Run
+
+#### Scenario: A resume after a delivery replays only the current segment
+
+- **WHEN** a Run delivered one steer, and the owner then resumes the Chat
+- **THEN** the resume stream replays only the events after that delivery
+- **AND** the transcript shows the first segment from the history of the Chat
+
+#### Scenario: A cancellation after a delivery leaves the earlier reply
+
+- **WHEN** a Run delivers a steer, and a cancellation is recorded before the first request of the next segment
+- **THEN** the Run is settled `cancelled`, and the delivered message gets no reply
+- **AND** the reply of the first segment does not change

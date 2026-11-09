@@ -1,5 +1,5 @@
 Track [#1622](https://github.com/leon0399/llame/issues/1622) and its PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Parent tracking issue:
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Parent tracking issue:
 [#1612](https://github.com/leon0399/llame/issues/1612). Implementation waits for Leo's approval
 of the published proposal revision. Keep live status in the Project.
 
@@ -72,8 +72,10 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: `SPEC.md` §9 intro and §9.3 and the `CHANGELOG.md` entry of 2026-11-08 added; `pnpm lint:markdown` reports 0 issues and the link check passes.
 - [x] 2.8 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused unit and integration tests above, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api lint` and `typecheck`, `pnpm lint:code`, `pnpm --filter api test` (10,356 tests), and `pnpm --filter api test:integration` (1,258 tests) pass; `pnpm format:check`, `git diff --check`, and `openspec validate in-run-steering --strict` are clean.
-- [ ] 2.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 2.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 2.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: #1639: correctness, security, and simplify + ponytail-review passes on the parent-relative diff before ready; accepted findings fixed in new commits on the layer branch.
+- [x] 2.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1639: current-head CI green on every non-mutation check (known flakes rerun), mutation gate passed, every bot thread answered and resolved; pullfrog covered the head, CodeRabbit skips non-master bases, Codex and Indent were quota-exhausted.
 
 ## 3. segments
 
@@ -89,8 +91,10 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: `SPEC.md` §9.3, §9.4, §9.5, and §9.8 and the `CHANGELOG.md` entry of 2026-11-08 added; `pnpm lint:markdown` reports 0 issues and the link check passes.
 - [x] 3.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api lint` and `typecheck`, `pnpm --filter api test` (10,360 tests), and `pnpm --filter api test:integration` (1,279 tests, 3 skipped) pass; `pnpm format:check`, `git diff --check`, `pnpm lint:markdown`, and `openspec validate in-run-steering --strict` are clean.
-- [ ] 3.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 3.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 3.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: #1641: correctness, security, and simplify + ponytail-review passes on the parent-relative diff before ready; accepted findings fixed in new commits on the layer branch.
+- [x] 3.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1641: current-head CI green on every non-mutation check (known flakes rerun), mutation gate passed, every bot thread answered and resolved; pullfrog covered the head, CodeRabbit skips non-master bases, Codex and Indent were quota-exhausted.
 
 ## 4. segment-prep
 
@@ -106,8 +110,10 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: `CHANGELOG.md` entry of 2026-11-08 added; `pnpm lint:markdown` run.
 - [x] 4.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api lint`, `typecheck`, unit tests, and the focused integration suites pass; `pnpm format:check`, `git diff --check`, `openspec validate in-run-steering --strict` clean.
-- [ ] 4.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 4.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 4.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: #1642: correctness, security, and simplify + ponytail-review passes on the parent-relative diff before ready; accepted findings fixed in new commits on the layer branch.
+- [x] 4.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1642: current-head CI green on every non-mutation check (known flakes rerun), mutation gate passed, every bot thread answered and resolved; pullfrog covered the head, CodeRabbit skips non-master bases, Codex and Indent were quota-exhausted.
 
 ## 5. steer
 
@@ -123,8 +129,10 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: `CHANGELOG.md` entry of 2026-11-08 added; `pnpm lint:markdown` run.
 - [x] 5.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
   - Evidence: `pnpm --filter api lint`, `typecheck`, full unit and integration suites, `pnpm format:check`, `git diff --check`, and `openspec validate in-run-steering --strict` pass.
-- [ ] 5.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 5.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 5.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: #1644: correctness, security, and simplify + ponytail-review passes on the parent-relative diff before ready; accepted findings fixed in new commits on the layer branch.
+- [x] 5.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1644: current-head CI green on every non-mutation check (known flakes rerun), mutation gate passed, every bot thread answered and resolved; pullfrog covered the head, CodeRabbit skips non-master bases, Codex and Indent were quota-exhausted.
 
 ## 6. run-control
 
@@ -134,8 +142,10 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: `pnpm lint:markdown` passed (zero markdown issues; link check passed).
 - [x] 6.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
   - Evidence: typecheck, lint, format check, diff check, full integration suite, and strict OpenSpec validation passed; 154 focused unit tests passed.
-- [ ] 6.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 6.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 6.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: #1645: correctness, security, and simplify + ponytail-review passes on the parent-relative diff before ready; accepted findings fixed in new commits on the layer branch.
+- [x] 6.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1645: current-head CI green on every non-mutation check (known flakes rerun), mutation gate passed, every bot thread answered and resolved; pullfrog covered the head, CodeRabbit skips non-master bases, Codex and Indent were quota-exhausted.
 
 ## 7. interrupt
 
@@ -144,7 +154,8 @@ Re-measure each at its boundary, and request a named exception before publicatio
 - [x] 7.2 Stop the segment on interrupt only while work is in flight, route the abort in `onError`, and settle open calls by fate with a per-call interrupt signal and recorded native results (design D7). Verify "An interrupt during a model response", "An interrupt takes the pending steers along", "An interrupt kills a long command", "Two calls of one step, one started", "A late tool result does not replace the settlement", "A withdrawal after an interrupt stopped work", a tool admission after the interrupt delivery that writes no attempt, "An interrupt during compaction", and "An interrupt reaches a dedicated worker".
 - [x] 7.3 Apply the interrupted-reply reasoning rule in the projection and mark the cut part (design D8). Verify "The cut reasoning part never replays", "An interrupted reply keeps only reasoning with a later part", "A withdrawn interrupt's completed reply keeps the cut part out of later turns", "An interrupt-closed reply keeps its kept reasoning for the next turn", and "A completed segment of a failed Run keeps its reasoning" on the Responses, Messages, and Chat Completions wires.
   - Evidence: interrupted-reply-projection.test.ts on Responses, Messages, Chat Completions part shapes; assistant-transcript.test.ts for the marker.
-- [ ] 7.4 Run the live Anthropic probe: a request that keeps a signed thinking block of an interrupted reply and drops the open block. Record the request shape and the answer in the PR body. Stop and amend the proposal if the provider rejects it.
+- [x] 7.4 Run the live Anthropic probe: a request that keeps a signed thinking block of an interrupted reply and drops the open block. Record the request shape and the answer in the PR body. Stop and amend the proposal if the provider rejects it.
+  - Evidence: Waived by Leo on 2026-11-09 ("Waive 7.4, archive, merge all"): no Anthropic credentials were available to run the probe. The projection keeps completed signed blocks and drops the cut one, as oh-my-pi does in production; a provider rejection would surface as a request error after an interrupt on the Messages wire.
 - [x] 7.5 Add the `interrupted` producer, its packaged template, and its first precedence rank. Verify "The notice comes first", "A killed command is named", and "An interrupted item comes before the owner text".
   - Evidence: interrupted-notice.test.ts and the integration test (notice first, names the killed bash call).
 - [x] 7.6 Accept `delivery: "interrupt"` and `PATCH` to `interrupt`, with `NOTIFY` in the admission transaction. Verify an admission test for `interrupt` and a mode-change test from `steer` to `interrupt`.
@@ -153,8 +164,10 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: CHANGELOG.md entry dated 2026-11-08.
 - [x] 7.8 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
   - Evidence: api typecheck, `pnpm lint:code`, the full api unit suite (471 files) and the full api integration suite pass; `pnpm format:check`, `git diff --check`, `pnpm lint:markdown`, and `openspec validate in-run-steering --strict` are clean.
-- [ ] 7.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 7.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 7.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: #1646: correctness, security, and simplify + ponytail-review passes on the parent-relative diff before ready; accepted findings fixed in new commits on the layer branch.
+- [x] 7.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1646: current-head CI green on every non-mutation check (known flakes rerun), mutation gate passed, every bot thread answered and resolved; pullfrog covered the head, CodeRabbit skips non-master bases, Codex and Indent were quota-exhausted.
 
 ## 8. web
 
@@ -168,15 +181,21 @@ Re-measure each at its boundary, and request a named exception before publicatio
   - Evidence: `chat-page.stories.tsx` `NextSegmentAttachesAfterDelivery` (history adoption, then the second resume), `ReloadShowsTheSegments`, and `FailedRunShowsAPausedQueue` pass; unit tests cover `deliveredMessageId`, the hand-off attach, the `interrupted` notice overlay, and the live `chat.deliveries` cache update.
 - [x] 8.5 Add the split-button and pending-row patterns to `DESIGN.md`, and a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
   - Evidence: `DESIGN.md` §8 gains "Split button" and "Pending rows"; `CHANGELOG.md` has the 2026-11-08 entry; `pnpm lint:markdown` reports 0 issues.
-- [ ] 8.6 Verify the layer: `pnpm --filter web lint`, `pnpm --filter web typecheck`, Storybook story tests, the focused E2E test, `pnpm format:check`, `git diff --check`.
-- [ ] 8.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 8.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 8.6 Verify the layer: `pnpm --filter web lint`, `pnpm --filter web typecheck`, Storybook story tests, the focused E2E test, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter web typecheck` and `lint` pass; the chat-page, chat-composer, and pending-deliveries stories pass; CI `Tests / web` (full Storybook run) and `Product e2e / Playwright` are green on #1647.
+- [x] 8.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: #1647: correctness, security, and simplify + ponytail-review passes on the parent-relative diff before ready; accepted findings fixed in new commits on the layer branch.
+- [x] 8.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1647: current-head CI green on every non-mutation check (known flakes rerun), mutation gate passed, every bot thread answered and resolved; pullfrog covered the head, CodeRabbit skips non-master bases, Codex and Indent were quota-exhausted.
 
 ## 9. finalize
 
-- [ ] 9.1 Enter `in-run-steering/finalize` with `$gh-stack` before `$openspec-sync-specs` writes canonical specs.
-- [ ] 9.2 Sync the delta specs into `openspec/specs`, including the new `run-steering` capability. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
-- [ ] 9.3 Confirm archive readiness: every task above is checked and `openspec status --change in-run-steering --json` reports all artifacts done.
+- [x] 9.1 Enter `in-run-steering/finalize` with `$gh-stack` before `$openspec-sync-specs` writes canonical specs.
+  - Evidence: `in-run-steering/finalize` was created from `in-run-steering/web` with the stack before the sync wrote canonical specs.
+- [x] 9.2 Sync the delta specs into `openspec/specs`, including the new `run-steering` capability. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+  - Evidence: Canonical specs match every delta block verbatim (script check); `openspec validate in-run-steering --strict` is valid; `validate --specs --strict` shows only pre-existing >500-character warnings; `validate --all --strict` fails only in the unrelated `tool-search` change.
+- [x] 9.3 Confirm archive readiness: every task above is checked and `openspec status --change in-run-steering --json` reports all artifacts done.
+  - Evidence: Every task above is checked and `openspec status --change in-run-steering --json` reports all artifacts done.
 
 ## Workflow follow-up
 

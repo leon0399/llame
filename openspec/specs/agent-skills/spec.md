@@ -116,19 +116,45 @@ The system SHALL resolve the first present invocation-control value in this orde
 
 ### Requirement: Explicit mentions load skills before the first model request
 
-The system SHALL recognize exact `$skill-name` tokens in user-authored text outside fenced code, inline code, and escaped dollar signs, with valid name boundaries. It SHALL load distinct selected skills in first-mention order before the Run's first model request, deduplicating repeated mentions within that user turn. Ordinary mentions SHALL remain model-selected. Activation SHALL use the same read availability, input validation, permission admission, live resolver, and result bounds as proactive reads, issuing the raw root read `skill://<name>:raw` with the turn's selection set so the persisted instructions carry no line-number prefixes and a manual-only selection loads. The user text SHALL be retained subject to existing reserved-delimiter sanitation; activation SHALL NOT remove mention tokens or perform argument substitution. Explicit activation SHALL attempt at most eight distinct selections, with a 128 KiB aggregate serialized output bound including envelopes and a 30-second aggregate work deadline further limited by the Run deadline. Remaining output/time SHALL constrain each read, and exhausted budgets SHALL stop further reads. Unattempted selections SHALL produce one bounded omission notice, without per-selection discovery or output. Each activation result SHALL be persisted as an owner-visible context item rather than a fabricated model tool call. An unavailable, invalid, or denied selection SHALL produce a bounded failure item carrying one closed reason from `not_found`, `unavailable`, `permission_denied`, and `read_failed`, without stopping other selections or the Run. The rendered activation item SHALL state the mention, the absolute skill directory and instructions file, the relative-path and `cwd` guidance, a precedence statement, and the instruction body without frontmatter, per `context-injection`.
+The system MUST recognize exact `$skill-name` tokens in user-authored text. It MUST NOT
+recognize them in fenced code, in inline code, or after an escaped dollar sign. A token MUST have
+valid name boundaries. The system MUST load the distinct selected skills in first-mention order
+before the first model request of the Run. For a message that a delivery of `run-steering` adds,
+this is the first model request of its segment. The system MUST load a skill once when the user
+turn mentions it more than once. Ordinary mentions stay model-selected.
+
+Activation MUST use the read availability, input validation, permission admission, live resolver,
+and result bounds of proactive reads. It MUST send the raw root read `skill://<name>:raw` with the
+selection set of the turn. Thus the persisted instructions carry no line-number prefixes, and a
+manual-only selection loads. The system MUST keep the user text under the reserved-delimiter
+neutralization of today. Activation MUST NOT remove mention tokens or substitute arguments.
+
+Explicit activation MUST attempt at most eight distinct selections. It has a 128 KiB aggregate
+bound on serialized output, envelopes included. It has a 30-second aggregate work deadline, which
+the Run deadline can make shorter. The output and time that are left MUST limit each read. When a
+budget is used up, further reads MUST stop. The selections that were not attempted MUST give one
+bounded omission notice, with no discovery or output per selection.
+
+Each activation result MUST persist as an owner-visible context item, not as an invented model
+tool call. An unavailable, invalid, or denied selection MUST give a bounded failure item. That
+item carries one closed reason: `not_found`, `unavailable`, `permission_denied`, or
+`read_failed`. A failure MUST NOT stop the other selections or the Run. The rendered activation
+item MUST state the mention, the absolute skill directory, and the instructions file. It MUST
+also state the relative-path and `cwd` guidance, a precedence statement, and the instruction body
+without frontmatter, per `context-injection`.
 
 #### Scenario: User selects two skills
 
 - **WHEN** the user sends `$research $technical-writing compare these APIs`
-- **THEN** both current instruction bodies are loaded in that order before the first model request, subject to read admission
-- **AND** the retained user text, with existing delimiter sanitation applied, follows the activation items
+- **THEN** both current instruction bodies load in that order before the first model request, under read admission
+- **AND** the kept user text, with delimiter neutralization, follows the activation items
 
 #### Scenario: Manual-only skill is selected explicitly
 
 - **WHEN** the user sends `$review` and `review` is manual-only
-- **THEN** its instructions are loaded through the same read admission with `review` in the turn's selection set
-- **AND** a model-initiated `skill://review/references/checklist.md` read during that Run succeeds with the same selection set, while the same read on a later turn without the mention is refused
+- **THEN** its instructions load through the same read admission, with `review` in the selection set of the turn
+- **AND** a `skill://review/references/checklist.md` read by the model in that Run succeeds with the same selection set
+- **AND** the same read on a later turn without the mention is refused
 
 #### Scenario: Example text is not an activation
 
@@ -139,6 +165,11 @@ The system SHALL recognize exact `$skill-name` tokens in user-authored text outs
 
 - **WHEN** the user selects a skill whose read is denied
 - **THEN** no body is loaded and a persisted permission failure accompanies the user turn
+
+#### Scenario: A delivered steer activates its skill
+
+- **WHEN** a Run delivers a steer that names `$pdf`
+- **THEN** the `pdf` instructions load before the first model request of the new segment
 
 ### Requirement: Skill observations are live and replay remains historical
 

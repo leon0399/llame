@@ -182,9 +182,10 @@ message, except a kept context item. The Run MUST NOT execute a kept call again.
 ### Requirement: The Continue Run log starts with the kept parts
 
 The event log of the Continue Run MUST record the kept parts before its first model event. Each
-attempt of the Continue Run MUST start from those parts. A stream replay of the Continue Run MUST
-show the kept text, reasoning, and tool parts, then the new parts. The final reply MUST hold the
-kept parts once, then the new parts, in stored order.
+attempt of the first segment of the Continue Run MUST start from those parts. A later segment,
+which a delivery of `run-steering` starts, MUST NOT start from them. A stream replay of the first
+segment MUST show the kept text, reasoning, and tool parts, then the new parts. The reply of the
+first segment MUST hold the kept parts once, then the new parts, in stored order.
 
 #### Scenario: A refresh shows the whole continued reply
 
@@ -202,6 +203,11 @@ kept parts once, then the new parts, in stored order.
 
 - **WHEN** a Continue Run fails after one new settled tool call
 - **THEN** the reply holds the kept parts, then the new step
+
+#### Scenario: A delivered message does not repeat the kept parts
+
+- **WHEN** a Continue Run delivers a steer after its first new step
+- **THEN** the reply of the delivered message holds only the parts of the second segment
 
 ### Requirement: Regenerate replaces the reply of the latest turn
 

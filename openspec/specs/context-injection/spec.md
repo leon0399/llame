@@ -391,21 +391,23 @@ The system can inject more than one item on the same turn. The path that
 authors items and prepares requests MUST then persist them in a fixed producer precedence
 order. They MUST go before the user text in the user message of the turn:
 
-1. `effective-context-change`
-2. `regenerate`
-3. `tool-availability`
-4. `workspace`
-5. `git`
-6. `instructions`
-7. `skill-catalog`
-8. `skill-activation`
-9. `prompt-imports`
-10. `recency-digest`
-11. `temporal`
+1. `interrupted`
+2. `effective-context-change`
+3. `regenerate`
+4. `tool-availability`
+5. `workspace`
+6. `git`
+7. `instructions`
+8. `skill-catalog`
+9. `skill-activation`
+10. `prompt-imports`
+11. `recency-digest`
+12. `temporal`
 
 When one producer contributes more than one item, the system MUST store those
 items in emission order. A producer added later MUST extend this list
-in the rail specification.
+in the rail specification. The `interrupted` producer of `run-steering` attaches its item to a
+delivered message.
 
 In-Run items MUST be in the order of the model step that caused them. In a step,
 they MUST be in this same producer precedence. The system MUST NOT sort them
@@ -501,6 +503,12 @@ rule of a retry after a dispatch.
 
 - **WHEN** the first Run of a turn stored a `temporal` item and dispatched, and a Regenerate of that turn yields a `regenerate` notice
 - **THEN** the Regenerate dispatch stores the notice after the `temporal` item and before the user text
+
+#### Scenario: An interrupted item comes before the owner text
+
+- **WHEN** a Run delivers an interrupt as a user message
+- **THEN** the `interrupted` item is the first attached item of that message
+- **AND** the dispatch transaction of the next segment stores it
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
