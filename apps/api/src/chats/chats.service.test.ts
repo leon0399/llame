@@ -7,7 +7,6 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunsRepository } from '../runs/runs-repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
@@ -36,7 +35,6 @@ describe('ChatsService.searchChats', () => {
     );
     const service = new ChatsService(
       tenantDb,
-      new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
@@ -128,7 +126,6 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     );
     return new ChatsService(
       tenantDb,
-      new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
@@ -280,16 +277,13 @@ describe('ChatsService message windows, updates and forks', () => {
     vi.spyOn(RunsRepository.prototype, 'findLatestByChatId').mockResolvedValue(
       undefined,
     );
-    const aborts = new RunAbortRegistry();
     return {
       service: new ChatsService(
         tenantDb,
-        aborts,
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
       ),
-      aborts,
       runAs,
     };
   }
@@ -851,7 +845,7 @@ describe('ChatsService message windows, updates and forks', () => {
       sourceRunId: null,
     };
 
-    it('cancels and aborts the in-flight run before deleting the chat', async () => {
+    it('cancels the in-flight run before deleting the chat', async () => {
       vi.spyOn(
         RunsRepository.prototype,
         'findActiveByChatId',
@@ -860,15 +854,13 @@ describe('ChatsService message windows, updates and forks', () => {
         .spyOn(RunsRepository.prototype, 'requestCancel')
         .mockResolvedValue(activeRun);
       vi.spyOn(ChatsRepository.prototype, 'deleteById').mockResolvedValue(true);
-      const { service, aborts } = makeService();
-      const abort = vi.spyOn(aborts, 'abort');
+      const { service } = makeService();
 
       await expect(service.deleteChat(ownerUserId, chat.id)).resolves.toBe(
         true,
       );
 
       expect(requestCancel).toHaveBeenCalledWith(activeRun.id, ownerUserId);
-      expect(abort).toHaveBeenCalledWith(activeRun.id);
     });
 
     it('deletes a chat with no in-flight run without touching the cancel path', async () => {
@@ -880,15 +872,13 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'deleteById').mockResolvedValue(
         false,
       );
-      const { service, aborts } = makeService();
-      const abort = vi.spyOn(aborts, 'abort');
+      const { service } = makeService();
 
       await expect(service.deleteChat(ownerUserId, chat.id)).resolves.toBe(
         false,
       );
 
       expect(requestCancel).not.toHaveBeenCalled();
-      expect(abort).not.toHaveBeenCalled();
     });
   });
 });

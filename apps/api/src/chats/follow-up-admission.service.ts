@@ -305,7 +305,7 @@ export class FollowUpAdmissionService {
 
     // Accepted: the Chat is the turn's latest activity again.
     await new ChatsRepository(tx).touch(input.chatId, input.userId);
-    const { run, supersededRunIds } = await createRunForMessage(
+    const { run } = await createRunForMessage(
       tx,
       {
         userId: input.userId,
@@ -327,7 +327,6 @@ export class FollowUpAdmissionService {
     return {
       runId: run.id,
       userMessage: toRunUserMessage(userMessage),
-      supersededRunIds,
       chatId: input.chatId,
       userId: input.userId,
       modelId: latestRun.modelId,
@@ -353,7 +352,7 @@ export class FollowUpAdmissionService {
 
     // Accepted: the Chat is the turn's latest activity again.
     await new ChatsRepository(tx).touch(input.chatId, input.userId);
-    const { run, supersededRunIds } = await createRunForMessage(
+    const { run } = await createRunForMessage(
       tx,
       {
         userId: input.userId,
@@ -375,7 +374,6 @@ export class FollowUpAdmissionService {
     return {
       runId: run.id,
       userMessage: toRunUserMessage(userMessage),
-      supersededRunIds,
       chatId: input.chatId,
       userId: input.userId,
       modelId: validated.modelId,

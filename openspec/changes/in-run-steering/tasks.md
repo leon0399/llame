@@ -128,9 +128,12 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 6. run-control
 
-- [ ] 6.1 Add the `llame_run_control` listener in each process that consumes `runs`, store `userId` in the abort registry, check the recorded state in the owner's scope before an abort, and send every cancel path through the channel (design D6). Verify "A cancellation reaches a worker in another process", "A lost signal still cancels the Run", and the `run-cancellation` scenarios with two Nest application contexts that each own a registry, plus chat deletion stopping a Run that executes in another process and a superseded Run.
-- [ ] 6.2 Update `SPEC.md` §9.6 and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 6.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+- [x] 6.1 Add the `llame_run_control` listener in each process that consumes `runs`, store `userId` in the abort registry, check the recorded state in the owner's scope before an abort, and send every cancel path through the channel (design D6). Verify "A cancellation reaches a worker in another process", "A lost signal still cancels the Run", and the `run-cancellation` scenarios with two Nest application contexts that each own a registry, plus chat deletion stopping a Run that executes in another process and a superseded Run.
+  - Evidence: two-context Postgres integration tests cover cancellation, lost notifications, chat deletion, superseding, and unrecorded notification pointers; existing run-cancellation scenarios pass.
+- [x] 6.2 Update `SPEC.md` §9.6 and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `pnpm lint:markdown` passed (zero markdown issues; link check passed).
+- [x] 6.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: typecheck, lint, format check, diff check, full integration suite, and strict OpenSpec validation passed; 154 focused unit tests passed.
 - [ ] 6.4 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 6.5 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

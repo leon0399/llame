@@ -89,7 +89,8 @@ type HarnessOverrides = {
    * no suite exercises today.
    */
   machineTransportFactory?: MachineTransportFactory;
-  runsConcurrency?: number;
+  /** `null` boots a process that does not consume `runs`, like an API-only process. */
+  runsConcurrency?: number | null;
   /** The operator's step cap per segment; absent keeps the built-in (none). */
   maxStepsPerRun?: number;
   timeoutSeconds?: number;
@@ -118,6 +119,7 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
   ]) {
     permissions[id] = { allow: true };
   }
+  const { runs: defaultRuns, ...withoutRuns } = BUILT_IN_DEFAULTS.workers.all;
   return {
     ...BUILT_IN_DEFAULTS,
     ...(overrides?.machines !== undefined && { machines: overrides.machines }),
@@ -149,10 +151,13 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
     },
     workers: {
       ...BUILT_IN_DEFAULTS.workers,
-      all: {
-        ...BUILT_IN_DEFAULTS.workers.all,
-        runs: overrides?.runsConcurrency ?? BUILT_IN_DEFAULTS.workers.all.runs,
-      },
+      all:
+        overrides?.runsConcurrency === null
+          ? withoutRuns
+          : {
+              ...withoutRuns,
+              runs: overrides?.runsConcurrency ?? defaultRuns,
+            },
     },
   };
 }

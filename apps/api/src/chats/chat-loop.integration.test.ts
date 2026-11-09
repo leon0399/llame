@@ -40,7 +40,6 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { type RunJob } from '../runs/run-queues';
@@ -380,7 +379,6 @@ describeIfDb(
           .fn<RunStreamResponder['createUiMessageStreamResponse']>()
           .mockReturnValue(new Response()),
       };
-      const aborts = new RunAbortRegistry();
       // A blocker this suite creates was just dispatched, so its job is LIVE;
       // each wedging scenario scripts the state it is actually about.
       jobState = vi.fn<RunDispatcher['jobState']>(() =>
@@ -415,7 +413,6 @@ describeIfDb(
         models,
         instanceConfig,
         bridge,
-        aborts,
         dispatch,
         new MediaService(tenantDb),
       );
@@ -1178,7 +1175,6 @@ describeIfDb(
         models,
         instanceConfig,
         { createUiMessageStreamResponse: vi.fn() },
-        new RunAbortRegistry(),
         dispatch,
         new MediaService(tenantDb),
       );

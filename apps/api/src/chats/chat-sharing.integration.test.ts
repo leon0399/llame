@@ -25,7 +25,6 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunningReplyRepository } from './running-reply-repository';
 import { ChatsService } from './chats.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { isTextPart } from './context-builder';
 
@@ -141,7 +140,6 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     tenantDb = new TenantDbService(db);
     service = new ChatsService(
       tenantDb,
-      new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PostgresChangeListener } from '../live/change-listener';
 import { CompactionModule } from '../compaction/compaction.module';
 import { DecisionsModule } from '../decisions/decisions.module';
 import { RecencyDigestModule } from '../chats/recency-digest.module';
@@ -21,6 +23,8 @@ import { RunDispatchService } from './run-dispatch.service';
 import { RunExecutionService } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsModule } from './runs.module';
+import { RUN_CONTROL_CHANNEL, RUN_CONTROL_LISTENER } from './run-control';
+import { RunControlListenerService } from './run-control-listener.service';
 import { RunsWorkerService } from './runs-worker.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
 import { IN_RUN_CONTEXT_PRODUCER } from './in-run-context-items';
@@ -72,6 +76,13 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
         new WorkspaceMcpClients(operator, { connector }),
     },
     RunsWorkerService,
+    RunControlListenerService,
+    {
+      provide: RUN_CONTROL_LISTENER,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        new PostgresChangeListener(config, RUN_CONTROL_CHANNEL),
+    },
     RunStreamBridgeService,
     RunDispatchService,
     {

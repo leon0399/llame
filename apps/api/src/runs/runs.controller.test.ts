@@ -8,7 +8,6 @@ import {
   type SystemPromptReceipt,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { RunAbortRegistry } from './run-abort-registry';
 import { RunsController } from './runs.controller';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
@@ -51,7 +50,7 @@ describe('RunsController context receipt', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  function controller(aborts = new RunAbortRegistry()) {
+  function controller() {
     const tx: Db = drizzle.mock({ schema });
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
@@ -60,7 +59,7 @@ describe('RunsController context receipt', () => {
     const tenantDb: TenantRunner = { runAs };
     vi.spyOn(tenantDb, 'runAs');
 
-    return new RunsController(tenantDb, aborts);
+    return new RunsController(tenantDb);
   }
 
   function request(
@@ -150,18 +149,15 @@ describe('RunsController context receipt', () => {
     expect(findById).toHaveBeenCalledWith(run.id, 'owner');
   });
 
-  it('requests cancellation and aborts an in-process run', async () => {
+  it('requests cancellation through the repository', async () => {
     const running = { ...run, status: 'running_model' as const };
     vi.spyOn(RunsRepository.prototype, 'requestCancel').mockResolvedValue(
       running,
     );
-    const aborts = new RunAbortRegistry();
-    const abort = vi.spyOn(aborts, 'abort');
 
     await expect(
-      controller(aborts).updateRun('owner', run.id, { status: 'cancelled' }),
+      controller().updateRun('owner', run.id, { status: 'cancelled' }),
     ).resolves.toMatchObject({ id: run.id, status: 'running_model' });
-    expect(abort).toHaveBeenCalledWith(run.id);
   });
 
   it('rejects cancellation after a run reached every terminal status', async () => {

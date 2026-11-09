@@ -55,7 +55,6 @@ import { waitFor } from '../testing/support';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { type KnowledgeToolResolver } from '../tools/types';
 import { reconstructDurableAssistant } from './assistant-transcript';
-import { RunAbortRegistry } from './run-abort-registry';
 import { type RunDispatcher } from './run-dispatch.service';
 import {
   RunExecutionService,
@@ -353,7 +352,6 @@ describeIfDb(
         models,
         instanceConfig,
         bridge,
-        new RunAbortRegistry(),
         dispatcher,
         new MediaService(tenantDb),
       );

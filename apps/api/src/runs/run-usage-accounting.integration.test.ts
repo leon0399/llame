@@ -464,9 +464,6 @@ describe('Run usage accounting through the worker and Postgres', () => {
       await harness!.tenantDb.runAs(ownerId, (tx) =>
         new RunsRepository(tx).requestCancel(seed.runId, ownerId),
       );
-      harness!.moduleRef
-        .get(RunAbortRegistry, { strict: false })
-        .abort(seed.runId);
       await waitForStatus(seed.runId, 'cancelled');
 
       const messages = await history(seed.chatId);

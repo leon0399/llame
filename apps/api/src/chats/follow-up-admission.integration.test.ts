@@ -31,7 +31,6 @@ import {
   resolveEffortSelection,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -148,7 +147,6 @@ describeIfDb('follow-up admission', () => {
       modelValidator(),
       instanceConfig,
       bridge,
-      new RunAbortRegistry(),
       dispatch,
       new MediaService(tenantDb),
     );

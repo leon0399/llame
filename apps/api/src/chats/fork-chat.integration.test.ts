@@ -32,7 +32,6 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunningReplyRepository } from './running-reply-repository';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { ChatsService } from './chats.service';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toStoredMessages } from '../compaction/compaction.service';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { isRecord } from '@workspace/runtime-safety';
@@ -140,7 +139,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     tenantDb = new TenantDbService(db);
     service = new ChatsService(
       tenantDb,
-      new RunAbortRegistry(),
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),

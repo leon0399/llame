@@ -11,7 +11,6 @@ import {
   PermissionModeNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
@@ -50,7 +49,6 @@ function makeService(models?: {
   const bridge: RunStreamResponder = {
     createUiMessageStreamResponse: vi.fn(),
   };
-  const aborts: RunAborter = { abort: vi.fn() };
   const dispatch: RunDispatcher = {
     dispatch: dispatchRun,
     jobState: () => Promise.resolve('absent'),
@@ -62,7 +60,6 @@ function makeService(models?: {
       modelsService,
       instanceConfig,
       bridge,
-      aborts,
       dispatch,
       new MediaService(tenantDb),
     ),

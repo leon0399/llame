@@ -328,7 +328,6 @@ describe('FollowUpAdmissionService', () => {
       chatId: chat.id,
       userId: chat.ownerUserId,
       modelId: model.id,
-      supersededRunIds: [],
       userMessage: { id: userMessage.id, seq: userMessage.seq },
     });
     expect(createRun).toHaveBeenCalledWith(

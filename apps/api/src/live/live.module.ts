@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { AuthModule } from '../auth/auth.module';
 import { MachinesModule } from '../machines/machines.module';
@@ -8,6 +9,7 @@ import {
   PostgresChangeListener,
 } from './change-listener';
 import { LiveGatewayService } from './live-gateway.service';
+import { LIVE_CHANGES_CHANNEL } from './live-messages';
 import {
   LIVE_RECORD_LOADER,
   TenantLiveRecordLoader,
@@ -25,7 +27,12 @@ import {
     ChangeHubService,
     LiveGatewayService,
     { provide: LIVE_RECORD_LOADER, useClass: TenantLiveRecordLoader },
-    { provide: LIVE_CHANGE_LISTENER, useClass: PostgresChangeListener },
+    {
+      provide: LIVE_CHANGE_LISTENER,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        new PostgresChangeListener(config, LIVE_CHANGES_CHANNEL),
+    },
   ],
 })
 export class LiveModule {}

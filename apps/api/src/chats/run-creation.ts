@@ -10,6 +10,7 @@ import { ConflictException } from '@nestjs/common';
 import { type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
+import { notifyRunControl } from '../runs/run-control';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 
@@ -62,7 +63,7 @@ export async function createRunForMessage(
   tx: Db,
   input: CreateRunForMessageInput,
   userMessage: Message,
-): Promise<{ run: Run; supersededRunIds: Array<string> }> {
+): Promise<{ run: Run }> {
   const runsRepo = new RunsRepository(tx);
   const eventsRepo = new RunEventsRepository(tx);
   const superseded = await runsRepo.cancelActiveRunsForMessage(
@@ -73,6 +74,8 @@ export async function createRunForMessage(
     await eventsRepo.append(stale.id, 'run.cancelled', {
       reason: 'superseded by retry',
     });
+    // On commit, so the process executing the stale Run stops its model call.
+    await notifyRunControl(tx, { runId: stale.id, kind: 'cancel' });
   }
 
   const run = await createRunRow(tx, input, userMessage);
@@ -100,7 +103,7 @@ export async function createRunForMessage(
     });
   }
 
-  return { run, supersededRunIds: superseded.map((stale) => stale.id) };
+  return { run };
 }
 
 /**

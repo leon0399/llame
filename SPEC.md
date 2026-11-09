@@ -148,7 +148,7 @@ All current workers coordinate through the same installation's queue and databas
 
 ### 9.6 Queue delivery and recovery
 
-Infrastructure failures retry under bounded queue policy; exhausted jobs dead-letter. Native queue heartbeat recovers dead workers, terminal Run writes are first-writer-wins, and failed enqueue cannot leave a Chat permanently blocked. See [`job-queue`](openspec/specs/job-queue/spec.md) and [`durable-runs`](openspec/specs/durable-runs/spec.md).
+Infrastructure failures retry under bounded queue policy; exhausted jobs dead-letter. Native queue heartbeat recovers dead workers, terminal Run writes are first-writer-wins, and failed enqueue cannot leave a Chat permanently blocked. Every cancel path (the Run's cancel request, Chat deletion, and a superseded Run) records the cancellation and sends `{runId, kind}` on the Postgres `llame_run_control` channel in the same transaction, delivered on commit. Each process that consumes `runs` listens on that channel, confirms the recorded cancellation in the Run owner's tenant scope before it aborts the Run it executes, and on every reconnect re-reads the Runs it executes, so a cancellation reaches an in-flight model request or tool call in a dedicated worker as in a co-located process, and a lost notification is still caught. See [`job-queue`](openspec/specs/job-queue/spec.md) and [`durable-runs`](openspec/specs/durable-runs/spec.md).
 
 ### 9.7 Immutable model context
 

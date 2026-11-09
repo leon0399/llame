@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
+- **Cancelling a Run now stops it in a dedicated worker.** A cancel request,
+  a deleted Chat, and a superseded Run now reach the process that executes the
+  Run, so the model request or tool call in flight stops there too. Before, only
+  a worker in the same process as the API stopped; a dedicated worker kept
+  running until the next step end. Each cancel path records the cancellation and
+  sends it on the `llame_run_control` Postgres channel in the same transaction.
+  Every process that consumes `runs` listens on that channel, checks the
+  recorded cancellation as the Run's owner before it aborts, and re-checks the
+  Runs it executes after every reconnect. This closes #207.
+
 - **Steer a live Run through the API.** An owner can send a message with
   `delivery: "steer"` while a Run is live. The API answers 202 with a pending
   item, and the Run delivers it at its next step end or final answer, as one

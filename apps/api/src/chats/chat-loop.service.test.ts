@@ -15,7 +15,6 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelSelectionValidator } from '../models/models.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
-import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { heartbeatSeconds } from '../runs/run-queues';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
@@ -189,8 +188,6 @@ function makeService(options?: {
   const streamResponse = options?.streamResponse ?? new Response('stream');
   const createUiMessageStreamResponse = vi.fn(() => streamResponse);
   const bridge: RunStreamResponder = { createUiMessageStreamResponse };
-  const abort = vi.fn();
-  const aborts: RunAborter = { abort };
   const dispatchRun = vi.fn(async () => {});
   const jobState = vi.fn<RunDispatcher['jobState']>(() =>
     Promise.resolve('absent'),
@@ -276,7 +273,6 @@ function makeService(options?: {
     modelsService,
     instanceConfig,
     bridge,
-    aborts,
     dispatch,
     media,
   );
@@ -284,7 +280,6 @@ function makeService(options?: {
   return {
     service,
     runAs,
-    abort,
     dispatchRun,
     createUiMessageStreamResponse,
     streamResponse,
@@ -506,7 +501,7 @@ describe('ChatLoopService.createMessageStream', () => {
   });
 
   it('persists, dispatches, and answers with the bridge stream for a new chat', async () => {
-    const { service, findById, createIfAbsent, touch, dispatchRun, abort } =
+    const { service, findById, createIfAbsent, touch, dispatchRun } =
       makeService();
     findById.mockResolvedValueOnce(undefined);
     createIfAbsent.mockResolvedValue(chat);
@@ -520,7 +515,6 @@ describe('ChatLoopService.createMessageStream', () => {
       ownerUserId: chat.ownerUserId,
     });
     expect(touch).not.toHaveBeenCalled();
-    expect(abort).not.toHaveBeenCalled();
     expect(dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({
         chatId: chat.id,
@@ -576,15 +570,15 @@ describe('ChatLoopService.createMessageStream', () => {
     );
   });
 
-  it('touches a pre-existing chat and aborts superseded retries after commit', async () => {
+  it('touches a pre-existing chat and supersedes active runs of the message in the admission transaction', async () => {
     const stale: Run = { ...run, id: 'stale-run' };
-    const { service, touch, abort, cancelActiveRunsForMessage } = makeService();
+    const { service, touch, cancelActiveRunsForMessage } = makeService();
     cancelActiveRunsForMessage.mockResolvedValue([stale]);
 
     await service.createMessageStream(input);
 
     expect(touch).toHaveBeenCalledWith(chat.id, chat.ownerUserId);
-    expect(abort).toHaveBeenCalledWith('stale-run');
+    expect(cancelActiveRunsForMessage).toHaveBeenCalledOnce();
   });
 
   it('re-queries a racing first insert and 404s a cross-tenant id without leaking it', async () => {

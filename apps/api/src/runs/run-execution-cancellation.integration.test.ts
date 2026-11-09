@@ -13,7 +13,6 @@
  * TEST_DATABASE_URL-gated, like every other *.integration.test.ts here.
  */
 
-import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
   bootWorkerHarness,
@@ -36,13 +35,11 @@ vi.setConfig({ testTimeout: 60_000 });
 
 describeIfDb('post-claim cancellation settlement', () => {
   let harness: WorkerHarness;
-  let aborts: RunAbortRegistry;
   let personalization: PersonalizationService;
   let userId: string;
 
   beforeAll(async () => {
     harness = await bootWorkerHarness();
-    aborts = harness.moduleRef.get(RunAbortRegistry, { strict: false });
     personalization = harness.moduleRef.get(PersonalizationService, {
       strict: false,
     });
@@ -76,15 +73,14 @@ describeIfDb('post-claim cancellation settlement', () => {
     return messages.filter((message) => message.role === 'assistant');
   };
 
-  /** The owner's cancellation, exactly as `PATCH /runs/:id` performs it. */
+  /** The owner's cancellation, exactly as `PATCH /runs/:id` performs it: the
+   *  repository records it and sends it on the run-control channel, and the
+   *  worker's listener aborts the Run it executes. */
   async function requestCancellation(runId: string) {
     const requested = await harness.tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).requestCancel(runId, userId),
     );
-    return {
-      requested,
-      aborted: requested !== undefined && aborts.abort(runId),
-    };
+    return { requested };
   }
 
   const settledRun = (runId: string, what: string) =>
@@ -126,7 +122,7 @@ describeIfDb('post-claim cancellation settlement', () => {
       'the preparing Run to settle after the cancellation',
     );
     expect(settled.status).toBe('cancelled');
-    expect(cancellation?.aborted).toBe(true);
+    expect(cancellation?.requested).toBeDefined();
 
     // No further model request: the attempt never reached `model.requested`,
     // and the scripted client was never asked to stream. The log opens at
@@ -155,7 +151,6 @@ describeIfDb('post-claim cancellation settlement', () => {
 
     const cancellation = await requestCancellation(seed.runId);
     expect(cancellation.requested).toBeDefined();
-    expect(cancellation.aborted).toBe(true);
 
     const settled = await settledRun(
       seed.runId,
@@ -198,7 +193,6 @@ describeIfDb('post-claim cancellation settlement', () => {
 
     const cancellation = await requestCancellation(seed.runId);
     expect(cancellation.requested).toBeUndefined();
-    expect(cancellation.aborted).toBe(false);
 
     const unchanged = await runStatus(seed.runId);
     expect(unchanged?.status).toBe('completed');

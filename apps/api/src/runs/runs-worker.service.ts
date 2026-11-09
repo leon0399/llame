@@ -206,10 +206,10 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       throw error;
     }
 
-    // Mid-flight cancellation: the cancel endpoint aborts this controller
-    // (same process today); executeRun's abort path records the cancelled
+    // Mid-flight cancellation: the run-control listener aborts this controller
+    // when a cancellation is recorded, in any topology; executeRun's abort path records the cancelled
     // terminal state exactly like a client abort did in inline mode.
-    const abort = this.aborts.register(job.runId);
+    const abort = this.aborts.register(job.runId, job.userId);
 
     // Close the pickup TOCTOU (review finding): a cancel landing after the
     // skip-gate read but before the registration above stamped the DB and
