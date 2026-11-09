@@ -16902,18 +16902,20 @@ describe('RunExecutionService retained read media', () => {
                 payload: { chatId, messageId, replacesUsage: true },
                 createdAt: now,
               }
-            : {
-                sequence: 2,
-                runId,
-                eventType,
-                payload: {
-                  sourceRunId: runId,
-                  parts: [keptRead],
-                  steps: { 'kept-read': 0 },
-                  results: {},
-                },
-                createdAt: now,
-              },
+            : eventType === 'run.continued'
+              ? {
+                  sequence: 2,
+                  runId,
+                  eventType,
+                  payload: {
+                    sourceRunId: runId,
+                    parts: [keptRead],
+                    steps: { 'kept-read': 0 },
+                    results: {},
+                  },
+                  createdAt: now,
+                }
+              : undefined,
         ),
       );
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
