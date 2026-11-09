@@ -4445,8 +4445,9 @@ export class RunExecutionService {
    * staleness high-water mark — the reindex sweep's backstop for a lost
    * enqueue — and so the chat list reflects the latest turn. Its own
    * single-row transaction, called BEFORE the reindex rather than in the
-   * terminal one: the finalizer never holds the chat row (see the lock-order
-   * note there), and a touch landing after the reindex would leave every
+   * terminal one: the terminal transaction takes the chat row only after the
+   * Run row, for queue promotion (run-steering D5), and this touch stays
+   * separate for reindex ordering. A touch landing after the reindex would leave every
    * completed turn looking stale (`indexed_at < updated_at`) and re-enqueue
    * it for nothing.
    */

@@ -35,6 +35,13 @@ class ItemNoLongerPending extends Error {}
  * so an item admitted during the Run is either seen here or admitted after the
  * commit into an idle Chat. An item whose settings no longer validate stays
  * pending: the queue is paused and starts nothing until the owner acts.
+ *
+ * The lock is unconditional: skipping it on an empty queue would strand an
+ * item admitted concurrently into an idle Chat. It cannot deadlock with
+ * admission, because admission never writes the Run row of an active job
+ * (`blockerIsLive` refuses to expire one). A send during promotion therefore
+ * waits at most on the Chat row, or answers 409 while the Run is still
+ * active; it never waits on the Run row this transaction holds.
  */
 export async function promoteNextQueueItem(
   tx: Db,
