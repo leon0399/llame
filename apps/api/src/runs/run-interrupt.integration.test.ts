@@ -50,9 +50,11 @@ import {
   type WorkerHarness,
 } from './worker-harness';
 
-const describeIfDb = process.env['TEST_DATABASE_URL']
-  ? describe
-  : describe.skip;
+if (!process.env['TEST_DATABASE_URL']) {
+  throw new Error(
+    'run-interrupt.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
 
 vi.setConfig({ testTimeout: 90_000 });
 
@@ -146,7 +148,7 @@ async function offerMcpTool(runtime: McpRuntimeService) {
   );
 }
 
-describeIfDb('run steering interrupts', () => {
+describe('run steering interrupts', () => {
   beforeAll(() => {
     registerTestOnlyTool({
       id: 'slow_lookup',
@@ -915,7 +917,7 @@ describeIfDb('run steering interrupts', () => {
   });
 });
 
-describeIfDb('an interrupt across processes', () => {
+describe('an interrupt across processes', () => {
   let worker: WorkerHarness;
   let api: WorkerHarness;
   let userId: string;

@@ -63,6 +63,11 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
 import { type RunDispatcher } from './run-dispatch.service';
+import {
+  RunAbortRegistry,
+  type RunSegmentRegistrar,
+} from './run-abort-registry';
+import { createRunEventTranslator } from './run-stream-bridge';
 
 // The real SDK without a client, with the three calls a Run makes observable.
 vi.mock('@sentry/nestjs', async (importOriginal) => ({
@@ -219,7 +224,11 @@ import {
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { SshConfig } from '../instance-config/ssh-settings';
 import type { WebSearchConfig } from '../instance-config/web-search-config';
-import type { SshClient, SshClientFactory } from '../ssh/ssh-client';
+import type {
+  SshClient,
+  SshClientFactory,
+  SshResolution,
+} from '../ssh/ssh-client';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import {
   KnowledgeFilesystemAdapter,
@@ -509,6 +518,8 @@ type ExecutionServiceOptions = {
   gitSnapshots?: Pick<GitSnapshotService, 'observe'>;
   /** Enqueues the Run a completed Run promotes; absent where no queue exists. */
   runDispatch?: Pick<RunDispatcher, 'dispatch'>;
+  /** The registry an owner interrupt aborts a segment through. */
+  segmentAborts?: RunSegmentRegistrar;
 };
 
 function makeExecutionService(
@@ -628,6 +639,7 @@ function makeExecutionService(
     options.gitProducer,
     options.gitSnapshots,
     options.runDispatch,
+    options.segmentAborts,
   );
   return {
     service,
@@ -6306,6 +6318,98 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'msg-1',
     );
     expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
+  });
+
+  it('An interrupt during a pending admission writes the request before the completion', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    replayAppendedEvents(appended);
+    const capturing = makeCapturingClient();
+    // The ssh destination never resolves: the call sits in admission.
+    const resolving = Promise.withResolvers<SshResolution>();
+    const client: SshClient = {
+      resolve: () => resolving.promise,
+      run: () =>
+        Promise.resolve({
+          outcome: 'failed',
+          reason: 'client_missing',
+          diagnostic: 'test transport',
+        }),
+      sshConfigText: () => undefined,
+      dispose: vi.fn(),
+    };
+    const aborts = new RunAbortRegistry();
+    aborts.register(runId, userId);
+    const execute = vi.spyOn(bashTool, 'execute');
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      {
+        ...withDeclaredBashTool(),
+        ssh: { knownHostsFile: '/etc/llame/known_hosts' },
+        sshClientFactory: () => client,
+        segmentAborts: aborts,
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const args = { command: 'ls', cwd: 'ssh://box/tmp' };
+    const call = executeBoundBash(
+      capturing.streamOptions(),
+      args,
+      'pending-bash',
+    );
+    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    await vi.waitFor(() =>
+      expect(appended.map(({ type }) => type)).toContain('tool.completed'),
+    );
+
+    const callEvents = appended.filter(
+      ({ payload }) =>
+        isRecord(payload) && payload.toolCallId === 'pending-bash',
+    );
+    // The call never reached an executor, so it never started.
+    expect(execute).not.toHaveBeenCalled();
+    expect(callEvents.map(({ type }) => type)).toStrictEqual([
+      'tool.requested',
+      'tool.completed',
+    ]);
+    expect(callEvents[0]?.payload).toMatchObject({
+      toolCallId: 'pending-bash',
+      toolName: 'bash',
+      input: args,
+    });
+    expect(callEvents[0]?.payload).not.toHaveProperty('permission');
+    expect(callEvents[1]?.payload).toMatchObject({
+      status: 'error',
+      interrupted: true,
+    });
+    // The live stream shows the call and its settlement, not a bare outcome.
+    const translator = createRunEventTranslator(runId);
+    const chunkTypes = durableEventsFrom(callEvents).flatMap((durable) =>
+      translator
+        .translate({ eventType: durable.eventType, payload: durable.payload })
+        .map((chunk) => chunk.type),
+    );
+    expect(chunkTypes).toStrictEqual([
+      'start',
+      'tool-input-available',
+      'tool-output-error',
+    ]);
+    // The late resolution finds the call settled: nothing more is written.
+    resolving.resolve({
+      outcome: 'failed',
+      reason: 'config',
+      diagnostic: 'test transport',
+    });
+    await call;
+    expect(
+      appended.filter(
+        ({ payload }) =>
+          isRecord(payload) && payload.toolCallId === 'pending-bash',
+      ),
+    ).toHaveLength(2);
   });
 
   it('bounds a stuck bash call and settles it as outcome_unknown', async () => {

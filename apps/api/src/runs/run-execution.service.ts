@@ -1853,6 +1853,8 @@ export class RunExecutionService {
         classification?: ToolClassification;
         /** The signal an owner interrupt aborts, for a call whose fate is `cancel`. */
         interruptSignal?: AbortSignal;
+        /** `tool.requested` was emitted for the call. */
+        requested?: true;
         /** The call recorded its MCP `native.attempt`, so it was sent. */
         mcpDispatched?: boolean;
         /** Settles when the tool body returns; an interrupt waits on `finish` calls. */
@@ -1921,6 +1923,8 @@ export class RunExecutionService {
         payload.providerMetadata = providerMetadata;
       }
       enqueueEvent('tool.requested', payload);
+      const open = openToolCalls.get(toolCallId);
+      if (open !== undefined) open.requested = true;
     };
     // Ids whose outcome has already been durably recorded. At-most-once per
     // call across BOTH the event log and the persisted part — the collector
@@ -2189,6 +2193,17 @@ export class RunExecutionService {
               this.recordInterruptedMcpResult(input, toolCallId, result),
             );
           }
+        }
+        // A call still waiting on admission has no request event yet; the
+        // stream and the event-rebuilt reply drop a completion without one.
+        // No classification is set, so the call stays not started.
+        if (call.requested !== true) {
+          emitToolRequested(
+            toolCallId,
+            call.toolName,
+            call.toolInput,
+            undefined,
+          );
         }
         recordToolCompleted(
           toolCallId,
