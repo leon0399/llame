@@ -12,7 +12,6 @@ import {
   withdrawChatDelivery,
 } from "../../api/generated/chats/chats";
 import type {
-  ChangeChatDeliveryDto,
   ChatLatestRunResponse,
   ChatDeliveriesResponse,
   ChatDeliveryResponse,
@@ -163,10 +162,7 @@ export function changeDeliveryMode(
   return changeChatDelivery(
     chatId,
     deliveryId,
-    // SAFETY: the generated DTO lists only `steer` until the `interrupt`
-    // admission layer regenerates the OpenAPI document; the route accepts
-    // `interrupt` by contract (run-steering D11).
-    { mode } as ChangeChatDeliveryDto,
+    { mode },
     undefined,
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );
