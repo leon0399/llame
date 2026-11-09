@@ -113,13 +113,28 @@ Run like any send. See
 [`run-steering`](openspec/changes/in-run-steering/specs/run-steering/spec.md)
 and [`durable-runs`](openspec/specs/durable-runs/spec.md).
 
+A live Run delivers the Chat's pending `steer` and `interrupt` items at two
+points: the end of a model step, after its tool results, and the transaction
+that would complete the Run, which finds them first and keeps the Run live
+instead. The part of a Run that answers one user message is a segment. One
+delivery transaction, in the Run-then-chat lock order, locks the Run row behind
+the current attempt and `cancel_requested_at IS NULL` (a superseded or
+cancelled Run delivers nothing), locks the chat row, reads the pending items in
+`position` order, closes the segment's reply as `completed`, publishes its
+usage as `model.completed`, stores one user message holding the items' parts in
+order, marks the items `delivered`, moves `runs.message_id` to the new message
+under a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
+`run.started`. A crash before the commit leaves the items `pending`; a crash
+after it leaves the delivered message as the Run's message. The API admits only
+`queue` today, so tests store `steer` items directly.
+
 ### 9.4 Run events
 
 Run progress is an append-only event stream. Clients subscribe, reconnect, and replay; they do not own execution state. Tool activity and outcomes persist for history reconstruction.
 
 The UI-message bridge emits a `start` frame with the Run id as `messageId` when the stream subscribes, before any event poll, so Stop can cancel from acceptance. See [`run-cancellation`](openspec/specs/run-cancellation/spec.md).
 
-Persisted event families currently cover Run lifecycle (`run.created`, `run.started`, terminal `run.*`), model activity (`model.requested`, `model.delta`, `model.completed`), `reasoning.delta`, tool activity (`tool.requested`, `tool.started`, `tool.completed`), and `run.step_cap_reached`.
+Persisted event families currently cover Run lifecycle (`run.created`, `run.started`, terminal `run.*`), model activity (`model.requested`, `model.delta`, `model.completed`), `reasoning.delta`, tool activity (`tool.requested`, `tool.started`, `tool.completed`), `run.step_cap_reached`, and `run.delivered`, which records that a delivery moved the Run to a new user message (`messageId`, `deliveryIds`, `cause`, `stoppedCalls`, and the `attemptId` of the new segment).
 
 `run_events` is installation-local execution and reconnect state. It is not a cross-node protocol, Personal Realm replication journal, portable synchronization cursor, or grant of authority to resume execution elsewhere.
 
@@ -128,6 +143,8 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/product/operator/scaling.md](docs/product/operator/scaling.md).
 
 All current workers coordinate through the same installation's queue and database authority. The experimental remote Machine path is a tool-execution transport: a worker starts the box's `llame-machine` daemon over SSH and keeps execution authority for the Run. No Node Protocol, Node enrollment, tunneled or dial-out executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
+
+`executeRun` returns one result whose `consumeStream()` drains every segment and resolves only when the Run is terminal. Each model client ORs the executor's `stopWhenExtra` condition into its own `stopWhen`; after a step's tool calls settle, the condition runs one owner-scoped query for a pending `steer` or `interrupt` item and for `cancel_requested_at`, so a cancellation that no signal delivered is found at the step end. A stop that this condition caused ends the model call, not the Run: the delivery transaction runs, and the delivered message starts a new attempt of the same Run in the same worker with no new claim. When the items are gone by then (the owner withdrew them), the executor sends another model request over the same reply. The step cap counts the steps of one segment, and the worker's wall-clock budget and execution ceiling count from the claim, so a delivery restarts neither. Every attempt, a crash retry included, reads the Run's current `message_id` from the Run row, not the message in the job. Recovery reads the current segment only: `hasMutation` and the reply finalizer's rebuild consider the events after the latest `run.delivered`, and the finalizer reaches the reply through the moved `message_id`, so an earlier segment's reply never changes. A cancellation recorded after a delivery and before the next segment's first request settles the Run `cancelled` and leaves the delivered message without a reply.
 
 ### 9.6 Queue delivery and recovery
 
@@ -140,6 +157,8 @@ Prompt preparation happens in the executing worker, per attempt, inside that att
 ### 9.8 Context injection
 
 Every server-authored contribution to a chat's model-visible conversation that is not part of the system prompt is a **context item** on one rail: a single `<system-reminder producer="…" form="…">` envelope carrying a one-line provenance statement no operator prompt can remove, rendered as its own text block inside the triggering user message, in a fixed producer precedence order that preserves emission order within a producer. An item authored between the model steps of one Run has no triggering user message to carry it: it is stored as a `data-context` part on that Run's assistant message immediately after the last tool part of the step whose results triggered it, and replayed as one user-role message directly after that tool result on every later step of the same Run. `producer` says who authored an item; `form` (`notice`, `snapshot`, `checkpoint`) says what kind of content it is. An unrecognized `form` is read as absent and an unrecognized `producer` renders nothing while still being stored, so an older reader degrades rather than rejecting a newer writer's part. That tolerance removes the rejection, not the deploy ordering: producer-aware workers still ship before any API authors that producer, because a worker that does not know one silently omits its item for the life of that Run. The `instructions` producer loads per-directory project instruction files — from the host filesystem, or from a Knowledge Space a `kb://` locator named, in which case each file is labelled and keyed by its locator — and sits after `workspace` in that precedence order (see [`instruction-files`](openspec/specs/instruction-files/spec.md)).
+
+A segment is a new attempt: its own part collector, in-Run staging, and Run boundary. An in-Run item stays on the reply of the segment that authored it, and a later segment reads it as history.
 
 The `prompt-imports` producer follows `skill-activation` in that order and carries, as one `notice` item before the owner's text, the results of the prompt markers (`@path`, `@"…"`, `@'…'`, ``@`…` ``, `@[label](path)`, `[label](path "import")`) read once through native `read` with system origin `prompt-import` before the Run's first model request. Each target is silently pre-evaluated by the `read` group, a denied one is audited and named only as not imported whether or not it exists, and the item is bounded (64 markers considered, 8 reads for admitted targets; a denied host or Knowledge target within that cap is audited without a read and does not count, 128 KiB, 30 s), third-party data that never nests, and reused rather than reread on retry (see [`prompt-imports`](docs/product/reference/prompt-imports.md)).
 

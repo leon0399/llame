@@ -1,5 +1,10 @@
 import { isString } from '@workspace/runtime-safety';
-import type { ModelMessage, streamText, UserContent } from 'ai';
+import {
+  stepCountIs,
+  type ModelMessage,
+  type streamText,
+  type UserContent,
+} from 'ai';
 
 import type { RetainedMedia } from '../media/attempt-media';
 import {
@@ -577,4 +582,17 @@ export function installStepPreparation(
       ...(capReached && { activeTools: [] }),
     };
   };
+}
+
+/**
+ * The tool loop's `stopWhen`: the step cap (`null` or absent: none, design D1)
+ * or the caller's `stopWhenExtra`, the segment end (run-steering D3). The cap
+ * stops one step past the forced text-only answer.
+ */
+export function toolLoopStopWhen(
+  input: Pick<ModelStreamInput, 'maxSteps' | 'stopWhenExtra'>,
+): Parameters<typeof streamText>[0]['stopWhen'] {
+  const capped =
+    input.maxSteps == null ? () => false : stepCountIs(input.maxSteps + 1);
+  return input.stopWhenExtra ? [capped, input.stopWhenExtra] : capped;
 }

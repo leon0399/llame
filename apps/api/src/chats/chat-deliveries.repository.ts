@@ -5,12 +5,13 @@
  * the table's forced RLS policy.
  */
 
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, exists, inArray, isNotNull } from 'drizzle-orm';
 
 import {
   chatDeliveries,
   chats,
   messages,
+  runs,
   type ChatDelivery,
   type ChatDeliveryMode,
   type ChatDeliverySettings,
@@ -82,6 +83,60 @@ export class ChatDeliveriesRepository {
       .from(chatDeliveries)
       .where(this.pendingOf(chatId, ownerUserId))
       .orderBy(asc(chatDeliveries.position));
+  }
+
+  /**
+   * The one owner-scoped query of a step end (run-steering D3): `cancel` when
+   * the Run records a cancellation or no longer exists (its Chat was deleted),
+   * so a signal that never reached this process is still found, else
+   * `delivery` when the Chat holds a pending `steer` or `interrupt` item.
+   */
+  async stepEndSignal(run: {
+    runId: string;
+    chatId: string;
+    userId: string;
+  }): Promise<'cancel' | 'delivery' | undefined> {
+    const [row] = await this.db
+      .select({
+        cancelled: isNotNull(runs.cancelRequestedAt),
+        pending: exists(
+          this.db
+            .select({ id: chatDeliveries.id })
+            .from(chatDeliveries)
+            .where(
+              and(
+                this.pendingOf(run.chatId, run.userId),
+                inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+              ),
+            ),
+        ),
+      })
+      .from(runs)
+      .where(and(eq(runs.id, run.runId), eq(runs.userId, run.userId)));
+    if (!row || row.cancelled) return 'cancel';
+    return row.pending ? 'delivery' : undefined;
+  }
+
+  /**
+   * The pending `steer` and `interrupt` items a boundary delivers, in
+   * `position` order, locked so a concurrent withdrawal waits for the
+   * delivery and then misses (`withdrawPending` filters on `pending`).
+   */
+  lockPendingSteering(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Array<ChatDelivery>> {
+    return this.db
+      .select()
+      .from(chatDeliveries)
+      .where(
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+        ),
+      )
+      .orderBy(asc(chatDeliveries.position))
+      .for('update');
   }
 
   /**

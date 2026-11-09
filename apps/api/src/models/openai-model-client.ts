@@ -1,6 +1,6 @@
 import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
-import { generateText, stepCountIs, streamText, tool, type ToolSet } from 'ai';
+import { generateText, streamText, tool, type ToolSet } from 'ai';
 
 import {
   agentTelemetry,
@@ -19,7 +19,7 @@ import {
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import type { ModelInput, TokenPrice } from './model-catalog';
-import { installStepPreparation } from './step-composer';
+import { installStepPreparation, toolLoopStopWhen } from './step-composer';
 import {
   composeProviderOptions,
   type ProviderOptionRecord,
@@ -109,8 +109,6 @@ export function applyToolCallingOptions(
 ): void {
   if (!input.tools) return;
 
-  // `null` and absent both mean "no cap" (design D1).
-  const cap = input.maxSteps ?? undefined;
   // Always set strict: false — Responses may rewrite omitted strict into
   // required-nullable optionals; Chat Completions ignores the flag.
   streamOptions.tools = gateToolExecution(
@@ -124,10 +122,7 @@ export function applyToolCallingOptions(
   // The SDK keeps every step's request body in `recordedSteps` for the whole
   // call by default, and an uncapped call can run for hours (design D1).
   streamOptions.experimental_include = { requestBody: false };
-  // A configured cap stops one step past the forced text-only answer; with no
-  // cap the predicate never fires and the loop runs as many steps as asked.
-  streamOptions.stopWhen =
-    cap === undefined ? () => false : stepCountIs(cap + 1);
+  streamOptions.stopWhen = toolLoopStopWhen(input);
   streamOptions.experimental_repairToolCall = refuseUnavailableToolCalls(
     input.onUnavailableToolCall,
     gate,

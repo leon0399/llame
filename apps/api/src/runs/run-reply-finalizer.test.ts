@@ -445,6 +445,26 @@ describe('finalizeRunReply', () => {
     );
   });
 
+  it("rebuilds only the current segment's output after the latest delivery", async () => {
+    const { create } = serve({
+      log: [
+        requested(1),
+        event(2, 'model.delta', { text: 'first segment' }),
+        event(3, 'run.delivered', { messageId }),
+        requested(4),
+        event(5, 'model.delta', { text: 'second segment' }),
+      ],
+    });
+
+    await finalizeRunReply(tx, { run, status: 'failed', models });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'second segment' }],
+      }),
+    );
+  });
+
   it("settles a call the attempt left open and keeps an earlier attempt's output out", async () => {
     const { append, update } = serve({
       log: [

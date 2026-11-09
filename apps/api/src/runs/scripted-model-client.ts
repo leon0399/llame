@@ -16,11 +16,14 @@ import type {
   LanguageModelV3CallOptions,
   LanguageModelV3StreamPart,
 } from '@ai-sdk/provider';
-import { stepCountIs, streamText as sdkStreamText } from 'ai';
+import { streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 
 import type { ModelInput, ModelReasoning } from '../models/model-catalog';
-import { installStepPreparation } from '../models/step-composer';
+import {
+  installStepPreparation,
+  toolLoopStopWhen,
+} from '../models/step-composer';
 import { applyRequestUsageCallback } from '../models/request-usage';
 import {
   resolveEffortSelection,
@@ -102,6 +105,12 @@ export type ScriptedBehavior = {
        */
       kind: 'step-script';
       steps: ReadonlyArray<ScriptedStep>;
+      /**
+       * Runs while the model responds to step `stepIndex` (counted across the
+       * Run's segments), before that step's stream opens: a test stores a
+       * pending steer or records a cancellation at a deterministic moment.
+       */
+      beforeStep?: (stepIndex: number) => Promise<void> | void;
     }
 );
 
@@ -347,7 +356,7 @@ class HarnessModelClient implements ModelClient {
     const model = new MockLanguageModelV3({
       provider: 'fake',
       modelId: this.model,
-      doStream: ({ abortSignal, prompt, tools }) => {
+      doStream: async ({ abortSignal, prompt, tools }) => {
         this.recorded.prompts.push(prompt);
         // Per provider call, not per attempt: a Workspace MCP server's tools
         // join the tool set after the entry step ran, so only the step that
@@ -357,15 +366,18 @@ class HarnessModelClient implements ModelClient {
           tools: providerDeclarations(tools),
         });
         if (behavior.kind === 'provider-error') {
-          return Promise.reject(
-            new Error(behavior.message ?? 'simulated provider failure'),
-          );
+          throw new Error(behavior.message ?? 'simulated provider failure');
         }
+        const stepIndex = this.scriptedStepIndex;
         const scriptedStep =
           behavior.kind === 'step-script'
             ? behavior.steps[this.scriptedStepIndex++]
             : undefined;
-        return Promise.resolve({
+        // The hook runs while the model "responds": before its stream opens.
+        if (behavior.kind === 'step-script') {
+          await behavior.beforeStep?.(stepIndex);
+        }
+        return {
           stream: createScriptedStream({
             abortSignal,
             prompt,
@@ -373,7 +385,7 @@ class HarnessModelClient implements ModelClient {
             delayMs,
             scriptedStep,
           }),
-        });
+        };
       },
     });
 
@@ -392,10 +404,7 @@ class HarnessModelClient implements ModelClient {
           }),
           ...((behavior.kind === 'conversation-recall' ||
             behavior.kind === 'tool-script') && {
-            stopWhen:
-              input.maxSteps == null
-                ? () => false
-                : stepCountIs(input.maxSteps + 1),
+            stopWhen: toolLoopStopWhen(input),
           }),
         }),
       ...scriptedStreamHandlers(input, settlement),
