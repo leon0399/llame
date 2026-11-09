@@ -158,11 +158,16 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 8. web
 
-- [ ] 8.1 Add the split Send button with Steer, Interrupt, and Queue while a Run is active, with Enter and Mod+Enter, and send delivery modes through a plain `fetch` (design D11). Verify "Enter steers during a Run", "Queue is an explicit choice", "Interrupt from the Send menu", and a delivery send after the Run ended that attaches to the new Run in composer stories with interaction tests.
-- [ ] 8.2 Add the pending stack with its row actions and edit flow. Verify "Edit puts the text back" and "A delivered item leaves the stack" in stories.
-- [ ] 8.3 Make Stop and Esc interrupt when steers are pending. Verify "Esc twice stops everything" in a story and a focused product E2E test.
-- [ ] 8.4 Adopt history at `run.delivered`, attach the next segment stream, and place turn actions by `latestRun.messageId`. Render delivered messages, the `interrupted` notice, and the paused label. Verify "A reload shows the segments" and "A failed Run shows a paused queue" in `chat-page.stories.tsx`.
-- [ ] 8.5 Add the split-button and pending-row patterns to `DESIGN.md`, and a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+- [x] 8.1 Add the split Send button with Steer, Interrupt, and Queue while a Run is active, with Enter and Mod+Enter, and send delivery modes through a plain `fetch` (design D11). Verify "Enter steers during a Run", "Queue is an explicit choice", "Interrupt from the Send menu", and a delivery send after the Run ended that attaches to the new Run in composer stories with interaction tests.
+  - Evidence: `chat-composer.stories.tsx` (`EnterSteersDuringARun`, `ModEnterQueues`, `SendMenuOffersInterruptAndQueue`, `IdleSendIsPlain`, `RunActiveBetweenSegments`) and `chat-page.stories.tsx` (`EnterSteersDuringARun`, `QueueIsAnExplicitChoice`, `InterruptFromTheSendMenu`, `DeliveryAfterTheRunEndedAttaches`) pass; each page story reads `delivery` from the request body. The send is a plain `fetch` in `lib/services/chat/deliveries.ts`, unit-tested for 202, non-202, and refusal.
+- [x] 8.2 Add the pending stack with its row actions and edit flow. Verify "Edit puts the text back" and "A delivered item leaves the stack" in stories.
+  - Evidence: `pending-deliveries.stories.tsx` (row actions per mode, order, paused label) and `chat-page.stories.tsx` `EditPutsTheTextBack` and `DeliveredItemLeavesTheStack` (409 drops the row and the transcript shows the delivered message) pass.
+- [x] 8.3 Make Stop and Esc interrupt when steers are pending. Verify "Esc twice stops everything" in a story and a focused product E2E test.
+  - Evidence: `chat-page.stories.tsx` `EscTwiceStopsEverything` passes (PATCH to `interrupt`, then `cancelRun`, queue item kept, draft kept). `e2e/web/chat/esc-stops-run.spec.ts` passes (`E2E_DB_PORT=15433`); it drives the second press only, because interrupt admission is in the `interrupt` layer.
+- [x] 8.4 Adopt history at `run.delivered`, attach the next segment stream, and place turn actions by `latestRun.messageId`. Render delivered messages, the `interrupted` notice, and the paused label. Verify "A reload shows the segments" and "A failed Run shows a paused queue" in `chat-page.stories.tsx`.
+  - Evidence: `chat-page.stories.tsx` `NextSegmentAttachesAfterDelivery` (history adoption, then the second resume), `ReloadShowsTheSegments`, and `FailedRunShowsAPausedQueue` pass; unit tests cover `deliveredMessageId`, the hand-off attach, the `interrupted` notice overlay, and the live `chat.deliveries` cache update.
+- [x] 8.5 Add the split-button and pending-row patterns to `DESIGN.md`, and a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `DESIGN.md` §8 gains "Split button" and "Pending rows"; `CHANGELOG.md` has the 2026-11-08 entry; `pnpm lint:markdown` reports 0 issues.
 - [ ] 8.6 Verify the layer: `pnpm --filter web lint`, `pnpm --filter web typecheck`, Storybook story tests, the focused E2E test, `pnpm format:check`, `git diff --check`.
 - [ ] 8.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 8.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
