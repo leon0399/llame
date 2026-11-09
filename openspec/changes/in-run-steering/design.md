@@ -344,6 +344,7 @@ and is reviewed in the `web` layer's Storybook stories.
 
 ## Revision history
 
+- **v9 (2026-11-09):** Fifth GitHub review round: an interrupt-closed reply records `interrupted: true`; scenarios for reasoning replay of an interrupt-closed reply and of a steer-completed segment of a failed Run.
 - **v8 (2026-11-09):** Fourth GitHub review round: the reasoning model rule names a reply that an
   owner interrupt closed; the scenario says "cut reasoning part"; D3 notes the pre-existing
   skill-catalog baseline timing gap (#1651).

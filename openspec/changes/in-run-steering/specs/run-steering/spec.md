@@ -270,8 +270,9 @@ of that Run. A delivered message MUST NOT replace it as the title source.
 ### Requirement: A steer closes its segment reply as completed
 
 A reply that a steer delivery closes MUST record usage status `completed`. A reply that an interrupt
-delivery closes MUST record usage status `aborted` and `complete: false`. The Run MUST publish the
-usage of the closed reply in its event stream before the `run.delivered` event.
+delivery closes MUST record usage status `aborted`, `complete: false`, and `interrupted: true`, so
+replay can tell it from a cancelled or expired reply. The Run MUST publish the usage of the closed
+reply in its event stream before the `run.delivered` event.
 
 #### Scenario: A live client sees the segment usage
 
