@@ -6,8 +6,14 @@ import {
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
 import { isBashTool } from '../tools/bash';
+import { interruptFateOf } from '../tools/registry';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
+import {
+  INTERRUPT_ABORT_REASON,
+  RunAbortRegistry,
+  type RunSegmentRegistrar,
+} from './run-abort-registry';
 import {
   deliverPendingSteering,
   persistFirstEpochBaselines,
@@ -153,6 +159,11 @@ import {
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { createRegenerateNoticeItem } from '../chats/regenerate-notice';
+import {
+  createInterruptedItem,
+  stoppedCallsOf,
+  type StoppedCall,
+} from '../chats/interrupted-notice';
 import { isModelSwitchItem } from '../chats/accepted-turn-parts.repository';
 import {
   continueStateFromEvents,
@@ -249,6 +260,7 @@ import {
 } from '../prompt-imports/prompt-import-triggers';
 import { nativeReadTool } from '../tools/native-files';
 import {
+  type InterruptFate,
   type KnowledgeToolResolver,
   type MachineStatusReader,
   type Tool,
@@ -273,6 +285,7 @@ import { createKnowledgeInstructionProbe } from '../knowledge/knowledge-instruct
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import {
+  interruptSettlementOf,
   toolTerminationMessage,
   toolTerminationResult,
 } from './tool-settlement';
@@ -710,6 +723,15 @@ class CancellationRecordedError extends Error {
 
 function noop(): void {}
 
+/** The Run's own signal, with a call's interrupt signal when its fate is `cancel`. */
+function callAbortSignal(
+  run: AbortSignal | undefined,
+  interrupt: AbortSignal | undefined,
+): AbortSignal | undefined {
+  if (run === undefined) return interrupt;
+  return interrupt === undefined ? run : AbortSignal.any([run, interrupt]);
+}
+
 const noNextCall: AttemptRun['nextCall'] = () => undefined;
 
 /** Adapter locator decisions have their own cap and cannot crowd out hops or probes. */
@@ -825,6 +847,8 @@ type ToolCompletedEventPayload = {
   toolName: string;
   status: ToolResult['status'];
   output: ToolResult;
+  /** An owner interrupt settled the call (run-steering D7). */
+  interrupted?: true;
   permission?: PermissionDecision;
   /**
    * Decisions on locators other than the submitted one: a web read's derived
@@ -1025,6 +1049,12 @@ export class RunExecutionService {
     @Optional()
     @Inject(RunDispatchService)
     private readonly runDispatch?: Pick<RunDispatcher, 'dispatch'>,
+    // The registry whose segment controllers the run-control listener aborts on
+    // an owner interrupt. Absent only where no listener exists (unit fixtures):
+    // the interrupt then acts as a steer at the step end.
+    @Optional()
+    @Inject(RunAbortRegistry)
+    private readonly segmentAborts?: RunSegmentRegistrar,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1721,6 +1751,7 @@ export class RunExecutionService {
       runId: input.runId,
       nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
       nativeDeliverySequence,
+      attemptId,
       onNativeMutationUnknown: () =>
         nativeAbort?.abort(NATIVE_MUTATION_ABORT_REASON),
       productUserAgent: this.instanceConfig.productUserAgent,
@@ -1813,6 +1844,10 @@ export class RunExecutionService {
          * (turn-actions D10).
          */
         classification?: ToolClassification;
+        /** The signal an owner interrupt aborts, for a call whose fate is `cancel`. */
+        interruptSignal?: AbortSignal;
+        /** The call recorded its MCP `native.attempt`, so it was sent. */
+        mcpDispatched?: boolean;
       }
     >();
     // The opaque provider metadata each call's stream part carried (design
@@ -1904,6 +1939,7 @@ export class RunExecutionService {
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- same rationale as `reserveToolRequest` above: the AI SDK's inputSchema validation already ran before this value ever reaches either function.
       toolInput: unknown,
       result: ToolResult,
+      interrupted = false,
     ) => {
       if (settledToolCallIds.has(toolCallId)) {
         return;
@@ -1947,6 +1983,7 @@ export class RunExecutionService {
         ...(open?.sdkRefusal !== undefined && {
           sdkRefusal: open.sdkRefusal,
         }),
+        ...(interrupted && { interrupted: true as const }),
       };
       if (permission !== undefined) payload.permission = permission;
       if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
@@ -1969,6 +2006,7 @@ export class RunExecutionService {
           derivedDecisions,
           classification: open?.classification ?? null,
           retainedMedia: retained.record,
+          interrupted,
         }),
       );
     };
@@ -2107,6 +2145,88 @@ export class RunExecutionService {
     );
 
     let toolAdditions: AttemptToolAdditions;
+    // --- Owner interrupt (run-steering D7) ---
+    // The controller of the model call in flight; every call that follows a
+    // withdrawn interrupt gets a new one.
+    let segment: AbortController | undefined;
+    let interruptSettlement: Promise<void> | undefined;
+    // The `bash` and MCP calls that started and that the interrupt stopped.
+    const stoppedCalls: Array<StoppedCall> = [];
+    const runningCalls = new Map<
+      string,
+      { toolName: string; done: Promise<void> }
+    >();
+    const fateOf = (toolName: string): InterruptFate => {
+      const executor = toolAdditions.executorFor(toolName);
+      return executor === undefined ? 'cancel' : interruptFateOf(executor);
+    };
+    const settleInterrupted = (
+      shouldSettle: (call: { toolName: string; started: boolean }) => boolean,
+      mcpWrites: Array<Promise<void>>,
+    ) => {
+      for (const [toolCallId, call] of openToolCalls) {
+        // System-origin reads finish on their own and are no model call.
+        if (call.origin !== undefined) continue;
+        const started = call.classification !== undefined;
+        if (!shouldSettle({ toolName: call.toolName, started })) continue;
+        const { result, stopped } = interruptSettlementOf({
+          toolName: call.toolName,
+          started,
+          mcpDispatched: call.mcpDispatched === true,
+        });
+        if (stopped) {
+          stoppedCalls.push({ toolName: call.toolName, toolCallId });
+          // A later retry of a sent MCP call must not find a bare attempt.
+          if (call.toolName.startsWith('mcp__')) {
+            mcpWrites.push(
+              this.recordInterruptedMcpResult(input, toolCallId, result),
+            );
+          }
+        }
+        recordToolCompleted(
+          toolCallId,
+          call.toolName,
+          call.toolInput,
+          result,
+          true,
+        );
+      }
+    };
+    /**
+     * Settles the open calls once, by fate: a call that never started, and each
+     * started `cancel` call but bash, at once; a `finish` call after it
+     * completes; bash after its bounded grace, so a proven result can win.
+     */
+    const settleOnInterrupt = (): Promise<void> =>
+      (interruptSettlement ??= (async () => {
+        const mcpWrites: Array<Promise<void>> = [];
+        settleInterrupted(
+          ({ toolName, started }) =>
+            fateOf(toolName) === 'cancel' && (toolName !== 'bash' || !started),
+          mcpWrites,
+        );
+        await Promise.all(
+          [...runningCalls.values()].flatMap(({ toolName, done }) =>
+            fateOf(toolName) === 'finish' ? [done] : [],
+          ),
+        );
+        if (
+          [...openToolCalls.values()].some(
+            ({ origin, toolName }) =>
+              origin === undefined && fateOf(toolName) === 'cancel',
+          )
+        ) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
+          });
+          settleInterrupted(
+            ({ toolName }) => fateOf(toolName) === 'cancel',
+            mcpWrites,
+          );
+        }
+        await Promise.all(mcpWrites);
+        await deltaWrites;
+      })());
     const executeBoundTool = async (
       declaration: ModelToolDeclaration,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validates tool arguments against the declaration schema before this trusted wrapper runs.
@@ -2122,17 +2242,31 @@ export class RunExecutionService {
       if (executor === undefined) {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
+      // A `cancel` call also stops on its segment's interrupt signal, which is
+      // separate from the Run's cancellation (run-steering D7).
+      const open = openToolCalls.get(toolCallId);
+      const interruptSignal =
+        interruptFateOf(executor) === 'cancel' ? segment?.signal : undefined;
+      if (open !== undefined && interruptSignal !== undefined) {
+        open.interruptSignal = interruptSignal;
+      }
       const result = await runTool(
         executor,
         args,
         {
           ...toolContext,
           toolCallId,
+          abortSignal: callAbortSignal(input.abortSignal, interruptSignal),
           onDerivedDecision: (decision) =>
             recordDerivedDecision(toolCallId, decision),
+          onMcpDispatchRecorded: () => {
+            if (open !== undefined) open.mcpDispatched = true;
+          },
         },
         callTimeoutSeconds,
         async (decision) => {
+          // The interrupt already settled a call that was not admitted yet.
+          if (settledToolCallIds.has(toolCallId)) return;
           await admitToolCall(
             toolCallId,
             declaration.id,
@@ -2171,7 +2305,21 @@ export class RunExecutionService {
         workspaceRoot: workspaceRoot.current(),
         result,
       });
-      if (input.abortSignal?.aborted) {
+      const open = openToolCalls.get(toolCallId);
+      if (open?.interruptSignal?.aborted && !input.abortSignal?.aborted) {
+        // An owner interrupt aborted this call. Bash gets its bounded chance to
+        // report its own proven result, which the interrupt marks; every other
+        // call is settled by the interrupt settlement (run-steering D7).
+        const provenBash =
+          isBashTool(executor) &&
+          !(result.status === 'error' && result.type === 'outcome_unknown');
+        if (provenBash) {
+          stoppedCalls.push({ toolName: declaration.id, toolCallId });
+          recordToolCompleted(toolCallId, declaration.id, args, result, true);
+        } else {
+          await interruptSettlement;
+        }
+      } else if (input.abortSignal?.aborted) {
         // Bash gets a bounded chance to report its own proven result after
         // cancellation. Other tools are settled synchronously by the
         // parent-abort listener. An unknown bash result remains owned by
@@ -2224,18 +2372,30 @@ export class RunExecutionService {
           args: unknown,
           { toolCallId }: { toolCallId: string },
         ) => {
-          const { executor, result } = await executeBoundTool(
-            declaration,
-            args,
-            toolCallId,
-          );
-          return settleBoundTool(
-            declaration,
-            args,
-            toolCallId,
-            executor,
-            result,
-          );
+          const running = (async () => {
+            const { executor, result } = await executeBoundTool(
+              declaration,
+              args,
+              toolCallId,
+            );
+            return settleBoundTool(
+              declaration,
+              args,
+              toolCallId,
+              executor,
+              result,
+            );
+          })();
+          // An interrupt waits for each call whose fate is `finish`.
+          runningCalls.set(toolCallId, {
+            toolName: declaration.id,
+            done: running.then(noop, noop),
+          });
+          try {
+            return await running;
+          } finally {
+            runningCalls.delete(toolCallId);
+          }
         },
         toModelOutput: ({
           input: call,
@@ -2385,6 +2545,120 @@ export class RunExecutionService {
         input.chatId,
         workspaceMcpKey,
       );
+      // This call's segment controller: the run-control listener aborts it on an
+      // owner interrupt while the call is in flight (run-steering D7).
+      const callSegment =
+        this.segmentAborts?.beginSegment(input.runId, attemptId) ??
+        new AbortController();
+      segment = callSegment;
+      interruptSettlement = undefined;
+      stoppedCalls.length = 0;
+      const callSignal = input.abortSignal
+        ? AbortSignal.any([input.abortSignal, callSegment.signal])
+        : callSegment.signal;
+      const onInterrupt = () => {
+        settleOnInterrupt().catch(noop);
+      };
+      callSegment.signal.addEventListener('abort', onInterrupt, { once: true });
+      const closeSegment = () => {
+        callSegment.signal.removeEventListener('abort', onInterrupt);
+        this.segmentAborts?.endSegment(input.runId, callSegment);
+      };
+      const stoppedByInterrupt = (): boolean =>
+        callSegment.signal.reason === INTERRUPT_ABORT_REASON &&
+        !input.abortSignal?.aborted;
+      const partsBefore = assistantPartCollector.parts().length;
+      let stepsStarted = 0;
+      // The stop is a delivery with cause `interrupt` (run-steering D4): the
+      // reply closes `aborted`, and the Run stays live on the delivered
+      // message. An item the owner withdrew in the meantime continues the same
+      // reply, from what the stopped call left in the transcript.
+      const deliverInterrupt = async (): Promise<void> => {
+        persistReasoning(reasoningDeltas.flush());
+        persistDelta(deltas.flush());
+        await deltaWrites;
+        const segmentSteps = stepBase + Math.max(stepsStarted, 1);
+        if (progressWriteFailed) {
+          await this.settleProgressWriteFailure({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error', segmentSteps),
+          });
+          return;
+        }
+        assistantPartCollector.markInterrupted();
+        const closing: AssistantTurnTelemetry = {
+          ...buildAssistantTelemetry(null, 'aborted', segmentSteps),
+          complete: false,
+          interrupted: true,
+        };
+        const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
+          deliverPendingSteering(tx, {
+            run: { runId: input.runId, userId: input.userId },
+            attemptId,
+            stoppedCalls: [...stoppedCalls],
+            modelCompleted: { finishReason: null, telemetry: closing },
+            live: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: assistantPartCollector.parts(),
+              telemetry: closing,
+            },
+            models: this.instanceConfig.config.models,
+          }),
+        );
+        if (boundary.kind === 'delivered') {
+          await this.afterAssistantTurn(
+            boundary.closedReply,
+            input.userId,
+            closing,
+          );
+          nextCall = () => startDelivered(boundary);
+        } else if (boundary.kind === 'nothing-pending') {
+          nextCall = () => {
+            // The settled calls carry their results, and the projection leaves
+            // out the reasoning part the stop cut.
+            const produced = projectStoredReplyParts(
+              assistantPartCollector.parts().slice(partsBefore),
+              {
+                privateParts: true,
+                mediaKey: (partIndex) =>
+                  continuedMediaKey(partsBefore + partIndex),
+              },
+            );
+            mergeRetainedMedia(media.retainedMedia, produced.retainedMedia);
+            inRunItems = createInRunContextItems();
+            return callStream(
+              [...callMessages, ...produced.messages],
+              segmentSteps,
+            );
+          };
+        } else if (boundary.kind === 'cancelled') {
+          // The items stay pending and the Run settles cancelled.
+          const message = 'Run was cancelled.';
+          const telemetry = buildAssistantTelemetry(
+            null,
+            'aborted',
+            segmentSteps,
+          );
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            status: 'cancelled',
+            attemptId,
+            telemetry,
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: assistantPartCollector.parts(),
+              telemetry,
+            },
+            runPayload: { status: 'cancelled', message },
+            error: { message },
+          });
+        }
+      };
       stopCause = undefined;
       try {
         const result = client.streamText({
@@ -2395,7 +2669,7 @@ export class RunExecutionService {
           system,
           messages: callMessages,
           chat: { id: input.chatId, lane: 'main' },
-          abortSignal: input.abortSignal,
+          abortSignal: callSignal,
           media,
           reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
           // Absent → no provider option at all, leaving the provider default.
@@ -2419,6 +2693,7 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
+              stepsStarted += 1;
               workspaceRoot.beginStep();
               inRunItems.beginStep(messages);
               const staged: Array<AuthoredContextItemPart> = [];
@@ -2616,6 +2891,16 @@ export class RunExecutionService {
           onError: async ({ error }) => {
             endWorkspaceAttempt();
             removeParentAbortListener();
+            closeSegment();
+            // An owner interrupt stopped the call: settle its open calls by
+            // fate and deliver the pending items, instead of ending the Run.
+            if (stoppedByInterrupt()) {
+              await settleOnInterrupt();
+              if (!input.abortSignal?.aborted) {
+                await deliverInterrupt();
+                return;
+              }
+            }
             if (parentAbortSettlement) {
               await parentAbortSettlement;
               return;
@@ -2718,6 +3003,7 @@ export class RunExecutionService {
           onFinish: async ({ text, usage, finishReason, stepCount }) => {
             endWorkspaceAttempt();
             removeParentAbortListener();
+            closeSegment();
             if (parentAbortSettlement) {
               await parentAbortSettlement;
               return;
@@ -2949,6 +3235,7 @@ export class RunExecutionService {
       } catch (error) {
         endWorkspaceAttempt();
         removeParentAbortListener();
+        closeSegment();
         // A synchronous throw from streamText (provider/config validation before
         // any callback can fire) would otherwise strand the claimed run at
         // 'running_model' until the deadman sweep expires it — fail it now.
@@ -4442,6 +4729,66 @@ export class RunExecutionService {
     };
   }
 
+  /**
+   * The `interrupted` notice the message this attempt runs still lacks, when an
+   * interrupt delivered it: read back from the `run.delivered` event, which
+   * names the delivered message and the calls the stop killed. A message that
+   * already holds the notice, stored by an earlier dispatch, gets none.
+   */
+  private async deliveredInterrupt(
+    tx: Db,
+    input: ExecuteRunInput,
+  ): Promise<AuthoredContextItemPart | undefined> {
+    if (
+      input.userMessage.parts.some(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'interrupted',
+      )
+    ) {
+      return undefined;
+    }
+    const delivered = await new RunEventsRepository(tx).listByRunId(
+      input.runId,
+      input.userId,
+      { eventTypes: ['run.delivered'] },
+    );
+    const event = delivered.findLast(
+      ({ payload }) =>
+        isRecord(payload) && payload['messageId'] === input.userMessage.id,
+    );
+    if (!isRecord(event?.payload) || event.payload['cause'] !== 'interrupt') {
+      return undefined;
+    }
+    return createInterruptedItem({
+      runId: input.runId,
+      stoppedCalls: stoppedCallsOf(event.payload),
+    });
+  }
+
+  /**
+   * Records the `native.result` of an MCP call that an interrupt stopped after
+   * its dispatch, so a later retry of the call finds a result, not a bare
+   * attempt. A failed write leaves the attempt, which a retry reads as unknown.
+   */
+  private async recordInterruptedMcpResult(
+    input: ExecuteRunInput,
+    toolCallId: string,
+    result: ToolResult,
+  ): Promise<void> {
+    try {
+      await this.tenantDb.runAs(input.userId, (tx) =>
+        new RunEventsRepository(tx).append(input.runId, 'native.result', {
+          toolCallId,
+          result,
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Could not record the result of interrupted MCP call ${toolCallId}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+    }
+  }
+
   /** Finalizes usage completeness against owner-scoped Run and reply state. */
   private async finalizeAssistantTurnTelemetry(
     tx: Db,
@@ -5744,6 +6091,10 @@ export class RunExecutionService {
       input.input.followUpAction === 'regenerate' &&
       baseline.ownAvailability === null;
     const stagedParts: Array<MessagePart> = [];
+    // A delivered interrupt leads its message with the notice. The message
+    // stores it once: a retry of the segment finds it there (run-steering D7).
+    const interrupted = await this.deliveredInterrupt(input.tx, input.input);
+    if (interrupted !== undefined) stagedParts.push(interrupted);
     if (!priorDispatch || regenerateFirstDispatch) {
       const modelChange = this.deriveModelChangeItem(
         baseline,

@@ -102,6 +102,13 @@ export interface ToolContext {
   readonly nativeDeliverySequence?: number;
   /** Marks an MCP dispatch once its durable native.attempt is committed. */
   readonly onMcpDispatchRecorded?: () => void;
+  /**
+   * The Run attempt that admitted this call. Native admission refuses a call
+   * whose attempt is no longer the Run's active one, so a call of an
+   * interrupted segment cannot record an attempt after its delivery
+   * (run-steering D7).
+   */
+  readonly attemptId?: string;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
   /** Trusted canonical target for the first page of an instruction import. */
@@ -270,6 +277,12 @@ export const TOOL_CLASSIFICATIONS = [
 ] as const;
 
 export type ToolClassification = (typeof TOOL_CLASSIFICATIONS)[number];
+
+/**
+ * How an owner interrupt settles an open call (run-steering D7). `background`
+ * is reserved: no tool declares it yet.
+ */
+export type InterruptFate = 'cancel' | 'finish' | 'background';
 
 /** Whether a stored value names one of the classifications above. */
 export function isToolClassification(

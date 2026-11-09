@@ -107,7 +107,9 @@ export type ToolActivityPart = {
   /** SDK-supported result metadata marking an error produced by run termination
    *  rather than by the tool itself. Persisted so the UI can render
    *  "Cancelled" without parsing error text, and survives the live transport. */
-  resultProviderMetadata?: { llame: { cancelled: true } };
+  resultProviderMetadata?: {
+    llame: { cancelled?: true; interrupted?: true };
+  };
   /**
    * The opaque provider metadata the adapter attached to this call (design
    * A7): the Responses item's `itemId`, or a Chat Completions
@@ -383,6 +385,22 @@ class AssistantPartCollectorImpl {
     this.collected.push(part);
   }
 
+  /**
+   * An owner interrupt stopped the stream: the reasoning part the stop cut is
+   * the last collected one. It stays in the transcript, marked, and no request
+   * replays it (run-steering D8). Stopped tool calls and text keep their parts.
+   */
+  markInterrupted(): void {
+    const last = this.collected.findLast(
+      (part) => part.type !== 'pending-tool',
+    );
+    if (last?.type !== 'reasoning') return;
+    const previous = isRecord(last.providerMetadata)
+      ? last.providerMetadata
+      : {};
+    last.providerMetadata = { ...previous, llame: { interrupted: true } };
+  }
+
   parts(): Array<MessagePart> {
     return this.collected.filter(
       // Only settled tool parts are a durable history representation. A
@@ -430,6 +448,8 @@ export type ToolActivityPartInput = {
    * prompt import, whose bytes live in the import's own entry.
    */
   readonly retainedMedia?: RetainedMediaJson;
+  /** An owner interrupt settled the call (run-steering D7). */
+  readonly interrupted?: boolean;
 };
 
 /**
@@ -470,6 +490,21 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
   // Absent means the call started before the event recorded a classification;
   // `null` means it never started at all.
   const known = classification === undefined ? {} : { classification };
+  // A cancelled result and a result an owner interrupt settled each carry
+  // their own marker; an interrupted `cancelled` result carries both.
+  const cancelled = result.status === 'error' && result.type === 'cancelled';
+  const interrupted = call.interrupted === true;
+  const marked =
+    cancelled || interrupted
+      ? {
+          resultProviderMetadata: {
+            llame: {
+              ...(cancelled && { cancelled: true as const }),
+              ...(interrupted && { interrupted: true as const }),
+            },
+          },
+        }
+      : {};
   return result.status === 'success'
     ? {
         type: `tool-${toolName}`,
@@ -479,6 +514,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
         output: result,
         outcome: 'success',
         ...known,
+        ...marked,
       }
     : {
         type: `tool-${toolName}`,
@@ -488,11 +524,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
         errorText: result.message,
         outcome: normalizeToolObservationOutcome(result.type, 'error'),
         ...known,
-        ...(result.type === 'cancelled' && {
-          resultProviderMetadata: {
-            llame: { cancelled: true as const },
-          },
-        }),
+        ...marked,
       };
 }
 
@@ -699,6 +731,7 @@ class DurableAssistantReconstructor {
         // this completion payload, as are the bytes the read keeps.
         derivedDecisions: derivedDecisionsFromPayload(event.payload),
         retainedMedia,
+        interrupted: eventPayloadField(event.payload, 'interrupted') === true,
       }),
     );
   }

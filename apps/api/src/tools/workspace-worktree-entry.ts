@@ -380,6 +380,7 @@ async function recordAttempt(
           ? { bound: false }
           : { bound: true, executorId: worktree.authority.bindExecutorId },
       deliverySequence: context.nativeDeliverySequence,
+      attemptId: context.attemptId,
       toolCallId: creation.toolCallId,
       operation: 'worktree',
       path: plan.directory,

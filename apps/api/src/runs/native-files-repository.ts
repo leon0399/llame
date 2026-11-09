@@ -20,13 +20,27 @@ export type NativeFenceMode =
 export class NativeFilesRepository {
   constructor(private readonly db: Db) {}
 
+  /**
+   * Whether this delivery of the Run is the current one, under the Run row
+   * lock. A caller that names its `attemptId` also needs it to be the Run's
+   * active attempt: a delivery moves the Run to a new attempt, so a call of the
+   * segment it closed cannot record anything after `run.delivered`.
+   */
   async isCurrentDelivery(input: {
     runId: string;
     userId: string;
     deliverySequence: number | undefined;
+    attemptId?: string;
   }): Promise<boolean> {
     if (input.deliverySequence === undefined) return false;
-    if (!(await this.lockRun(input.runId, input.userId))) return false;
+    const locked = await this.lockRun(input.runId, input.userId);
+    if (locked === undefined) return false;
+    if (
+      input.attemptId !== undefined &&
+      locked.activeAttemptId !== input.attemptId
+    ) {
+      return false;
+    }
     return (
       (await this.latestStartedSequence(input.runId)) === input.deliverySequence
     );
@@ -45,6 +59,7 @@ export class NativeFilesRepository {
     userId: string;
     fence: NativeFenceMode;
     deliverySequence: number | undefined;
+    attemptId?: string;
     toolCallId: string;
     operation: 'read' | 'edit' | 'write' | 'bash' | 'mcp' | 'worktree';
     path: string;
@@ -54,6 +69,7 @@ export class NativeFilesRepository {
         runId: input.runId,
         userId: input.userId,
         deliverySequence: input.deliverySequence,
+        attemptId: input.attemptId,
       }))
     )
       return executorUnavailable();
@@ -77,14 +93,17 @@ export class NativeFilesRepository {
     return undefined;
   }
 
-  private async lockRun(runId: string, userId: string): Promise<boolean> {
-    const rows = await this.db
-      .select({ id: runs.id })
+  private async lockRun(
+    runId: string,
+    userId: string,
+  ): Promise<{ activeAttemptId: string | null } | undefined> {
+    const [row] = await this.db
+      .select({ activeAttemptId: runs.activeAttemptId })
       .from(runs)
       .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
       .for('update')
       .limit(1);
-    return rows.length === 1;
+    return row;
   }
 
   private async latestStartedSequence(

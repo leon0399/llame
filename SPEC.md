@@ -126,7 +126,27 @@ order, marks the items `delivered`, moves `runs.message_id` to the new message
 under a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
 `run.started`. A crash before the commit leaves the items `pending`; a crash
 after it leaves the delivered message as the Run's message. The API admits only
-`queue` today, so tests store `steer` items directly.
+`queue` today, so tests store `steer` and `interrupt` items directly.
+
+An `interrupt` item stops the current step instead of waiting for it. The
+run-control listener aborts a per-model-call segment controller only while a
+model request or a tool call is in flight, and only when the Run's
+`active_attempt_id` is the attempt that segment runs; otherwise the item waits
+for the step end or final answer, as a steer does. Each tool declares an
+interrupt fate: `cancel` for `read_only` tools, `bash`, and every MCP tool,
+`finish` for every other tool (`background` is reserved). The executor settles
+each open call once, marked `llame.interrupted`: a call that never started as
+`cancelled`, a `read_only` call as `cancelled`, `bash` under its cancellation
+rules, and a sent MCP call as `outcome_unknown` with a recorded `native.result`.
+It waits for `finish` calls, and for `bash` within its grace. The delivery
+transaction then runs with cause `interrupt` and the stopped `bash` and MCP
+calls in `stoppedCalls`; it closes the reply `aborted`, `complete: false`,
+marked `interrupted`. The next segment's first dispatch authors an `interrupted`
+notice, first among the items of the delivered message, from the
+`run.delivered` payload. A reply that an interrupt closed replays its reasoning
+only for parts with a later kept part, and a reasoning part the stop cut
+(marked `providerMetadata.llame.interrupted`) never replays. Native admission
+refuses a call whose attempt is no longer the Run's active attempt.
 
 ### 9.4 Run events
 

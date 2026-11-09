@@ -294,6 +294,7 @@ function beginAttempt(
       userId: identity.userId,
       fence: { bound: false },
       deliverySequence: context.nativeDeliverySequence,
+      attemptId: context.attemptId,
       toolCallId: identity.toolCallId,
       operation: 'bash',
       path: locator,

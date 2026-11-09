@@ -26,11 +26,13 @@ export class WorkspaceBindingRepository {
     runId: string;
     ownerUserId: string;
     deliverySequence: number | undefined;
+    attemptId?: string;
   }): Promise<boolean> {
     return new NativeFilesRepository(this.db).isCurrentDelivery({
       runId: input.runId,
       userId: input.ownerUserId,
       deliverySequence: input.deliverySequence,
+      attemptId: input.attemptId,
     });
   }
 

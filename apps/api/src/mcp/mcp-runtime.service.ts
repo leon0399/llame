@@ -577,6 +577,7 @@ export class McpRuntimeService
           userId: context.userId,
           fence: { bound: false },
           deliverySequence: context.nativeDeliverySequence,
+          attemptId: context.attemptId,
           toolCallId,
           operation: 'mcp',
           path: toolId,

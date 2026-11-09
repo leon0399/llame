@@ -207,6 +207,7 @@ export async function isCurrentDelivery(
       runId,
       ownerUserId: context.userId,
       deliverySequence: context.nativeDeliverySequence,
+      attemptId: context.attemptId,
     }),
   );
 }

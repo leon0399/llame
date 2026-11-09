@@ -453,6 +453,7 @@ async function settleAdmittedExecution(
     ...prepared.context,
     onMcpDispatchRecorded: () => {
       mcpDispatchRecorded = true;
+      context.onMcpDispatchRecorded?.();
     },
   };
   try {
@@ -476,7 +477,7 @@ async function settleAdmittedExecution(
   }
 }
 
-function unknownMcpExecution(): ToolResult {
+export function unknownMcpExecution(): ToolResult {
   return {
     status: 'error',
     type: 'outcome_unknown',
