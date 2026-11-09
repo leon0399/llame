@@ -2,25 +2,31 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
-- **An interrupt now stops a Run's current step (internal machinery).** Nothing
-  admits `interrupt` yet, so no user-visible behavior changes. When the Chat
-  holds a pending `interrupt` item and a model request or a tool call is in
-  flight, the run-control listener of the executing process stops it: the model
-  request aborts, and each open call settles by the fate its tool declares.
-  `read_only` tools, `bash`, and MCP tools are cancelled; every other tool,
-  such as a write or a workspace entry, finishes first. Each call settles once
-  and carries an `interrupted` marker. A `bash` command that started is killed
-  within its grace, and a sent MCP call settles as `outcome_unknown` with a
-  recorded result, so a retry does not see an unsettled attempt. The delivery
-  that follows closes the reply `aborted`, publishes its usage, and moves the
-  Run to a new segment on a message that opens with an `interrupted` notice. The
-  notice names each stopped `bash` and MCP call and says that its effects are
-  unknown. An interrupt that finds no model request or tool call in flight
-  acts as a steer. A reply that an interrupt closed replays only the reasoning
-  that a later part follows, and the reasoning part the stop cut never replays.
-  If the owner withdraws the item after the stop, the Run goes on with the same
-  reply and leaves out that part. A tool call of the interrupted segment can no
-  longer record a native attempt after the delivery.
+- **Interrupt a live Run through the API.** An owner can send a message with
+  `delivery: "interrupt"` while a Run is live, or change a pending `steer` or
+  `queue` item to `interrupt` with `PATCH
+  /api/v1/chats/:chatId/deliveries/:deliveryId`. The request sends the
+  run-control signal in the same transaction. When a model request or a tool
+  call is in flight, the run-control listener of the executing process stops
+  it: the model request aborts, and each open call settles by the fate its tool
+  declares. `read_only` tools, `bash`, and MCP tools are cancelled; every other
+  tool, such as a write or a workspace entry, finishes first. Each call settles
+  once and carries an `interrupted` marker, in the live stream as well as on
+  reload. A `bash` command that started is killed within its grace, and a sent
+  MCP call settles as `outcome_unknown` with a recorded result, so a retry does
+  not see an unsettled attempt. The delivery that follows closes the reply
+  `aborted`, publishes its usage, and moves the Run to a new segment on a
+  message that opens with an `interrupted` notice. The notice names each
+  stopped `bash` and MCP call and says that its effects are unknown. An
+  interrupt that finds no model request or tool call in flight acts as a steer
+  at the step end, and still closes the reply `aborted` with the notice. A
+  reply that an interrupt closed replays only the reasoning that a later part
+  follows, and the reasoning part the stop cut never replays. If the owner
+  withdraws the item after the stop and nothing else is pending, the Run goes
+  on with the same reply and leaves out that part and the notice; with a steer
+  still pending, the delivery stays an interrupt. A tool call of the
+  interrupted segment, and a Workspace binding change from it, can no longer
+  record anything after the delivery.
 
 - **Steer a live Run through the API.** An owner can send a message with
   `delivery: "steer"` while a Run is live. The API answers 202 with a pending

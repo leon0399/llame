@@ -1,40 +1,47 @@
 /**
  * run-steering, `interrupt` layer — an owner interrupt against real Postgres
- * (RLS active) and the co-located worker, with the scripted model client. No
- * HTTP admits an `interrupt` yet: the items are stored directly in
- * `chat_deliveries`, and the run-control NOTIFY is sent in the same
- * transaction, as admission will.
+ * (RLS active) and the co-located worker, with the scripted model client. The
+ * items are stored directly in `chat_deliveries`, with the run-control NOTIFY
+ * in the same transaction, as admission sends it (the HTTP admission has its
+ * own suite).
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { sql } from 'drizzle-orm';
-import {
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { MessagesRepository } from '../chats/chats-repository';
-import { type ChatDeliveryMode, type Message } from '../db/schema';
-import { type Db } from '../db/tenant-db.service';
+import { CompactionService } from '../compaction/compaction.service';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
+import { type ChatDelivery, type Message } from '../db/schema';
+import { composeAttemptToolCatalog } from './effective-context-resolver';
 import {
   registerTestOnlyTool,
   unregisterTestOnlyTool,
 } from '../tools/registry';
 import { waitFor } from '../testing/support';
+import { type Tool } from '../tools/types';
+import {
+  hashToolDeclaration,
+  type TurnToolCandidate,
+} from '../tools/turn-tool-catalog';
 import { NativeFilesRepository } from './native-files-repository';
 import { notifyRunControl } from './run-control';
+import {
+  answer,
+  call,
+  useSegmentsFixture,
+  type SeededRun,
+} from './run-segments.test-fixture';
 import { isTerminalRunStatus } from './run-status';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { type ScriptedStep } from './scripted-model-step';
 import {
   bootWorkerHarness,
   createUser,
@@ -49,45 +56,10 @@ const describeIfDb = process.env['TEST_DATABASE_URL']
 
 vi.setConfig({ testTimeout: 90_000 });
 
-const answer = (text: string): ScriptedStep => [
-  { type: 'text', id: 't', text },
-];
-const call = (
-  toolCallId: string,
-  toolName: string,
-  input: UnknownRecord,
-): ScriptedStep => [{ type: 'tool-call', toolCallId, toolName, input }];
-
-/** A promise the test settles from outside. */
-function deferred<T = void>() {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-/** `role:text` or `role:<part type>` per provider message part. */
-function flatten(
-  prompt: ReadonlyArray<{
-    role: string;
-    content: string | ReadonlyArray<{ type: string; text?: string }>;
-  }>,
-): Array<string> {
-  return prompt.flatMap(({ role, content }) =>
-    isString(content)
-      ? [`${role}:${content}`]
-      : content.map((part) =>
-          part.type === 'text'
-            ? `${role}:${part.text}`
-            : `${role}:${part.type}`,
-        ),
-  );
-}
+/** A held Run row lock, released by the test. */
+type RunLockHold = { release: () => Promise<void> };
 
 const SIGNED = { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'ENC' } };
-
-type Seeded = Awaited<ReturnType<typeof seedRun>> & { modelId: string };
 
 /** The part type and the first part's producer, for a stored message. */
 function partKinds(message: Message): Array<string> {
@@ -102,15 +74,80 @@ function partKinds(message: Message): Array<string> {
   );
 }
 
+const textOf = (message: Message) =>
+  message.parts
+    .flatMap((part) =>
+      isRecord(part) && part['type'] === 'text' && isString(part['text'])
+        ? [part['text']]
+        : [],
+    )
+    .join('|');
+
+/** A read-only tool that ignores its abort signal, so a result can arrive late. */
+const lookupGate = { current: Promise.withResolvers<void>() };
+const lookupReturned = { current: Promise.withResolvers<void>() };
+/** An MCP-named tool that records its `native.attempt` like the runtime does, then hangs. */
+const mcpSent = { current: Promise.withResolvers<void>() };
+
+const MCP_TOOL_ID = 'mcp__fixture__send';
+
+const mcpTool: Tool = {
+  id: MCP_TOOL_ID,
+  description: 'An MCP-named call whose request is sent and never answered.',
+  classification: 'unverified',
+  inputSchema: z.strictObject({}),
+  execute: async (context) => {
+    const { runId } = context;
+    if (runId === undefined) throw new Error('The call has no Run.');
+    await context.tenantDb.runAs(context.userId, (tx) =>
+      new NativeFilesRepository(tx).begin({
+        runId,
+        userId: context.userId,
+        fence: { bound: false },
+        deliverySequence: context.nativeDeliverySequence,
+        attemptId: context.attemptId,
+        toolCallId: context.toolCallId ?? 'mcp',
+        operation: 'mcp',
+        path: MCP_TOOL_ID,
+      }),
+    );
+    context.onMcpDispatchRecorded?.();
+    mcpSent.current.resolve();
+    return new Promise(() => {});
+  },
+};
+
+/** Makes the runtime offer `mcpTool` as an operator MCP tool, as a connected server would. */
+async function offerMcpTool(runtime: McpRuntimeService) {
+  const candidates: ReadonlyArray<TurnToolCandidate> = [
+    {
+      source: { type: 'mcp', serverId: 'fixture' },
+      state: 'available',
+      tool: mcpTool,
+    },
+  ];
+  const { declarations } = await composeAttemptToolCatalog({
+    allowedToolRules: [MCP_TOOL_ID],
+    callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
+    candidates: [],
+    dynamicCandidates: candidates,
+  });
+  const [declaration] = declarations;
+  if (!declaration) throw new Error('The MCP fixture tool did not resolve.');
+  vi.spyOn(runtime, 'snapshotCandidates').mockReturnValue(candidates);
+  vi.spyOn(runtime, 'resolveDynamicTool').mockImplementation((id) =>
+    id === MCP_TOOL_ID
+      ? {
+          state: 'available',
+          declarationHash: hashToolDeclaration(declaration),
+          executor: mcpTool,
+        }
+      : { state: 'not_dynamic' },
+  );
+}
+
 describeIfDb('run steering interrupts', () => {
-  let harness: WorkerHarness;
-  let userId: string;
-  let directory: string;
-
-  /** A read-only tool that ignores its abort signal, so a result can arrive late. */
-  const lookupGate = { current: deferred() };
-
-  beforeAll(async () => {
+  beforeAll(() => {
     registerTestOnlyTool({
       id: 'slow_lookup',
       description: 'A read-only lookup that does not watch its abort signal.',
@@ -118,117 +155,117 @@ describeIfDb('run steering interrupts', () => {
       inputSchema: z.strictObject({}),
       execute: async () => {
         await lookupGate.current.promise;
+        lookupReturned.current.resolve();
         return { status: 'success', value: 'the late value' };
       },
     });
-    harness = await bootWorkerHarness({
-      allowedTools: ['read', 'bash', 'write', 'slow_lookup'],
-      nativeExecutorId: 'run-interrupt-host',
-    });
-    userId = await createUser(harness.db, 'run-interrupt');
-    directory = await mkdtemp(join(tmpdir(), 'run-interrupt-'));
   });
-
-  afterAll(async () => {
-    await harness.close();
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
     unregisterTestOnlyTool('slow_lookup');
-    await rm(directory, { recursive: true, force: true });
   });
 
-  const db = <T>(work: (tx: Db) => Promise<T>) =>
-    harness.tenantDb.runAs(userId, work);
+  const fx = useSegmentsFixture('run-interrupt', {
+    allowedTools: [
+      'read',
+      'bash',
+      'write',
+      'slow_lookup',
+      'mcp__fixture__send',
+    ],
+    nativeExecutorId: 'run-interrupt-host',
+  });
+  const { db, storeItems, events, types, terminal, messages, seed, launch } =
+    fx;
 
-  /** A pending item, with the control signal in the same transaction when asked. */
-  async function store(
-    seeded: Seeded,
-    mode: ChatDeliveryMode,
-    text: string,
-    notify = false,
-  ): Promise<string> {
-    const id = randomUUID();
-    await db(async (tx) => {
-      await new ChatDeliveriesRepository(tx).insertPending({
-        id,
-        chatId: seeded.chatId,
-        ownerUserId: userId,
-        mode,
-        parts: [{ type: 'text', text }],
-        settings: { modelId: 'ignored', permissionMode: 'default' },
-      });
-      if (notify)
-        await notifyRunControl(tx, { runId: seeded.runId, kind: 'interrupt' });
+  const interrupt = async (seeded: SeededRun, text: string) => {
+    const [id] = await storeItems(
+      seeded.chatId,
+      [text],
+      'interrupt',
+      seeded.runId,
+    );
+    return id ?? '';
+  };
+
+  /**
+   * Runs `hook` inside the next delivery transaction, after it locked the Run
+   * and the Chat and before it reads the pending items: a window in which the
+   * owner can withdraw an item. Register it before the item is stored.
+   */
+  function beforeNextDelivery(hook: () => Promise<void>) {
+    // eslint-disable-next-line typescript/unbound-method -- re-invoked with the instance below.
+    const original = ChatDeliveriesRepository.prototype.lockPendingSteering;
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'lockPendingSteering',
+    ).mockImplementationOnce(async function (
+      this: ChatDeliveriesRepository,
+      chatId: string,
+      ownerUserId: string,
+    ): Promise<Array<ChatDelivery>> {
+      await hook();
+      // eslint-disable-next-line typescript/no-unsafe-assignment -- the spied method's own result, passed through.
+      const items: Array<ChatDelivery> = await original.call(
+        this,
+        chatId,
+        ownerUserId,
+      );
+      return items;
     });
-    return id;
   }
 
-  const interrupt = (seeded: Seeded, text: string) =>
-    store(seeded, 'interrupt', text, true);
+  /** An interrupt the owner withdraws inside the next delivery. */
+  async function interruptWithdrawnAtDelivery(seeded: SeededRun) {
+    let id = '';
+    beforeNextDelivery(async () => {
+      await db((tx) =>
+        new ChatDeliveriesRepository(tx).withdrawPending(
+          seeded.chatId,
+          id,
+          fx.userId,
+        ),
+      );
+    });
+    id = await interrupt(seeded, 'withdrawn');
+  }
 
-  const events = (runId: string) =>
-    db((tx) => new RunEventsRepository(tx).listByRunId(runId, userId));
-
-  const types = async (runId: string) =>
-    (await events(runId)).map((event) => event.eventType);
-
-  const terminal = (runId: string) =>
+  const waitForType = (runId: string, type: string, what: string) =>
     waitFor(
-      async () => {
-        const found = await db((tx) =>
-          new RunsRepository(tx).findById(runId, userId),
-        );
-        return found && isTerminalRunStatus(found.status) ? found : undefined;
-      },
-      40_000,
-      `Run ${runId} to settle`,
+      async () => ((await types(runId)).includes(type) ? true : undefined),
+      20_000,
+      what,
     );
 
-  const messages = (chatId: string) =>
-    db((tx) => new MessagesRepository(tx).findByChatId(chatId, userId));
-
-  const textOf = (message: Message) =>
-    message.parts
-      .flatMap((part) =>
-        isRecord(part) && part['type'] === 'text' && isString(part['text'])
-          ? [part['text']]
-          : [],
-      )
-      .join('|');
-
-  async function seed(text = 'first message'): Promise<Seeded> {
-    const modelId = `run-interrupt-${randomUUID()}`;
-    const seeded = await seedRun({
-      tenantDb: harness.tenantDb,
-      userId,
-      modelId,
-      text,
-    });
-    return { ...seeded, modelId };
+  /** Waits until a long `bash` call has started and recorded its pid. */
+  async function bashStarted(seeded: SeededRun, pidFile: string) {
+    await waitForType(seeded.runId, 'tool.started', 'the bash call to start');
+    await waitFor(
+      () =>
+        readFile(pidFile, 'utf8').then(
+          (text) => text.trim() || undefined,
+          () => undefined,
+        ),
+      10_000,
+      'the command to record its pid',
+    );
   }
 
-  async function launch(
-    seeded: Seeded,
-    steps: ReadonlyArray<ScriptedStep>,
-    beforeStep?: (index: number) => Promise<void> | void,
-  ) {
-    harness.models.register(seeded.modelId, {
-      kind: 'step-script',
-      steps,
-      ...(beforeStep !== undefined && { beforeStep }),
-    });
-    const promptsBefore = harness.models.prompts.length;
-    await dispatchRun({ queue: harness.queue, ...seeded, userId });
-    return {
-      prompts: () =>
-        harness.models.prompts
-          .slice(promptsBefore)
-          .map((prompt) => flatten(prompt)),
-    };
-  }
+  const slowBash = (pidFile: string) => ({
+    command: `echo $$ > ${pidFile}; exec sleep 60`,
+    cwd: fx.directory,
+  });
+
+  const deliveredEvent = async (runId: string) =>
+    (await events(runId)).find((event) => event.eventType === 'run.delivered')
+      ?.payload;
 
   /** Holds the Run row lock until released, as a slow writer would. */
-  async function holdRunLock(runId: string) {
-    const locked = deferred();
-    const release = deferred();
+  async function holdRunLock(runId: string): Promise<RunLockHold> {
+    const locked = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
     const finished = db(async (tx) => {
       await tx.execute(sql`select id from runs where id = ${runId} for update`);
       locked.resolve();
@@ -243,12 +280,13 @@ describeIfDb('run steering interrupts', () => {
     };
   }
 
-  /** Waits until a worker statement is blocked on a lock. */
+  /** Waits until a statement of this database is blocked on a lock. */
   const lockWaiterAppears = () =>
     waitFor(
       async () => {
-        const rows = await harness.db.execute(
-          sql`select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock'`,
+        const rows = await fx.harness.db.execute(
+          sql`select count(*)::int as waiting from pg_stat_activity
+              where wait_event_type = 'Lock' and datname = current_database()`,
         );
         return Number(rows[0]?.['waiting']) > 0 ? true : undefined;
       },
@@ -258,7 +296,7 @@ describeIfDb('run steering interrupts', () => {
 
   describe('a model response', () => {
     it('An interrupt during a model response', async () => {
-      const held = deferred();
+      const held = Promise.withResolvers<void>();
       const seeded = await seed();
       const started = await launch(seeded, [
         [
@@ -321,7 +359,11 @@ describeIfDb('run steering interrupts', () => {
         },
       ]);
       // The delivered message opens with the notice, then the owner text.
-      expect(partKinds(delivery)).toEqual(['data-context:interrupted', 'text']);
+      expect(partKinds(delivery)).toEqual([
+        'data-context:interrupted',
+        'data-context:temporal',
+        'text',
+      ]);
       expect(textOf(delivery)).toBe('change course');
       expect(delivery?.id).toBe(finished.messageId);
       expect(textOf(second)).toBe('redirected');
@@ -343,7 +385,7 @@ describeIfDb('run steering interrupts', () => {
     });
 
     it('An interrupt takes the pending steers along', async () => {
-      const held = deferred();
+      const held = Promise.withResolvers<void>();
       const seeded = await seed();
       await launch(seeded, [
         [
@@ -354,7 +396,7 @@ describeIfDb('run steering interrupts', () => {
       ]);
       await held.promise;
 
-      await store(seeded, 'steer', 'a steer');
+      await storeItems(seeded.chatId, ['a steer']);
       await interrupt(seeded, 'an interrupt');
       await terminal(seeded.runId);
 
@@ -366,41 +408,121 @@ describeIfDb('run steering interrupts', () => {
       expect(delivered).toHaveLength(1);
       expect(partKinds(delivered[0])).toEqual([
         'data-context:interrupted',
+        'data-context:temporal',
         'text',
         'text',
       ]);
       expect(await types(seeded.runId)).toContain('run.delivered');
     });
+
+    it('An interrupt met at a plain step boundary closes the reply aborted, with the notice', async () => {
+      // Stored without the control signal: nothing stops, and the step-end
+      // check finds it.
+      const seeded = await seed();
+      await launch(
+        seeded,
+        [call('r1', 'read', { path: fx.directory }), answer('after')],
+        async (index) => {
+          if (index === 0) {
+            await storeItems(seeded.chatId, ['at the boundary'], 'interrupt');
+          }
+        },
+      );
+      const finished = await terminal(seeded.runId);
+
+      expect(finished.status).toBe('completed');
+      expect(await deliveredEvent(seeded.runId)).toMatchObject({
+        cause: 'interrupt',
+        stoppedCalls: [],
+      });
+      const [, reply, delivered] = await messages(seeded.chatId);
+      expect(reply?.usage).toMatchObject({
+        status: 'aborted',
+        complete: false,
+        interrupted: true,
+      });
+      expect(partKinds(delivered)).toEqual([
+        'data-context:interrupted',
+        'data-context:temporal',
+        'text',
+      ]);
+    });
+
+    it('An interrupt met at the final answer closes the reply aborted, with the notice', async () => {
+      const seeded = await seed();
+      await launch(
+        seeded,
+        [answer('first answer'), answer('second answer')],
+        async (index) => {
+          if (index === 0) {
+            await storeItems(seeded.chatId, ['after the answer'], 'interrupt');
+          }
+        },
+      );
+      await terminal(seeded.runId);
+
+      expect(await deliveredEvent(seeded.runId)).toMatchObject({
+        cause: 'interrupt',
+      });
+      const [, reply, delivered] = await messages(seeded.chatId);
+      expect(reply?.usage).toMatchObject({
+        status: 'aborted',
+        interrupted: true,
+      });
+      expect(partKinds(delivered)[0]).toBe('data-context:interrupted');
+    });
+
+    it('A withdrawn interrupt after the stop continues the same reply without a notice', async () => {
+      const held = Promise.withResolvers<void>();
+      const seeded = await seed();
+      const started = await launch(seeded, [
+        [
+          {
+            type: 'reasoning',
+            id: 'r1',
+            text: 'first thought',
+            providerMetadata: SIGNED,
+          },
+          { type: 'text', id: 't1', text: 'partial ' },
+          { type: 'reasoning', id: 'r2', text: 'a cut thought', open: true },
+          { type: 'hold', onHeld: held.resolve },
+        ],
+        answer('rest'),
+      ]);
+      await held.promise;
+
+      // The owner withdraws the item after the stop, before the delivery.
+      await interruptWithdrawnAtDelivery(seeded);
+      const finished = await terminal(seeded.runId);
+
+      expect(finished.status).toBe('completed');
+      expect(await types(seeded.runId)).not.toContain('run.delivered');
+      const all = await messages(seeded.chatId);
+      expect(all.map(({ role }) => role)).toEqual(['user', 'assistant']);
+      expect(all[1]?.usage).toMatchObject({ status: 'completed' });
+      const request = started.prompts()[1] ?? [];
+      expect(request).toContain('assistant:partial ');
+      // The signed first part replays; the part the stop cut does not.
+      expect(
+        request.filter((line) => line === 'assistant:reasoning'),
+      ).toHaveLength(1);
+      expect(
+        request.some((line) =>
+          line.includes('The owner interrupted your previous step'),
+        ),
+      ).toBe(false);
+    });
   });
 
   describe('a tool call', () => {
     it('An interrupt kills a long command', async () => {
-      const pidFile = join(directory, `pid-${randomUUID()}`);
+      const pidFile = join(fx.directory, `pid-${randomUUID()}`);
       const seeded = await seed();
       const started = await launch(seeded, [
-        call('slow', 'bash', {
-          command: `echo $$ > ${pidFile}; exec sleep 60`,
-          cwd: directory,
-        }),
+        call('slow', 'bash', slowBash(pidFile)),
         answer('after the kill'),
       ]);
-      await waitFor(
-        async () =>
-          (await types(seeded.runId)).includes('tool.started')
-            ? true
-            : undefined,
-        20_000,
-        'the bash call to start',
-      );
-      await waitFor(
-        () =>
-          readFile(pidFile, 'utf8').then(
-            (text) => text.trim() || undefined,
-            () => undefined,
-          ),
-        10_000,
-        'the command to record its pid',
-      );
+      await bashStarted(seeded, pidFile);
       const begun = Date.now();
 
       await interrupt(seeded, 'stop that');
@@ -420,7 +542,7 @@ describeIfDb('run steering interrupts', () => {
         toolCallId: 'slow',
         interrupted: true,
       });
-      const [, firstReply, delivery] = await messages(seeded.chatId);
+      const [, firstReply, delivered] = await messages(seeded.chatId);
       expect(firstReply?.parts).toMatchObject([
         {
           type: 'tool-bash',
@@ -428,47 +550,123 @@ describeIfDb('run steering interrupts', () => {
           resultProviderMetadata: { llame: { interrupted: true } },
         },
       ]);
-      expect(
-        (await events(seeded.runId)).find(
-          (event) => event.eventType === 'run.delivered',
-        )?.payload,
-      ).toMatchObject({
+      expect(await deliveredEvent(seeded.runId)).toMatchObject({
         stoppedCalls: [{ toolName: 'bash', toolCallId: 'slow' }],
       });
-      const notice = JSON.stringify(delivery?.parts);
+      const notice = JSON.stringify(delivered?.parts);
       expect(notice).toContain('`bash`, call id \\"slow\\"');
       expect(notice).toContain('Their effects are unknown');
       // The Run carried on with the interrupt.
       expect((started.prompts()[1] ?? []).at(-1)).toBe('user:stop that');
     });
 
+    it('Two calls of one step, one started', async () => {
+      // The read finishes on its own; the long command is the one stopped.
+      const pidFile = join(fx.directory, `pid-${randomUUID()}`);
+      const seeded = await seed();
+      await launch(seeded, [
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'slow',
+            toolName: 'bash',
+            input: slowBash(pidFile),
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'r1',
+            toolName: 'read',
+            input: { path: fx.directory },
+          },
+        ],
+        answer('moved on'),
+      ]);
+      await bashStarted(seeded, pidFile);
+      await waitFor(
+        async () =>
+          (await events(seeded.runId)).some(
+            (event) =>
+              event.eventType === 'tool.completed' &&
+              isRecord(event.payload) &&
+              event.payload['toolCallId'] === 'r1',
+          )
+            ? true
+            : undefined,
+        20_000,
+        'the read to finish',
+      );
+
+      await interrupt(seeded, 'enough');
+      await terminal(seeded.runId);
+
+      const completed = (await events(seeded.runId)).filter(
+        (event) => event.eventType === 'tool.completed',
+      );
+      const byId = (id: string) =>
+        completed.find(
+          (event) =>
+            isRecord(event.payload) && event.payload['toolCallId'] === id,
+        )?.payload;
+      expect(completed).toHaveLength(2);
+      expect(byId('r1')).toMatchObject({ status: 'success' });
+      expect(byId('r1')).not.toHaveProperty('interrupted');
+      expect(byId('slow')).toMatchObject({ interrupted: true });
+      expect(await deliveredEvent(seeded.runId)).toMatchObject({
+        stoppedCalls: [{ toolName: 'bash', toolCallId: 'slow' }],
+      });
+    });
+
+    it('A sent MCP call is stopped with a recorded native result', async () => {
+      mcpSent.current = Promise.withResolvers<void>();
+      await offerMcpTool(fx.harness.moduleRef.get(McpRuntimeService));
+      const seeded = await seed();
+      await launch(seeded, [
+        call('send', 'mcp__fixture__send', {}),
+        answer('moved on'),
+      ]);
+      await mcpSent.current.promise;
+
+      await interrupt(seeded, 'stop sending');
+      await terminal(seeded.runId);
+
+      const log = await events(seeded.runId);
+      const result = log.find(
+        (event) =>
+          event.eventType === 'native.result' &&
+          isRecord(event.payload) &&
+          event.payload['toolCallId'] === 'send',
+      );
+      expect(result?.payload).toMatchObject({
+        result: { status: 'error', type: 'outcome_unknown' },
+      });
+      expect(
+        log.find((event) => event.eventType === 'tool.completed')?.payload,
+      ).toMatchObject({ toolCallId: 'send', interrupted: true });
+      expect(await deliveredEvent(seeded.runId)).toMatchObject({
+        stoppedCalls: [{ toolName: 'mcp__fixture__send', toolCallId: 'send' }],
+      });
+    });
+
     it('A late tool result does not replace the settlement', async () => {
-      lookupGate.current = deferred();
+      lookupGate.current = Promise.withResolvers<void>();
+      lookupReturned.current = Promise.withResolvers<void>();
       const seeded = await seed();
       await launch(seeded, [
         call('lookup', 'slow_lookup', {}),
         answer('moved on'),
       ]);
-      await waitFor(
-        async () =>
-          (await types(seeded.runId)).includes('tool.started')
-            ? true
-            : undefined,
-        20_000,
-        'the lookup to start',
-      );
+      await waitForType(seeded.runId, 'tool.started', 'the lookup to start');
 
       await interrupt(seeded, 'never mind');
-      await waitFor(
-        async () =>
-          (await types(seeded.runId)).includes('run.delivered')
-            ? true
-            : undefined,
-        20_000,
+      await waitForType(
+        seeded.runId,
+        'run.delivered',
         'the interrupt to be delivered',
       );
-      // The call ignored its signal and now returns a result.
+      // The call ignored its signal and now returns its value: the tool did
+      // return it, and the first settlement still stands.
       lookupGate.current.resolve();
+      await lookupReturned.current.promise;
       await terminal(seeded.runId);
 
       const completed = (await events(seeded.runId)).filter(
@@ -485,22 +683,19 @@ describeIfDb('run steering interrupts', () => {
             'The owner interrupted this call before it finished. It made no change.',
         },
       });
-      // The first settlement stands in history, and a read-only call is no
-      // stopped call: its effects are known.
+      // A read-only call is no stopped call: its effects are known.
       const [, firstReply] = await messages(seeded.chatId);
       expect(firstReply?.parts).toMatchObject([
         { toolCallId: 'lookup', state: 'output-error', outcome: 'cancelled' },
       ]);
-      expect(
-        (await events(seeded.runId)).find(
-          (event) => event.eventType === 'run.delivered',
-        )?.payload,
-      ).toMatchObject({ stoppedCalls: [] });
+      expect(await deliveredEvent(seeded.runId)).toMatchObject({
+        stoppedCalls: [],
+      });
     });
 
     it('A write finishes before the interrupt applies', async () => {
-      const target = join(directory, `written-${randomUUID()}.txt`);
-      const lock = deferred<Awaited<ReturnType<typeof holdRunLock>>>();
+      const target = join(fx.directory, `written-${randomUUID()}.txt`);
+      const lock = Promise.withResolvers<RunLockHold>();
       const seeded = await seed();
       await launch(
         seeded,
@@ -537,43 +732,125 @@ describeIfDb('run steering interrupts', () => {
       });
       expect(log[completed]?.payload).not.toHaveProperty('interrupted');
       expect(delivered).toBeGreaterThan(completed);
+      // The interrupt path ran: it cut the model call, which a step-end
+      // delivery would record with the SDK's finish reason instead.
+      expect(
+        log.find((event) => event.eventType === 'model.completed')?.payload,
+      ).toMatchObject({ finishReason: null });
+    });
+
+    it('A withdrawn interrupt with a steer pending still delivers as an interrupt', async () => {
+      const pidFile = join(fx.directory, `pid-${randomUUID()}`);
+      const seeded = await seed();
+      await launch(seeded, [
+        call('slow', 'bash', slowBash(pidFile)),
+        answer('after'),
+      ]);
+      await bashStarted(seeded, pidFile);
+
+      await storeItems(seeded.chatId, ['a steer']);
+      await interruptWithdrawnAtDelivery(seeded);
+      await terminal(seeded.runId);
+
+      // The step was cut and a command killed: the delivery is an interrupt,
+      // names the killed call, and the model gets the notice.
+      expect(await deliveredEvent(seeded.runId)).toMatchObject({
+        cause: 'interrupt',
+        stoppedCalls: [{ toolName: 'bash', toolCallId: 'slow' }],
+      });
+      const [, reply, delivered] = await messages(seeded.chatId);
+      expect(reply?.usage).toMatchObject({
+        status: 'aborted',
+        complete: false,
+      });
+      expect(partKinds(delivered)).toEqual([
+        'data-context:interrupted',
+        'data-context:temporal',
+        'text',
+      ]);
+      expect(textOf(delivered)).toBe('a steer');
     });
   });
 
   describe('when no work is in progress', () => {
     it('An interrupt during compaction acts as a steer', async () => {
-      // The Run has not begun its first request: no segment is in flight, so
-      // the control signal finds nothing to stop.
-      const seeded = await seed();
-      await interrupt(seeded, 'redirect');
-      const started = await launch(seeded, [
-        call('r1', 'read', { path: directory }),
-        answer('after the redirect'),
-      ]);
-      const finished = await terminal(seeded.runId);
+      // A first Run completes, so the second Run's compaction check has a
+      // turn to absorb. The check is held while the interrupt arrives: the
+      // Run is registered with no step in flight.
+      const first = await seed();
+      await launch(first, [answer('earlier answer')]);
+      await terminal(first.runId);
+      const modelId = `run-interrupt-${randomUUID()}`;
+      const second = {
+        ...(await seedRun({
+          tenantDb: fx.harness.tenantDb,
+          userId: fx.userId,
+          modelId,
+          chatId: first.chatId,
+          text: 'second message',
+        })),
+        modelId,
+      };
+      fx.harness.models.register(modelId, {
+        kind: 'step-script',
+        compactionThresholdTokens: 1,
+        steps: [
+          call('r1', 'read', { path: fx.directory }),
+          answer('after the redirect'),
+        ],
+      });
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      vi.spyOn(
+        fx.harness.moduleRef.get(CompactionService),
+        'summarizeCheckpoint',
+      ).mockImplementation(async (input) => {
+        entered.resolve();
+        await release.promise;
+        return {
+          uptoSeq: input.triggeringUserSeq - 1,
+          summary: 'earlier turns',
+          usage: {},
+        };
+      });
+      await dispatchRun({
+        queue: fx.harness.queue,
+        ...second,
+        userId: fx.userId,
+      });
+      await entered.promise;
+
+      await interrupt(second, 'redirect');
+      release.resolve();
+      const finished = await terminal(second.runId);
 
       expect(finished.status).toBe('completed');
-      const log = await events(seeded.runId);
+      const log = await events(second.runId);
       const completed = log.findIndex(
         (event) => event.eventType === 'tool.completed',
       );
       const delivered = log.findIndex(
         (event) => event.eventType === 'run.delivered',
       );
-      // The first step ran to its end; the item was delivered after it.
+      // The compaction completed, the first step ran to its end, and the item
+      // was delivered after it.
+      expect(
+        (await messages(second.chatId)).some(
+          ({ role }) => role === 'checkpoint',
+        ),
+      ).toBe(true);
       expect(log[completed]?.payload).toMatchObject({
         toolCallId: 'r1',
         status: 'success',
       });
       expect(log[completed]?.payload).not.toHaveProperty('interrupted');
       expect(delivered).toBeGreaterThan(completed);
-      expect((started.prompts()[1] ?? []).at(-1)).toBe('user:redirect');
     });
   });
 
   describe('a stale attempt', () => {
     it('a tool admission after the interrupt delivery writes no attempt', async () => {
-      const held = deferred();
+      const held = Promise.withResolvers<void>();
       const seeded = await seed();
       await launch(seeded, [
         [
@@ -594,7 +871,7 @@ describeIfDb('run steering interrupts', () => {
         ? interruptedAttempt['attemptId']
         : undefined;
       const run = await db((tx) =>
-        new RunsRepository(tx).findById(seeded.runId, userId),
+        new RunsRepository(tx).findById(seeded.runId, fx.userId),
       );
       const deliverySequence = log.findLast(
         (event) => event.eventType === 'run.started',
@@ -608,7 +885,7 @@ describeIfDb('run steering interrupts', () => {
         db((tx) =>
           new NativeFilesRepository(tx).begin({
             runId: seeded.runId,
-            userId,
+            userId: fx.userId,
             fence: { bound: false },
             deliverySequence,
             attemptId,
@@ -656,7 +933,7 @@ describeIfDb('an interrupt across processes', () => {
   });
 
   it('An interrupt reaches a dedicated worker', async () => {
-    const held = deferred();
+    const held = Promise.withResolvers<void>();
     const modelId = `run-interrupt-${randomUUID()}`;
     const seeded = await seedRun({
       tenantDb: worker.tenantDb,
@@ -708,5 +985,89 @@ describeIfDb('an interrupt across processes', () => {
     expect(
       log.find((event) => event.eventType === 'run.delivered')?.payload,
     ).toMatchObject({ cause: 'interrupt' });
+  });
+
+  it("An interrupt signal for one owner's Run ignores another owner's pending interrupt", async () => {
+    const other = await createUser(worker.db, 'run-interrupt-other');
+    const held = Promise.withResolvers<void>();
+    const modelId = `run-interrupt-${randomUUID()}`;
+    const seeded = await seedRun({
+      tenantDb: worker.tenantDb,
+      userId,
+      modelId,
+    });
+    const foreign = await seedRun({
+      tenantDb: worker.tenantDb,
+      userId: other,
+      modelId: 'unused',
+    });
+    worker.models.register(modelId, {
+      kind: 'step-script',
+      steps: [
+        [
+          { type: 'text', id: 't1', text: 'streaming' },
+          { type: 'hold', onHeld: held.resolve },
+        ],
+        answer('after the owner interrupts'),
+      ],
+    });
+    await dispatchRun({ queue: worker.queue, ...seeded, userId, modelId });
+    await held.promise;
+
+    // The other owner has a pending interrupt item; this owner has none.
+    await worker.tenantDb.runAs(other, (tx) =>
+      new ChatDeliveriesRepository(tx).insertPending({
+        id: randomUUID(),
+        chatId: foreign.chatId,
+        ownerUserId: other,
+        mode: 'interrupt',
+        parts: [{ type: 'text', text: 'not yours' }],
+        settings: { modelId: 'ignored', permissionMode: 'default' },
+      }),
+    );
+    const check = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'hasPendingInterrupt',
+    );
+    await worker.tenantDb.runAs(userId, (tx) =>
+      notifyRunControl(tx, { runId: seeded.runId, kind: 'interrupt' }),
+    );
+    // The listener read this owner's scope and found nothing pending.
+    await waitFor(
+      () => (check.mock.results.length > 0 ? true : undefined),
+      10_000,
+      'the listener to check the pending interrupt',
+    );
+    expect(await check.mock.results[0]?.value).toBe(false);
+
+    // The stream is still held, so the Run was not stopped: only a pending
+    // item of this owner ends it.
+    const events = () =>
+      worker.tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
+      );
+    expect((await events()).map((event) => event.eventType)).not.toContain(
+      'run.delivered',
+    );
+    await worker.tenantDb.runAs(userId, async (tx) => {
+      await new ChatDeliveriesRepository(tx).insertPending({
+        id: randomUUID(),
+        chatId: seeded.chatId,
+        ownerUserId: userId,
+        mode: 'interrupt',
+        parts: [{ type: 'text', text: 'mine' }],
+        settings: { modelId: 'ignored', permissionMode: 'default' },
+      });
+      await notifyRunControl(tx, { runId: seeded.runId, kind: 'interrupt' });
+    });
+    await waitFor(
+      async () =>
+        (await events()).some((event) => event.eventType === 'run.delivered')
+          ? true
+          : undefined,
+      40_000,
+      'the owner interrupt to be delivered',
+    );
+    check.mockRestore();
   });
 });

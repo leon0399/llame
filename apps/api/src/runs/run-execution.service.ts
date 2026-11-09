@@ -8,6 +8,7 @@ import {
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
 import { isBashTool } from '../tools/bash';
+import { isCancelledBeforeExecution } from '../tools/cancelled-before-execution';
 import { interruptFateOf } from '../tools/registry';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
@@ -17,9 +18,12 @@ import {
   type RunSegmentRegistrar,
 } from './run-abort-registry';
 import {
+  abortedByInterrupt,
+  closedTelemetry,
   deliverPendingSteering,
   persistFirstEpochBaselines,
   type DeliveredBoundary,
+  type FirstEpochBaselines,
 } from './segment-delivery';
 import { machineAttemptKey } from './machine-attempt';
 import { probeMachinePromptTarget } from './machine-prompt-probe';
@@ -1399,6 +1403,7 @@ export class RunExecutionService {
     const workspacePreparation = await this.prepareWorkspace(
       input,
       nativeDeliverySequence,
+      attemptId,
       workspaceChat,
       effectivePermissionMode,
     );
@@ -1850,6 +1855,8 @@ export class RunExecutionService {
         interruptSignal?: AbortSignal;
         /** The call recorded its MCP `native.attempt`, so it was sent. */
         mcpDispatched?: boolean;
+        /** Settles when the tool body returns; an interrupt waits on `finish` calls. */
+        done?: Promise<void>;
       }
     >();
     // The opaque provider metadata each call's stream part carried (design
@@ -2154,10 +2161,8 @@ export class RunExecutionService {
     let interruptSettlement: Promise<void> | undefined;
     // The `bash` and MCP calls that started and that the interrupt stopped.
     const stoppedCalls: Array<StoppedCall> = [];
-    const runningCalls = new Map<
-      string,
-      { toolName: string; done: Promise<void> }
-    >();
+    // `native.result` writes of MCP calls whose attempt committed mid-interrupt.
+    const lateMcpWrites: Array<Promise<void>> = [];
     const fateOf = (toolName: string): InterruptFate => {
       const executor = toolAdditions.executorFor(toolName);
       return executor === undefined ? 'cancel' : interruptFateOf(executor);
@@ -2208,8 +2213,8 @@ export class RunExecutionService {
           mcpWrites,
         );
         await Promise.all(
-          [...runningCalls.values()].flatMap(({ toolName, done }) =>
-            fateOf(toolName) === 'finish' ? [done] : [],
+          [...openToolCalls.values()].flatMap(({ toolName, done }) =>
+            done !== undefined && fateOf(toolName) === 'finish' ? [done] : [],
           ),
         );
         if (
@@ -2263,6 +2268,21 @@ export class RunExecutionService {
             recordDerivedDecision(toolCallId, decision),
           onMcpDispatchRecorded: () => {
             if (open !== undefined) open.mcpDispatched = true;
+            // The attempt committed after the interrupt settled the call as
+            // not run: record its result so a retry finds no bare attempt.
+            if (settledToolCallIds.has(toolCallId)) {
+              lateMcpWrites.push(
+                this.recordInterruptedMcpResult(
+                  input,
+                  toolCallId,
+                  interruptSettlementOf({
+                    toolName: declaration.id,
+                    started: true,
+                    mcpDispatched: true,
+                  }).result,
+                ),
+              );
+            }
           },
         },
         callTimeoutSeconds,
@@ -2311,11 +2331,26 @@ export class RunExecutionService {
       if (open?.interruptSignal?.aborted && !input.abortSignal?.aborted) {
         // An owner interrupt aborted this call. Bash gets its bounded chance to
         // report its own proven result, which the interrupt marks; every other
-        // call is settled by the interrupt settlement (run-steering D7).
+        // call is settled by the interrupt settlement (run-steering D7). A
+        // call the abort reached between admission and spawn never ran.
+        const neverRan = isCancelledBeforeExecution(result, declaration.id);
         const provenBash =
           isBashTool(executor) &&
+          !neverRan &&
           !(result.status === 'error' && result.type === 'outcome_unknown');
-        if (provenBash) {
+        if (neverRan && isBashTool(executor)) {
+          recordToolCompleted(
+            toolCallId,
+            declaration.id,
+            args,
+            interruptSettlementOf({
+              toolName: declaration.id,
+              started: false,
+              mcpDispatched: false,
+            }).result,
+            true,
+          );
+        } else if (provenBash) {
           stoppedCalls.push({ toolName: declaration.id, toolCallId });
           recordToolCompleted(toolCallId, declaration.id, args, result, true);
         } else {
@@ -2369,35 +2404,20 @@ export class RunExecutionService {
       const definition = tool({
         description: declaration.description,
         inputSchema: toFlexibleSchema(declaration.inputSchema)!,
-        execute: async (
+        execute: (
           // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validates this input against the declaration schema before this callback runs.
           args: unknown,
           { toolCallId }: { toolCallId: string },
         ) => {
-          const running = (async () => {
-            const { executor, result } = await executeBoundTool(
-              declaration,
-              args,
-              toolCallId,
-            );
-            return settleBoundTool(
-              declaration,
-              args,
-              toolCallId,
-              executor,
-              result,
-            );
-          })();
-          // An interrupt waits for each call whose fate is `finish`.
-          runningCalls.set(toolCallId, {
-            toolName: declaration.id,
-            done: running.then(noop, noop),
-          });
-          try {
-            return await running;
-          } finally {
-            runningCalls.delete(toolCallId);
-          }
+          const running = executeBoundTool(declaration, args, toolCallId).then(
+            ({ executor, result }) =>
+              settleBoundTool(declaration, args, toolCallId, executor, result),
+          );
+          // An interrupt waits for each call whose fate is `finish`; the call's
+          // entry exists once `executeBoundTool` has reserved it.
+          const open = openToolCalls.get(toolCallId);
+          if (open !== undefined) open.done = running.then(noop, noop);
+          return running;
         },
         toModelOutput: ({
           input: call,
@@ -2555,9 +2575,7 @@ export class RunExecutionService {
       segment = callSegment;
       interruptSettlement = undefined;
       stoppedCalls.length = 0;
-      const callSignal = input.abortSignal
-        ? AbortSignal.any([input.abortSignal, callSegment.signal])
-        : callSegment.signal;
+      const callSignal = callAbortSignal(input.abortSignal, callSegment.signal);
       const onInterrupt = () => {
         settleOnInterrupt().catch(noop);
       };
@@ -2575,10 +2593,50 @@ export class RunExecutionService {
       // reply closes `aborted`, and the Run stays live on the delivered
       // message. An item the owner withdrew in the meantime continues the same
       // reply, from what the stopped call left in the transcript.
+      // One fenced delivery of the pending items; a delivery moves the next
+      // call onto the delivered message. Other outcomes go back to the caller.
+      const deliverAtBoundary = async (
+        modelCompleted: {
+          usage?: unknown;
+          finishReason: unknown;
+          telemetry: AssistantTurnTelemetry;
+        },
+        extra: {
+          stoppedCalls?: Array<StoppedCall>;
+          baselines?: FirstEpochBaselines;
+        },
+      ) => {
+        const { telemetry } = modelCompleted;
+        const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
+          deliverPendingSteering(tx, {
+            run: { runId: input.runId, userId: input.userId },
+            attemptId,
+            modelCompleted,
+            live: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: assistantPartCollector.parts(),
+              telemetry,
+            },
+            models: this.instanceConfig.config.models,
+            ...extra,
+          }),
+        );
+        if (boundary.kind === 'delivered') {
+          await this.afterAssistantTurn(
+            boundary.closedReply,
+            input.userId,
+            closedTelemetry(boundary, telemetry),
+          );
+          nextCall = () => startDelivered(boundary);
+        }
+        return boundary.kind;
+      };
       const deliverInterrupt = async (): Promise<void> => {
         persistReasoning(reasoningDeltas.flush());
         persistDelta(deltas.flush());
         await deltaWrites;
+        await Promise.all(lateMcpWrites);
         const segmentSteps = stepBase + Math.max(stepsStarted, 1);
         if (progressWriteFailed) {
           await this.settleProgressWriteFailure({
@@ -2590,34 +2648,14 @@ export class RunExecutionService {
           return;
         }
         assistantPartCollector.markInterrupted();
-        const closing: AssistantTurnTelemetry = {
-          ...buildAssistantTelemetry(null, 'aborted', segmentSteps),
-          complete: false,
-          interrupted: true,
-        };
-        const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.runId, userId: input.userId },
-            attemptId,
-            stoppedCalls: [...stoppedCalls],
-            modelCompleted: { finishReason: null, telemetry: closing },
-            live: {
-              chatId: input.chatId,
-              inReplyTo: input.userMessage.id,
-              parts: assistantPartCollector.parts(),
-              telemetry: closing,
-            },
-            models: this.instanceConfig.config.models,
-          }),
+        const closing = abortedByInterrupt(
+          buildAssistantTelemetry(null, 'aborted', segmentSteps),
         );
-        if (boundary.kind === 'delivered') {
-          await this.afterAssistantTurn(
-            boundary.closedReply,
-            input.userId,
-            closing,
-          );
-          nextCall = () => startDelivered(boundary);
-        } else if (boundary.kind === 'nothing-pending') {
+        const boundaryKind = await deliverAtBoundary(
+          { finishReason: null, telemetry: closing },
+          { stoppedCalls: [...stoppedCalls] },
+        );
+        if (boundaryKind === 'nothing-pending') {
           nextCall = () => {
             // The settled calls carry their results, and the projection leaves
             // out the reasoning part the stop cut.
@@ -2636,7 +2674,7 @@ export class RunExecutionService {
               segmentSteps,
             );
           };
-        } else if (boundary.kind === 'cancelled') {
+        } else if (boundaryKind === 'cancelled') {
           // The items stay pending and the Run settles cancelled.
           const message = 'Run was cancelled.';
           const telemetry = buildAssistantTelemetry(
@@ -3143,7 +3181,9 @@ export class RunExecutionService {
               await this.afterAssistantTurn(
                 finish.assistantMessage,
                 input.userId,
-                turn.telemetry,
+                finish.outcome === 'delivered'
+                  ? closedTelemetry(finish.delivery, turn.telemetry)
+                  : turn.telemetry,
               );
               // The final answer met a pending item: the Run stays live on the
               // delivered message (run-steering D5).
@@ -3189,33 +3229,11 @@ export class RunExecutionService {
               'completed',
               segmentSteps,
             );
-            const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
-              deliverPendingSteering(tx, {
-                run: { runId: input.runId, userId: input.userId },
-                attemptId,
-                modelCompleted: {
-                  usage,
-                  finishReason,
-                  telemetry: closingTelemetry,
-                },
-                live: {
-                  chatId: input.chatId,
-                  inReplyTo: input.userMessage.id,
-                  parts: assistantPartCollector.parts(),
-                  telemetry: closingTelemetry,
-                },
-                models: this.instanceConfig.config.models,
-                baselines: attemptContext,
-              }),
+            const boundaryKind = await deliverAtBoundary(
+              { usage, finishReason, telemetry: closingTelemetry },
+              { baselines: attemptContext },
             );
-            if (boundary.kind === 'delivered') {
-              await this.afterAssistantTurn(
-                boundary.closedReply,
-                input.userId,
-                closingTelemetry,
-              );
-              nextCall = () => startDelivered(boundary);
-            } else if (boundary.kind === 'nothing-pending') {
+            if (boundaryKind === 'nothing-pending') {
               // Another call over the same reply: the request carries what the
               // segment produced so far, and the step count restarts at zero.
               nextCall = async () => {
@@ -3227,7 +3245,7 @@ export class RunExecutionService {
                 inRunItems = createInRunContextItems();
                 return callStream(next, segmentSteps);
               };
-            } else if (boundary.kind === 'cancelled') {
+            } else if (boundaryKind === 'cancelled') {
               // The items stay pending and the Run settles cancelled.
               await settleRun('cancelled');
             }
@@ -3406,6 +3424,7 @@ export class RunExecutionService {
   private async prepareWorkspace(
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
+    attemptId: string,
     chat: Chat | undefined,
     effectivePermissionMode: PermissionMode,
   ): Promise<WorkspacePreparation> {
@@ -3424,6 +3443,7 @@ export class RunExecutionService {
       return this.prepareMachineWorkspace({
         input,
         nativeDeliverySequence,
+        attemptId,
         chat,
         root,
         machineName,
@@ -3441,6 +3461,7 @@ export class RunExecutionService {
     return this.detachWorkspace({
       input,
       nativeDeliverySequence,
+      attemptId,
       chat,
       generation,
       reason,
@@ -3457,6 +3478,7 @@ export class RunExecutionService {
   private async prepareMachineWorkspace(params: {
     input: ExecuteRunInput;
     nativeDeliverySequence: number;
+    attemptId: string;
     chat: Chat | undefined;
     root: string;
     machineName: string;
@@ -3483,6 +3505,7 @@ export class RunExecutionService {
       return this.detachWorkspace({
         input: params.input,
         nativeDeliverySequence: params.nativeDeliverySequence,
+        attemptId: params.attemptId,
         chat: params.chat,
         generation: params.generation,
         reason: decision.reason,
@@ -3507,6 +3530,7 @@ export class RunExecutionService {
   private async detachWorkspace(params: {
     input: ExecuteRunInput;
     nativeDeliverySequence: number;
+    attemptId: string;
     chat: Chat | undefined;
     generation: number;
     reason: WorkspaceDetachReason;
@@ -3519,6 +3543,7 @@ export class RunExecutionService {
         ownerUserId: params.input.userId,
         runId: params.input.runId,
         deliverySequence: params.nativeDeliverySequence,
+        attemptId: params.attemptId,
         expectedGeneration: params.generation,
         reason: params.reason,
       }),

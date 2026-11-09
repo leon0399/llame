@@ -400,9 +400,6 @@ function startsNewStep(
 class StoredReplyProjection {
   private readonly messages: Array<ModelMessage> = [];
   private open: OpenStep | null = null;
-  /** Reasoning at a later index than this has no later kept part. */
-  private reasoningCutoff = Number.POSITIVE_INFINITY;
-
   constructor(
     private readonly privateParts: boolean,
     private readonly interruptedReply: boolean,
@@ -412,26 +409,36 @@ class StoredReplyProjection {
 
   /** The reply's messages, writing the retained entries its markers name. */
   project(parts: ReadonlyArray<MessagePart>): Array<ModelMessage> {
-    if (this.interruptedReply) {
-      this.reasoningCutoff = parts.findLastIndex((part, partIndex) =>
-        this.isKeptContent(part, partIndex),
-      );
-    }
     for (const [partIndex, part] of parts.entries()) {
       this.appendPart(part, partIndex);
     }
     this.closeStep();
+    if (this.interruptedReply) this.dropTrailingReasoning();
     return this.messages;
   }
 
-  /** Whether a part other than reasoning reaches the request. */
-  private isKeptContent(part: MessagePart, partIndex: number): boolean {
-    // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guards narrow it to the replayable variants.
-    if (isReasoningPart(part)) return false;
-    // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guard narrows it to the replayable variant.
-    if (isTextPart(part)) return part.text.length > 0;
-    if (isContextItemPart(part)) return !!part.data.text;
-    return projectStoredToolPart(part, this.mediaKey(partIndex)) !== undefined;
+  /**
+   * An interrupted reply replays only reasoning with a later kept part (D8):
+   * what ends the last assistant message, and is followed by no context item,
+   * has none.
+   */
+  private dropTrailingReasoning(): void {
+    const index = this.messages.findLastIndex(
+      ({ role }) => role === 'assistant',
+    );
+    const last = this.messages[index];
+    if (
+      last?.role !== 'assistant' ||
+      !Array.isArray(last.content) ||
+      !this.messages.slice(index + 1).every(({ role }) => role === 'tool')
+    ) {
+      return;
+    }
+    const kept = [...last.content];
+    while (kept.at(-1)?.type === 'reasoning') kept.pop();
+    if (kept.length === last.content.length) return;
+    if (kept.length === 0) this.messages.splice(index, 1);
+    else this.messages[index] = { ...last, content: kept };
   }
 
   private appendPart(part: MessagePart, partIndex: number): void {
@@ -442,7 +449,7 @@ class StoredReplyProjection {
     }
     // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guard narrows it to the replayable variant.
     if (isReasoningPart(part)) {
-      this.appendReasoning(part, partIndex);
+      this.appendReasoning(part);
       return;
     }
     if (isContextItemPart(part)) {
@@ -475,14 +482,8 @@ class StoredReplyProjection {
    * exists because the provider withheld the text but delivered a signature,
    * redacted data, or encrypted content (D18). Only the model rule gates it.
    */
-  private appendReasoning(part: ReasoningPart, partIndex: number): void {
-    if (
-      !this.privateParts ||
-      partIndex > this.reasoningCutoff ||
-      isInterruptedReasoning(part)
-    ) {
-      return;
-    }
+  private appendReasoning(part: ReasoningPart): void {
+    if (!this.privateParts || isInterruptedReasoning(part)) return;
     this.openStep(partStep(part), false).content.push(
       toPromptReasoningPart(part),
     );
@@ -592,15 +593,16 @@ export function projectStoredReplyParts(
 /**
  * The model rule of `reasoning-output` (D7, A1/A2): a reply's reasoning and
  * provider metadata replay only when the reply completed on the model of this
- * request. A row without recorded usage — written before usage existed, or
- * still running — replays neither.
+ * request, or when an owner interrupt closed it (its reasoning then follows
+ * the interrupted rule). A row without recorded usage — written before usage
+ * existed, or still running — replays neither.
  */
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- the reply's stored `usage` is untyped jsonb; the `isRecord` guard below is its parse.
 function replaysPrivateParts(usage: unknown, modelId: string): boolean {
   return (
     isRecord(usage) &&
-    usage['status'] === 'completed' &&
-    usage['modelId'] === modelId
+    usage['modelId'] === modelId &&
+    (usage['status'] === 'completed' || isInterruptedReply(usage))
   );
 }
 
@@ -690,14 +692,10 @@ function appendAssistantMessage(
 ): void {
   // Model rule of `reasoning-output` (D7): same model, completed reply — or a
   // reply an interrupt closed, whose reasoning follows the interrupted rule.
-  const interruptedReply = isInterruptedReply(m.usage);
-  const privateParts =
-    replaysPrivateParts(m.usage, modelId) ||
-    (interruptedReply && isRecord(m.usage) && m.usage['modelId'] === modelId);
   result.push(
     ...new StoredReplyProjection(
-      privateParts,
-      interruptedReply,
+      replaysPrivateParts(m.usage, modelId),
+      isInterruptedReply(m.usage),
       retained,
       (partIndex) => storedToolPartMediaKey(m.id, partIndex),
     ).project(m.parts),

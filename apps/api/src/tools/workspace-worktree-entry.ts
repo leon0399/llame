@@ -584,6 +584,7 @@ async function bindWorktree(db: Db, commit: Commit): Promise<WorktreeOutcome> {
     ownerUserId: context.userId,
     runId,
     deliverySequence: context.nativeDeliverySequence,
+    attemptId: context.attemptId,
     executorId: worktree.authority.executorId,
     root: commit.plan.directory,
     ...(worktree.authority.bindExecutorId !== undefined && {

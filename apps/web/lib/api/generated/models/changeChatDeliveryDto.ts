@@ -8,6 +8,6 @@
 import type { ChangeChatDeliveryDtoMode } from "./changeChatDeliveryDtoMode";
 
 export interface ChangeChatDeliveryDto {
-  /** The new mode of a pending item. `steer` delivers it at the next step boundary of the live Run, or starts a Run for it when the Chat has none. */
+  /** The new mode of a pending item. `steer` delivers it at the next step boundary of the live Run; `interrupt` stops the step in flight and delivers it. Either starts a Run for it when the Chat has none. */
   mode: ChangeChatDeliveryDtoMode;
 }

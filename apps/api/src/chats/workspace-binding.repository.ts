@@ -41,6 +41,8 @@ export class WorkspaceBindingRepository {
     ownerUserId: string;
     runId: string;
     deliverySequence: number | undefined;
+    /** The calling attempt: it must still be the Run's active one. */
+    attemptId?: string;
     executorId: string;
     root: string;
     /**
@@ -80,6 +82,7 @@ export class WorkspaceBindingRepository {
     ownerUserId: string;
     runId: string;
     deliverySequence: number;
+    attemptId?: string;
     /** The executor this exit pins the Run to, if any; a Machine binding passes none. */
     bindExecutorId?: string;
   }): Promise<
@@ -107,6 +110,7 @@ export class WorkspaceBindingRepository {
     ownerUserId: string;
     runId: string;
     deliverySequence: number;
+    attemptId?: string;
     expectedGeneration: number;
     reason: WorkspaceDetachReason;
   }): Promise<'detached' | 'stale' | 'fence_lost'> {
@@ -372,6 +376,7 @@ export class WorkspaceBindingRepository {
     runId: string;
     ownerUserId: string;
     deliverySequence: number | undefined;
+    attemptId?: string | undefined;
     /** The executor to pin the Run to; absent leaves the Run unbound. */
     bindExecutorId?: string;
   }): Promise<boolean> {
@@ -381,6 +386,7 @@ export class WorkspaceBindingRepository {
         runId: input.runId,
         userId: input.ownerUserId,
         deliverySequence: input.deliverySequence,
+        attemptId: input.attemptId,
       }))
     ) {
       return false;

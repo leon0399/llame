@@ -7,7 +7,11 @@ import {
 
 import { assertNotArchived } from '../db/assert-not-archived';
 import { type ChatDelivery } from '../db/schema';
-import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
+import {
+  TenantDbService,
+  type Db,
+  type TenantRunner,
+} from '../db/tenant-db.service';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -22,7 +26,7 @@ import {
   RunDispatchService,
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
-import { claimActiveRunSlot } from './chat-admission';
+import { claimActiveRunSlot, notifyLiveRunInterrupt } from './chat-admission';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
@@ -75,7 +79,8 @@ export class ChatDeliveriesService {
   /**
    * Change the mode of one pending item (run-steering D2). The Chat row lock
    * comes first, as in admission, so the change and a Run that completes see
-   * each other. With a live Run the item waits for its next step boundary. An
+   * each other. With a live Run a `steer` waits for its next step boundary, and an
+   * `interrupt` also sends the run-control pointer. An
    * idle Chat starts a Run for the item now, through the code a completion
    * uses; settings a send cannot use leave the item pending, as a send of
    * those settings fails.
@@ -93,13 +98,7 @@ export class ChatDeliveriesService {
       // The slot comes before the change: expiring a stuck Run pauses the
       // queue behind it, which would move the item changed here back to
       // `queue`.
-      const slot = await claimActiveRunSlot({
-        tx,
-        chatId,
-        userId,
-        dispatch: this.dispatch,
-        instanceConfig: this.instanceConfig,
-      });
+      const slot = await this.claimSlot(tx, chatId, userId);
       const items = new ChatDeliveriesRepository(tx);
       const changed = await items.changePendingMode(
         chatId,
@@ -108,7 +107,11 @@ export class ChatDeliveriesService {
         mode,
       );
       if (!changed) throw await this.missOf(items, chatId, deliveryId, userId);
-      if (slot === 'blocked') return { item: changed };
+      if (slot === 'blocked') {
+        if (mode === 'interrupt')
+          await notifyLiveRunInterrupt(tx, { chatId, userId });
+        return { item: changed };
+      assertNotArchived(chat);
       resolveSendSettings(
         this.models,
         this.instanceConfig.config.tools.permissionModes,
@@ -120,6 +123,16 @@ export class ChatDeliveriesService {
     });
     if (job) await this.dispatch.dispatch(job);
     return item;
+  }
+
+  private claimSlot(tx: Db, chatId: string, userId: string) {
+    return claimActiveRunSlot({
+      tx,
+      chatId,
+      userId,
+      dispatch: this.dispatch,
+      instanceConfig: this.instanceConfig,
+    });
   }
 
   /** 409 for an item that is no longer pending, else 404. */

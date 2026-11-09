@@ -307,6 +307,9 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     }
     const status = payloadString(event.payload, 'status');
     const output = payloadField(event.payload, 'output');
+    // An owner interrupt settled the call: live and reload carry one marker.
+    const interrupted =
+      isRecord(event.payload) && event.payload['interrupted'] === true;
     if (status !== 'error') {
       return [
         ...this.prelude(),
@@ -324,8 +327,13 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         type: 'tool-output-error',
         toolCallId,
         errorText,
-        ...(isCancelled && {
-          providerMetadata: { llame: { cancelled: true as const } },
+        ...((isCancelled || interrupted) && {
+          providerMetadata: {
+            llame: {
+              ...(isCancelled && { cancelled: true as const }),
+              ...(interrupted && { interrupted: true as const }),
+            },
+          },
         }),
         dynamic: true,
       },

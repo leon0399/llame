@@ -47,7 +47,11 @@ import {
 import { MediaService, type MediaDescriber } from '../media/media.service';
 import { type MessagePart } from './context-builder';
 import { resolveOwnerFileParts, toRunUserMessage } from './chat-message-parts';
-import { claimActiveRunSlot, clearActiveRunSlot } from './chat-admission';
+import {
+  claimActiveRunSlot,
+  clearActiveRunSlot,
+  notifyLiveRunInterrupt,
+} from './chat-admission';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { type SendableDeliveryMode } from './dto/chat-deliveries.dto';
 import { createRunForMessage } from './run-creation';
@@ -428,6 +432,9 @@ export class ChatLoopService {
       },
     });
     if (!created) throw new ConflictException('Message id already exists');
+    if (input.delivery === 'interrupt') {
+      await notifyLiveRunInterrupt(tx, input);
+    }
     return { delivery: created };
   }
 

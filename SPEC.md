@@ -125,8 +125,8 @@ usage as `model.completed`, stores one user message holding the items' parts in
 order, marks the items `delivered`, moves `runs.message_id` to the new message
 under a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
 `run.started`. A crash before the commit leaves the items `pending`; a crash
-after it leaves the delivered message as the Run's message. The API admits only
-`queue` today, so tests store `steer` and `interrupt` items directly.
+after it leaves the delivered message as the Run's message. The API admits
+`queue`, `steer`, and `interrupt`.
 
 An `interrupt` item stops the current step instead of waiting for it. The
 run-control listener aborts a per-model-call segment controller only while a
@@ -146,7 +146,15 @@ notice, first among the items of the delivered message, from the
 `run.delivered` payload. A reply that an interrupt closed replays its reasoning
 only for parts with a later kept part, and a reasoning part the stop cut
 (marked `providerMetadata.llame.interrupted`) never replays. Native admission
-refuses a call whose attempt is no longer the Run's active attempt.
+refuses a call whose attempt is no longer the Run's active attempt; so does a
+Workspace binding, exit, detach, or worktree entry. A send with
+`delivery: "interrupt"`, and a `PATCH` of a pending `steer` or `queue` item to
+`interrupt`, sends the run-control `NOTIFY` in the same transaction when the
+Chat has a live Run. The delivery's cause is `interrupt` whenever the stop cut
+the step or an `interrupt` item is delivered at a step end or final answer; the
+reply then closes `aborted` and the notice is authored. When the owner
+withdraws the item after the stop and nothing else is pending, the Run goes on
+with the same reply and no notice.
 
 ### 9.4 Run events
 

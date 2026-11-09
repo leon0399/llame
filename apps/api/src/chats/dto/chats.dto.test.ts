@@ -232,7 +232,7 @@ describe('CreateMessageDto', () => {
   it('accepts only the delivery modes this API ships', async () => {
     const modelId = 'system:openai:gpt-5.4-mini';
 
-    for (const delivery of ['queue', 'steer']) {
+    for (const delivery of ['queue', 'steer', 'interrupt']) {
       await expect(
         pipe.transform({ modelId, delivery, message }, metadata),
       ).resolves.toMatchObject({ delivery });
@@ -240,8 +240,8 @@ describe('CreateMessageDto', () => {
     await expect(
       pipe.transform({ modelId, message }, metadata),
     ).resolves.toMatchObject({ delivery: undefined });
-    // `interrupt` ships in a later layer; null is not "omitted".
-    for (const delivery of ['interrupt', '', null, 7]) {
+    // null is not "omitted".
+    for (const delivery of ['later', '', null, 7]) {
       await expect(
         pipe.transform({ modelId, delivery, message }, metadata),
       ).rejects.toMatchObject({ status: 400 });

@@ -71,6 +71,8 @@ export type BoundaryDelivery =
       message: Message;
       /** The attempt that runs the delivered message's segment. */
       attemptId: string;
+      /** `interrupt` closed the reply `aborted`; `steer` closed it as given. */
+      cause: DeliveryCause;
     }
   /** No pending item remained: the transaction wrote nothing. */
   | { kind: 'nothing-pending' }
@@ -86,7 +88,7 @@ export type DeliveredBoundary = Extract<
 >;
 
 /** What caused a delivery: an `interrupt` item among the items, or only steers. */
-type DeliveryCause = 'steer' | 'interrupt';
+export type DeliveryCause = 'steer' | 'interrupt';
 
 type DeliveryInput = {
   run: { runId: string; userId: string };
@@ -101,8 +103,10 @@ type DeliveryInput = {
   live?: AssistantTurnWrite;
   telemetry?: AssistantTurnTelemetry;
   /**
-   * The `bash` and MCP calls an interrupt stopped after they started. Recorded
-   * only when the delivery's cause is `interrupt` (run-steering D7).
+   * Set only by the interrupt stop: the `bash` and MCP calls it stopped after
+   * they started. Its presence makes the delivery's cause `interrupt` even when
+   * the owner withdrew the item, because the step was cut (run-steering D7).
+   * The step-end check leaves it unset and takes the cause from the items.
    */
   stoppedCalls?: ReadonlyArray<StoppedCall>;
   models: BillingCatalog;
@@ -136,7 +140,7 @@ async function storeDeliveredMessage(
  * never `complete`, and marked so a later request replays the reply under the
  * interrupted-reply rule of `reasoning-output`.
  */
-function abortedByInterrupt(
+export function abortedByInterrupt(
   telemetry: AssistantTurnTelemetry,
 ): AssistantTurnTelemetry {
   return {
@@ -145,6 +149,16 @@ function abortedByInterrupt(
     complete: false,
     interrupted: true,
   };
+}
+
+/** The telemetry a delivery stored for the reply it closed: the segment's own, or the interrupt's. */
+export function closedTelemetry(
+  delivery: DeliveredBoundary,
+  telemetry: AssistantTurnTelemetry,
+): AssistantTurnTelemetry {
+  return delivery.cause === 'interrupt'
+    ? abortedByInterrupt(telemetry)
+    : telemetry;
 }
 
 function closingAs(input: DeliveryInput, cause: DeliveryCause): DeliveryInput {
@@ -276,9 +290,9 @@ async function moveRunToDelivery(
  * segment's reply, stores the delivered message, marks the items delivered,
  * moves the Run onto that message under a fresh attempt, and appends
  * `run.delivered` (no `run.started`: the claim's delivery sequence stays
- * current). The cause is `interrupt` when an `interrupt` item is among the
- * locked items, so an item the owner withdrew in the meantime cannot make the
- * delivery an interrupt.
+ * current). The cause is `interrupt` when the stop cut the step or an
+ * `interrupt` item is among the locked items; an item the owner withdrew after
+ * the step-end check cannot make that delivery an interrupt.
  *
  * The Run's `message_id` moves last: the foreign key to `messages` is
  * immediate, so the message must exist first, and the row lock taken first
@@ -304,7 +318,6 @@ export async function deliverPendingSteering(
     userId,
   );
   if (items.length === 0) return { kind: 'nothing-pending' };
-
   return finishDelivery(tx, input, locked, items);
 }
 
@@ -315,27 +328,30 @@ async function finishDelivery(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<DeliveredBoundary> {
-  const cause: DeliveryCause = items.some((item) => item.mode === 'interrupt')
-    ? 'interrupt'
-    : 'steer';
+  const cause: DeliveryCause =
+    input.stoppedCalls !== undefined ||
+    items.some((item) => item.mode === 'interrupt')
+      ? 'interrupt'
+      : 'steer';
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
     closingAs(input, cause),
     { locked, cause, items },
   );
-  if (items.every((item) => item.mode === 'steer')) {
+  if (cause === 'steer') {
     await persistFirstEpochBaselines(tx, locked, input.baselines);
   }
   const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
     items,
     message,
     cause,
-    stoppedCalls: cause === 'interrupt' ? (input.stoppedCalls ?? []) : [],
+    stoppedCalls: input.stoppedCalls ?? [],
   });
   return {
     kind: 'delivered',
     ...(closedReply !== undefined && { closedReply }),
     message,
     attemptId,
+    cause,
   };
 }

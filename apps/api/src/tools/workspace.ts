@@ -379,6 +379,7 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
         ownerUserId: context.userId,
         runId,
         deliverySequence,
+        attemptId: context.attemptId,
         ...(context.nativeExecutorId !== undefined && {
           bindExecutorId: context.nativeExecutorId,
         }),

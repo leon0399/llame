@@ -10,6 +10,7 @@ import {
 import { capToolResult } from './artifacts/spill';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
+import { cancelledBeforeExecution } from './cancelled-before-execution';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { evaluateGrepPermission } from './grep-admission';
 import { refuseUnsearchableGrepScopes } from './grep-scopes';
@@ -431,13 +432,7 @@ async function executeAdmittedTool(
   context: ToolContext,
   callTimeoutSeconds: number,
 ): Promise<ToolResult> {
-  if (context.abortSignal?.aborted) {
-    return {
-      status: 'error',
-      type: 'cancelled',
-      message: `Tool "${tool.id}" was cancelled.`,
-    };
-  }
+  if (context.abortSignal?.aborted) return cancelledBeforeExecution(tool.id);
   const prepared = prepareToolExecution(tool, context, callTimeoutSeconds);
   return settleAdmittedExecution(tool, validArgs, context, prepared);
 }
@@ -611,13 +606,7 @@ function admitToolCall(
   }
 
   if (context.abortSignal?.aborted) {
-    return {
-      result: {
-        status: 'error',
-        type: 'cancelled',
-        message: `Tool "${tool.id}" was cancelled.`,
-      },
-    };
+    return { result: cancelledBeforeExecution(tool.id) };
   }
 
   if (!hasValidTrustedTimeout(tool.timeoutSeconds, callTimeoutSeconds)) {

@@ -282,6 +282,7 @@ export async function bindCanonicalRoot(
       ownerUserId: context.userId,
       runId: authority.runId,
       deliverySequence: context.nativeDeliverySequence,
+      attemptId: context.attemptId,
       executorId: authority.executorId,
       root: canonical,
       ...(authority.bindExecutorId !== undefined && {
