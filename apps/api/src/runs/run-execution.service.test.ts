@@ -731,6 +731,9 @@ function mockNormalExecutionRepositories() {
       createdAt: now,
     });
   vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(event);
+  vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
+    undefined,
+  );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   const touch = vi
@@ -4076,6 +4079,20 @@ describe('RunExecutionService executeRun — stream completion', () => {
         ],
       }),
     );
+  });
+
+  it('records the claiming attempt in run.started', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    expect(appended[0]).toMatchObject({
+      type: 'run.started',
+      payload: { attemptId: testAttemptId },
+    });
   });
 
   it('sums each request before pricing and shares the finalized usage with the live event', async () => {
@@ -9070,18 +9087,20 @@ describe('RunExecutionService executeRun — a Continue Run', () => {
               payload: { chatId, messageId, replacesUsage },
               createdAt: now,
             }
-          : {
-              sequence: 2,
-              runId,
-              eventType: 'run.continued',
-              payload: {
-                sourceRunId: SOURCE_RUN,
-                parts: keptParts,
-                steps: { [KEPT_CALL]: 0 },
-                results: {},
-              },
-              createdAt: now,
-            },
+          : eventType === 'run.continued'
+            ? {
+                sequence: 2,
+                runId,
+                eventType: 'run.continued',
+                payload: {
+                  sourceRunId: SOURCE_RUN,
+                  parts: keptParts,
+                  steps: { [KEPT_CALL]: 0 },
+                  results: {},
+                },
+                createdAt: now,
+              }
+            : undefined,
       ),
     );
     return vi.spyOn(RunEventsRepository.prototype, 'findFirstByType');
@@ -12091,6 +12110,10 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         ...run,
         turnToolAvailability: record,
       });
+      // The earlier attempt's dispatch also recorded its request.
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        { ...event, eventType: 'model.requested' },
+      ]);
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
         trigger,
       ]);
@@ -12169,6 +12192,12 @@ describe('RunExecutionService runtime-context lifecycle', () => {
           ...run,
           turnToolAvailability: record,
         });
+        vi.spyOn(
+          RunEventsRepository.prototype,
+          'listByRunId',
+        ).mockResolvedValue(
+          record === null ? [] : [{ ...event, eventType: 'model.requested' }],
+        );
         vi.spyOn(
           MessagesRepository.prototype,
           'findByChatId',
@@ -12409,6 +12438,12 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       followUpAction: 'regenerate',
       turnToolAvailability,
     });
+    if (turnToolAvailability !== null) {
+      // A dispatched attempt also recorded its request.
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        { ...event, eventType: 'model.requested' },
+      ]);
+    }
     // The earlier Run of this same turn dispatched, which is the baseline a
     // follow-up Run compares against.
     vi.spyOn(
@@ -16881,18 +16916,20 @@ describe('RunExecutionService retained read media', () => {
                 payload: { chatId, messageId, replacesUsage: true },
                 createdAt: now,
               }
-            : {
-                sequence: 2,
-                runId,
-                eventType,
-                payload: {
-                  sourceRunId: runId,
-                  parts: [keptRead],
-                  steps: { 'kept-read': 0 },
-                  results: {},
-                },
-                createdAt: now,
-              },
+            : eventType === 'run.continued'
+              ? {
+                  sequence: 2,
+                  runId,
+                  eventType,
+                  payload: {
+                    sourceRunId: runId,
+                    parts: [keptRead],
+                    steps: { 'kept-read': 0 },
+                    results: {},
+                  },
+                  createdAt: now,
+                }
+              : undefined,
         ),
       );
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
@@ -18033,7 +18070,9 @@ describe('RunExecutionService executeRun — run segments', () => {
       expect.objectContaining({ id: deliveredId }),
     );
     // Only the first segment resumes a Continue Run's state.
-    expect(continued).toHaveBeenCalledTimes(1);
+    expect(
+      continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
+    ).toHaveLength(1);
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
   });
 
@@ -18297,7 +18336,9 @@ describe('RunExecutionService executeRun — run segments', () => {
       expect.objectContaining({ id: deliveredId }),
     );
     // A delivered segment never applies the job's follow-up rules.
-    expect(continued).not.toHaveBeenCalled();
+    expect(
+      continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
+    ).toHaveLength(0);
     expect(segment.calls).toHaveLength(1);
   });
 

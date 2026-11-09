@@ -94,12 +94,18 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 4. segment-prep
 
-- [ ] 4.1 Detect a first dispatch per segment and read earlier-segment Runs through reply usage in baseline queries; skip compaction after the first segment (design D3). Verify "A steer with a skill mention", "A delivered steer activates its skill", "A delivered steer imports a file", "A segment start does not compact", and "A steer sent with another model".
-- [ ] 4.2 Apply Continue and Regenerate state only to the first segment. Verify "A steer inside a Continue Run" and "A delivered message does not repeat the kept parts".
-- [ ] 4.3 Count completeness by the attempts after the latest `run.delivered`, write first-epoch baselines at the first steer delivery (none when an interrupt closes the first segment; an interrupt-closed segment 1 followed by a steer writes them at the second close), and title from the `run.created` message. Verify "A reply that a steer closed is complete", "Every request reported", "A reclaimed Run is incomplete", and "A steer in the first Run".
-- [ ] 4.4 Replay earlier-segment reasoning inside the Run. Verify "A later segment keeps the reasoning of an earlier segment" in projection tests.
-- [ ] 4.5 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 4.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+- [x] 4.1 Detect a first dispatch per segment and read earlier-segment Runs through reply usage in baseline queries; skip compaction after the first segment (design D3). Verify "A steer with a skill mention", "A delivered steer activates its skill", "A delivered steer imports a file", "A segment start does not compact", and "A steer sent with another model".
+  - Evidence: `currentSegmentState` and `findEarlierSegmentBaseline` (`run-segment-queries.ts`) decide first dispatch and read the Run through its earlier reply; compaction runs only when `firstSegment`. The five scenarios pass in `run-segment-prep.integration.test.ts`.
+- [x] 4.2 Apply Continue and Regenerate state only to the first segment. Verify "A steer inside a Continue Run" and "A delivered message does not repeat the kept parts".
+  - Evidence: Follow-up state follows `firstSegment`; the replaced-usage mark applies only before the first `run.delivered`. Continue and Regenerate steer scenarios pass in `run-segment-prep.integration.test.ts`.
+- [x] 4.3 Count completeness by the attempts after the latest `run.delivered`, write first-epoch baselines at the first steer delivery (none when an interrupt closes the first segment; an interrupt-closed segment 1 followed by a steer writes them at the second close), and title from the `run.created` message. Verify "A reply that a steer closed is complete", "Every request reported", "A reclaimed Run is incomplete", and "A steer in the first Run".
+  - Evidence: `usage-completeness.ts` counts the attempts named by the latest `run.delivered` and later `run.started` events; the steer delivery writes first-epoch baselines; the title reads the job (`run.created`) message. The four scenarios pass.
+- [x] 4.4 Replay earlier-segment reasoning inside the Run. Verify "A later segment keeps the reasoning of an earlier segment" in projection tests.
+  - Evidence: "A later segment keeps the reasoning of an earlier segment" added to `run-segment-prep.integration.test.ts`; the projection needed no change because a steer closes the reply `completed`.
+- [x] 4.5 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `CHANGELOG.md` entry of 2026-11-08 added; `pnpm lint:markdown` run.
+- [x] 4.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter api lint`, `typecheck`, unit tests, and the focused integration suites pass; `pnpm format:check`, `git diff --check`, `openspec validate in-run-steering --strict` clean.
 - [ ] 4.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 4.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

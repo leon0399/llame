@@ -18,6 +18,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   no longer blocks it. A cancellation recorded after a delivery ends the Run
   before the next request. Model clients accept a `stopWhenExtra` condition.
 
+- **Segment preparation (internal machinery).** The attempt of a delivered
+  message now prepares its turn as the first dispatch of that message. It
+  authors its own temporal item and model-switch check, activates `$skill`
+  mentions, resolves prompt imports, and skips compaction, which runs only
+  before the first model step of a Run. A retry inside a later segment appends
+  to what that segment already stored. The kept parts of a Continue Run and the
+  notice and reply guard of a Regenerate Run apply to the first segment only.
+  Usage completeness counts only the attempts after the latest delivery, so a
+  reply that a steer closed is complete, a reclaimed segment is still
+  incomplete, and a Regenerate Run's second segment no longer inherits the
+  replaced-usage mark. A steer delivery writes the first-epoch digest and
+  skill-catalog baselines when it closes the first reply of a Chat's first Run,
+  and the Chat title comes from the message that created the Run. Nothing
+  admits `steer` yet, so no user-visible behavior changes.
+
 - **Session details shows the live git state of the bound repository.** The
   Repository block replaces the stored branch with the live branch (or the
   detached HEAD), the upstream with ahead and behind and the time of its last

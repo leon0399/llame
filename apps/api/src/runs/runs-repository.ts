@@ -70,7 +70,7 @@ function markFinishedUpdate(
 }
 
 /** A Run whose dispatch transaction ran: it wrote its availability record. */
-function dispatchedRunPredicate(): SQL {
+export function dispatchedRunPredicate(): SQL {
   return sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`;
 }
 
@@ -645,14 +645,15 @@ export class RunEventsRepository {
   }
 
   /**
-   * The first event of `eventType` this Run holds, or undefined. Owner-scoped
-   * like every read here; used for the single `run.created` and
-   * `run.continued` events a Run has.
+   * The first event of `eventType` this Run holds (the newest with
+   * `newest`), or undefined. Owner-scoped like every read here; the first
+   * serves the single `run.created` and `run.continued` events a Run has.
    */
   async findFirstByType(
     runId: string,
     userId: string,
     eventType: RunEventType,
+    { newest = false }: { newest?: boolean } = {},
   ): Promise<RunEvent | undefined> {
     const [row] = await this.db
       .select()
@@ -665,7 +666,7 @@ export class RunEventsRepository {
           eq(runEvents.eventType, eventType),
         ),
       )
-      .orderBy(asc(runEvents.sequence))
+      .orderBy(newest ? desc(runEvents.sequence) : asc(runEvents.sequence))
       .limit(1);
     return row?.run_events;
   }
@@ -680,6 +681,7 @@ export class RunEventsRepository {
     options?: {
       afterSequence?: number;
       eventTypes?: ReadonlyArray<RunEventType>;
+      limit?: number;
     },
   ): Promise<Array<RunEvent>> {
     const predicates = [eq(runEvents.runId, runId), eq(runs.userId, userId)];
@@ -691,12 +693,16 @@ export class RunEventsRepository {
       predicates.push(inArray(runEvents.eventType, [...options.eventTypes]));
     }
 
-    const rows = await this.db
+    const query = this.db
       .select()
       .from(runEvents)
       .innerJoin(runs, eq(runEvents.runId, runs.id))
       .where(and(...predicates))
       .orderBy(asc(runEvents.sequence));
+    const rows =
+      options?.limit === undefined
+        ? await query
+        : await query.limit(options.limit);
 
     return rows.map((r) => r.run_events);
   }

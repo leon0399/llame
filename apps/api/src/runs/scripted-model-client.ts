@@ -76,6 +76,12 @@ export type ScriptedBehavior = {
    * unless a test opts in, matching every production model.
    */
   readonly referencesSkills?: boolean;
+  /**
+   * The model's `compactionThresholdTokens`, so a test reaches the pre-step
+   * compaction trigger without a 100,000-token history. Absent keeps the
+   * production default.
+   */
+  readonly compactionThresholdTokens?: number;
 } & (
   | { kind: 'complete'; text?: string; delayMs?: number }
   | { kind: 'provider-error'; message?: string }
@@ -325,6 +331,7 @@ function createScriptedStream(options: {
 class HarnessModelClient implements ModelClient {
   readonly provider = 'fake';
   readonly contextWindowTokens = 128_000;
+  readonly compactionThresholdTokens?: number;
   /** The provider request the next `doStream` serves, for a step script. */
   private scriptedStepIndex = 0;
 
@@ -337,7 +344,11 @@ class HarnessModelClient implements ModelClient {
      */
     private readonly recorded: ScriptedModelRecords,
     readonly input: ReadonlyArray<ModelInput>,
-  ) {}
+  ) {
+    if (behavior.compactionThresholdTokens !== undefined) {
+      this.compactionThresholdTokens = behavior.compactionThresholdTokens;
+    }
+  }
 
   streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
     this.recorded.streamCalls.push({
