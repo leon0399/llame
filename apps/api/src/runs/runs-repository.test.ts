@@ -571,3 +571,20 @@ describe('RunEventsRepository reads', () => {
     expect(queries[1]?.sql).not.toContain('"run_events"."event_type" in (');
   });
 });
+
+describe('RunEventsRepository.findFirstByType ordering', () => {
+  it('reads the oldest event unless the caller asks for the newest', async () => {
+    const { db, queries } = makeLoggedDb();
+    const repo = new RunEventsRepository(db);
+
+    await repo
+      .findFirstByType(run.id, run.userId, 'run.delivered')
+      .catch(() => undefined);
+    await repo
+      .findFirstByType(run.id, run.userId, 'run.delivered', { newest: true })
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('order by "run_events"."sequence" asc');
+    expect(queries[1]?.sql).toContain('order by "run_events"."sequence" desc');
+  });
+});

@@ -4081,6 +4081,20 @@ describe('RunExecutionService executeRun — stream completion', () => {
     );
   });
 
+  it('records the claiming attempt in run.started', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    expect(appended[0]).toMatchObject({
+      type: 'run.started',
+      payload: { attemptId: testAttemptId },
+    });
+  });
+
   it('sums each request before pricing and shares the finalized usage with the live event', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();

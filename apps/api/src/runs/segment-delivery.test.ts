@@ -404,3 +404,151 @@ describe('deliverPendingSteering', () => {
     );
   });
 });
+
+describe('deliverPendingSteering closing usage and baselines', () => {
+  const tx: Db = drizzle.mock({ schema });
+  const baseline = {
+    pinned: [],
+    recent: [],
+    pinnedShown: 0,
+    pinnedTotal: 0,
+    recentShown: 0,
+    recentTotal: 0,
+    compiledOn: '2026-11-08',
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Every repository a delivery of `items` reads or writes, served. */
+  function serve(items: Array<ChatDelivery>) {
+    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValue(
+      run,
+    );
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'lockPendingSteering',
+    ).mockResolvedValue(items);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'markDelivered',
+    ).mockResolvedValue(true);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    ).mockResolvedValue(deliveredMessage);
+    vi.spyOn(RunsRepository.prototype, 'updateForAttempt').mockResolvedValue(
+      run,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (appendedRunId, eventType, payload) =>
+        Promise.resolve({
+          sequence: 1,
+          runId: appendedRunId,
+          eventType,
+          payload,
+          createdAt: now,
+        }),
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue(undefined);
+    return {
+      findByOwnedRun: vi
+        .spyOn(SystemPromptReceiptsRepository.prototype, 'findByOwnedRun')
+        .mockResolvedValue([]),
+      findTurnState: vi
+        .spyOn(MessagesRepository.prototype, 'findTurnState')
+        .mockResolvedValue({}),
+      setDigest: vi
+        .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+        .mockResolvedValue(undefined),
+    };
+  }
+
+  /** Delivers with a closing reply that answers `inReplyTo`. */
+  async function deliver(inReplyTo = messageId) {
+    const telemetry = { ...closingTelemetry };
+    await deliverPendingSteering(tx, {
+      run: { runId, userId },
+      attemptId,
+      models,
+      live: {
+        chatId,
+        inReplyTo,
+        parts: [{ type: 'text' as const, text: 'so far' }],
+        telemetry,
+      },
+      modelCompleted: {
+        usage: { inputTokens: 3 },
+        finishReason: 'tool-calls',
+        telemetry,
+      },
+      baselines: { recencyDigestInitialization: { baseline, told: [] } },
+    });
+    return telemetry;
+  }
+
+  it('closes a steer reply as complete usage while the Run is still live', async () => {
+    serve([first]);
+
+    const telemetry = await deliver();
+
+    expect(telemetry.complete).toBe(true);
+  });
+
+  it('marks the closing usage incomplete when another attempt prepared the Run', async () => {
+    const spies = serve([first]);
+    spies.findByOwnedRun.mockResolvedValue([
+      {
+        id: '77777777-7777-4777-8777-777777777777',
+        ownerUserId: userId,
+        runId,
+        attemptId: 'earlier-attempt',
+        source: 'project_default',
+        systemPrompt: 'prompt',
+        promptHash: 'hash',
+        createdAt: now,
+      },
+    ]);
+
+    const telemetry = await deliver();
+
+    expect(telemetry.complete).toBe(false);
+  });
+
+  it('reads the replaced reply through the message the live segment answers', async () => {
+    const spies = serve([first]);
+    const liveReply = '66666666-6666-4666-8666-666666666666';
+
+    await deliver(liveReply);
+
+    expect(spies.findTurnState.mock.calls[0]).toEqual([
+      chatId,
+      userId,
+      liveReply,
+    ]);
+  });
+
+  it('writes the first-epoch baselines when every delivered item is a steer', async () => {
+    const spies = serve([first, second]);
+
+    await deliver();
+
+    expect(spies.setDigest).toHaveBeenCalledWith(chatId, userId, baseline, []);
+  });
+
+  it('writes no first-epoch baseline when an interrupt is among the delivered items', async () => {
+    const spies = serve([first, { ...second, mode: 'interrupt' }]);
+
+    await deliver();
+
+    expect(spies.setDigest).not.toHaveBeenCalled();
+  });
+});
