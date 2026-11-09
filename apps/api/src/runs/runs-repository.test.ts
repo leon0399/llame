@@ -93,7 +93,14 @@ function makeDb(options: {
     .mockImplementation(() =>
       asQuery(queryResult(updateResults.shift() ?? [], calls)),
     );
-  return { db, calls, select, insert, update };
+  // `execute` carries the run-control NOTIFY; the mock driver has no client.
+  const execute = vi.spyOn(db, 'execute').mockImplementation(
+    () =>
+      // SAFETY: the NOTIFY result is never read; the repository awaits it only.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      Promise.resolve([]) as never,
+  );
+  return { db, calls, select, insert, update, execute };
 }
 
 function makeLoggedDb() {
@@ -323,7 +330,7 @@ describe('RunsRepository', () => {
   });
 
   it('updates cancellation and terminal state with the requested fields', async () => {
-    const { db, calls } = makeDb({
+    const { db, calls, execute } = makeDb({
       update: [[run], [run], [run], [run]],
     });
     const repository = new RunsRepository(db);
@@ -354,6 +361,8 @@ describe('RunsRepository', () => {
     });
     expect(sets[3]).toMatchObject({ status: 'completed' });
     expect(sets[3]).not.toHaveProperty('error');
+    // Only the recorded cancel request sends a control pointer.
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it('records the completed attempt only for a completed run and never the availability record', async () => {
