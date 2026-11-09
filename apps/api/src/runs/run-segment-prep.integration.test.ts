@@ -46,6 +46,13 @@ import {
   type WorkerHarness,
 } from './worker-harness';
 
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+if (!TEST_DB_URL) {
+  throw new Error(
+    'run-segment-prep.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
+
 vi.setConfig({ testTimeout: 90_000 });
 
 /** The Chat, Run, and trigger a test seeded before it dispatches. */
@@ -921,6 +928,70 @@ describe('run steering segment preparation', () => {
       expect(steered.kind).toBe('delivered');
       expect((await chat())?.skillCatalogBaseline).not.toBeNull();
       expect((await chat())?.recencyDigestBaseline).not.toBeNull();
+    });
+
+    it('interrupt closes segment 1, steer closes segment 2: baselines written at the second close', async () => {
+      const seeded = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: 'unused',
+      });
+      const started = await db((tx) =>
+        new RunsRepository(tx).markStarted(seeded.runId, userId),
+      );
+      const baselines = (compiledOn: string) => ({
+        recencyDigestInitialization: {
+          baseline: {
+            pinned: [],
+            recent: [],
+            pinnedShown: 0,
+            pinnedTotal: 0,
+            recentShown: 0,
+            recentTotal: 0,
+            compiledOn,
+          },
+          told: [],
+        },
+        skillCatalogFreeze: {
+          baseline: { entries: [], omitted: 0 },
+          rebakedFrom: null,
+          told: [],
+        },
+      });
+      const deliver = (attemptId: string, compiledOn: string) =>
+        db((tx) =>
+          deliverPendingSteering(tx, {
+            run: { runId: seeded.runId, userId },
+            attemptId,
+            models: [],
+            baselines: baselines(compiledOn),
+          }),
+        );
+      const chat = () =>
+        db((tx) => new ChatsRepository(tx).findById(seeded.chatId, userId));
+
+      // Segment 1 closes on an interrupt: nothing is written.
+      await storeSteer(seeded.chatId, 'stop that', undefined, 'interrupt');
+      const first = await deliver(started?.activeAttemptId ?? '', '2026-11-01');
+      if (first.kind !== 'delivered') throw new Error('no delivery');
+      expect((await chat())?.recencyDigestBaseline).toBeNull();
+
+      // Segment 2 closes on a steer: the baselines are written now.
+      await storeSteer(seeded.chatId, 'carry on');
+      const second = await deliver(first.attemptId, '2026-11-02');
+      if (second.kind !== 'delivered') throw new Error('no delivery');
+      const written = await chat();
+      expect(written?.skillCatalogBaseline).not.toBeNull();
+      expect(written?.recencyDigestBaseline).toMatchObject({
+        compiledOn: '2026-11-02',
+      });
+
+      // A later steer close leaves the established baselines alone.
+      await storeSteer(seeded.chatId, 'and again');
+      await deliver(second.attemptId, '2026-11-03');
+      expect((await chat())?.recencyDigestBaseline).toMatchObject({
+        compiledOn: '2026-11-02',
+      });
     });
 
     it('A steer in the first Run', async () => {
