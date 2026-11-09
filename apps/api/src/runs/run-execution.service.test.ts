@@ -5094,8 +5094,16 @@ describe('RunExecutionService executeRun — queue promotion', () => {
   async function startRun(options: {
     dispatch?: RunDispatcher['dispatch'];
     pending: boolean;
+    cancelRecorded?: boolean;
   }) {
-    mockNormalExecutionRepositories();
+    const repositories = mockNormalExecutionRepositories();
+    if (options.cancelRecorded === true) {
+      repositories.markFinished.mockResolvedValue({
+        ...run,
+        status: 'completed',
+        cancelRequestedAt: now,
+      });
+    }
     recordAppendedEvents();
     const lock = vi
       .spyOn(ChatsRepository.prototype, 'lock')
@@ -5215,6 +5223,21 @@ describe('RunExecutionService executeRun — queue promotion', () => {
 
     expect(started.lock).not.toHaveBeenCalled();
     expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('promotes nothing when the Run completes with a recorded cancellation', async () => {
+    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
+    const started = await startRun({
+      dispatch,
+      pending: true,
+      cancelRecorded: true,
+    });
+
+    await finishCompleted(started.streamOptions);
+
+    expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
+    expect(started.createRun).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
   });
 

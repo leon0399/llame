@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import * as schema from '../db/schema';
 import { type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -384,6 +385,23 @@ describe('RunsRepository', () => {
     expect(sets[1]).toMatchObject({ status: 'failed' });
     expect(sets[1]).not.toHaveProperty('completedAttemptId');
     expect(sets[1]).not.toHaveProperty('turnToolAvailability');
+  });
+
+  it('pauses the queue behind the Run it finished, and only when it finished one', async () => {
+    const pauseBehind = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'pauseBehind')
+      .mockResolvedValue();
+    const { db } = makeDb({ update: [[run], []] });
+    const repository = new RunsRepository(db);
+
+    await repository.markFinished(run.id, run.userId, 'failed');
+    expect(pauseBehind).toHaveBeenCalledTimes(1);
+    expect(pauseBehind).toHaveBeenCalledWith(run);
+
+    await expect(
+      repository.markFinished(run.id, run.userId, 'failed'),
+    ).resolves.toBeUndefined();
+    expect(pauseBehind).toHaveBeenCalledTimes(1);
   });
 
   it('fences the terminal update on the caller attempt when one is supplied', async () => {
