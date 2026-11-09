@@ -145,7 +145,10 @@ The attempt machinery needs these changes to work per segment:
   the Chat has none yet: the first successful close of the Chat's first Run. A steer closes a
   reply `completed`, which is the successful turn that `chat-recency-digest` requires. An
   interrupt closes it `aborted` and writes none, so a later steer close or the Run's completion
-  writes them.
+  writes them. Master writes the skill-catalog baseline at the completing attempt
+  (`run-execution.service.ts:508,4234`), not in the acceptance transaction that canonical
+  `context-injection` names; this change keeps that timing and extends it to a steer close, and
+  does not reconcile the older gap (#1651).
 - **Title.** Title generation reads the message of `run.created`, not the Run's current message.
 
 `executeRun` keeps its signature. It returns a result, built on `wrapStreamTextResult`, whose
@@ -341,6 +344,9 @@ and is reviewed in the `web` layer's Storybook stories.
 
 ## Revision history
 
+- **v8 (2026-11-09):** Fourth GitHub review round: the reasoning model rule names a reply that an
+  owner interrupt closed; the scenario says "cut reasoning part"; D3 notes the pre-existing
+  skill-catalog baseline timing gap (#1651).
 - **v7 (2026-11-09):** Third GitHub review round: the cut reasoning part is filtered by its marker
   for every reply status (new `reasoning-output` scenario); baselines are written at the first
   successful close of the first Run (an interrupt-closed segment 1 followed by a steer writes them
