@@ -3,7 +3,7 @@ import {
   nativeEditTool,
   nativeWriteTool,
 } from './native-files';
-import { bashTool, isHostCapabilityTool } from './bash';
+import { bashTool, isBashTool, isHostCapabilityTool } from './bash';
 import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import { nativeGrepTool } from './grep';
@@ -15,7 +15,7 @@ import {
   matchesAllowedToolId,
   matchesCodeOwnedToolId,
 } from './tool-id';
-import { type Tool, isToolClassification } from './types';
+import { type InterruptFate, type Tool, isToolClassification } from './types';
 import { isString } from '@workspace/runtime-safety';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
@@ -32,6 +32,23 @@ export const TOOLS: ReadonlyArray<Tool> = [
   knowledgeSearchTool,
   webSearchTool,
 ];
+
+/**
+ * What an owner interrupt does to an open call (run-steering D7). A call that
+ * changes nothing, `bash` (killed under its own cancellation rules), and every
+ * MCP tool (whose effects llame does not claim to know) are `cancel`led; any
+ * other tool finishes, because stopping it half way would leave a partial
+ * write or workspace change. Derived from the classification, so a tool added
+ * later has a fate without a second list to keep in step. No tool is
+ * `background` until a capability defines that fate.
+ */
+export function interruptFateOf(tool: Tool): InterruptFate {
+  return tool.classification === 'read_only' ||
+    isBashTool(tool) ||
+    tool.id.startsWith('mcp__')
+    ? 'cancel'
+    : 'finish';
+}
 
 type ToolRegistrationCandidate = Omit<Tool, 'classification'> & {
   readonly classification?: unknown;

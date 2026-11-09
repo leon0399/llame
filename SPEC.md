@@ -125,8 +125,36 @@ usage as `model.completed`, stores one user message holding the items' parts in
 order, marks the items `delivered`, moves `runs.message_id` to the new message
 under a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
 `run.started`. A crash before the commit leaves the items `pending`; a crash
-after it leaves the delivered message as the Run's message. The API admits only
-`queue` today, so tests store `steer` items directly.
+after it leaves the delivered message as the Run's message. The API admits
+`queue`, `steer`, and `interrupt`.
+
+An `interrupt` item stops the current step instead of waiting for it. The
+run-control listener aborts a per-model-call segment controller only while a
+model request or a tool call is in flight, and only when the Run's
+`active_attempt_id` is the attempt that segment runs; otherwise the item waits
+for the step end or final answer, as a steer does. Each tool declares an
+interrupt fate: `cancel` for `read_only` tools, `bash`, and every MCP tool,
+`finish` for every other tool (`background` is reserved). The executor settles
+each open call once, marked `llame.interrupted`: a call that never started as
+`cancelled`, a `read_only` call as `cancelled`, `bash` under its cancellation
+rules, and a sent MCP call as `outcome_unknown` with a recorded `native.result`.
+It waits for `finish` calls, and for `bash` within its grace. The delivery
+transaction then runs with cause `interrupt` and the stopped `bash` and MCP
+calls in `stoppedCalls`; it closes the reply `aborted`, `complete: false`,
+marked `interrupted`. The next segment's first dispatch authors an `interrupted`
+notice, first among the items of the delivered message, from the
+`run.delivered` payload. A reply that an interrupt closed replays its reasoning
+only for parts with a later kept part, and a reasoning part the stop cut
+(marked `providerMetadata.llame.interrupted`) never replays. Native admission
+refuses a call whose attempt is no longer the Run's active attempt; so does a
+Workspace binding, exit, detach, or worktree entry. A send with
+`delivery: "interrupt"`, and a `PATCH` of a pending `steer` or `queue` item to
+`interrupt`, sends the run-control `NOTIFY` in the same transaction when the
+Chat has a live Run. The delivery's cause is `interrupt` whenever the stop cut
+the step or an `interrupt` item is delivered at a step end or final answer; the
+reply then closes `aborted` and the notice is authored. When the owner
+withdraws the item after the stop and nothing else is pending, the Run goes on
+with the same reply and no notice.
 
 ### 9.4 Run events
 
@@ -503,4 +531,4 @@ Other storage must preserve the ownership and isolation boundaries in this file.
 
 ### 28.2 User and retrieved content
 
-User messages, generated checkpoints, and tool or retrieval results are model input, not trusted authority. They cannot select tenant identity, top-level instructions, tool availability, or access scope. The executing worker's per-attempt composition is the sole system-prompt/tool-declaration authority. Stored system-role rows are excluded from replayed context. A persisted reasoning part and the provider metadata of a stored text or tool part replay only when their reply completed on the request's own model; all other parts replay unchanged. Tool observations replay through one projection in the conventional tool-call/tool-result representation, escape-proofed, with no replay budget — a checkpoint is the only boundary. See [`context-builder.ts`](apps/api/src/chats/context-builder.ts), [`run-execution.service.ts`](apps/api/src/runs/run-execution.service.ts), and [`tool-calling`](openspec/specs/tool-calling/spec.md).
+User messages, generated checkpoints, and tool or retrieval results are model input, not trusted authority. They cannot select tenant identity, top-level instructions, tool availability, or access scope. The executing worker's per-attempt composition is the sole system-prompt/tool-declaration authority. Stored system-role rows are excluded from replayed context. A persisted reasoning part and the provider metadata of a stored text or tool part replay only when their reply completed on the request's own model, or when an owner interrupt closed it on that model; a reply an interrupt closed replays no reasoning part the stop cut and no reasoning without a later kept part. All other parts replay unchanged. Tool observations replay through one projection in the conventional tool-call/tool-result representation, escape-proofed, with no replay budget — a checkpoint is the only boundary. See [`context-builder.ts`](apps/api/src/chats/context-builder.ts), [`run-execution.service.ts`](apps/api/src/runs/run-execution.service.ts), and [`tool-calling`](openspec/specs/tool-calling/spec.md).

@@ -33,6 +33,8 @@ export type ScriptedReasoning = {
   id: string;
   text?: string;
   providerMetadata?: ProviderMetadata;
+  /** The block has no end part: the stream cuts it, as an interrupt does. */
+  open?: boolean;
 };
 
 /** One text block, in the same start/delta/end shape as reasoning. */
@@ -62,12 +64,21 @@ export type ScriptedStepFailure = {
   message: string;
 };
 
+/**
+ * The stream stays open after the parts before it, and nothing follows: no
+ * finish and no close, until the request aborts. A provider that is still
+ * generating when the owner interrupts. `onHeld` runs once those parts are
+ * delivered, so a test acts on a stream that is mid-response.
+ */
+export type ScriptedStepHold = { type: 'hold'; onHeld?: () => void };
+
 /** One delivery of a scripted provider step. */
 export type ScriptedStepPart =
   | ScriptedReasoning
   | ScriptedText
   | ScriptedToolCall
-  | ScriptedStepFailure;
+  | ScriptedStepFailure
+  | ScriptedStepHold;
 
 /** One provider request of a scripted turn, in the order the SDK makes them. */
 export type ScriptedStep = ReadonlyArray<ScriptedStepPart>;
@@ -96,7 +107,9 @@ function appendSpan(
           ...withMetadata,
         });
       }
-      parts.push({ type: 'reasoning-end', id: part.id, ...withMetadata });
+      if (part.open !== true) {
+        parts.push({ type: 'reasoning-end', id: part.id, ...withMetadata });
+      }
       return;
     case 'text':
       parts.push({ type: 'text-start', id: part.id, ...withMetadata });
@@ -135,6 +148,9 @@ function appendBlock(
       return;
     case 'error':
       parts.push({ type: 'error', error: new Error(part.message) });
+      return;
+    case 'hold':
+      return;
   }
 }
 
@@ -151,7 +167,7 @@ export function scriptedStepParts(
   const parts: Array<LanguageModelV3StreamPart> = [];
   for (const part of step) {
     appendBlock(parts, part);
-    if (part.type === 'error') return parts;
+    if (part.type === 'error' || part.type === 'hold') return parts;
   }
   parts.push({
     type: 'finish',
@@ -164,4 +180,9 @@ export function scriptedStepParts(
     usage: PROVIDER_ZERO_USAGE,
   });
   return parts;
+}
+
+/** The hold that keeps the step's stream open until the request aborts. */
+export function stepHold(step: ScriptedStep): ScriptedStepHold | undefined {
+  return step.find((part) => part.type === 'hold');
 }

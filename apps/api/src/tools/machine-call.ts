@@ -295,6 +295,7 @@ function beginMachineAttempt(
       userId: identity.userId,
       fence: { bound: false },
       deliverySequence: context.nativeDeliverySequence,
+      attemptId: context.attemptId,
       toolCallId: identity.toolCallId,
       operation: target.operation,
       path: target.locator,

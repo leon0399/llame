@@ -34,7 +34,7 @@ export type UiChunk =
       type: 'tool-output-error';
       toolCallId: string;
       errorText: string;
-      providerMetadata?: { llame: { cancelled: true } };
+      providerMetadata?: { llame: { cancelled?: true; interrupted?: true } };
       dynamic: true;
     }
   | {

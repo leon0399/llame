@@ -83,6 +83,12 @@ export type TurnTelemetry = {
   costUsd?: number | null;
   billing?: BillingMode;
   complete?: boolean;
+  /**
+   * Set on a reply that an owner interrupt closed (run-steering D7, with status
+   * `aborted`). A later request replays such a reply's reasoning under the
+   * interrupted-reply rule of `reasoning-output`.
+   */
+  interrupted?: true;
 };
 
 type PerRequestTurnTelemetry = TurnTelemetry &

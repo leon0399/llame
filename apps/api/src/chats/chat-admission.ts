@@ -13,6 +13,7 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { finalizeRunReply } from '../runs/run-reply-finalizer';
 import { heartbeatSeconds } from '../runs/run-queues';
+import { notifyRunControl } from '../runs/run-control';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 
 /** How long admission waits on the blocking run's job state. */
@@ -129,4 +130,21 @@ export async function clearActiveRunSlot(
       'Another run is already in flight for this chat',
     );
   }
+}
+
+/**
+ * Tells the process that executes the Chat's live Run about a pending
+ * `interrupt` item. Called in the transaction that stores or changes the item,
+ * so the pointer is delivered on commit only; the listener confirms the item
+ * itself (run-steering D6).
+ */
+export async function notifyLiveRunInterrupt(
+  tx: Db,
+  chat: { chatId: string; userId: string },
+): Promise<void> {
+  const live = await new RunsRepository(tx).findActiveByChatId(
+    chat.chatId,
+    chat.userId,
+  );
+  if (live) await notifyRunControl(tx, { runId: live.id, kind: 'interrupt' });
 }

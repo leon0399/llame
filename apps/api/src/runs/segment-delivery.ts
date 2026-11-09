@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { type StoppedCall } from '../chats/interrupted-notice';
 import { type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -70,6 +71,8 @@ export type BoundaryDelivery =
       message: Message;
       /** The attempt that runs the delivered message's segment. */
       attemptId: string;
+      /** `interrupt` closed the reply `aborted`; `steer` closed it as given. */
+      cause: DeliveryCause;
     }
   /** No pending item remained: the transaction wrote nothing. */
   | { kind: 'nothing-pending' }
@@ -84,6 +87,9 @@ export type DeliveredBoundary = Extract<
   { kind: 'delivered' }
 >;
 
+/** What caused a delivery: an `interrupt` item among the items, or only steers. */
+export type DeliveryCause = 'steer' | 'interrupt';
+
 type DeliveryInput = {
   run: { runId: string; userId: string };
   attemptId: string;
@@ -96,6 +102,13 @@ type DeliveryInput = {
   /** The attempt's live reply, when its collector is at hand. */
   live?: AssistantTurnWrite;
   telemetry?: AssistantTurnTelemetry;
+  /**
+   * Set only by the interrupt stop: the `bash` and MCP calls it stopped after
+   * they started. Its presence makes the delivery's cause `interrupt` even when
+   * the owner withdrew the item, because the step was cut (run-steering D7).
+   * The step-end check leaves it unset and takes the cause from the items.
+   */
+  stoppedCalls?: ReadonlyArray<StoppedCall>;
   models: BillingCatalog;
   /**
    * The first-epoch baselines the closing segment's attempt derived: a steer
@@ -123,43 +136,103 @@ async function storeDeliveredMessage(
 }
 
 /**
- * Close the segment's reply as `completed` and publish its usage, then store
- * ONE user message holding every item's parts in order.
+ * The usage an interrupt delivery records for the reply it closes: `aborted`,
+ * never `complete`, and marked so a later request replays the reply under the
+ * interrupted-reply rule of `reasoning-output`.
+ */
+export function abortedByInterrupt(
+  telemetry: AssistantTurnTelemetry,
+): AssistantTurnTelemetry {
+  return {
+    ...telemetry,
+    status: 'aborted',
+    complete: false,
+    interrupted: true,
+  };
+}
+
+/** The telemetry a delivery stored for the reply it closed: the segment's own, or the interrupt's. */
+export function closedTelemetry(
+  delivery: DeliveredBoundary,
+  telemetry: AssistantTurnTelemetry,
+): AssistantTurnTelemetry {
+  return delivery.cause === 'interrupt'
+    ? abortedByInterrupt(telemetry)
+    : telemetry;
+}
+
+function closingAs(input: DeliveryInput, cause: DeliveryCause): DeliveryInput {
+  if (cause === 'steer') return input;
+  const { live, modelCompleted, telemetry } = input;
+  return {
+    ...input,
+    ...(live !== undefined && {
+      live: { ...live, telemetry: abortedByInterrupt(live.telemetry) },
+    }),
+    ...(modelCompleted?.telemetry !== undefined && {
+      modelCompleted: {
+        ...modelCompleted,
+        telemetry: abortedByInterrupt(modelCompleted.telemetry),
+      },
+    }),
+    ...(telemetry !== undefined && {
+      telemetry: abortedByInterrupt(telemetry),
+    }),
+  };
+}
+
+/**
+ * A delivery closes the reply while the Run is live, so the Run's status does
+ * not decide the completeness of its usage (run-usage-accounting).
+ */
+async function finalizeSegmentUsage(
+  tx: Db,
+  locked: Run,
+  closing: DeliveryInput,
+): Promise<void> {
+  const telemetry = closing.modelCompleted?.telemetry;
+  if (!telemetry) return;
+  await finalizeUsageCompleteness(tx, {
+    userId: locked.userId,
+    runId: locked.id,
+    attemptId: closing.attemptId,
+    run: locked,
+    chatId: locked.chatId,
+    inReplyTo: closing.live?.inReplyTo ?? locked.messageId,
+    telemetry,
+    closedBySteer: true,
+  });
+}
+
+/**
+ * Close the segment's reply and publish its usage, then store ONE user message
+ * holding every item's parts in order. A steer closes it `completed`, an
+ * interrupt `aborted`.
  */
 async function closeSegmentAndStore(
   tx: Db,
-  input: DeliveryInput,
-  locked: Run,
-  items: ReadonlyArray<ChatDelivery>,
+  closing: DeliveryInput,
+  delivery: {
+    locked: Run;
+    cause: DeliveryCause;
+    items: ReadonlyArray<ChatDelivery>;
+  },
 ): Promise<{ closedReply: Message | undefined; message: Message }> {
-  // The steer closes the reply while the Run is live, so the Run's status
-  // does not decide the completeness of its usage (run-usage-accounting).
-  const telemetry = input.modelCompleted?.telemetry;
-  if (telemetry) {
-    await finalizeUsageCompleteness(tx, {
-      userId: locked.userId,
-      runId: locked.id,
-      attemptId: input.attemptId,
-      run: locked,
-      chatId: locked.chatId,
-      inReplyTo: input.live?.inReplyTo ?? locked.messageId,
-      telemetry,
-      closedBySteer: true,
-    });
-  }
+  const { locked, cause, items } = delivery;
+  await finalizeSegmentUsage(tx, locked, closing);
   const closedReply = await finalizeRunReply(tx, {
     run: locked,
-    status: 'completed',
-    attemptId: input.attemptId,
-    live: input.live,
-    telemetry: input.telemetry,
-    models: input.models,
+    status: cause === 'interrupt' ? 'cancelled' : 'completed',
+    attemptId: closing.attemptId,
+    live: closing.live,
+    telemetry: closing.telemetry,
+    models: closing.models,
   });
-  if (input.modelCompleted) {
+  if (closing.modelCompleted) {
     await new RunEventsRepository(tx).append(
       locked.id,
       'model.completed',
-      input.modelCompleted,
+      closing.modelCompleted,
     );
   }
   const message = await storeDeliveredMessage(tx, locked, items);
@@ -174,7 +247,12 @@ async function moveRunToDelivery(
   tx: Db,
   locked: Run,
   fromAttemptId: string,
-  delivery: { items: ReadonlyArray<ChatDelivery>; message: Message },
+  delivery: {
+    items: ReadonlyArray<ChatDelivery>;
+    message: Message;
+    cause: DeliveryCause;
+    stoppedCalls: ReadonlyArray<StoppedCall>;
+  },
 ): Promise<string> {
   const { id: runId, userId } = locked;
   const { items, message } = delivery;
@@ -198,8 +276,8 @@ async function moveRunToDelivery(
   await new RunEventsRepository(tx).append(runId, 'run.delivered', {
     messageId: message.id,
     deliveryIds: items.map((item) => item.id),
-    cause: 'steer',
-    stoppedCalls: [],
+    cause: delivery.cause,
+    stoppedCalls: delivery.stoppedCalls,
     attemptId,
   });
   return attemptId;
@@ -212,7 +290,9 @@ async function moveRunToDelivery(
  * segment's reply, stores the delivered message, marks the items delivered,
  * moves the Run onto that message under a fresh attempt, and appends
  * `run.delivered` (no `run.started`: the claim's delivery sequence stays
- * current).
+ * current). The cause is `interrupt` when the stop cut the step or an
+ * `interrupt` item is among the locked items; an item the owner withdrew after
+ * the step-end check cannot make that delivery an interrupt.
  *
  * The Run's `message_id` moves last: the foreign key to `messages` is
  * immediate, so the message must exist first, and the row lock taken first
@@ -238,23 +318,40 @@ export async function deliverPendingSteering(
     userId,
   );
   if (items.length === 0) return { kind: 'nothing-pending' };
+  return finishDelivery(tx, input, locked, items);
+}
+
+/** Closes the reply, stores the message, and moves the Run onto it. */
+async function finishDelivery(
+  tx: Db,
+  input: DeliveryInput,
+  locked: Run,
+  items: ReadonlyArray<ChatDelivery>,
+): Promise<DeliveredBoundary> {
+  const cause: DeliveryCause =
+    input.stoppedCalls !== undefined ||
+    items.some((item) => item.mode === 'interrupt')
+      ? 'interrupt'
+      : 'steer';
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
-    input,
-    locked,
-    items,
+    closingAs(input, cause),
+    { locked, cause, items },
   );
-  if (items.every((item) => item.mode === 'steer')) {
+  if (cause === 'steer') {
     await persistFirstEpochBaselines(tx, locked, input.baselines);
   }
   const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
     items,
     message,
+    cause,
+    stoppedCalls: input.stoppedCalls ?? [],
   });
   return {
     kind: 'delivered',
     ...(closedReply !== undefined && { closedReply }),
     message,
     attemptId,
+    cause,
   };
 }

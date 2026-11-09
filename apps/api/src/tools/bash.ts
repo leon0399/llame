@@ -285,6 +285,7 @@ async function runAdmittedBash(
         userId,
         fence: { bound: true, executorId: nativeExecutorId },
         deliverySequence: context.nativeDeliverySequence,
+        attemptId: context.attemptId,
         toolCallId,
         operation: 'bash',
         path: admitted.cwd,

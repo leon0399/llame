@@ -43,6 +43,7 @@ import { scriptedStreamHandlers } from './scripted-model-stream-options';
 import { conversationRecallParts } from './scripted-model-recall';
 import {
   PROVIDER_ZERO_USAGE,
+  stepHold,
   scriptedStepParts,
   type ScriptedStep,
 } from './scripted-model-step';
@@ -224,13 +225,14 @@ function createHangOrDelayGate(
 /**
  * Enqueues the scripted turn's delivery — a whole provider step, a tool call,
  * the recall script's next part, or plain text — and closes the stream.
+ * Returns whether the stream stays open instead.
  */
 function enqueueScriptedCompletion(
   controller: ReadableStreamDefaultController<LanguageModelV3StreamPart>,
   prompt: LanguageModelV3CallOptions['prompt'],
   behavior: HarnessBehavior,
   scriptedStep: ScriptedStep | undefined,
-): void {
+): boolean {
   controller.enqueue({ type: 'stream-start', warnings: [] });
   if (behavior.kind === 'step-script') {
     if (scriptedStep === undefined) {
@@ -250,7 +252,14 @@ function enqueueScriptedCompletion(
       behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '',
     );
   }
+  // A step with a `hold` keeps the stream open for the abort to end.
+  const hold = scriptedStep === undefined ? undefined : stepHold(scriptedStep);
+  if (hold !== undefined) {
+    hold.onHeld?.();
+    return true;
+  }
   controller.close();
+  return false;
 }
 
 function enqueueToolScript(
@@ -311,6 +320,7 @@ function createScriptedStream(options: {
       }
       abortSignal?.addEventListener('abort', onAbort, { once: true });
 
+      let holding = false;
       try {
         if (gate) {
           await gate.wait();
@@ -318,11 +328,17 @@ function createScriptedStream(options: {
         if (behavior.kind === 'hang' || abortSignal?.aborted) {
           return;
         }
-        enqueueScriptedCompletion(controller, prompt, behavior, scriptedStep);
+        holding = enqueueScriptedCompletion(
+          controller,
+          prompt,
+          behavior,
+          scriptedStep,
+        );
       } catch (error) {
         controller.error(error);
       } finally {
-        abortSignal?.removeEventListener('abort', onAbort);
+        // A held stream keeps listening: only the abort ends it.
+        if (!holding) abortSignal?.removeEventListener('abort', onAbort);
       }
     },
   });

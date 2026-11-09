@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import type { ChangeListener } from '../live/change-listener';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   WorkerProfileService,
@@ -26,7 +27,10 @@ import { RunsRepository } from './runs-repository';
  * the listener reads the Run in its owner's tenant scope and acts only on a
  * recorded cancellation or a Run that no longer exists (Chat deletion). A notification lost while the connection was down is
  * recovered by the same read, over every Run in the registry, on reconnect.
- * `interrupt` is accepted and ignored until the interrupt layer handles it.
+ * An `interrupt` aborts only the segment in flight, and only when the owner has
+ * a pending `interrupt` item and the Run still executes the attempt that
+ * segment runs; with no model request or tool call in flight, the item waits
+ * for the step end.
  */
 @Injectable()
 export class RunControlListenerService
@@ -65,15 +69,50 @@ export class RunControlListenerService
       this.logger.warn('Dropped malformed run-control notification');
       return;
     }
-    if (message.kind !== 'cancel') return;
     const userId = this.aborts.ownerOf(message.runId);
     if (userId === undefined) return;
-    await this.abortIfCancelled(message.runId, userId);
+    if (message.kind === 'cancel') {
+      await this.abortIfCancelled(message.runId, userId);
+    } else {
+      await this.interruptIfPending(message.runId, userId);
+    }
   }
 
   private async recheckExecuting(): Promise<void> {
     for (const { runId, userId } of this.aborts.executing()) {
       await this.abortIfCancelled(runId, userId);
+      await this.interruptIfPending(runId, userId);
+    }
+  }
+
+  /**
+   * Stops the segment in flight when the owner's read shows a pending
+   * `interrupt` item and the Run still names the attempt that segment runs. A
+   * segment of another attempt, or none in flight, leaves the item for the
+   * step end or the final answer.
+   */
+  private async interruptIfPending(
+    runId: string,
+    userId: string,
+  ): Promise<void> {
+    const attemptId = this.aborts.segmentAttemptOf(runId);
+    if (attemptId === undefined) return;
+    try {
+      const pending = await this.tenantDb.runAs(userId, async (tx) => {
+        const run = await new RunsRepository(tx).findById(runId, userId);
+        return (
+          run?.activeAttemptId === attemptId &&
+          (await new ChatDeliveriesRepository(tx).hasPendingInterrupt(
+            run.chatId,
+            userId,
+          ))
+        );
+      });
+      if (pending) this.aborts.interrupt(runId, attemptId);
+    } catch (error) {
+      this.logger.warn(
+        `Run-control interrupt check failed for run ${runId}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
     }
   }
 

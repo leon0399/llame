@@ -12,7 +12,13 @@ import {
 import { type Db } from '../db/tenant-db.service';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { deliverPendingSteering } from './segment-delivery';
+import {
+  abortedByInterrupt,
+  closedTelemetry,
+  deliverPendingSteering,
+  type DeliveredBoundary,
+  type DeliveryCause,
+} from './segment-delivery';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 const runId = '11111111-1111-4111-8111-111111111111';
@@ -351,6 +357,113 @@ describe('deliverPendingSteering', () => {
     });
   });
 
+  const interruptItem: ChatDelivery = { ...first, mode: 'interrupt' };
+  const interrupted = {
+    ...closingTelemetry,
+    status: 'aborted',
+    complete: false,
+    interrupted: true,
+  };
+
+  it('closes the reply aborted, and records the cause, when an interrupt item is delivered', async () => {
+    const spies = serve({ items: [interruptItem] });
+
+    const outcome = await deliver({
+      modelCompleted: {
+        usage: { inputTokens: 3 },
+        finishReason: 'tool-calls',
+        telemetry: { ...closingTelemetry },
+      },
+    });
+
+    expect(outcome.kind).toBe('delivered');
+    if (outcome.kind !== 'delivered') return;
+    expect(outcome.cause).toBe('interrupt');
+    expect(outcome.closedReply?.usage).toEqual(interrupted);
+    expect(spies.append).toHaveBeenCalledWith(runId, 'model.completed', {
+      usage: { inputTokens: 3 },
+      finishReason: 'tool-calls',
+      telemetry: interrupted,
+    });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'interrupt', stoppedCalls: [] }),
+    );
+  });
+
+  it('closes a reply with no collector as aborted from the usage the interrupt synthesized', async () => {
+    const spies = serve({ items: [interruptItem] });
+
+    await deliver({
+      live: undefined,
+      telemetry: { ...closingTelemetry },
+    });
+
+    expect(spies.updateReply.mock.calls[0]?.[0].usage).toMatchObject({
+      status: 'aborted',
+      interrupted: true,
+    });
+  });
+
+  it('makes a delivery an interrupt when the stop names calls, even for a steer item', async () => {
+    const spies = serve({ items: [first] });
+    const stoppedCalls = [{ toolName: 'bash', toolCallId: 'call-1' }];
+
+    const outcome = await deliver({ stoppedCalls });
+
+    expect(outcome.kind === 'delivered' && outcome.cause).toBe('interrupt');
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'interrupt', stoppedCalls }),
+    );
+  });
+
+  it('settles a call still open when an interrupt closes the reply, and refuses to complete one for a steer', async () => {
+    const spies = serve({ items: [interruptItem] });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        runId,
+        sequence: 1,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'open-call',
+          toolName: 'read',
+          input: { path: '/a' },
+        },
+        createdAt: now,
+      },
+    ]);
+
+    await expect(deliver({ live: undefined })).resolves.toMatchObject({
+      kind: 'delivered',
+    });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'tool.completed',
+      expect.objectContaining({ toolCallId: 'open-call', status: 'error' }),
+    );
+
+    serve({ items: [first] });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        runId,
+        sequence: 1,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'open-call',
+          toolName: 'read',
+          input: { path: '/a' },
+        },
+        createdAt: now,
+      },
+    ]);
+    await expect(deliver({ live: undefined })).rejects.toThrow(
+      'cannot complete with durable tool calls still open',
+    );
+  });
+
   it('publishes no model.completed event when the segment closed without usage', async () => {
     const spies = serve();
 
@@ -552,5 +665,42 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     await deliver();
 
     expect(spies.setDigest).not.toHaveBeenCalled();
+  });
+});
+
+describe('the usage an interrupt closes a reply with', () => {
+  const telemetry = {
+    runId,
+    attemptId,
+    modelId: 'fake-model',
+    latencyMs: 10,
+    finishReason: 'tool-calls' as const,
+    status: 'completed' as const,
+    complete: true,
+  };
+
+  it('is aborted, incomplete, and marked interrupted', () => {
+    expect(abortedByInterrupt(telemetry)).toEqual({
+      ...telemetry,
+      status: 'aborted',
+      complete: false,
+      interrupted: true,
+    });
+  });
+
+  it('is left as the segment measured it for a steer', () => {
+    const delivered = (cause: DeliveryCause): DeliveredBoundary => ({
+      kind: 'delivered',
+      message: deliveredMessage,
+      attemptId: 'attempt-2',
+      cause,
+    });
+    const steer = delivered('steer');
+    const interrupt = delivered('interrupt');
+
+    expect(closedTelemetry(steer, telemetry)).toBe(telemetry);
+    expect(closedTelemetry(interrupt, telemetry)).toEqual(
+      abortedByInterrupt(telemetry),
+    );
   });
 });

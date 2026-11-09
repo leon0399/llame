@@ -119,6 +119,24 @@ export class ChatDeliveriesRepository {
     return row.pending ? 'delivery' : undefined;
   }
 
+  /** Whether the Chat holds a pending `interrupt` item. */
+  async hasPendingInterrupt(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: chatDeliveries.id })
+      .from(chatDeliveries)
+      .where(
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          eq(chatDeliveries.mode, 'interrupt'),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
   /**
    * The pending `steer` and `interrupt` items a boundary delivers, in
    * `position` order, locked so a concurrent withdrawal waits for the

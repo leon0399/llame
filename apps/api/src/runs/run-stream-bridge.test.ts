@@ -263,6 +263,58 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it.each([
+    [
+      'a cancelled result the owner interrupt settled',
+      true,
+      { status: 'error', type: 'cancelled', message: 'stopped' },
+      { llame: { cancelled: true, interrupted: true } },
+    ],
+    [
+      'an unknown result the owner interrupt settled',
+      true,
+      { status: 'error', type: 'outcome_unknown', message: 'unknown' },
+      { llame: { interrupted: true } },
+    ],
+    [
+      'a cancelled result no interrupt settled',
+      undefined,
+      { status: 'error', type: 'cancelled', message: 'stopped' },
+      { llame: { cancelled: true } },
+    ],
+    [
+      'a failed result no interrupt settled',
+      false,
+      { status: 'error', type: 'failed', message: 'broke' },
+      undefined,
+    ],
+  ])('marks %s', (_name, interrupted, output, providerMetadata) => {
+    const t = createRunEventTranslator('run-interrupt');
+    t.translate({
+      eventType: 'tool.requested',
+      payload: { toolCallId: 'c1', toolName: 'bash', input: {} },
+    });
+
+    const chunks = t.translate({
+      eventType: 'tool.completed',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'bash',
+        status: 'error',
+        output,
+        ...(interrupted !== undefined && { interrupted }),
+      },
+    });
+
+    expect(chunks.at(-1)).toEqual({
+      type: 'tool-output-error',
+      toolCallId: 'c1',
+      errorText: output.message,
+      ...(providerMetadata !== undefined && { providerMetadata }),
+      dynamic: true,
+    });
+  });
+
   it('survives the AI SDK transport parser and reconstructs a cancelled tool part', async () => {
     const t = createRunEventTranslator('run-transport');
     const chunks = [

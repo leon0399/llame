@@ -2193,3 +2193,147 @@ describe('stored tool-part classification (turn-actions D10)', () => {
     expect(JSON.stringify(projection)).not.toContain('execute_code');
   });
 });
+
+describe('an owner interrupt in the stored transcript (run-steering D7, D8)', () => {
+  it('marks the reasoning part the stop cut, keeping its own provider metadata', () => {
+    const collector = createAssistantPartCollector();
+    collector.text('answer so far');
+    collector.reasoning('half a thought', 'rs_2');
+    collector.reasoning('', 'rs_2', { openai: { itemId: 'rs_2' } });
+
+    collector.markInterrupted();
+
+    expect(collector.parts()).toEqual([
+      { type: 'text', text: 'answer so far' },
+      {
+        type: 'reasoning',
+        text: 'half a thought',
+        providerMetadata: {
+          openai: { itemId: 'rs_2' },
+          llame: { interrupted: true },
+        },
+      },
+    ]);
+  });
+
+  it('marks the cut reasoning part past a tool request that has no result yet', () => {
+    const collector = createAssistantPartCollector();
+    collector.reasoning('half a thought');
+    collector.toolRequested('call_1');
+
+    collector.markInterrupted();
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: 'half a thought',
+        providerMetadata: { llame: { interrupted: true } },
+      },
+    ]);
+  });
+
+  it('stores only the interrupt marker on a settled call whose result is not cancelled', () => {
+    const part = toolActivityPart({
+      toolCallId: 'call_1',
+      toolName: 'bash',
+      input: {},
+      result: {
+        status: 'error',
+        type: 'outcome_unknown',
+        message: 'The command was stopped.',
+      },
+      interrupted: true,
+    });
+
+    expect(part).toMatchObject({
+      resultProviderMetadata: { llame: { interrupted: true } },
+    });
+    expect(part.resultProviderMetadata).toEqual({
+      llame: { interrupted: true },
+    });
+  });
+
+  it('marks nothing when the stop did not cut a reasoning part', () => {
+    const collector = createAssistantPartCollector();
+    collector.reasoning('finished thought');
+    collector.text('streaming');
+
+    collector.markInterrupted();
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: 'finished thought' },
+      { type: 'text', text: 'streaming' },
+    ]);
+  });
+
+  it('stores the interrupt marker on the settled call, beside its own cancelled marker', () => {
+    const cancelled: ToolResult = {
+      status: 'error',
+      type: 'cancelled',
+      message: 'The owner interrupted this call before it finished.',
+    };
+
+    const part = toolActivityPart({
+      toolCallId: 'call_1',
+      toolName: 'read',
+      input: {},
+      result: cancelled,
+      interrupted: true,
+    });
+
+    expect(part).toMatchObject({
+      state: 'output-error',
+      outcome: 'cancelled',
+      resultProviderMetadata: { llame: { cancelled: true, interrupted: true } },
+    });
+  });
+
+  it('marks a result the call proved after the interrupt, and a plain cancel stays unmarked by it', () => {
+    const proven = toolActivityPart({
+      toolCallId: 'call_1',
+      toolName: 'bash',
+      input: {},
+      result: { status: 'success', exitCode: 143, stdout: '', stderr: '' },
+      interrupted: true,
+    });
+    const plain = toolActivityPart({
+      toolCallId: 'call_2',
+      toolName: 'read',
+      input: {},
+      result: { status: 'error', type: 'cancelled', message: 'cancelled' },
+    });
+
+    expect(proven).toMatchObject({
+      state: 'output-available',
+      resultProviderMetadata: { llame: { interrupted: true } },
+    });
+    expect(plain.resultProviderMetadata).toEqual({
+      llame: { cancelled: true },
+    });
+  });
+
+  it('a reply rebuilt from the event log keeps the marker of an interrupted call', () => {
+    const parts = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call_1',
+        toolName: 'bash',
+        input: {},
+      }),
+      event('tool.completed', {
+        toolCallId: 'call_1',
+        toolName: 'bash',
+        status: 'error',
+        output: {
+          status: 'error',
+          type: 'outcome_unknown',
+          message: 'The host command was interrupted.',
+        },
+        interrupted: true,
+      }),
+    ]).collector.parts();
+
+    expect(parts).toMatchObject([
+      { resultProviderMetadata: { llame: { interrupted: true } } },
+    ]);
+  });
+});

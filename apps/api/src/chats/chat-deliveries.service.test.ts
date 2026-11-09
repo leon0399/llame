@@ -27,7 +27,8 @@ function makeService() {
     validateModelSelection: vi.fn(),
     resolveEffortSelection: vi.fn(),
   };
-  const tx = asDouble<Db>({});
+  const execute = vi.fn(() => Promise.resolve([]));
+  const tx = asDouble<Db>({ execute });
   const tenantDb: TenantRunner = {
     runAs: <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
       callback(tx),
@@ -42,6 +43,7 @@ function makeService() {
       dispatcher,
     ),
     dispatcher,
+    execute,
     models,
     findChat: vi.spyOn(ChatsRepository.prototype, 'findById'),
     listPending: vi.spyOn(ChatDeliveriesRepository.prototype, 'listPending'),
@@ -181,6 +183,32 @@ describe('ChatDeliveriesService.changeMode', () => {
     expect(models.validateModelSelection).not.toHaveBeenCalled();
     expect(createMessage).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['interrupt', 1],
+    ['steer', 0],
+  ] as const)(
+    'a live Run is told about an item changed to %s: %i pointer(s)',
+    async (mode, pointers) => {
+      const { service, lockChat, findActiveRun, changePendingMode, execute } =
+        makeService();
+      lockChat.mockResolvedValue(
+        asDouble<Chat>({ id: chatId, archivedAt: null }),
+      );
+      findActiveRun.mockResolvedValue(asDouble<Run>({ id: 'run-1' }));
+      changePendingMode.mockResolvedValue({ ...item, mode });
+
+      await service.changeMode(chatId, item.id, mode, userId);
+
+      const pointer = JSON.stringify(
+        JSON.stringify({ runId: 'run-1', kind: 'interrupt' }),
+      );
+      const sent = execute.mock.calls.filter((call) =>
+        JSON.stringify(call).includes(pointer),
+      );
+      expect(sent).toHaveLength(pointers);
+    },
+  );
 
   it('answers 409 when the id of the item is already a message', async () => {
     const {

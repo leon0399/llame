@@ -4,6 +4,7 @@ import { webSearchTool } from './web-search/tool';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import {
   buildRegistry,
+  interruptFateOf,
   resolveAdvertisedTools,
   TOOL_REGISTRY,
 } from './registry';
@@ -203,5 +204,45 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
     expect(
       matchesAllowedToolId('search_conversations', ['search_conversations']),
     ).toBe(true);
+  });
+});
+
+describe('interrupt fate (run-steering D7)', () => {
+  const fateOfId = (id: string) => {
+    const tool = TOOL_REGISTRY.get(id);
+    if (tool === undefined) throw new Error(`Tool "${id}" is not registered.`);
+    return interruptFateOf(tool);
+  };
+
+  it('every registered tool has a fate, and none is background', () => {
+    for (const tool of TOOL_REGISTRY.values()) {
+      expect(['cancel', 'finish']).toContain(interruptFateOf(tool));
+    }
+  });
+
+  it('cancels bash and the read-only tools', () => {
+    expect(fateOfId('bash')).toBe('cancel');
+    expect(fateOfId('read')).toBe('cancel');
+    expect(fateOfId('grep')).toBe('cancel');
+    expect(fateOfId('web_search')).toBe('cancel');
+  });
+
+  it('A write finishes before the interrupt applies', () => {
+    expect(fateOfId('write')).toBe('finish');
+    expect(fateOfId('edit')).toBe('finish');
+  });
+
+  it('Workspace entry finishes', () => {
+    expect(fateOfId('enter_workspace')).toBe('finish');
+    expect(fateOfId('exit_workspace')).toBe('finish');
+  });
+
+  it('every MCP binding is cancelled', () => {
+    const binding: Tool = {
+      ...searchConversationsTool,
+      id: 'mcp__docs__search',
+      classification: 'unverified',
+    };
+    expect(interruptFateOf(binding)).toBe('cancel');
   });
 });

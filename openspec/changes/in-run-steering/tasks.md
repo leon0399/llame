@@ -139,14 +139,20 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 7. interrupt
 
-- [ ] 7.1 Add `interruptFate` to the static registry and `cancel` to dynamic MCP bindings. Verify "A write finishes before the interrupt applies", "Workspace entry finishes", and a test that every registered tool and every MCP binding has a fate.
-- [ ] 7.2 Stop the segment on interrupt only while work is in flight, route the abort in `onError`, and settle open calls by fate with a per-call interrupt signal and recorded native results (design D7). Verify "An interrupt during a model response", "An interrupt takes the pending steers along", "An interrupt kills a long command", "Two calls of one step, one started", "A late tool result does not replace the settlement", "A withdrawal after an interrupt stopped work", a tool admission after the interrupt delivery that writes no attempt, "An interrupt during compaction", and "An interrupt reaches a dedicated worker".
-- [ ] 7.3 Apply the interrupted-reply reasoning rule in the projection and mark the cut part (design D8). Verify "The cut reasoning part never replays", "An interrupted reply keeps only reasoning with a later part", "A withdrawn interrupt's completed reply keeps the cut part out of later turns", "An interrupt-closed reply keeps its kept reasoning for the next turn", and "A completed segment of a failed Run keeps its reasoning" on the Responses, Messages, and Chat Completions wires.
+- [x] 7.1 Add `interruptFate` to the static registry and `cancel` to dynamic MCP bindings. Verify "A write finishes before the interrupt applies", "Workspace entry finishes", and a test that every registered tool and every MCP binding has a fate.
+  - Evidence: registry.test.ts fate tests; interruptFateOf derives fate from classification.
+- [x] 7.2 Stop the segment on interrupt only while work is in flight, route the abort in `onError`, and settle open calls by fate with a per-call interrupt signal and recorded native results (design D7). Verify "An interrupt during a model response", "An interrupt takes the pending steers along", "An interrupt kills a long command", "Two calls of one step, one started", "A late tool result does not replace the settlement", "A withdrawal after an interrupt stopped work", a tool admission after the interrupt delivery that writes no attempt, "An interrupt during compaction", and "An interrupt reaches a dedicated worker".
+- [x] 7.3 Apply the interrupted-reply reasoning rule in the projection and mark the cut part (design D8). Verify "The cut reasoning part never replays", "An interrupted reply keeps only reasoning with a later part", "A withdrawn interrupt's completed reply keeps the cut part out of later turns", "An interrupt-closed reply keeps its kept reasoning for the next turn", and "A completed segment of a failed Run keeps its reasoning" on the Responses, Messages, and Chat Completions wires.
+  - Evidence: interrupted-reply-projection.test.ts on Responses, Messages, Chat Completions part shapes; assistant-transcript.test.ts for the marker.
 - [ ] 7.4 Run the live Anthropic probe: a request that keeps a signed thinking block of an interrupted reply and drops the open block. Record the request shape and the answer in the PR body. Stop and amend the proposal if the provider rejects it.
-- [ ] 7.5 Add the `interrupted` producer, its packaged template, and its first precedence rank. Verify "The notice comes first", "A killed command is named", and "An interrupted item comes before the owner text".
-- [ ] 7.6 Accept `delivery: "interrupt"` and `PATCH` to `interrupt`, with `NOTIFY` in the admission transaction. Verify an admission test for `interrupt` and a mode-change test from `steer` to `interrupt`.
-- [ ] 7.7 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 7.8 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+- [x] 7.5 Add the `interrupted` producer, its packaged template, and its first precedence rank. Verify "The notice comes first", "A killed command is named", and "An interrupted item comes before the owner text".
+  - Evidence: interrupted-notice.test.ts and the integration test (notice first, names the killed bash call).
+- [x] 7.6 Accept `delivery: "interrupt"` and `PATCH` to `interrupt`, with `NOTIFY` in the admission transaction. Verify an admission test for `interrupt` and a mode-change test from `steer` to `interrupt`.
+  - Evidence: chat-steering.integration.test.ts ("An interrupt during a Run is accepted and stops the segment in flight", "Interrupt now changes a steer item and stops the segment in flight", "Interrupt now on a paused item starts a Run like a steer"); the NOTIFY reaches the real listener, which aborts a registered segment.
+- [x] 7.7 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: CHANGELOG.md entry dated 2026-11-08.
+- [x] 7.8 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: api typecheck, `pnpm lint:code`, the full api unit suite (471 files) and the full api integration suite pass; `pnpm format:check`, `git diff --check`, `pnpm lint:markdown`, and `openspec validate in-run-steering --strict` are clean.
 - [ ] 7.9 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 7.10 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

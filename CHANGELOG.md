@@ -2,15 +2,31 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
-- **Cancelling a Run now stops it in a dedicated worker.** A cancel request,
-  a deleted Chat, and a superseded Run now reach the process that executes the
-  Run, so the model request or tool call in flight stops there too. Before, only
-  a worker in the same process as the API stopped; a dedicated worker kept
-  running until the next step end. Each cancel path records the cancellation and
-  sends it on the `llame_run_control` Postgres channel in the same transaction.
-  Every process that consumes `runs` listens on that channel, checks the
-  recorded cancellation as the Run's owner before it aborts, and re-checks the
-  Runs it executes after every reconnect. This closes #207.
+- **Interrupt a live Run through the API.** An owner can send a message with
+  `delivery: "interrupt"` while a Run is live, or change a pending `steer` or
+  `queue` item to `interrupt` with `PATCH
+  /api/v1/chats/:chatId/deliveries/:deliveryId`. The request sends the
+  run-control signal in the same transaction. When a model request or a tool
+  call is in flight, the run-control listener of the executing process stops
+  it: the model request aborts, and each open call settles by the fate its tool
+  declares. `read_only` tools, `bash`, and MCP tools are cancelled; every other
+  tool, such as a write or a workspace entry, finishes first. Each call settles
+  once and carries an `interrupted` marker, in the live stream as well as on
+  reload. A `bash` command that started is killed within its grace, and a sent
+  MCP call settles as `outcome_unknown` with a recorded result, so a retry does
+  not see an unsettled attempt. The delivery that follows closes the reply
+  `aborted`, publishes its usage, and moves the Run to a new segment on a
+  message that opens with an `interrupted` notice. The notice names each
+  stopped `bash` and MCP call and says that its effects are unknown. An
+  interrupt that finds no model request or tool call in flight acts as a steer
+  at the step end, and still closes the reply `aborted` with the notice. A
+  reply that an interrupt closed replays only the reasoning that a later part
+  follows, and the reasoning part the stop cut never replays. If the owner
+  withdraws the item after the stop and nothing else is pending, the Run goes
+  on with the same reply and leaves out that part and the notice; with a steer
+  still pending, the delivery stays an interrupt. A tool call of the
+  interrupted segment, and a Workspace binding change from it, can no longer
+  record anything after the delivery.
 
 - **Steer a live Run through the API.** An owner can send a message with
   `delivery: "steer"` while a Run is live. The API answers 202 with a pending
@@ -28,6 +44,31 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `GET /api/v1/chats/:id/stream` replays only the current segment. Continue and
   Regenerate on the latest turn name the delivered message.
 
+- **Segment preparation (internal machinery).** The attempt of a delivered
+  message now prepares its turn as the first dispatch of that message. It
+  authors its own temporal item and model-switch check, activates `$skill`
+  mentions, resolves prompt imports, and skips compaction, which runs only
+  before the first model step of a Run. A retry inside a later segment appends
+  to what that segment already stored. The kept parts of a Continue Run and the
+  notice and reply guard of a Regenerate Run apply to the first segment only.
+  Usage completeness counts only the attempts after the latest delivery, so a
+  reply that a steer closed is complete, a reclaimed segment is still
+  incomplete, and a Regenerate Run's second segment no longer inherits the
+  replaced-usage mark. A steer delivery writes the first-epoch digest and
+  skill-catalog baselines when it closes the first reply of a Chat's first Run,
+  and the Chat title comes from the message that created the Run. Nothing
+  admits `steer` yet, so no user-visible behavior changes.
+
+- **Cancelling a Run now stops it in a dedicated worker.** A cancel request,
+  a deleted Chat, and a superseded Run now reach the process that executes the
+  Run, so the model request or tool call in flight stops there too. Before, only
+  a worker in the same process as the API stopped; a dedicated worker kept
+  running until the next step end. Each cancel path records the cancellation and
+  sends it on the `llame_run_control` Postgres channel in the same transaction.
+  Every process that consumes `runs` listens on that channel, checks the
+  recorded cancellation as the Run's owner before it aborts, and re-checks the
+  Runs it executes after every reconnect. This closes #207.
+
 - **Run segments (internal machinery).** A live Run can now deliver pending
   `steer` and `interrupt` items. Nothing admits them yet: `steer` still gets
   400, so no user-visible behavior changes. A Run stops a model call at a step
@@ -43,21 +84,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the replies of earlier segments unchanged, and a write in an earlier segment
   no longer blocks it. A cancellation recorded after a delivery ends the Run
   before the next request. Model clients accept a `stopWhenExtra` condition.
-
-- **Segment preparation (internal machinery).** The attempt of a delivered
-  message now prepares its turn as the first dispatch of that message. It
-  authors its own temporal item and model-switch check, activates `$skill`
-  mentions, resolves prompt imports, and skips compaction, which runs only
-  before the first model step of a Run. A retry inside a later segment appends
-  to what that segment already stored. The kept parts of a Continue Run and the
-  notice and reply guard of a Regenerate Run apply to the first segment only.
-  Usage completeness counts only the attempts after the latest delivery, so a
-  reply that a steer closed is complete, a reclaimed segment is still
-  incomplete, and a Regenerate Run's second segment no longer inherits the
-  replaced-usage mark. A steer delivery writes the first-epoch digest and
-  skill-catalog baselines when it closes the first reply of a Chat's first Run,
-  and the Chat title comes from the message that created the Run. Nothing
-  admits `steer` yet, so no user-visible behavior changes.
 
 - **Session details shows the live git state of the bound repository.** The
   Repository block replaces the stored branch with the live branch (or the

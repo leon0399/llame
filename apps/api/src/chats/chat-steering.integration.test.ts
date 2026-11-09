@@ -167,7 +167,7 @@ describe('chat deliveries — the steer mode', () => {
 
   const sendMode = (
     chatId: string,
-    mode: 'queue' | 'steer',
+    mode: 'queue' | 'steer' | 'interrupt',
     body: Parameters<typeof send>[1] = {},
   ) => send(chatId, { delivery: mode, ...body });
 
@@ -242,7 +242,47 @@ describe('chat deliveries — the steer mode', () => {
     extra: { error?: unknown; runPayload?: unknown } = {},
   ) => executor.settleTerminalRun({ userId: userAId, runId, status, ...extra });
 
+  /**
+   * A Run this process executes, with a model call in flight for an attempt it
+   * names, so the run-control signal has a segment to stop.
+   */
+  async function executingRun(runId: string): Promise<AbortController> {
+    const attemptId = crypto.randomUUID();
+    await tenantDb.runAs(userAId, (tx) =>
+      tx.execute(
+        sql`UPDATE runs SET active_attempt_id = ${attemptId} WHERE id = ${runId}`,
+      ),
+    );
+    const aborts = app.get(RunAbortRegistry, { strict: false });
+    aborts.register(runId, userAId);
+    const segment = aborts.beginSegment(runId, attemptId);
+    if (!segment) throw new Error('the Run has no segment');
+    return segment;
+  }
+
+  const stopped = (segment: AbortController) =>
+    until('the interrupt to stop the segment', () =>
+      Promise.resolve(segment.signal.aborted),
+    );
+
   describe('admission', () => {
+    it('An interrupt during a Run is accepted and stops the segment in flight', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const segment = await executingRun(runId);
+      const id = crypto.randomUUID();
+
+      const res = await sendMode(chatId, 'interrupt', { id, text: 'stop' });
+
+      expect(res.status).toBe(202);
+      expect(res.body).toMatchObject({
+        id,
+        mode: 'interrupt',
+        state: 'pending',
+      });
+      await stopped(segment);
+      expect(await runsOf(chatId)).toHaveLength(1);
+    });
+
     it('A steer during a Run is accepted as a pending item', async () => {
       const { chatId } = await chatWithLiveRun();
       const id = crypto.randomUUID();
@@ -336,6 +376,38 @@ describe('chat deliveries — the steer mode', () => {
       expect(signal).toBe('delivery');
     });
 
+    it('Interrupt now changes a steer item and stops the segment in flight', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const segment = await executingRun(runId);
+      const id = crypto.randomUUID();
+      await sendMode(chatId, 'steer', { id });
+
+      const res = await change(chatId, id, 'interrupt');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        id,
+        mode: 'interrupt',
+        state: 'pending',
+      });
+      await stopped(segment);
+    });
+
+    it('Interrupt now on a paused item starts a Run like a steer', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      await sendMode(chatId, 'queue', { id });
+      await settle(runId, 'failed', { error: { message: 'boom' } });
+      models.client.delayMs = 300;
+
+      const res = await change(chatId, id, 'interrupt');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id, state: 'delivered' });
+      expect(await runsOf(chatId)).toHaveLength(2);
+      expect(await pending(chatId)).toEqual([]);
+    });
+
     it('A change that expires a stuck Run keeps the item a steer', async () => {
       const { chatId, runId } = await chatWithLiveRun();
       const id = crypto.randomUUID();
@@ -354,7 +426,7 @@ describe('chat deliveries — the steer mode', () => {
       expect(await runsOf(chatId)).toHaveLength(2);
     });
 
-    it.each(['queue', 'interrupt', 'later'])(
+    it.each(['queue', 'later'])(
       'A change to %s gets 400 and changes nothing',
       async (mode) => {
         const { chatId } = await chatWithLiveRun();

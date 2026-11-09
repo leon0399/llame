@@ -148,6 +148,16 @@ export function isReasoningPart(part: unknown): part is ReasoningPart {
 }
 
 /**
+ * Whether an owner interrupt cut this reasoning part (run-steering D8). The
+ * collector marks it `providerMetadata.llame.interrupted`; it stays in the
+ * transcript and no request carries it.
+ */
+export function isInterruptedReasoning(part: ReasoningPart): boolean {
+  const llame = part.providerMetadata?.['llame'];
+  return isRecord(llame) && llame['interrupted'] === true;
+}
+
+/**
  * The subset of a stored DB message that ContextBuilder needs.
  * Mirrors the `messages` table columns used here.
  */
@@ -380,15 +390,19 @@ function startsNewStep(
  * history. `privateParts` carries the model rule
  * of `reasoning-output` (D7) — when it is false, a reasoning part is omitted
  * and every text and tool part keeps its text but loses its provider metadata.
+ * Two reasoning parts never replay on any model: one an interrupt cut
+ * (marked `providerMetadata.llame.interrupted`), and — when `interruptedReply`
+ * says an interrupt closed the reply — each one with no later kept part, which
+ * covers a completed reasoning item with nothing after it (D8).
  * `mediaKey` names the retained bytes behind each part's media marker, so the
  * caller owns the row identity the marker is scoped to.
  */
 class StoredReplyProjection {
   private readonly messages: Array<ModelMessage> = [];
   private open: OpenStep | null = null;
-
   constructor(
     private readonly privateParts: boolean,
+    private readonly interruptedReply: boolean,
     private readonly retainedMedia: Map<string, RetainedMedia>,
     private readonly mediaKey: (partIndex: number) => string,
   ) {}
@@ -399,7 +413,32 @@ class StoredReplyProjection {
       this.appendPart(part, partIndex);
     }
     this.closeStep();
+    if (this.interruptedReply) this.dropTrailingReasoning();
     return this.messages;
+  }
+
+  /**
+   * An interrupted reply replays only reasoning with a later kept part (D8):
+   * what ends the last assistant message, and is followed by no context item,
+   * has none.
+   */
+  private dropTrailingReasoning(): void {
+    const index = this.messages.findLastIndex(
+      ({ role }) => role === 'assistant',
+    );
+    const last = this.messages[index];
+    if (
+      last?.role !== 'assistant' ||
+      !Array.isArray(last.content) ||
+      !this.messages.slice(index + 1).every(({ role }) => role === 'tool')
+    ) {
+      return;
+    }
+    const kept = [...last.content];
+    while (kept.at(-1)?.type === 'reasoning') kept.pop();
+    if (kept.length === last.content.length) return;
+    if (kept.length === 0) this.messages.splice(index, 1);
+    else this.messages[index] = { ...last, content: kept };
   }
 
   private appendPart(part: MessagePart, partIndex: number): void {
@@ -444,7 +483,7 @@ class StoredReplyProjection {
    * redacted data, or encrypted content (D18). Only the model rule gates it.
    */
   private appendReasoning(part: ReasoningPart): void {
-    if (!this.privateParts) return;
+    if (!this.privateParts || isInterruptedReasoning(part)) return;
     this.openStep(partStep(part), false).content.push(
       toPromptReasoningPart(part),
     );
@@ -544,6 +583,7 @@ export function projectStoredReplyParts(
   const retainedMedia = new Map<string, RetainedMedia>();
   const messages = new StoredReplyProjection(
     options.privateParts,
+    false,
     retainedMedia,
     options.mediaKey,
   ).project(parts);
@@ -553,15 +593,26 @@ export function projectStoredReplyParts(
 /**
  * The model rule of `reasoning-output` (D7, A1/A2): a reply's reasoning and
  * provider metadata replay only when the reply completed on the model of this
- * request. A row without recorded usage — written before usage existed, or
- * still running — replays neither.
+ * request, or when an owner interrupt closed it (its reasoning then follows
+ * the interrupted rule). A row without recorded usage — written before usage
+ * existed, or still running — replays neither.
  */
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- the reply's stored `usage` is untyped jsonb; the `isRecord` guard below is its parse.
 function replaysPrivateParts(usage: unknown, modelId: string): boolean {
   return (
     isRecord(usage) &&
-    usage['status'] === 'completed' &&
-    usage['modelId'] === modelId
+    usage['modelId'] === modelId &&
+    (usage['status'] === 'completed' || isInterruptedReply(usage))
+  );
+}
+
+/** Whether the stored usage of a reply says an owner interrupt closed it. */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- the reply's stored `usage` is untyped jsonb; the `isRecord` guard below is its parse.
+function isInterruptedReply(usage: unknown): boolean {
+  return (
+    isRecord(usage) &&
+    usage['status'] === 'aborted' &&
+    usage['interrupted'] === true
   );
 }
 
@@ -639,11 +690,14 @@ function appendAssistantMessage(
   modelId: string,
   retained: Map<string, RetainedMedia>,
 ): void {
-  // Model rule of `reasoning-output` (D7): same model, completed reply.
-  const privateParts = replaysPrivateParts(m.usage, modelId);
+  // Model rule of `reasoning-output` (D7): same model, completed reply — or a
+  // reply an interrupt closed, whose reasoning follows the interrupted rule.
   result.push(
-    ...new StoredReplyProjection(privateParts, retained, (partIndex) =>
-      storedToolPartMediaKey(m.id, partIndex),
+    ...new StoredReplyProjection(
+      replaysPrivateParts(m.usage, modelId),
+      isInterruptedReply(m.usage),
+      retained,
+      (partIndex) => storedToolPartMediaKey(m.id, partIndex),
     ).project(m.parts),
   );
 }

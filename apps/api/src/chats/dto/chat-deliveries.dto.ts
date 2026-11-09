@@ -16,14 +16,13 @@ import { withoutProviderMetadata } from '../provider-metadata-egress';
 import { withoutRetainedMedia } from '../retained-media-egress';
 
 /**
- * The delivery modes a send may name. A layer that ships another mode adds it
- * here; the table and `ChatDeliveryResponse` already hold all three.
+ * The delivery modes a send may name.
  */
-export const SENDABLE_DELIVERY_MODES = ['queue', 'steer'] as const;
+export const SENDABLE_DELIVERY_MODES = ['queue', 'steer', 'interrupt'] as const;
 export type SendableDeliveryMode = (typeof SENDABLE_DELIVERY_MODES)[number];
 
 /** The modes a `PATCH` may set: a change to `queue` is never allowed. */
-export const CHANGEABLE_DELIVERY_MODES = ['steer'] as const;
+export const CHANGEABLE_DELIVERY_MODES = ['steer', 'interrupt'] as const;
 export type ChangeableDeliveryMode = (typeof CHANGEABLE_DELIVERY_MODES)[number];
 
 export class ChangeChatDeliveryDto {
@@ -31,7 +30,8 @@ export class ChangeChatDeliveryDto {
     enum: CHANGEABLE_DELIVERY_MODES,
     description:
       'The new mode of a pending item. `steer` delivers it at the next step ' +
-      'boundary of the live Run, or starts a Run for it when the Chat has none.',
+      'boundary of the live Run; `interrupt` stops the step in flight and ' +
+      'delivers it. Either starts a Run for it when the Chat has none.',
   })
   @IsIn(CHANGEABLE_DELIVERY_MODES)
   mode!: ChangeableDeliveryMode;

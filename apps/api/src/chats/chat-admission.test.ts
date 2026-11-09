@@ -15,7 +15,7 @@ import { type JobState } from '../queue/queue';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { asDouble } from '../testing/support';
-import { clearActiveRunSlot } from './chat-admission';
+import { clearActiveRunSlot, notifyLiveRunInterrupt } from './chat-admission';
 
 const now = new Date('2026-10-27T00:00:00.000Z');
 
@@ -93,5 +93,46 @@ describe('clearActiveRunSlot', () => {
       ConflictException,
     );
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('notifyLiveRunInterrupt', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends the interrupt pointer for the live Run of the Chat', async () => {
+    const execute = vi.fn(() => Promise.resolve([]));
+    const tx = asDouble<Db>({ execute });
+    const find = vi
+      .spyOn(RunsRepository.prototype, 'findActiveByChatId')
+      .mockResolvedValue(blockingRun);
+
+    await notifyLiveRunInterrupt(tx, {
+      chatId: 'chat-id',
+      userId: 'user-id',
+    });
+
+    expect(find).toHaveBeenCalledWith('chat-id', 'user-id');
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(execute.mock.calls)).toContain(
+      JSON.stringify(
+        JSON.stringify({ runId: blockingRun.id, kind: 'interrupt' }),
+      ),
+    );
+  });
+
+  it('sends nothing when the Chat holds no live Run', async () => {
+    const execute = vi.fn(() => Promise.resolve([]));
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+      undefined,
+    );
+
+    await notifyLiveRunInterrupt(asDouble<Db>({ execute }), {
+      chatId: 'chat-id',
+      userId: 'user-id',
+    });
+
+    expect(execute).not.toHaveBeenCalled();
   });
 });
