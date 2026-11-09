@@ -168,6 +168,29 @@ function closingAs(input: DeliveryInput, cause: DeliveryCause): DeliveryInput {
 }
 
 /**
+ * A delivery closes the reply while the Run is live, so the Run's status does
+ * not decide the completeness of its usage (run-usage-accounting).
+ */
+async function finalizeSegmentUsage(
+  tx: Db,
+  locked: Run,
+  closing: DeliveryInput,
+): Promise<void> {
+  const telemetry = closing.modelCompleted?.telemetry;
+  if (!telemetry) return;
+  await finalizeUsageCompleteness(tx, {
+    userId: locked.userId,
+    runId: locked.id,
+    attemptId: closing.attemptId,
+    run: locked,
+    chatId: locked.chatId,
+    inReplyTo: closing.live?.inReplyTo ?? locked.messageId,
+    telemetry,
+    closedBySteer: true,
+  });
+}
+
+/**
  * Close the segment's reply and publish its usage, then store ONE user message
  * holding every item's parts in order. A steer closes it `completed`, an
  * interrupt `aborted`.
@@ -182,21 +205,7 @@ async function closeSegmentAndStore(
   },
 ): Promise<{ closedReply: Message | undefined; message: Message }> {
   const { locked, cause, items } = delivery;
-  // A delivery closes the reply while the Run is live, so the Run's status
-  // does not decide the completeness of its usage (run-usage-accounting).
-  const telemetry = closing.modelCompleted?.telemetry;
-  if (telemetry) {
-    await finalizeUsageCompleteness(tx, {
-      userId: locked.userId,
-      runId: locked.id,
-      attemptId: closing.attemptId,
-      run: locked,
-      chatId: locked.chatId,
-      inReplyTo: closing.live?.inReplyTo ?? locked.messageId,
-      telemetry,
-      closedBySteer: true,
-    });
-  }
+  await finalizeSegmentUsage(tx, locked, closing);
   const closedReply = await finalizeRunReply(tx, {
     run: locked,
     status: cause === 'interrupt' ? 'cancelled' : 'completed',

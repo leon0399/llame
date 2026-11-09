@@ -1,5 +1,7 @@
 import { realpath, stat } from 'node:fs/promises';
 
+import { isRecord } from '@workspace/runtime-safety';
+
 import {
   hostFilesEnabled,
   reconcileArtifactFiles,
@@ -4730,23 +4732,16 @@ export class RunExecutionService {
   }
 
   /**
-   * The `interrupted` notice the message this attempt runs still lacks, when an
+   * The `interrupted` notice for the message this attempt runs, when an
    * interrupt delivered it: read back from the `run.delivered` event, which
-   * names the delivered message and the calls the stop killed. A message that
-   * already holds the notice, stored by an earlier dispatch, gets none.
+   * names the delivered message and the calls the stop killed. Only the
+   * segment's first dispatch calls this; a retry finds the notice stored on
+   * the message.
    */
   private async deliveredInterrupt(
     tx: Db,
     input: ExecuteRunInput,
   ): Promise<AuthoredContextItemPart | undefined> {
-    if (
-      input.userMessage.parts.some(
-        (part) =>
-          isContextItemPart(part) && part.data.producer === 'interrupted',
-      )
-    ) {
-      return undefined;
-    }
     const delivered = await new RunEventsRepository(tx).listByRunId(
       input.runId,
       input.userId,
@@ -6091,10 +6086,12 @@ export class RunExecutionService {
       input.input.followUpAction === 'regenerate' &&
       baseline.ownAvailability === null;
     const stagedParts: Array<MessagePart> = [];
-    // A delivered interrupt leads its message with the notice. The message
-    // stores it once: a retry of the segment finds it there (run-steering D7).
-    const interrupted = await this.deliveredInterrupt(input.tx, input.input);
-    if (interrupted !== undefined) stagedParts.push(interrupted);
+    // A delivered interrupt leads its message with the notice, authored by the
+    // segment's first dispatch (run-steering D7).
+    if (baseline.ownAvailability === null) {
+      const interrupted = await this.deliveredInterrupt(input.tx, input.input);
+      if (interrupted !== undefined) stagedParts.push(interrupted);
+    }
     if (!priorDispatch || regenerateFirstDispatch) {
       const modelChange = this.deriveModelChangeItem(
         baseline,
