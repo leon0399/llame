@@ -37,11 +37,12 @@ class ItemNoLongerPending extends Error {}
  * pending: the queue is paused and starts nothing until the owner acts.
  *
  * The lock is unconditional: skipping it on an empty queue would strand an
- * item admitted concurrently into an idle Chat. It cannot deadlock with
- * admission, because admission never writes the Run row of an active job
- * (`blockerIsLive` refuses to expire one). A send during promotion therefore
- * waits at most on the Chat row, or answers 409 while the Run is still
- * active; it never waits on the Run row this transaction holds.
+ * item admitted concurrently into an idle Chat. Run then Chat stays the lock
+ * order. A send waits at most on the Chat row or answers 409 while the Run is
+ * active; it does not wait on the Run row this transaction holds. One pair can
+ * still deadlock: a dead-letter expiry and a send's own expiry of the same Run
+ * lock the same rows in opposite order. Postgres detects it (40P01) and aborts
+ * one transaction; the other proceeds.
  */
 export async function promoteNextQueueItem(
   tx: Db,

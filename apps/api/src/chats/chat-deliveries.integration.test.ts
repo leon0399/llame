@@ -7,7 +7,7 @@
  * A live Run is seeded through the repositories: with no queue job and a fresh
  * `created_at`, admission judges it live, as it would a Run that executes.
  *
- * POSTGRES_URL-gated; run by `test:integration`.
+ * Requires TEST_DATABASE_URL (throws without it); run by `test:integration`.
  */
 
 import type { Server } from 'node:http';
@@ -40,7 +40,11 @@ import {
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
-const d = process.env.POSTGRES_URL ? describe : describe.skip;
+if (!process.env['TEST_DATABASE_URL']) {
+  throw new Error(
+    'chat-deliveries.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -48,7 +52,7 @@ const MODEL = 'system:openai:gpt-5.5';
 const SECOND_MODEL = 'system:openai:gpt-5.4';
 const THIRD_MODEL = 'system:openai:gpt-5.4-mini';
 
-d('chat deliveries — the queue mode', () => {
+describe('chat deliveries — the queue mode', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let models: FakeModelsService;
