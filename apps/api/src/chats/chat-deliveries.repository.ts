@@ -5,7 +5,7 @@
  * the table's forced RLS policy.
  */
 
-import { and, asc, eq, exists, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, inArray, isNotNull } from 'drizzle-orm';
 
 import {
   chatDeliveries,
@@ -18,6 +18,7 @@ import {
   type ChatDeliverySettings,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { ChatsRepository } from './chats-repository';
 
 export type NewChatDelivery = {
   id: string;
@@ -196,27 +197,13 @@ export class ChatDeliveriesRepository {
   async pauseBehind(run: Run): Promise<void> {
     if (run.status === 'completed' && run.cancelRequestedAt === null) return;
     const { chatId, userId: ownerUserId } = run;
-    await this.db
-      .select({ id: chats.id })
-      .from(chats)
-      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
-      .for('update');
+    await new ChatsRepository(this.db).lock(chatId, ownerUserId);
     const moving = await this.lockPendingSteering(chatId, ownerUserId);
     if (moving.length === 0) return;
-    const [head] = await this.db
-      .select({ position: sql<string | null>`min(${chatDeliveries.position})` })
-      .from(chatDeliveries)
-      .where(
-        and(
-          this.pendingOf(chatId, ownerUserId),
-          eq(chatDeliveries.mode, 'queue'),
-        ),
-      );
+    const head = await this.firstPendingQueueItem(chatId, ownerUserId);
     // Below the first queue item, or where they are when there is none.
     const below =
-      head?.position == null
-        ? undefined
-        : Number(head.position) - moving.length;
+      head === undefined ? undefined : head.position - moving.length;
     for (const [index, item] of moving.entries()) {
       await this.db
         .update(chatDeliveries)
@@ -251,15 +238,15 @@ export class ChatDeliveriesRepository {
 
   /**
    * Mark a pending item delivered as the user message and Run it became.
-   * Returns false when the item was no longer pending (zero rows), so the
-   * caller rolls the promotion back.
+   * Returns the delivered row, or undefined when the item was no longer
+   * pending (zero rows), so the caller rolls the promotion back.
    */
   async markDelivered(
     id: string,
     ownerUserId: string,
     delivered: { messageId: string; runId: string },
-  ): Promise<boolean> {
-    const rows = await this.db
+  ): Promise<ChatDelivery | undefined> {
+    const [row] = await this.db
       .update(chatDeliveries)
       .set({
         state: 'delivered',
@@ -274,8 +261,8 @@ export class ChatDeliveriesRepository {
           eq(chatDeliveries.state, 'pending'),
         ),
       )
-      .returning({ id: chatDeliveries.id });
-    return rows.length > 0;
+      .returning();
+    return row;
   }
 
   private pendingOf(chatId: string, ownerUserId: string) {
@@ -285,9 +272,4 @@ export class ChatDeliveriesRepository {
       eq(chatDeliveries.state, 'pending'),
     );
   }
-}
-
-/** The queue pauses behind a Run that ended; see `pauseBehind`. */
-export function pauseQueueBehind(db: Db, run: Run): Promise<void> {
-  return new ChatDeliveriesRepository(db).pauseBehind(run);
 }

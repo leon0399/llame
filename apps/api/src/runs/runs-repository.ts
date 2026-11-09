@@ -32,9 +32,15 @@ import {
   type RunEvent,
   type RunStatus,
 } from '../db/schema';
-import { pauseQueueBehind } from '../chats/chat-deliveries.repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type Db } from '../db/tenant-db.service';
-import { nonTerminalRun, type TerminalRunStatus } from './run-status';
+import {
+  markFinishedPredicate,
+  markFinishedUpdate,
+  nonTerminalRun,
+  type MarkFinishedOptions,
+  type TerminalRunStatus,
+} from './run-status';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 
 /** A completed run paired with the sequence of its triggering user message. */
@@ -43,53 +49,9 @@ export type CompletedRunWithTrigger = {
   readonly triggeringUserSeq: number;
 };
 
-type MarkFinishedOptions = {
-  error?: unknown;
-  attemptId?: string;
-};
-
-type MarkFinishedUpdate = {
-  status: TerminalRunStatus;
-  finishedAt: Date;
-  error?: unknown;
-  completedAttemptId?: string;
-};
-
-function markFinishedUpdate(
-  status: TerminalRunStatus,
-  options: MarkFinishedOptions | undefined,
-): MarkFinishedUpdate {
-  const update: MarkFinishedUpdate = {
-    status,
-    finishedAt: new Date(),
-  };
-  if (options?.error !== undefined) update.error = options.error;
-  if (status === 'completed' && options?.attemptId !== undefined) {
-    update.completedAttemptId = options.attemptId;
-  }
-  return update;
-}
-
 /** A Run whose dispatch transaction ran: it wrote its availability record. */
 export function dispatchedRunPredicate(): SQL {
   return sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`;
-}
-
-/**
- * Keep first-writer-wins and attempt fencing in one owner-scoped predicate.
- */
-function markFinishedPredicate(
-  runId: string,
-  userId: string,
-  attemptId: string | undefined,
-) {
-  return and(
-    eq(runs.id, runId),
-    eq(runs.userId, userId),
-    isNull(runs.finishedAt),
-    nonTerminalRun(),
-    ...(attemptId === undefined ? [] : [eq(runs.activeAttemptId, attemptId)]),
-  );
 }
 
 export class RunsRepository {
@@ -481,7 +443,8 @@ export class RunsRepository {
         ),
       )
       .returning();
-    for (const run of cancelled) await pauseQueueBehind(this.db, run);
+    for (const run of cancelled)
+      await new ChatDeliveriesRepository(this.db).pauseBehind(run);
     return cancelled;
   }
 
@@ -526,7 +489,8 @@ export class RunsRepository {
       .where(markFinishedPredicate(runId, userId, options?.attemptId))
       .returning();
     // The queue pauses behind a Run that did not deliver its steering items.
-    if (updated) await pauseQueueBehind(this.db, updated);
+    if (updated)
+      await new ChatDeliveriesRepository(this.db).pauseBehind(updated);
     return updated;
   }
 

@@ -420,6 +420,17 @@ const POLL_MS = 200;
  */
 const KEEPALIVE_MS = 15 * 1000;
 
+type UiMessageStreamInput = {
+  runId: string;
+  userId: string;
+  /**
+   * Replay only the events after this sequence: a resume passes the latest
+   * `run.delivered` of the Run, so it streams the current segment (D9).
+   */
+  afterSequence?: number;
+  abortSignal?: AbortSignal;
+};
+
 @Injectable()
 export class RunStreamBridgeService {
   constructor(private readonly tenantDb: TenantDbService) {}
@@ -436,16 +447,7 @@ export class RunStreamBridgeService {
    * default limit), so cutting the connection mid-run would turn a normal
    * long turn into a client-visible failure.
    */
-  createUiMessageStreamResponse(input: {
-    runId: string;
-    userId: string;
-    /**
-     * Replay only the events after this sequence: a resume passes the latest
-     * `run.delivered` of the Run, so it streams the current segment (D9).
-     */
-    afterSequence?: number;
-    abortSignal?: AbortSignal;
-  }): Response {
+  createUiMessageStreamResponse(input: UiMessageStreamInput): Response {
     const translator = createRunEventTranslator(input.runId);
 
     const stream = new ReadableStream<string>({
@@ -506,12 +508,7 @@ export class RunStreamBridgeService {
    */
   private async pumpUiMessageEvents(options: {
     controller: ReadableStreamDefaultController<string>;
-    input: {
-      runId: string;
-      userId: string;
-      afterSequence?: number;
-      abortSignal?: AbortSignal;
-    };
+    input: UiMessageStreamInput;
     translator: RunEventTranslator;
   }): Promise<void> {
     const { controller, input, translator } = options;

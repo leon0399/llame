@@ -26,7 +26,12 @@ import {
   ModelNotAvailableError,
   ModelsService,
 } from '../models/models.service';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { deadLetterQueue } from '../queue/queue';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { RUNS_QUEUE, type RunJob } from '../runs/run-queues';
+import { RunsWorkerService } from '../runs/runs-worker.service';
 import { type TerminalRunStatus } from '../runs/run-status';
 import { latestDeliverySequence } from '../runs/run-segment-queries';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -194,6 +199,39 @@ d('chat deliveries — the steer mode', () => {
     tenantDb.runAs(userAId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userAId),
     );
+  /**
+   * The handler a `runs` worker registers on the `runs.dead` queue, real
+   * executor and tenant scope behind it; the queue only captures it.
+   */
+  async function deadLetterConsumer(): Promise<(job: RunJob) => Promise<void>> {
+    let handler: ((job: RunJob) => Promise<void>) | undefined;
+    const consume = vi
+      .fn<
+        (
+          queue: { name: string },
+          consumer: (job: RunJob) => Promise<void>,
+        ) => Promise<string>
+      >()
+      .mockImplementation((definition, consumer) => {
+        if (definition.name === deadLetterQueue(RUNS_QUEUE).name) {
+          handler = consumer;
+        }
+        return Promise.resolve('consumer-id');
+      });
+    await new RunsWorkerService(
+      { ensureQueue: () => Promise.resolve(), consume },
+      app.get(InstanceConfigService, { strict: false }),
+      { concurrencyFor: () => 1 },
+      { assertReady: () => Promise.resolve() },
+      models,
+      executor,
+      tenantDb,
+      app.get(RunAbortRegistry, { strict: false }),
+    ).onApplicationBootstrap();
+    if (!handler) throw new Error('runs.dead consumer not registered');
+    return handler;
+  }
+
   const settle = (
     runId: string,
     status: TerminalRunStatus,
@@ -219,14 +257,15 @@ d('chat deliveries — the steer mode', () => {
     });
 
     it('A steer after completion starts a Run', async () => {
-      const chatId = await createChat();
+      const { chatId, runId } = await chatWithLiveRun();
+      await settle(runId, 'completed');
       const id = crypto.randomUUID();
 
       const res = await sendMode(chatId, 'steer', { id });
 
       expect(res.status).toBe(200);
       expect((await messagesOf(chatId)).some((m) => m.id === id)).toBe(true);
-      expect(await runsOf(chatId)).toHaveLength(1);
+      expect(await runsOf(chatId)).toHaveLength(2);
       expect(await pending(chatId)).toEqual([]);
     });
 
@@ -291,6 +330,24 @@ d('chat deliveries — the steer mode', () => {
         }),
       );
       expect(signal).toBe('delivery');
+    });
+
+    it('A change that expires a stuck Run keeps the item a steer', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      await sendMode(chatId, 'queue', { id });
+      await tenantDb.runAs(userAId, (tx) =>
+        tx.execute(
+          sql`UPDATE runs SET created_at = now() - interval '2 days', started_at = now() - interval '2 days' WHERE id = ${runId}`,
+        ),
+      );
+      models.client.delayMs = 300;
+
+      const res = await change(chatId, id, 'steer');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id, mode: 'steer', state: 'delivered' });
+      expect(await runsOf(chatId)).toHaveLength(2);
     });
 
     it.each(['queue', 'interrupt', 'later'])(
@@ -418,12 +475,14 @@ d('chat deliveries — the steer mode', () => {
 
     it('A dead-letter expiry pauses the queue', async () => {
       const { chatId, runId, ids } = await liveRunWithThreeItems();
-      const message =
-        'Run retries exhausted: the worker repeatedly failed to complete it.';
 
-      await settle(runId, 'expired', {
-        runPayload: { status: 'expired', message },
-        error: { message },
+      const expireDeadLettered = await deadLetterConsumer();
+      await expireDeadLettered({
+        runId,
+        chatId,
+        userId: userAId,
+        modelId: MODEL,
+        userMessage: { id: crypto.randomUUID(), seq: 1, parts: [] },
       });
 
       expect(await modesOf(chatId)).toEqual(pausedOrder(ids));

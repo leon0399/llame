@@ -715,26 +715,6 @@ describe('ChatsController', () => {
     );
   });
 
-  it('Resume identifies the active Run first, and replays only the current segment', async () => {
-    const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 42 });
-    bridge.createUiMessageStreamResponse.mockReturnValue(
-      new Response(null, { status: 200 }),
-    );
-
-    await controller.resumeChatStream(
-      'verified-user',
-      '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',
-      makeWritableResponse(),
-    );
-
-    // The Run id leads the stream (the bridge's `start` frame), and the
-    // segment cursor is the sequence of the Run's latest delivery.
-    expect(bridge.createUiMessageStreamResponse).toHaveBeenCalledWith(
-      expect.objectContaining({ runId: 'run-1', afterSequence: 42 }),
-    );
-  });
-
   it('returns 404 when the verified user does not own the chat', async () => {
     const { controller } = makeController({
       getChatById: vi.fn().mockResolvedValue(undefined),

@@ -1081,12 +1081,16 @@ describeIfDb(
           queriedChatId: string,
           queriedUserId: string,
         ): Promise<Run | undefined> {
-          // A bare status write: `markFinished` takes the Chat row lock that
-          // the admission awaiting this stand-in already holds.
+          // A completion that delivers nothing returns before it takes the
+          // Chat row lock (`pauseBehind`), so it can commit while admission
+          // holds that lock. Every other terminal writer waits for the lock
+          // after its Run update, so only this one reaches the re-check. A
+          // bare status write stands in for it here: `markFinished` would
+          // take the lock the awaiting admission already holds.
           await tenantDb.runAs(queriedUserId, (tx2) =>
             tx2
               .update(schema.runs)
-              .set({ status: 'cancelled', finishedAt: new Date() })
+              .set({ status: 'completed', finishedAt: new Date() })
               .where(eq(schema.runs.id, blocker!.id)),
           );
           spy.mockRestore();
@@ -1112,7 +1116,7 @@ describeIfDb(
       const finishedBlocker = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findById(blocker!.id, userId),
       );
-      expect(finishedBlocker?.status).toBe('cancelled');
+      expect(finishedBlocker?.status).toBe('completed');
 
       const runs = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),

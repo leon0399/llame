@@ -71,12 +71,13 @@ export async function latestDeliverySequence(
   runId: string,
   userId: string,
 ): Promise<number> {
-  const delivered = await new RunEventsRepository(tx).listByRunId(
+  const delivered = await new RunEventsRepository(tx).findFirstByType(
     runId,
     userId,
-    { eventTypes: ['run.delivered'] },
+    'run.delivered',
+    { newest: true },
   );
-  return delivered.at(-1)?.sequence ?? 0;
+  return delivered?.sequence ?? 0;
 }
 
 /**

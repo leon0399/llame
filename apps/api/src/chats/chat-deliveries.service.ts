@@ -89,6 +89,16 @@ export class ChatDeliveriesService {
     const { item, job } = await this.tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).lock(chatId, userId);
       if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
+      // The slot comes before the change: expiring a stuck Run pauses the
+      // queue behind it, which would move the item changed here back to
+      // `queue`.
+      const slot = await claimActiveRunSlot({
+        tx,
+        chatId,
+        userId,
+        dispatch: this.dispatch,
+        instanceConfig: this.instanceConfig,
+      });
       const items = new ChatDeliveriesRepository(tx);
       const changed = await items.changePendingMode(
         chatId,
@@ -97,13 +107,6 @@ export class ChatDeliveriesService {
         mode,
       );
       if (!changed) throw await this.missOf(items, chatId, deliveryId, userId);
-      const slot = await claimActiveRunSlot({
-        tx,
-        chatId,
-        userId,
-        dispatch: this.dispatch,
-        instanceConfig: this.instanceConfig,
-      });
       if (slot === 'blocked') return { item: changed };
       assertNotArchived(chat);
       resolveSendSettings(
@@ -111,10 +114,9 @@ export class ChatDeliveriesService {
         this.instanceConfig.config.tools.permissionModes,
         changed.settings,
       );
-      const job = await startItemRun(tx, changed);
-      if (!job) throw new ConflictException('Message id already exists');
-      const delivered = await items.findById(deliveryId, userId);
-      return { item: delivered ?? changed, job };
+      const started = await startItemRun(tx, changed);
+      if (!started) throw new ConflictException('Message id already exists');
+      return { item: started.delivered, job: started.job };
     });
     if (job) await this.dispatch.dispatch(job);
     return item;

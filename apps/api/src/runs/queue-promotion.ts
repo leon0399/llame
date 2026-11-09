@@ -64,7 +64,8 @@ export async function promoteNextQueueItem(
   // A savepoint, so an item that stopped being pending leaves no message and
   // no Run behind while the completed Run's own settlement commits.
   try {
-    return await tx.transaction((inner) => startItemRun(inner, item));
+    const started = await tx.transaction((inner) => startItemRun(inner, item));
+    return started?.job;
   } catch (error) {
     if (error instanceof ItemNoLongerPending) return undefined;
     throw error;
@@ -93,13 +94,13 @@ function settingsStillValid(
 /**
  * Store one pending item as the user message of a new Run and mark it
  * delivered. The completion path and a mode change on a paused item share it,
- * so both start the Run the same way. Undefined when the item's id is already
- * a message.
+ * so both start the Run the same way. Returns the Run's job and the item as
+ * delivered; undefined when the item's id is already a message.
  */
 export async function startItemRun(
   tx: Db,
   item: ChatDelivery,
-): Promise<RunJob | undefined> {
+): Promise<{ job: RunJob; delivered: ChatDelivery } | undefined> {
   const message = await new MessagesRepository(tx).createUserMessageIfAbsent({
     id: item.id,
     chatId: item.chatId,
@@ -127,10 +128,13 @@ export async function startItemRun(
   );
   if (!delivered) throw new ItemNoLongerPending();
   return {
-    runId: run.id,
-    chatId: item.chatId,
-    userId: item.ownerUserId,
-    modelId: item.settings.modelId,
-    userMessage: toRunUserMessage(message),
+    delivered,
+    job: {
+      runId: run.id,
+      chatId: item.chatId,
+      userId: item.ownerUserId,
+      modelId: item.settings.modelId,
+      userMessage: toRunUserMessage(message),
+    },
   };
 }
