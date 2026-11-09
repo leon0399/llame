@@ -4,7 +4,7 @@
  * the scripted model client. Pending steer items are stored directly in
  * `chat_deliveries`, as in the `segments` suite: no HTTP admits a `steer` yet.
  *
- * TEST_DATABASE_URL-gated; run by test:integration.
+ * Requires TEST_DATABASE_URL (throws without it); run by test:integration.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -45,10 +45,6 @@ import {
   seedRun,
   type WorkerHarness,
 } from './worker-harness';
-
-const describeIfDb = process.env['TEST_DATABASE_URL']
-  ? describe
-  : describe.skip;
 
 vi.setConfig({ testTimeout: 90_000 });
 
@@ -94,7 +90,7 @@ const producers = (message: Message | undefined): Array<string> =>
     isContextItemPart(part) ? [part.data.producer] : [],
   );
 
-describeIfDb('run steering segment preparation', () => {
+describe('run steering segment preparation', () => {
   let harness: WorkerHarness;
   let userId: string;
   let directory: string;
