@@ -61,17 +61,23 @@ function dropItem(ctx: DeliveryContext, deliveryId: string) {
 }
 
 /** The outcome of a failed action on `item`: 409 means it was delivered, and
- *  404 that it is gone. */
+ *  404 that it is gone. Any other failure leaves the item pending on the
+ *  server, so it stays and the list is read again. */
 function settleFailure(
   ctx: DeliveryContext,
   item: ChatDeliveryResponse,
   error: unknown,
 ) {
-  dropItem(ctx, item.id);
   if (isAlreadyDelivered(error)) {
+    dropItem(ctx, item.id);
     ctx.begin(item.id);
-  } else if (getApiErrorStatus(error) !== 404) {
+  } else if (getApiErrorStatus(error) === 404) {
+    dropItem(ctx, item.id);
+  } else {
     toast.error("Couldn't update that message. Try again.");
+    void ctx.queryClient.invalidateQueries({
+      queryKey: deliveriesQueryOptions(ctx.chatId).queryKey,
+    });
   }
 }
 
@@ -174,7 +180,10 @@ async function sendComposed(
       queryKey: deliveriesQueryOptions(ctx.chatId).queryKey,
     });
   } catch {
-    draft.setInput(message.text);
+    // The owner may have typed during the send: their draft stays.
+    draft.setInput((current) =>
+      current.trim() === "" ? message.text : `${message.text}\n\n${current}`,
+    );
     draft.attachments.restore(sent);
     toast.error("Couldn't send that message. Try again.");
   }

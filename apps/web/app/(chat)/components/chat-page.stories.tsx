@@ -3083,6 +3083,75 @@ export const DeliveredItemLeavesTheStack: Story = {
 };
 
 /**
+ * A failed action that is neither 404 nor 409 leaves the item pending on the
+ * server: the stack keeps the row, and no handoff starts for it.
+ *
+ * @summary a failed Steer now keeps the item
+ */
+export const FailedSteerNowKeepsTheItem: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [pendingItem("q1", "queue", "check the docs later")],
+    a11y: { config: { rules: [{ id: "aria-hidden-focus", enabled: false }] } },
+  } satisfies ChatPageParameters & { a11y: object },
+  beforeEach: () => {
+    routeAlso({
+      [`PATCH ${DELIVERY_ROUTE("q1")}`]: () =>
+        Promise.resolve(
+          jsonResponse({ statusCode: 500, message: "Server error" }, 500),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedLiveRun(canvasElement);
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(
+      within(stack).getByRole("button", { name: /^Steer now/ }),
+    );
+
+    // The failed PATCH is read back against the list: the row stays.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await expect(
+      within(await canvas.findByRole("region", PENDING_REGION)).getByText(
+        "check the docs later",
+      ),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * Text typed while a delivery send is in flight stays in the composer when
+ * that send fails, below the restored text.
+ *
+ * @summary a failed send keeps text typed meanwhile
+ */
+export const FailedSendKeepsTextTypedMeanwhile: Story = {
+  tags: ["ai-generated"],
+  parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [SEND_ROUTE]: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return jsonResponse({ statusCode: 500, message: "Server error" }, 500);
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const input = await openedLiveRun(canvasElement);
+    await userEvent.type(input, "first try{Enter}");
+    await userEvent.type(input, "typed meanwhile");
+
+    await waitFor(() =>
+      expect(composer(canvasElement)).toHaveValue(
+        "first try\n\ntyped meanwhile",
+      ),
+    );
+  },
+};
+
+/**
  * Esc interrupts while a steer is pending: the first press turns the steer
  * into an interrupt. After that delivery, between two segments, the second
  * press cancels the Run through the Chat's newest Run, the queue item stays
