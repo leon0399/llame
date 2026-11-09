@@ -2,6 +2,9 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 
 import { type Chat } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { type InstanceConfigReader } from '../instance-config/instance-config.service';
+import { type ModelSelectionValidator } from '../models/models.service';
+import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
@@ -20,7 +23,12 @@ function makeService() {
       callback(tx),
   };
   return {
-    service: new ChatDeliveriesService(tenantDb),
+    service: new ChatDeliveriesService(
+      tenantDb,
+      asDouble<ModelSelectionValidator>({}),
+      asDouble<InstanceConfigReader>({}),
+      asDouble<RunDispatcher>({}),
+    ),
     findChat: vi.spyOn(ChatsRepository.prototype, 'findById'),
     listPending: vi.spyOn(ChatDeliveriesRepository.prototype, 'listPending'),
     withdrawPending: vi.spyOn(

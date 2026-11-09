@@ -5106,7 +5106,7 @@ describe('RunExecutionService executeRun — queue promotion', () => {
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'markDelivered',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue(queued);
     vi.spyOn(
       MessagesRepository.prototype,
       'createUserMessageIfAbsent',
@@ -17972,7 +17972,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'markDelivered',
-    ).mockResolvedValue(true);
+    ).mockResolvedValue(items[0]);
     const createUser = vi
       .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
       .mockResolvedValue(deliveredMessage);

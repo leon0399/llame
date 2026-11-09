@@ -53,7 +53,7 @@ function makeSetup(
     .mockResolvedValue(item);
   const markDelivered = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
-    .mockResolvedValue(true);
+    .mockResolvedValue(item);
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
     .mockResolvedValue(message);
@@ -210,7 +210,7 @@ describe('promoteNextQueueItem', () => {
 
   it('starts nothing when the item stopped being pending before its delivery', async () => {
     const { promote, markDelivered } = makeSetup();
-    markDelivered.mockResolvedValue(false);
+    markDelivered.mockResolvedValue(undefined);
 
     await expect(promote()).resolves.toBeUndefined();
   });
