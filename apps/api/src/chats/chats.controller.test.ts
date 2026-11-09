@@ -656,7 +656,7 @@ describe('ChatsController', () => {
 
   it('resume: 204 with no active run — scoped to the verified user (RLS path)', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue(undefined);
+    runAsSpy.mockResolvedValue({ run: undefined, afterSequence: 0 });
     const response = makeWritableResponse();
     const end = vi.spyOn(response, 'end');
 
@@ -680,7 +680,7 @@ describe('ChatsController', () => {
     const { controller, runAsSpy, bridge } = makeController();
     // Even with an active run, a response whose socket died before the
     // handler ran must exit after the (single) lookup without a write.
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     const response = makeWritableResponse();
     const end = vi.spyOn(response, 'end');
     response.destroy();
@@ -698,7 +698,7 @@ describe('ChatsController', () => {
 
   it('resume: bridges the active run for the verified user', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 7 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(null, { status: 200 }),
     );
@@ -711,7 +711,11 @@ describe('ChatsController', () => {
     );
 
     expect(bridge.createUiMessageStreamResponse).toHaveBeenCalledWith(
-      expect.objectContaining({ runId: 'run-1', userId: 'verified-user' }),
+      expect.objectContaining({
+        runId: 'run-1',
+        userId: 'verified-user',
+        afterSequence: 7,
+      }),
     );
   });
 
@@ -975,7 +979,7 @@ describe('ChatsController response plumbing', () => {
 
   it('copies the bridged status and every header onto the Express response', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response('replayed', {
         status: 201,
@@ -1000,7 +1004,7 @@ describe('ChatsController response plumbing', () => {
 
   it('ends the response without piping when the bridged response has no body', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(null, { status: 204 }),
     );
@@ -1077,7 +1081,7 @@ describe('ChatsController response plumbing', () => {
 
   it('destroys the connection instead of rethrowing when the stream fails after headers', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(
         new ReadableStream({
@@ -1105,7 +1109,7 @@ describe('ChatsController response plumbing', () => {
 
   it('rethrows a stream failure that happened before any header was flushed', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(
         new ReadableStream({
@@ -1129,7 +1133,7 @@ describe('ChatsController response plumbing', () => {
 
   it('swallows a stream failure that is really the client having disconnected', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(
         new ReadableStream({
@@ -1151,7 +1155,7 @@ describe('ChatsController response plumbing', () => {
 
   it('removes its close listener once the handler returns', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(null, { status: 200 }),
     );
@@ -1164,7 +1168,7 @@ describe('ChatsController response plumbing', () => {
 
   it('aborts the bridged stream when the client disconnects mid-stream', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     let captured: AbortSignal | undefined;
     bridge.createUiMessageStreamResponse.mockImplementation((input) => {
       captured = input.abortSignal;
@@ -1190,7 +1194,7 @@ describe('ChatsController response plumbing', () => {
 
   it('does not abort when the response closed only because it finished writing', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ id: 'run-1' });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
     const response = makeWritableResponse();
     Object.defineProperty(response, 'writableEnded', {
       value: true,

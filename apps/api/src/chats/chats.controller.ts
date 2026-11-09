@@ -50,6 +50,7 @@ import {
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
+import { latestDeliverySequence } from '../runs/run-segment-queries';
 import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { throwModelDomainError } from './model-domain-error';
 import {
@@ -175,8 +176,9 @@ export class ChatsController {
     // and the bridge would then stream to a destroyed response until its cap.
     const abort = requestAbortSignal(response);
     try {
-      const run = await this.tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findActiveByChatId(id, userId),
+      const { run, afterSequence } = await this.findActiveRunSegment(
+        userId,
+        id,
       );
       if (abort.signal.aborted) {
         return; // client is gone — nothing to write to
@@ -189,12 +191,31 @@ export class ChatsController {
       const streamResponse = this.bridge.createUiMessageStreamResponse({
         runId: run.id,
         userId,
+        afterSequence,
         abortSignal: abort.signal,
       });
       await writeWebResponse(streamResponse, response, abort.signal);
     } finally {
       abort.cleanup();
     }
+  }
+
+  /**
+   * The Chat's active Run and the sequence after which its current segment's
+   * stream starts: a delivery ends a segment's stream, so a resume replays
+   * only what follows the latest one.
+   */
+  private findActiveRunSegment(userId: string, chatId: string) {
+    return this.tenantDb.runAs(userId, async (tx) => {
+      const run = await new RunsRepository(tx).findActiveByChatId(
+        chatId,
+        userId,
+      );
+      const afterSequence = run
+        ? await latestDeliverySequence(tx, run.id, userId)
+        : 0;
+      return { run, afterSequence };
+    });
   }
 
   @Get()

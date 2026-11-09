@@ -138,7 +138,7 @@ describe('deliverPendingSteering', () => {
       locked?: Run | undefined;
       chat?: Chat | undefined;
       items?: Array<ChatDelivery>;
-      marked?: boolean;
+      marked?: ChatDelivery | undefined;
       stored?: Message | undefined;
       moved?: Run | undefined;
     } = {},
@@ -160,7 +160,7 @@ describe('deliverPendingSteering', () => {
       .mockResolvedValue(overrides.items ?? [first, second]);
     const markDelivered = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
-      .mockResolvedValue(overrides.marked ?? true);
+      .mockResolvedValue(has('marked') ? overrides.marked : first);
     const createUser = vi
       .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
       .mockResolvedValue(has('stored') ? overrides.stored : deliveredMessage);
@@ -383,7 +383,7 @@ describe('deliverPendingSteering', () => {
   });
 
   it('rolls back when an item was not pending', async () => {
-    const spies = serve({ marked: false });
+    const spies = serve({ marked: undefined });
 
     await expect(deliver()).rejects.toThrow(
       `Steer item ${first.id} was not pending.`,
@@ -434,7 +434,9 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'markDelivered',
-    ).mockResolvedValue(true);
+    ).mockImplementation((id) =>
+      Promise.resolve(items.find((item) => item.id === id)),
+    );
     vi.spyOn(
       MessagesRepository.prototype,
       'createUserMessageIfAbsent',

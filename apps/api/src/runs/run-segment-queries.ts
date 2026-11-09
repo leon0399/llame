@@ -63,6 +63,24 @@ export async function currentSegmentState(
 }
 
 /**
+ * The sequence of the Run's latest `run.delivered`, or 0 before the first: the
+ * cursor from which a resume replays the current segment's stream (D9).
+ */
+export async function latestDeliverySequence(
+  tx: Db,
+  runId: string,
+  userId: string,
+): Promise<number> {
+  const delivered = await new RunEventsRepository(tx).findFirstByType(
+    runId,
+    userId,
+    'run.delivered',
+    { newest: true },
+  );
+  return delivered?.sequence ?? 0;
+}
+
+/**
  * The Run's own dispatched record, read through the newest reply before
  * `beforeSeq` whose usage names the Run, with the sequence of the user message
  * that reply answers. Undefined when the Run has no such reply or never

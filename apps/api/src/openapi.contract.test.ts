@@ -67,6 +67,7 @@ const rawDocument: unknown = JSON.parse(
 const document = openApiObjectSchema.parse(rawDocument);
 
 const EXPECTED_OPERATION_IDS = [
+  'changeChatDelivery',
   'changeOrgUnitMembershipRole',
   'createChat',
   'createChatFollowUpRun',

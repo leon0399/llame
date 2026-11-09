@@ -4423,8 +4423,11 @@ export class RunExecutionService {
       await persistFirstEpochBaselines(tx, finished, input);
     }
     await events.append(input.runId, `run.${input.status}`, input.runPayload);
+    // A recorded cancellation means the owner asked to stop: nothing starts.
     const promoted =
-      input.status === 'completed' && this.runDispatch !== undefined
+      input.status === 'completed' &&
+      finished.cancelRequestedAt === null &&
+      this.runDispatch !== undefined
         ? await promoteNextQueueItem(tx, {
             completed: finished,
             models: this.models,

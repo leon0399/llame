@@ -1,4 +1,4 @@
-import { notInArray } from 'drizzle-orm';
+import { and, eq, isNull, notInArray } from 'drizzle-orm';
 import { runs, type RunStatus } from '../db/schema/chats';
 
 /**
@@ -29,4 +29,48 @@ export function isTerminalRunStatus(
 /** Query predicate: the Run row is not in a terminal status. */
 export function nonTerminalRun() {
   return notInArray(runs.status, [...TERMINAL_RUN_STATUSES]);
+}
+
+export type MarkFinishedOptions = {
+  error?: unknown;
+  attemptId?: string;
+};
+
+type MarkFinishedUpdate = {
+  status: TerminalRunStatus;
+  finishedAt: Date;
+  error?: unknown;
+  completedAttemptId?: string;
+};
+
+export function markFinishedUpdate(
+  status: TerminalRunStatus,
+  options: MarkFinishedOptions | undefined,
+): MarkFinishedUpdate {
+  const update: MarkFinishedUpdate = {
+    status,
+    finishedAt: new Date(),
+  };
+  if (options?.error !== undefined) update.error = options.error;
+  if (status === 'completed' && options?.attemptId !== undefined) {
+    update.completedAttemptId = options.attemptId;
+  }
+  return update;
+}
+
+/**
+ * Keep first-writer-wins and attempt fencing in one owner-scoped predicate.
+ */
+export function markFinishedPredicate(
+  runId: string,
+  userId: string,
+  attemptId: string | undefined,
+) {
+  return and(
+    eq(runs.id, runId),
+    eq(runs.userId, userId),
+    isNull(runs.finishedAt),
+    nonTerminalRun(),
+    ...(attemptId === undefined ? [] : [eq(runs.activeAttemptId, attemptId)]),
+  );
 }

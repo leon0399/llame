@@ -867,6 +867,60 @@ describe('RunStreamBridgeService', () => {
     });
   });
 
+  it('A live client sees the delivery', async () => {
+    // One poll returns the delivery and the next segment's first delta: the
+    // stream of the first segment must end at the delivery.
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      runEvent(1, 'model.delta', { text: 'first' }),
+      runEvent(2, 'run.delivered', { messageId: 'delivered-message' }),
+      runEvent(3, 'model.delta', { text: 'second' }),
+    ]);
+    const { bridge } = bridgeFixture();
+
+    const body = await bridge
+      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .text();
+
+    const frames = [
+      { type: 'start', messageId: RUN_ID },
+      { type: 'text-start', id: 'text-1' },
+      { type: 'text-delta', id: 'text-1', delta: 'first' },
+      { type: 'text-end', id: 'text-1' },
+      { type: 'data-run-delivered', data: { messageId: 'delivered-message' } },
+      { type: 'finish', finishReason: 'stop' },
+    ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`);
+    expect(body).toBe(`${frames.join('')}data: [DONE]\n\n`);
+  });
+
+  it('A resume after a delivery replays only the current segment', async () => {
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue([
+        runEvent(3, 'model.delta', { text: 'second' }),
+        runEvent(4, 'run.completed', null),
+      ]);
+    const { bridge } = bridgeFixture();
+
+    const body = await bridge
+      .createUiMessageStreamResponse({
+        runId: RUN_ID,
+        userId: 'user-1',
+        afterSequence: 2,
+      })
+      .text();
+
+    // The Run id leads the stream, as on any resume, and the replay starts
+    // after the latest delivery.
+    expect(
+      body.startsWith(`data: {"type":"start","messageId":"${RUN_ID}"}`),
+    ).toBe(true);
+    expect(body).toContain('"delta":"second"');
+    expect(body).not.toContain('data-run-delivered');
+    expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
+      afterSequence: 2,
+    });
+  });
+
   it('emits start before the first poll and never emits a second start', async () => {
     let polls = 0;
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(

@@ -7,6 +7,7 @@ import {
   currentSegmentState,
   eventsSinceLatestDelivery,
   findEarlierSegmentBaseline,
+  latestDeliverySequence,
 } from './run-segment-queries';
 import { RunEventsRepository } from './runs-repository';
 
@@ -115,5 +116,20 @@ describe('run segment queries', () => {
 
     expect(queries[0]).toContain(`"messages" "trigger"`);
     expect(queries[0]).toContain(`->> 'runId'`);
+  });
+});
+
+describe('latestDeliverySequence', () => {
+  it('reads the newest run.delivered event of the Run', async () => {
+    const queries: Array<string> = [];
+    const db: Db = drizzle.mock({
+      schema,
+      logger: { logQuery: (sql) => queries.push(sql) },
+    });
+
+    await latestDeliverySequence(db, 'run-1', 'owner-1').catch(() => undefined);
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain('order by "run_events"."sequence" desc');
   });
 });
