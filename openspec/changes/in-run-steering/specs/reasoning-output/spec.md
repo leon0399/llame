@@ -25,7 +25,7 @@ their content or their age.
 
 #### Scenario: The reasoning of a failed reply is omitted
 
-- **WHEN** the Run of turn 1 failed after a reasoning part, and turn 2 runs on the same model
+- **WHEN** the reply of turn 1 failed after a reasoning part, and turn 2 runs on the same model
 - **THEN** the first request of turn 2 carries no reasoning part of turn 1
 - **AND** it carries the text and the tool activity of turn 1
 
