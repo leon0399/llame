@@ -1,5 +1,5 @@
 Track [#1622](https://github.com/leon0399/llame/issues/1622) and its PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Parent tracking issue:
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Parent tracking issue:
 [#1612](https://github.com/leon0399/llame/issues/1612). Implementation waits for Leo's approval
 of the published proposal revision. Keep live status in the Project.
 
