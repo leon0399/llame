@@ -190,9 +190,13 @@ export class ChatDeliveriesRepository {
    * to the head of the queue, in their order. A Run that completes delivers or
    * promotes them itself; one that completes with a recorded cancellation, as
    * one that does not complete, leaves the owner to decide. The Chat row lock
-   * comes after the Run row the caller already holds, the codebase lock
-   * order, and it serializes with an admission that read the Run as live:
-   * that item is committed first and this move sees it.
+   * serializes with an admission that read the Run as live: that item is
+   * committed first and this move sees it. The lock comes after the Run row
+   * the caller holds, the codebase order. Admission expiry holds the Chat row
+   * first and then writes the Run row, so a concurrent terminal write of a
+   * non-live Run against that expiry (a dead-letter expiry, say) inverts the
+   * order. The inversion is accepted: Postgres aborts one of the two
+   * transactions (40P01) and leaves the other consistent.
    */
   async pauseBehind(run: Run): Promise<void> {
     if (run.status === 'completed' && run.cancelRequestedAt === null) return;

@@ -698,7 +698,7 @@ describe('ChatsController', () => {
 
   it('resume: bridges the active run for the verified user', async () => {
     const { controller, runAsSpy, bridge } = makeController();
-    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 0 });
+    runAsSpy.mockResolvedValue({ run: { id: 'run-1' }, afterSequence: 7 });
     bridge.createUiMessageStreamResponse.mockReturnValue(
       new Response(null, { status: 200 }),
     );
@@ -711,7 +711,11 @@ describe('ChatsController', () => {
     );
 
     expect(bridge.createUiMessageStreamResponse).toHaveBeenCalledWith(
-      expect.objectContaining({ runId: 'run-1', userId: 'verified-user' }),
+      expect.objectContaining({
+        runId: 'run-1',
+        userId: 'verified-user',
+        afterSequence: 7,
+      }),
     );
   });
 

@@ -89,6 +89,7 @@ export class ChatDeliveriesService {
     const { item, job } = await this.tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).lock(chatId, userId);
       if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
+      assertNotArchived(chat);
       // The slot comes before the change: expiring a stuck Run pauses the
       // queue behind it, which would move the item changed here back to
       // `queue`.
@@ -108,7 +109,6 @@ export class ChatDeliveriesService {
       );
       if (!changed) throw await this.missOf(items, chatId, deliveryId, userId);
       if (slot === 'blocked') return { item: changed };
-      assertNotArchived(chat);
       resolveSendSettings(
         this.models,
         this.instanceConfig.config.tools.permissionModes,

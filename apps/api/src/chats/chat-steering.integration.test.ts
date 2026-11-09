@@ -8,7 +8,7 @@
  * `chat-deliveries.integration.test.ts`: with no queue job and a fresh
  * `created_at`, admission judges it live.
  *
- * POSTGRES_URL-gated; run by `test:integration`.
+ * Needs TEST_DATABASE_URL; run by `test:integration`.
  */
 
 import type { Server } from 'node:http';
@@ -45,7 +45,11 @@ import {
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
-const d = process.env.POSTGRES_URL ? describe : describe.skip;
+if (!process.env['TEST_DATABASE_URL']) {
+  throw new Error(
+    'chat-steering.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -55,7 +59,7 @@ const itemsBody = z.object({
   items: z.array(z.object({ id: z.string(), mode: z.string() })),
 });
 
-d('chat deliveries — the steer mode', () => {
+describe('chat deliveries — the steer mode', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let models: FakeModelsService;
@@ -379,6 +383,29 @@ d('chat deliveries — the steer mode', () => {
       ).toBe(404);
       expect(await modesOf(first.chatId)).toEqual([[id, 'queue']]);
     });
+
+    it.each(['live Run', 'paused queue'])(
+      'An archived Chat with a %s: the change answers 409 and the item keeps queue',
+      async (state) => {
+        const { chatId, runId } = await chatWithLiveRun();
+        const id = crypto.randomUUID();
+        await sendMode(chatId, 'queue', { id });
+        if (state === 'paused queue') {
+          await settle(runId, 'failed', { error: { message: 'boom' } });
+        }
+        await tenantDb.runAs(userAId, (tx) =>
+          tx.execute(
+            sql`UPDATE chats SET archived_at = now() WHERE id = ${chatId}`,
+          ),
+        );
+
+        const res = await change(chatId, id, 'steer');
+
+        expect(res.status).toBe(409);
+        expect(await modesOf(chatId)).toEqual([[id, 'queue']]);
+        expect(await runsOf(chatId)).toHaveLength(1);
+      },
+    );
 
     it('An item that is no longer pending gets 409', async () => {
       const { chatId } = await chatWithLiveRun();
