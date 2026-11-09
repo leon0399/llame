@@ -3000,6 +3000,10 @@ export const EditPutsTheTextBack: Story = {
   },
 };
 
+/** Gate the mocked reply until the play function has finished typing. */
+let typingDone: Promise<void> = Promise.resolve();
+let releaseTyping = () => {};
+
 /**
  * Text typed while the Edit's withdrawal is in flight stays in the composer,
  * below the withdrawn text.
@@ -3013,9 +3017,12 @@ export const EditKeepsTextTypedMeanwhile: Story = {
     pending: [pendingItem("q1", "queue", "check the docs later")],
   } satisfies ChatPageParameters,
   beforeEach: () => {
+    typingDone = new Promise<void>((resolve) => {
+      releaseTyping = resolve;
+    });
     routeAlso({
       [`DELETE ${DELIVERY_ROUTE("q1")}`]: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await typingDone;
         return jsonResponse({
           ...pendingItem("q1", "queue", "check the docs later"),
           state: "withdrawn",
@@ -3029,6 +3036,7 @@ export const EditKeepsTextTypedMeanwhile: Story = {
     const stack = await canvas.findByRole("region", PENDING_REGION);
     await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
     await userEvent.type(input, "typed meanwhile");
+    releaseTyping();
 
     await waitFor(() =>
       expect(composer(canvasElement)).toHaveValue(
@@ -3131,9 +3139,12 @@ export const FailedSendKeepsTextTypedMeanwhile: Story = {
   tags: ["ai-generated"],
   parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
   beforeEach: () => {
+    typingDone = new Promise<void>((resolve) => {
+      releaseTyping = resolve;
+    });
     routeAlso({
       [SEND_ROUTE]: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await typingDone;
         return jsonResponse({ statusCode: 500, message: "Server error" }, 500);
       },
     });
@@ -3142,6 +3153,7 @@ export const FailedSendKeepsTextTypedMeanwhile: Story = {
     const input = await openedLiveRun(canvasElement);
     await userEvent.type(input, "first try{Enter}");
     await userEvent.type(input, "typed meanwhile");
+    releaseTyping();
 
     await waitFor(() =>
       expect(composer(canvasElement)).toHaveValue(
