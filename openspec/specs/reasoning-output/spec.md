@@ -314,8 +314,8 @@ Reasoning support on the `openai-completions` wire SHALL be accepted only after 
 ### Requirement: Earlier reasoning replays only for the model that produced it
 
 A reasoning part of an earlier turn MUST replay only when two conditions are
-true. Its reply came from a Run with the llame model id of the request, and that
-Run completed. Otherwise the system MUST omit the part and its provider metadata.
+true. Its reply came from a Run with the llame model id of the request. That reply
+completed, or an owner interrupt closed it. Otherwise the system MUST omit the part and its provider metadata.
 Within one turn, and in the kept parts of a Continue Run, a reasoning part MUST
 replay on the model of its Run. The segments of one Run are one turn for this rule,
 also before the Run completes. A reasoning part that an interrupt cut MUST NOT
@@ -358,7 +358,7 @@ their content or their age.
 
 #### Scenario: An interrupted reply keeps only reasoning with a later part
 
-- **WHEN** an interrupt closes a reply with a signed reasoning part, a text part, a second signed reasoning part, and a cut part
+- **WHEN** an interrupt closes a reply with a signed reasoning part, a text part, a second signed reasoning part, and a cut reasoning part
 - **THEN** a later request of the same Run carries the first reasoning part and the text part
 - **AND** it carries neither the second reasoning part nor the cut part
 
