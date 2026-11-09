@@ -434,7 +434,9 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'markDelivered',
-    ).mockResolvedValue(true);
+    ).mockImplementation((id) =>
+      Promise.resolve(items.find((item) => item.id === id)),
+    );
     vi.spyOn(
       MessagesRepository.prototype,
       'createUserMessageIfAbsent',
