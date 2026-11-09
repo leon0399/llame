@@ -59,6 +59,10 @@ import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { chatDeliveryRow } from '../testing/chat-delivery-rows';
+import { asDouble } from '../testing/support';
+import { type RunDispatcher } from './run-dispatch.service';
 
 // The real SDK without a client, with the three calls a Run makes observable.
 vi.mock('@sentry/nestjs', async (importOriginal) => ({
@@ -502,6 +506,8 @@ type ExecutionServiceOptions = {
   gitProducer?: InRunContextProducer;
   /** The git observation the producer tells. */
   gitSnapshots?: Pick<GitSnapshotService, 'observe'>;
+  /** Enqueues the Run a completed Run promotes; absent where no queue exists. */
+  runDispatch?: Pick<RunDispatcher, 'dispatch'>;
 };
 
 function makeExecutionService(
@@ -620,6 +626,7 @@ function makeExecutionService(
     options.decisions,
     options.gitProducer,
     options.gitSnapshots,
+    options.runDispatch,
   );
   return {
     service,
@@ -5039,6 +5046,158 @@ describe('RunExecutionService executeRun — stream completion', () => {
 
     const durable = JSON.stringify(appended);
     expect(durable).not.toContain(chatId);
+  });
+});
+
+describe('RunExecutionService executeRun — queue promotion', () => {
+  const queued = chatDeliveryRow({
+    chatId,
+    ownerUserId: userId,
+    settings: { modelId: 'fake-model', permissionMode: 'default' },
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Starts a Run whose Chat has a pending queue item (or none), returning the
+   * callbacks that settle it and the repositories a promotion reads and writes.
+   */
+  async function startRun(options: {
+    dispatch?: RunDispatcher['dispatch'];
+    pending: boolean;
+  }) {
+    mockNormalExecutionRepositories();
+    recordAppendedEvents();
+    const lock = vi
+      .spyOn(ChatsRepository.prototype, 'lock')
+      .mockResolvedValue(chat);
+    const firstPendingQueueItem = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
+      .mockResolvedValue(options.pending ? queued : undefined);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'markDelivered',
+    ).mockResolvedValue(true);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    ).mockResolvedValue({ ...userMessage, id: queued.id, seq: 3 });
+    vi.spyOn(
+      RunsRepository.prototype,
+      'cancelActiveRunsForMessage',
+    ).mockResolvedValue([]);
+    const createRun = vi
+      .spyOn(RunsRepository.prototype, 'create')
+      .mockImplementation((created) =>
+        Promise.resolve({ ...run, id: created.id ?? run.id, status: 'queued' }),
+      );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        ...(options.dispatch !== undefined && {
+          runDispatch: { dispatch: options.dispatch },
+        }),
+      },
+    );
+    // The savepoint the promotion runs its item in.
+    vi.spyOn(execution.db, 'transaction').mockImplementation((callback) =>
+      callback(
+        asDouble<Parameters<Parameters<Db['transaction']>[0]>[0]>(execution.db),
+      ),
+    );
+    await execution.service.executeRun(executionInput(capturing.client));
+    return {
+      streamOptions: capturing.streamOptions(),
+      lock,
+      firstPendingQueueItem,
+      createRun,
+    };
+  }
+
+  async function finishCompleted(
+    streamOptions: Awaited<ReturnType<typeof startRun>>['streamOptions'],
+  ) {
+    await streamOptions.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+  }
+
+  it('enqueues the Run the completion promoted, after the completion committed', async () => {
+    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
+    const started = await startRun({ dispatch, pending: true });
+
+    await finishCompleted(started.streamOptions);
+
+    expect(started.lock).toHaveBeenCalledWith(chatId, userId);
+    expect(started.firstPendingQueueItem).toHaveBeenCalledWith(chatId, userId);
+    const promotedRunId = started.createRun.mock.calls[0]?.[0].id;
+    expect(promotedRunId).toEqual(expect.any(String));
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    const job = dispatch.mock.calls[0]?.[0];
+    expect(job).toMatchObject({
+      runId: promotedRunId,
+      chatId,
+      userId,
+      modelId: 'fake-model',
+    });
+    expect(job?.userMessage).toMatchObject({ id: queued.id, seq: 3 });
+    // The enqueue names a committed Run row, never one still in the transaction.
+    expect(dispatch.mock.invocationCallOrder[0]).toBeGreaterThan(
+      started.createRun.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  it('enqueues nothing when no item is pending', async () => {
+    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
+    const started = await startRun({ dispatch, pending: false });
+
+    await finishCompleted(started.streamOptions);
+
+    expect(started.firstPendingQueueItem).toHaveBeenCalledTimes(1);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Run completed when enqueueing the promoted Run fails', async () => {
+    const dispatch = vi
+      .fn<RunDispatcher['dispatch']>()
+      .mockRejectedValue(new Error('queue unavailable'));
+    const started = await startRun({ dispatch, pending: true });
+
+    await expect(
+      finishCompleted(started.streamOptions),
+    ).resolves.toBeUndefined();
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('promotes nothing when the Run fails, whatever waits in the queue', async () => {
+    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
+    const started = await startRun({ dispatch, pending: true });
+
+    await started.streamOptions.onError?.({
+      error: new Error('provider exploded'),
+    });
+
+    expect(started.lock).not.toHaveBeenCalled();
+    expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('promotes nothing where no dispatcher exists', async () => {
+    const started = await startRun({ pending: true });
+
+    await finishCompleted(started.streamOptions);
+
+    expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
+    expect(started.createRun).not.toHaveBeenCalled();
   });
 });
 

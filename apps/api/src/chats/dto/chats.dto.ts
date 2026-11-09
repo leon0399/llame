@@ -39,6 +39,10 @@ import {
 } from '../../tools/permissions/permission-mode';
 import { ChatLatestRunResponse } from './latest-run.dto';
 import { CreateMessageBodyDto } from './message-parts.dto';
+import {
+  SENDABLE_DELIVERY_MODES,
+  type SendableDeliveryMode,
+} from './chat-deliveries.dto';
 import { withoutRetainedMedia } from '../retained-media-egress';
 import { withoutProviderMetadata } from '../provider-metadata-egress';
 
@@ -198,6 +202,19 @@ export class CreateMessageDto {
   @ValidateIf((o: CreateMessageDto) => o.permissionMode !== undefined)
   @IsIn(PERMISSION_MODES)
   permissionMode?: PermissionMode;
+
+  // ValidateIf (not IsOptional) for the reason `permissionMode` states. Only
+  // `queue` ships in this layer; a later layer widens the accepted values.
+  @ApiPropertyOptional({
+    enum: SENDABLE_DELIVERY_MODES,
+    description:
+      'How a message that arrives during a live Run reaches the Chat. A ' +
+      'send with `delivery` to a Chat with a live Run answers 202 with a ' +
+      'pending item; to an idle Chat it starts a Run like any send.',
+  })
+  @ValidateIf((o: CreateMessageDto) => o.delivery !== undefined)
+  @IsIn(SENDABLE_DELIVERY_MODES)
+  delivery?: SendableDeliveryMode;
 
   // @IsDefined is required: without it, an omitted `message` is `undefined` and
   // @ValidateNested silently passes, so the handler would deref `input.message.id`.

@@ -34,6 +34,7 @@ import { toSharedChatResponse } from './dto/chats.dto';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toStoredMessages } from '../compaction/compaction.service';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { isRecord } from '@workspace/runtime-safety';
 import { buildContext, type StoredMessage } from './context-builder';
 import {
@@ -534,6 +535,36 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     const bChats = await service.listChatsWithLastMessage(b);
     expect(bChats).toEqual([]);
+  });
+
+  // run-steering: a pending item is not a message, so a fork never copies it.
+  it('a fork during a paused queue copies no pending item', async () => {
+    const { chatId } = await seedChat(a);
+    await tenantDb.runAs(a, async (tx) => {
+      const deliveries = new ChatDeliveriesRepository(tx);
+      for (const text of ['queued one', 'queued two']) {
+        await deliveries.insertPending({
+          id: crypto.randomUUID(),
+          chatId,
+          ownerUserId: a,
+          mode: 'queue',
+          parts: [{ type: 'text', text }],
+          settings: { modelId: 'gpt-x', permissionMode: 'default' },
+        });
+      }
+    });
+
+    const forked = await service.forkChat(chatId, a, undefined);
+
+    const [forkPending, sourcePending] = await tenantDb.runAs(a, (tx) => {
+      const deliveries = new ChatDeliveriesRepository(tx);
+      return Promise.all([
+        deliveries.listPending(forked.id, a),
+        deliveries.listPending(chatId, a),
+      ]);
+    });
+    expect(forkPending).toEqual([]);
+    expect(sourcePending).toHaveLength(2);
   });
 
   // Source `U1 A1 U2 A2` plus an accepted `U3` whose Run has dispatched: its

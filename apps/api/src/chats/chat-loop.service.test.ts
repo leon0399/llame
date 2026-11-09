@@ -18,11 +18,13 @@ import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { heartbeatSeconds } from '../runs/run-queues';
+import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
 import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatLoopService } from './chat-loop.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -171,7 +173,7 @@ function makeService(options?: {
       ),
     );
   const validateModelSelection = vi.fn(() => model);
-  const resolveEffortSelection = vi.fn(() => undefined);
+  const resolveEffortSelection = vi.fn((): string | undefined => undefined);
   const modelsService: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection,
@@ -204,6 +206,21 @@ function makeService(options?: {
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
+  const lock = vi
+    .spyOn(ChatsRepository.prototype, 'lock')
+    .mockResolvedValue(chat);
+  // Every send looks for a stored pending item of its message id first.
+  const findStoredItem = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'findById')
+    .mockResolvedValue(undefined);
+  const messageIdTaken = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'messageIdTaken')
+    .mockResolvedValue(false);
+  const insertPending = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'insertPending')
+    .mockImplementation((item) =>
+      Promise.resolve(chatDeliveryRow({ ...item, state: 'pending' })),
+    );
   const findTurnState = vi
     .spyOn(MessagesRepository.prototype, 'findTurnState')
     .mockResolvedValue({
@@ -284,6 +301,11 @@ function makeService(options?: {
     findTurnState,
     listByRunId,
     describeOwned,
+    resolveEffortSelection,
+    lock,
+    findStoredItem,
+    messageIdTaken,
+    insertPending,
   };
 }
 
@@ -490,6 +512,7 @@ describe('ChatLoopService.createMessageStream', () => {
     createIfAbsent.mockResolvedValue(chat);
 
     const stream = await service.createMessageStream(input);
+    if ('delivery' in stream) throw new Error('expected a started Run');
     const response = stream.toUIMessageStreamResponse();
 
     expect(createIfAbsent).toHaveBeenCalledWith({
@@ -958,6 +981,189 @@ describe('ChatLoopService.createMessageStream', () => {
   });
 });
 
+describe('ChatLoopService.createDeliveryMessage', () => {
+  const blocking: Run = { ...run, id: 'blocking-run', status: 'running_model' };
+  const ids = { ...input.message, id: '44444444-4444-4444-8444-444444444444' };
+
+  function makeBlockedService() {
+    const made = makeService();
+    made.findActiveByChatId.mockResolvedValue(blocking);
+    made.jobState.mockResolvedValue('active');
+    return made;
+  }
+
+  it('stores a pending item and starts no Run while a live Run holds the Chat', async () => {
+    const {
+      service,
+      insertPending,
+      createUserMessageIfAbsent,
+      createRun,
+      dispatchRun,
+      createUiMessageStreamResponse,
+    } = makeBlockedService();
+
+    const answer = await service.createDeliveryMessage({
+      ...input,
+      message: ids,
+      delivery: 'queue',
+    });
+
+    expect(answer).toEqual({
+      delivery: expect.objectContaining({ id: ids.id, mode: 'queue' }),
+    });
+    expect(insertPending).toHaveBeenCalledTimes(1);
+    const stored = insertPending.mock.calls[0]?.[0];
+    expect(stored).toEqual({
+      id: ids.id,
+      chatId: chat.id,
+      ownerUserId: chat.ownerUserId,
+      mode: 'queue',
+      parts: ids.parts,
+      settings: { modelId: model.id, permissionMode: 'default' },
+    });
+    // No effort was sent: the settings carry no `effort` key at all.
+    expect(Object.keys(stored?.settings ?? {})).not.toContain('effort');
+    expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+    expect(dispatchRun).not.toHaveBeenCalled();
+    expect(createUiMessageStreamResponse).not.toHaveBeenCalled();
+  });
+
+  it('keeps the effort the send named in the stored settings', async () => {
+    const { service, insertPending, resolveEffortSelection } =
+      makeBlockedService();
+    resolveEffortSelection.mockReturnValue('high');
+
+    await service.createDeliveryMessage({
+      ...input,
+      message: ids,
+      effort: 'high',
+      delivery: 'queue',
+    });
+
+    expect(insertPending.mock.calls[0]?.[0].settings).toEqual({
+      modelId: model.id,
+      effort: 'high',
+      permissionMode: 'default',
+    });
+  });
+
+  it('starts the Run as a plain send when no live Run holds the Chat', async () => {
+    const { service, insertPending, createRun, dispatchRun } = makeService();
+
+    const answer = await service.createDeliveryMessage({
+      ...input,
+      delivery: 'queue',
+    });
+
+    expect('delivery' in answer).toBe(false);
+    expect(insertPending).not.toHaveBeenCalled();
+    expect(createRun).toHaveBeenCalledTimes(1);
+    expect(dispatchRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an id that already names a message, storing no item', async () => {
+    const { service, insertPending, messageIdTaken } = makeBlockedService();
+    messageIdTaken.mockResolvedValue(true);
+
+    await expect(
+      service.createDeliveryMessage({
+        ...input,
+        message: ids,
+        delivery: 'queue',
+      }),
+    ).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'Message id already exists',
+    });
+    expect(messageIdTaken).toHaveBeenCalledWith(ids.id, chat.ownerUserId);
+    expect(insertPending).not.toHaveBeenCalled();
+  });
+
+  it('answers a duplicate when the insert finds the id already an item', async () => {
+    const { service, insertPending } = makeBlockedService();
+    insertPending.mockResolvedValue(undefined);
+
+    await expect(
+      service.createDeliveryMessage({
+        ...input,
+        message: ids,
+        delivery: 'queue',
+      }),
+    ).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'Message id already exists',
+    });
+  });
+
+  it('answers the stored item of the same id without starting a Run or storing another', async () => {
+    const stored = chatDeliveryRow({ id: ids.id, chatId: chat.id });
+    const { service, findStoredItem, insertPending, createRun } = makeService();
+    findStoredItem.mockResolvedValue(stored);
+
+    await expect(
+      service.createDeliveryMessage({
+        ...input,
+        message: ids,
+        delivery: 'queue',
+      }),
+    ).resolves.toEqual({ delivery: stored });
+    expect(findStoredItem).toHaveBeenCalledWith(ids.id, chat.ownerUserId);
+    expect(insertPending).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses an id held by an item of another Chat', async () => {
+    const { service, findStoredItem, createRun } = makeService();
+    findStoredItem.mockResolvedValue(
+      chatDeliveryRow({ id: ids.id, chatId: 'other-chat' }),
+    );
+
+    await expect(
+      service.createDeliveryMessage({
+        ...input,
+        message: ids,
+        delivery: 'queue',
+      }),
+    ).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'Message id already exists',
+    });
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('takes the Chat row lock of an existing Chat for a delivery send only', async () => {
+    const { service, lock, findStoredItem } = makeService();
+
+    await service.createDeliveryMessage({
+      ...input,
+      message: ids,
+      delivery: 'queue',
+    });
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(lock).toHaveBeenCalledWith(chat.id, chat.ownerUserId);
+    // The lock comes before the stored-item read it serializes.
+    expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
+      findStoredItem.mock.invocationCallOrder[0] ?? 0,
+    );
+
+    lock.mockClear();
+    await makeService().service.createMessageStream(input);
+    expect(lock).not.toHaveBeenCalled();
+  });
+
+  it('does not lock a Chat this send just created, which it already holds', async () => {
+    const { service, lock, findById, createIfAbsent } = makeService();
+    findById.mockResolvedValue(undefined);
+    createIfAbsent.mockResolvedValue(chat);
+
+    await service.createDeliveryMessage({ ...input, delivery: 'queue' });
+
+    expect(lock).not.toHaveBeenCalled();
+  });
+});
+
 describe('ChatLoopService.validateTurn', () => {
   const mediaId = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
   const sentFile = {
@@ -1092,6 +1298,28 @@ describe('ChatLoopService.startFirstRun', () => {
         turn: validated,
       }),
     ).resolves.toEqual({ runId: expect.any(String) });
+  });
+
+  it('refuses a message id that already names a pending item of the Chat', async () => {
+    const { service, findStoredItem, createRun, dispatchRun } = makeService({
+      creationLockHeld: false,
+    });
+    findStoredItem.mockResolvedValue(
+      chatDeliveryRow({ id: validated.message.id, chatId: chat.id }),
+    );
+
+    await expect(
+      service.startFirstRun({
+        chatId: chat.id,
+        userId: chat.ownerUserId,
+        turn: validated,
+      }),
+    ).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'Message id already exists',
+    });
+    expect(createRun).not.toHaveBeenCalled();
+    expect(dispatchRun).not.toHaveBeenCalled();
   });
 
   it('propagates an enqueue failure after the rows commit', async () => {

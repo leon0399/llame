@@ -163,6 +163,31 @@ export const pinsReplacedMessageSchema = z
   .strict();
 export type PinsReplacedMessage = z.infer<typeof pinsReplacedMessageSchema>;
 
+export const chatDeliveryResponseSchema = z.object({
+  id: z
+    .string()
+    .uuid()
+    .describe("The client message id the item was sent with."),
+  chatId: z.string().uuid(),
+  mode: z.enum(["steer", "interrupt", "queue"]),
+  state: z.enum(["pending", "delivered", "withdrawn"]),
+  parts: z.array(z.record(z.string(), z.any())),
+  modelId: z.string(),
+  effort: z.string().optional(),
+  permissionMode: z.enum(["default", "bypass", "read-only"]),
+  createdAt: z.string().datetime({ offset: true }),
+});
+export type ChatDeliveryResponse = z.infer<typeof chatDeliveryResponseSchema>;
+
+export const chatDeliveriesMessageSchema = z
+  .object({
+    type: z.literal("chat.deliveries"),
+    chatId: z.string().uuid(),
+    items: z.array(chatDeliveryResponseSchema),
+  })
+  .strict();
+export type ChatDeliveriesMessage = z.infer<typeof chatDeliveriesMessageSchema>;
+
 export const runResponseSchema = z.object({
   id: z.string().uuid(),
   chatId: z.string().uuid(),
@@ -236,6 +261,7 @@ export const liveMessageSchema = z.discriminatedUnion("type", [
   machineUpsertedMessageSchema,
   machineDeletedMessageSchema,
   pinsReplacedMessageSchema,
+  chatDeliveriesMessageSchema,
   runUpdatedMessageSchema,
   runProgressMessageSchema,
   resyncMessageSchema,

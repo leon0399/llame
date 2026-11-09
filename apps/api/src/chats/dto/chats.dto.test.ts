@@ -1,5 +1,6 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
 import { type Message } from '../../db/schema';
+import { chatDeliveryRow } from '../../testing/chat-delivery-rows';
 import {
   CreateMessageDto,
   ChatMessagesQueryDto,
@@ -12,6 +13,29 @@ import {
 } from './chats.dto';
 import { createCompactionCheckpointPart } from '../context-item-producers';
 import { toActiveRunResponse } from './active-runs.dto';
+import { toChatDeliveryResponse } from './chat-deliveries.dto';
+
+describe('toChatDeliveryResponse', () => {
+  it('includes selected effort and omits it when none was selected', () => {
+    const withEffort = toChatDeliveryResponse(
+      chatDeliveryRow({
+        settings: {
+          modelId: 'model-id',
+          effort: 'high',
+          permissionMode: 'default',
+        },
+      }),
+    );
+    expect(withEffort.effort).toBe('high');
+
+    const withoutEffort = toChatDeliveryResponse(
+      chatDeliveryRow({
+        settings: { modelId: 'model-id', permissionMode: 'default' },
+      }),
+    );
+    expect(withoutEffort).not.toHaveProperty('effort');
+  });
+});
 
 describe('UpdateChatDto', () => {
   const pipe = new ValidationPipe({
@@ -203,6 +227,23 @@ describe('CreateMessageDto', () => {
     await expect(
       pipe.transform({ modelId, message }, metadata),
     ).resolves.toMatchObject({ permissionMode: undefined });
+  });
+
+  it('accepts only the delivery modes this API ships', async () => {
+    const modelId = 'system:openai:gpt-5.4-mini';
+
+    await expect(
+      pipe.transform({ modelId, delivery: 'queue', message }, metadata),
+    ).resolves.toMatchObject({ delivery: 'queue' });
+    await expect(
+      pipe.transform({ modelId, message }, metadata),
+    ).resolves.toMatchObject({ delivery: undefined });
+    // `steer` and `interrupt` ship in later layers; null is not "omitted".
+    for (const delivery of ['steer', 'interrupt', '', null, 7]) {
+      await expect(
+        pipe.transform({ modelId, delivery, message }, metadata),
+      ).rejects.toMatchObject({ status: 400 });
+    }
   });
 
   it('rejects a blank, null, or non-string effort', async () => {

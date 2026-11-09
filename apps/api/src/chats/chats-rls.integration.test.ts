@@ -15,7 +15,7 @@
  * If TEST_DATABASE_URL is not set, all tests in this file are skipped.
  *
  * Acceptance criteria covered (#53):
- * - RLS ENABLED *and* FORCED on chats, messages, runs, and run_events
+ * - RLS ENABLED *and* FORCED on chats, messages, runs, run_events, and chat_deliveries
  * - the connecting role is non-superuser (otherwise the test would be meaningless)
  * - SET LOCAL app.current_user_id correctly scopes reads
  * - cross-tenant read returns zero rows (chats and messages)
@@ -129,7 +129,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, runs, and run_events', async () => {
+  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, runs, run_events, and chat_deliveries', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
     // A superuser or BYPASSRLS role would make every assertion below vacuous.
@@ -139,9 +139,9 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     const rows = await sql`
       SELECT relname, relrowsecurity, relforcerowsecurity
       FROM pg_class
-      WHERE relname IN ('chats', 'messages', 'runs', 'run_events')
+      WHERE relname IN ('chats', 'messages', 'runs', 'run_events', 'chat_deliveries')
       ORDER BY relname`;
-    expect(rows.length).toBe(4);
+    expect(rows.length).toBe(5);
     for (const r of rows) {
       expect(r.relrowsecurity).toBe(true); // ENABLE
       expect(r.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit

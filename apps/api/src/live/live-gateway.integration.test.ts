@@ -24,6 +24,7 @@ import {
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
 import { MachinesStatusRepository } from '../machines/machines-status.repository';
@@ -229,6 +230,68 @@ describeIfDb('LiveGatewayService', () => {
     expect(seenByB).not.toContain(runId);
     expect(seenByB).not.toContain('Renamed live');
     expect(JSON.stringify(a.messages)).not.toContain(marker);
+  });
+
+  it('A second tab sees a new item', async () => {
+    const firstTab = await connect(users.a.cookie);
+    const secondTab = await connect(users.a.cookie);
+    const other = await connect(users.b.cookie);
+    const chatId = await newChat(users.a.id);
+    const itemId = crypto.randomUUID();
+
+    await tenantDb.runAs(users.a.id, (tx) =>
+      new ChatDeliveriesRepository(tx).insertPending({
+        id: itemId,
+        chatId,
+        ownerUserId: users.a.id,
+        mode: 'queue',
+        parts: [{ type: 'text', text: 'then summarize' }],
+        settings: {
+          modelId: 'system:openai:gpt-5.4-mini',
+          permissionMode: 'default',
+        },
+      }),
+    );
+
+    const pendingOf = (m: UnknownRecord) =>
+      m['type'] === 'chat.deliveries' &&
+      m['chatId'] === chatId &&
+      Array.isArray(m['items']) &&
+      m['items'].length === 1;
+    for (const tab of [firstTab, secondTab]) {
+      const message = await waitForMessage(tab, pendingOf);
+      expect(message['items']).toMatchObject([
+        {
+          id: itemId,
+          chatId,
+          mode: 'queue',
+          state: 'pending',
+          parts: [{ type: 'text', text: 'then summarize' }],
+        },
+      ]);
+    }
+
+    // A withdrawal replaces the list with an empty one on every tab.
+    const withdrawn = await request(http)
+      .delete(`/api/v1/chats/${chatId}/deliveries/${itemId}`)
+      .set('Cookie', users.a.cookie);
+    expect(withdrawn.status).toBe(200);
+    const emptied = (m: UnknownRecord) =>
+      m['type'] === 'chat.deliveries' &&
+      m['chatId'] === chatId &&
+      Array.isArray(m['items']) &&
+      m['items'].length === 0;
+    await waitForMessage(firstTab, emptied);
+    await waitForMessage(secondTab, emptied);
+
+    // Another owner's socket receives nothing: a marker of its own arrives
+    // after any leak would have.
+    const marker = await newChat(users.b.id);
+    await waitForMessage(
+      other,
+      (m) => isRecord(m['chat']) && m['chat']['id'] === marker,
+    );
+    expect(JSON.stringify(other.messages)).not.toContain(chatId);
   });
 
   it('delivers an instance-wide Machine status change to every user', async () => {

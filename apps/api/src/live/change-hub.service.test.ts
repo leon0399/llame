@@ -11,6 +11,7 @@ import {
   LIVE_RUN_ID,
   liveChatRecord,
   liveMachineRecord,
+  liveDeliveryRecord,
   livePinRecords,
   liveRunRecord,
 } from '../testing/live-records';
@@ -33,6 +34,7 @@ function makeListener() {
 function makeLoader(overrides: Partial<LiveRecordLoader> = {}) {
   return {
     chat: vi.fn(() => Promise.resolve(liveChatRecord())),
+    deliveries: vi.fn(() => Promise.resolve([liveDeliveryRecord()])),
     machine: vi.fn(() => Promise.resolve(liveMachineRecord())),
     project: vi.fn(() => Promise.resolve(undefined)),
     pins: vi.fn(() => Promise.resolve(livePinRecords())),

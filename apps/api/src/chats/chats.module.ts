@@ -10,6 +10,8 @@ import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
 import { ChatGitStateController } from './chat-git-state.controller';
 import { ChatGitStateService } from './chat-git-state.service';
+import { ChatDeliveriesController } from './chat-deliveries.controller';
+import { ChatDeliveriesService } from './chat-deliveries.service';
 import { ChatCreationLock } from './chat-creation-lock';
 import { ChatCreationController } from './chat-creation.controller';
 import { ChatCreationService } from './chat-creation.service';
@@ -43,6 +45,7 @@ import { SharedChatsController } from './shared-chats.controller';
   ],
   controllers: [
     ChatsController,
+    ChatDeliveriesController,
     ChatCreationController,
     ChatGitStateController,
     MeRunsController,
@@ -51,6 +54,7 @@ import { SharedChatsController } from './shared-chats.controller';
   providers: [
     ChatsService,
     ChatGitStateService,
+    ChatDeliveriesService,
     ChatLoopService,
     FollowUpAdmissionService,
     ChatCreationLock,

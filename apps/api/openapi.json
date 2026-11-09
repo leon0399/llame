@@ -826,6 +826,16 @@
               }
             }
           },
+          "202": {
+            "description": "A send with `delivery` to a Chat with a live Run: the pending item (also the answer to a retry of the same message id, in any state). No Run and no message row were created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDeliveryResponse"
+                }
+              }
+            }
+          },
           "400": {
             "description": "Malformed chat id or invalid message body, including a file part naming media the sender does not own"
           },
@@ -836,7 +846,7 @@
             "description": "Chat not found or not owned"
           },
           "409": {
-            "description": "Message id already exists, or another run is already in flight for this chat"
+            "description": "Message id already exists, or another run is already in flight for this chat and the send names no `delivery` mode"
           },
           "413": {
             "description": "The request body is larger than the server accepts."
@@ -1026,6 +1036,112 @@
           },
           "413": {
             "description": "The request body is larger than the server accepts."
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
+    "/api/v1/chats/{chatId}/deliveries": {
+      "get": {
+        "operationId": "listChatDeliveries",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pending items of the Chat, first to deliver first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDeliveriesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found or not owned"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
+    "/api/v1/chats/{chatId}/deliveries/{deliveryId}": {
+      "delete": {
+        "operationId": "withdrawChatDelivery",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "deliveryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The withdrawn item, with the parts the owner can edit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDeliveryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed chat or item id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat or item not found, or not owned"
+          },
+          "409": {
+            "description": "The item is no longer pending (delivered or withdrawn)"
           }
         },
         "security": [
@@ -5115,12 +5231,70 @@
             "enum": ["default", "bypass", "read-only"],
             "description": "Permission mode for this turn; omit for default."
           },
+          "delivery": {
+            "type": "string",
+            "enum": ["queue"],
+            "description": "How a message that arrives during a live Run reaches the Chat. A send with `delivery` to a Chat with a live Run answers 202 with a pending item; to an idle Chat it starts a Run like any send."
+          },
           "message": {
             "$ref": "#/components/schemas/CreateMessageBodyDto"
           }
         },
         "required": ["modelId", "message"],
         "additionalProperties": false
+      },
+      "ChatDeliveryResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The client message id the item was sent with."
+          },
+          "chatId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["steer", "interrupt", "queue"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "delivered", "withdrawn"]
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass", "read-only"]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chatId",
+          "mode",
+          "state",
+          "parts",
+          "modelId",
+          "permissionMode",
+          "createdAt"
+        ]
       },
       "ModelDomainErrorResponse": {
         "type": "object",
@@ -5221,6 +5395,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "ChatDeliveriesResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "description": "The pending items, first to deliver first.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDeliveryResponse"
+            }
+          }
+        },
+        "required": ["items"]
       },
       "CreateChatWorktreeDto": {
         "type": "object",

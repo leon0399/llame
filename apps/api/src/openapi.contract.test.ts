@@ -107,6 +107,7 @@ const EXPECTED_OPERATION_IDS = [
   'grantOrgUnitMembership',
   'linkProjectRepository',
   'listActiveRuns',
+  'listChatDeliveries',
   'listChats',
   'listCheckouts',
   'listKnowledgeSpaces',
@@ -148,6 +149,7 @@ const EXPECTED_OPERATION_IDS = [
   'updateRepository',
   'updateRun',
   'uploadMedia',
+  'withdrawChatDelivery',
 ] as const;
 
 const EXPECTED_ORG_UNIT_CONFLICT_CODES = [

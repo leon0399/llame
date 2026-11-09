@@ -542,6 +542,80 @@ describeIfDb(
       }
     });
 
+    it('a send during an uncommitted queue promotion waits only on the chat row and never on the run row (D5)', async () => {
+      // The terminal transaction settles the run row and then locks the chat
+      // row FOR UPDATE for queue promotion. Admission never writes the run row
+      // of an active job (it answers 409 instead), so a send racing the
+      // promotion can only queue behind the chat row: the run row is only ever
+      // read, and a read does not wait on the open settlement. Pin both halves
+      // and the absence of a deadlock once the promotion commits.
+      const seed = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: `promotion-lock-${Date.now()}`,
+        text: 'promotion lock question',
+      });
+
+      const sql = testClient(2);
+      const observer = testClient(1);
+      try {
+        let sendSettled = false;
+        let send: Promise<unknown> | undefined;
+        await asUser(sql, userId, async (promotion) => {
+          const settled = await promotion`
+            update runs set status = 'completed' where id = ${seed.runId} returning id
+          `;
+          expect(settled).toHaveLength(1);
+          const locked = await promotion`
+            select id from chats where id = ${seed.chatId} for update
+          `;
+          expect(locked).toHaveLength(1);
+
+          // The send's admission read of the active run answers at once from
+          // the committed snapshot (the run is still active there: a 409).
+          await asUser(sql, userId, async (reader) => {
+            await reader`set local lock_timeout = '2s'`;
+            const active = await reader`
+              select status from runs where id = ${seed.runId}
+            `;
+            expect(active).toHaveLength(1);
+            expect(active[0]?.status).toBe('queued');
+          });
+
+          // Its chat-row lock waits for the promotion, and only for that.
+          send = asUser(sql, userId, async (sender) => {
+            await sender`set local lock_timeout = '20s'`;
+            const touched = await sender`
+              update chats set updated_at = now() where id = ${seed.chatId} returning id
+            `;
+            expect(touched).toHaveLength(1);
+          }).finally(() => {
+            sendSettled = true;
+          });
+          await waitFor(
+            async () => {
+              const waiting = await observer`
+                select 1 from pg_stat_activity
+                where wait_event_type = 'Lock' and query like '%update chats set updated_at%'
+              `;
+              return waiting.length > 0 ? true : undefined;
+            },
+            10_000,
+            'the send to wait on the chat row',
+          );
+          expect(sendSettled).toBe(false);
+        });
+
+        // The promotion committed: the waiting send proceeds, no deadlock.
+        await send;
+        expect(sendSettled).toBe(true);
+        expect((await runStatus(seed.runId))?.status).toBe('completed');
+      } finally {
+        await sql.end();
+        await observer.end();
+      }
+    });
+
     it('7.6 concurrent finalizations across different chats each reindex without cross-run interference (design D6)', async () => {
       const tag = Date.now();
       const modelA = `t76-a-${tag}`;

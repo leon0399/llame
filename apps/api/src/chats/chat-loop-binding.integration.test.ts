@@ -118,6 +118,8 @@ function baseline(
  * active checkpoint's boundary, so that checkpoint starts a new epoch.
  */
 const previousRunUserSeq = 7;
+/** The client message id of a send; the pending-item lookup reads it as a uuid. */
+const MESSAGE_ID = '5a3d1c70-6f0e-4b2a-9d44-0c1e7a8b9f10';
 
 function previousRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -237,7 +239,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const dispatch = vi.fn((_job: RunJob): Promise<void> => Promise.resolve());
     const persistedMessage: PersistedMessage = {
       current: {
-        id: 'message-id',
+        id: MESSAGE_ID,
         chatId: 'chat-id',
         seq: checkpoint === undefined ? 1 : checkpoint.absorbedThroughSeq + 1,
         role: 'user',
@@ -410,7 +412,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         previousRun({
           id: runId,
           chatId: 'chat-id',
-          messageId: 'message-id',
+          messageId: MESSAGE_ID,
           userId: 'user-id',
           modelId: model.id,
           status: 'running_model',
@@ -433,7 +435,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       .mockResolvedValue({
         id: 'run-id',
         chatId: 'chat-id',
-        messageId: 'message-id',
+        messageId: MESSAGE_ID,
         userId: 'user-id',
         modelId: model.id,
         effort: null,
@@ -457,7 +459,7 @@ describe('ChatLoopService accept/worker context binding', () => {
           previousRun({
             id: runId,
             chatId: 'chat-id',
-            messageId: 'message-id',
+            messageId: MESSAGE_ID,
             userId: 'user-id',
             modelId: model.id,
             status: 'running_model',
@@ -474,7 +476,7 @@ describe('ChatLoopService accept/worker context binding', () => {
           previousRun({
             id: runId,
             chatId: 'chat-id',
-            messageId: 'message-id',
+            messageId: MESSAGE_ID,
             userId: 'user-id',
             modelId: model.id,
             status,
@@ -686,7 +688,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     userId: 'user-id',
     modelId: model.id,
     message: {
-      id: 'message-id',
+      id: MESSAGE_ID,
       parts: [{ type: 'text' as const, text: 'hello' }],
     },
   };
@@ -719,7 +721,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({
         chatId: 'chat-id',
-        messageId: 'message-id',
+        messageId: MESSAGE_ID,
         userId: 'user-id',
         modelId: model.id,
       }),

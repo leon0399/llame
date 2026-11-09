@@ -8,7 +8,12 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository } from '../chats/chats-repository';
+import {
+  toChatDeliveryResponse,
+  type ChatDeliveryResponse,
+} from '../chats/dto/chat-deliveries.dto';
 import {
   toChatListItemResponse,
   type ChatListItemResponse,
@@ -40,6 +45,10 @@ export type LiveRecordLoader = {
     owner: string,
     chatId: string,
   ): Promise<ChatListItemResponse | undefined>;
+  deliveries(
+    owner: string,
+    chatId: string,
+  ): Promise<Array<ChatDeliveryResponse>>;
   machine(name: string): Promise<MachineResponse | undefined>;
   project(
     owner: string,
@@ -67,6 +76,15 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
       ]);
       return chat ? toChatListItemResponse(chat, lastMessage) : undefined;
     });
+  }
+
+  /** The Chat's pending items, as `GET /api/v1/chats/:chatId/deliveries` lists them. */
+  deliveries(owner: string, chatId: string) {
+    return this.tenantDb.runAs(owner, async (tx) =>
+      (await new ChatDeliveriesRepository(tx).listPending(chatId, owner)).map(
+        toChatDeliveryResponse,
+      ),
+    );
   }
 
   /** The row the trigger named, in the same shape `GET /api/v1/machines` uses. */

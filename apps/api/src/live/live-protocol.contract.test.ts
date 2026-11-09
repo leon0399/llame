@@ -21,6 +21,7 @@ import {
   LIVE_PROJECT_ID,
   LIVE_RUN_ID,
   liveChatRecord,
+  liveDeliveryRecord,
   liveMachineRecord,
   livePinRecords,
   liveProjectRecord,
@@ -99,6 +100,12 @@ describe('live protocol contract', () => {
       },
       { type: 'pins.replaced', items: livePinRecords() },
       { type: 'pins.replaced', items: [] },
+      {
+        type: 'chat.deliveries',
+        chatId: LIVE_CHAT_ID,
+        items: [liveDeliveryRecord(), liveDeliveryRecord({ effort: 'high' })],
+      },
+      { type: 'chat.deliveries', chatId: LIVE_CHAT_ID, items: [] },
       { type: 'run.updated', run: liveRunRecord() },
       {
         type: 'run.updated',

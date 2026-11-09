@@ -4,6 +4,7 @@
  * serialization the hub applies before validating against asyncapi.websocket.yaml.
  */
 
+import type { ChatDeliveryResponse } from '../chats/dto/chat-deliveries.dto';
 import type { ChatListItemResponse } from '../chats/dto/chats.dto';
 import type { MachineResponse } from '../machines/dto/machines.dto';
 import type {
@@ -86,6 +87,22 @@ export function liveMachineRecord(
     daemonProtocolVersion: 1,
     daemonVersion: '0.4.0',
     roots: ['/srv/projects'],
+    ...overrides,
+  };
+}
+
+export function liveDeliveryRecord(
+  overrides: Partial<ChatDeliveryResponse> = {},
+): ChatDeliveryResponse {
+  return {
+    id: '44444444-4444-4444-8444-444444444444',
+    chatId: LIVE_CHAT_ID,
+    mode: 'queue',
+    state: 'pending',
+    parts: [{ type: 'text', text: 'then summarize it' }],
+    modelId: 'gpt-5.5',
+    permissionMode: 'default',
+    createdAt: at,
     ...overrides,
   };
 }
