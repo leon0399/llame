@@ -22,6 +22,7 @@ import { noUnsafeInnerHtmlRule } from "./vendor/no-unsafe-inner-html.ts";
 import { noVacuousThrowAssertionRule } from "./rules/no-vacuous-throw-assertion.ts";
 import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
 import { parameterDecoratorOwnLineRule } from "./rules/parameter-decorator-own-line.ts";
+import { requireReadableSpacingRule } from "./rules/require-readable-spacing.ts";
 import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety-comment-for-type-assertion.ts";
 import { requireTimestamptzColumnRule } from "./vendor/require-timestamptz-column.ts";
 
@@ -51,6 +52,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-vacuous-throw-assertion": noVacuousThrowAssertionRule,
     "no-widen-then-assert": noWidenThenAssertRule,
     "parameter-decorator-own-line": parameterDecoratorOwnLineRule,
+    "require-readable-spacing": requireReadableSpacingRule,
     "require-safety-comment-for-type-assertion":
       requireSafetyCommentForTypeAssertionRule,
     "require-timestamptz-column": requireTimestamptzColumnRule,
