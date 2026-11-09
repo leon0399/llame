@@ -8,23 +8,35 @@
 
 ### Requirement: Every message executes as a durable, resumable run
 
-A user message SHALL become a worker-processed **run** whose progress is an append-only, replayable event log; a client SHALL be a subscriber to that log, not the holder of run state, so a page refresh or reconnect resumes an in-flight run and replays a completed one without loss. There SHALL be no inline (request-thread) execution path — the worker is the sole executor.
+A user message MUST execute in a worker-processed **run**. That is its own Run, or the active Run
+that delivers it under `run-steering`. The progress of a Run MUST be an append-only, replayable
+event log. A client MUST be a subscriber to that log, not the holder of Run state. Thus a page
+refresh or a reconnect resumes an in-flight Run and replays a completed Run without loss. There
+MUST be no inline (request-thread) execution path. The worker is the sole executor.
 
 #### Scenario: Refresh mid-run resumes from the event log
 
-- **WHEN** a client refreshes or reconnects while a run is streaming
-- **THEN** it resubscribes to the run's event log and continues without losing prior deltas or the final result
+- **WHEN** a client refreshes or reconnects while a Run streams its output
+- **THEN** it subscribes to the event log of the Run again and continues without a loss of earlier deltas or of the final result
+
+#### Scenario: A delivered message executes in the active Run
+
+- **WHEN** the active Run of a Chat delivers a steer of the owner
+- **THEN** the delivered message executes in that Run
+- **AND** the Chat gets no second Run for it
 
 ### Requirement: One in-flight run per chat (single-flight)
 
 At most one non-terminal Run MUST exist for each Chat. The datastore MUST enforce this with a
 partial unique index over non-terminal Runs, not with application checks only. When a Chat has an
-in-flight Run, a different message for that Chat MUST get a conflict (409). A chat send that
-names a message id that already has a Run MUST get a conflict as a duplicate. A chat send never
-makes a second Run for one message. Only a follow-up Run from `turn-actions` can add a Run to a
-message that has a Run. A follow-up request MUST pass the same admission as a new message.
-When a worker stops during execution, the `job-queue` substrate MUST recover or expire its Run
-(worker-death recovery or dead-letter).
+in-flight Run, a different message for that Chat MUST get a conflict (409) when the send names no
+`delivery` mode. A send that names a `delivery` mode MUST become a pending item under
+`run-steering`, and it MUST NOT create a Run. A chat send that names a message id that already has
+a Run MUST get a conflict as a duplicate. The id of an item of `run-steering` is the one exception,
+and that capability answers it. A chat send never makes a second Run for one message.
+Only a follow-up Run from `turn-actions` can add a Run to a message that has a Run. A follow-up
+request MUST pass the same admission as a new message. When a worker stops during execution, the
+`job-queue` substrate MUST recover or expire its Run (worker-death recovery or dead-letter).
 
 Each Run MUST go into the queue as the job that has the Run's own id (per `job-queue`'s
 named-job requirement). Thus the single-flight admission path judges a blocker Run from the
@@ -43,12 +55,19 @@ of another owner.
 
 #### Scenario: Concurrent different message is refused
 
-- **WHEN** a Chat has a non-terminal Run whose job is `queued`, `retrying`, or `active`, and a different message arrives for that Chat
+- **WHEN** a Chat has a non-terminal Run whose job is `queued`, `retrying`, or `active`
+- **AND** a different message with no `delivery` mode arrives for that Chat
 - **THEN** admission rejects the second message with 409, and the first Run does not change
+
+#### Scenario: A message with a delivery mode becomes a pending item
+
+- **WHEN** a Chat has a live Run, and a different message with `delivery: "queue"` arrives for that Chat
+- **THEN** admission stores a pending item and creates no Run
+- **AND** the first Run does not change
 
 #### Scenario: A long-running live blocker is never expired by age
 
-- **WHEN** a Run of a Chat executes for hours with an `active` job, and a different message arrives
+- **WHEN** a Run of a Chat executes for hours with an `active` job, and a different message with no `delivery` mode arrives
 - **THEN** admission rejects the message with 409, and the Run continues
 
 #### Scenario: A duplicate message id is rejected
@@ -65,18 +84,19 @@ of another owner.
 
 #### Scenario: A stuck blocker cannot wedge a chat forever
 
-- **WHEN** a non-terminal Run older than one liveness window has no job, or its job is `completed`, `failed`, or `cancelled`, and a different message arrives
+- **WHEN** a non-terminal Run older than one liveness window has no job, or its job is `completed`, `failed`, or `cancelled`
+- **AND** a different message arrives
 - **THEN** the admission path expires the stuck Run with a terminal `run.expired` and admits the new message
 - **AND** the Chat does not get 409 answers without end
 
 #### Scenario: An unreadable job state never expires a run
 
 - **WHEN** a Run of a Chat is old enough to be stuck, and admission cannot read its job state in time or at all
-- **THEN** admission rejects the submission with 409, and the Run does not expire or change
+- **THEN** admission rejects a submission with no `delivery` mode with 409, and the Run does not expire or change
 
 #### Scenario: A queued run blocks during a worker outage
 
-- **WHEN** no worker consumes the runs queue, a Run of a Chat is still `queued`, and a different message arrives
+- **WHEN** no worker consumes the runs queue, a Run of a Chat is still `queued`, and a different message with no `delivery` mode arrives
 - **THEN** admission rejects the message with 409, and the queued Run executes when a worker returns
 
 #### Scenario: Another owner's run is never judged
@@ -130,52 +150,86 @@ Native effect admission SHALL check the trusted owner, non-terminal uncancelled 
 
 ### Requirement: A run never stays stuck, enforced without a cross-tenant reaper
 
-A run SHALL NOT remain non-terminal indefinitely, and its liveness SHALL be enforced with **no cross-tenant scan** — every liveness action runs either in-process on the executing worker or in the run owner's tenant scope. A run that keeps making progress SHALL have **no default limit** on its duration or step count: it ends when the model answers, when the owner cancels it, or by one of the mechanisms below. These mechanisms cover the failure modes:
+A Run MUST NOT stay non-terminal without end. Its liveness MUST be enforced with **no
+cross-tenant scan**. Each liveness action runs in process on the worker of the Run or in the tenant
+scope of the Run owner. A Run that keeps its progress MUST have **no default limit** on its
+duration or step count. It ends when the model answers, when the owner cancels it, or by one of
+the mechanisms below. These mechanisms cover the failure modes:
 
-- **Optional in-process time budget** — when the operator configures `runs.timeoutSeconds`, a run that exceeds that wall-clock budget while its worker is alive SHALL be aborted in-process and recorded as a terminal `run.expired` (distinct from a user-requested `run.cancelled`). Without a configured budget, no wall-clock budget applies.
-- **Execution ceiling** — the executing worker SHALL end any run still executing 23 hours 55 minutes after its current execution attempt started, recording a terminal `run.expired` whose message names the execution ceiling rather than a configured budget. The ceiling SHALL fall before the `runs` queue's declared job duration (per `job-queue`), so the queue never fails and re-executes a live run from its beginning because of its age.
-- **Model stream idle watchdog** — while the worker reads a model's streamed response, a request that yields no streamed part for 300 seconds after it is sent, or for 300 seconds after its previous part, SHALL be aborted, and the run SHALL be recorded as terminally failed with the error code `model_stream_idle` on the run's error and in its `run.failed` event. The watchdog SHALL measure only time spent waiting on the model's response; time spent executing tools SHALL never count toward it. It SHALL NOT retry the request.
-- **Worker-death recovery** — if the executing worker dies or hangs (stops signalling liveness), the run's job SHALL be detected as stalled by the `job-queue` substrate (see its native worker-liveness requirement) and retried, so a healthy worker re-executes the run rather than leaving it orphaned. Re-execution is safe because claiming and completion are crash-safe (single-flight, first-writer-wins).
-- **Tenant-scoped terminal expiry** — a run whose job exhausts its retries SHALL be settled to a terminal `run.expired` state in the run owner's tenant scope, via the queue's dead-letter path, with no cross-tenant scan.
+- **Optional in-process time budget**: the operator can configure `runs.timeoutSeconds`. A Run
+  that exceeds that wall-clock budget while its worker is alive MUST be aborted in process. It
+  MUST be recorded as a terminal `run.expired`, which is different from a `run.cancelled` that the
+  user requests. Without a configured budget, no wall-clock budget applies.
+- **Execution ceiling**: the worker of the Run MUST end a Run that still executes 23 hours 55
+  minutes after the worker claimed it. It MUST record a terminal `run.expired` whose message names
+  the execution ceiling, not a configured budget. The ceiling MUST come before the declared job
+  duration of the `runs` queue (per `job-queue`). Thus the queue never fails a live Run because of
+  its age, and never executes it again from its start. A delivery of `run-steering` starts a new
+  attempt but does not restart the budget or the ceiling.
+- **Model stream idle watchdog**: the worker reads the streamed response of a model. A request can
+  give no streamed part for 300 seconds after it is sent, or for 300 seconds after its previous
+  part. The worker MUST then abort it and record the Run as terminally failed. The error code
+  `model_stream_idle` MUST be on the error of the Run and in its `run.failed` event. The watchdog
+  MUST measure only the time that the worker waits on the response of the model. The time of tool
+  execution MUST never count. The watchdog MUST NOT send the request again.
+- **Worker-death recovery**: the worker of the Run can die or hang and stop its liveness signal.
+  The `job-queue` substrate MUST then detect the job of the Run as stalled (see its native
+  worker-liveness requirement) and retry it. Thus a healthy worker executes the Run again, and the
+  Run is not orphaned. A second execution is safe, because claim and completion are crash-safe
+  (single-flight, first-writer-wins).
+- **Tenant-scoped terminal expiry**: the job of a Run can use all its retries. The Run MUST then
+  be settled to a terminal `run.expired` state in the tenant scope of the Run owner. The dead-letter path of the
+  queue does this with no cross-tenant scan.
 
-There SHALL be no application-level liveness poll or per-run "deadman" job; native queue heartbeat drives worker-death detection.
+There MUST be no application-level liveness poll and no "deadman" job per Run. The native queue
+heartbeat drives the detection of a dead worker.
 
 #### Scenario: A progressing run has no default time limit
 
-- **WHEN** no wall-clock budget is configured and a run keeps making model and tool progress for longer than the substrate's default job expiry
-- **THEN** the run continues until the model answers, and it is neither expired nor re-executed from its beginning
+- **WHEN** no wall-clock budget is configured
+- **AND** a Run keeps its model and tool progress for longer than the default job expiry of the substrate
+- **THEN** the Run continues until the model answers
+- **AND** it does not expire, and it does not execute again from its start
 
 #### Scenario: An overrunning run is aborted in-process
 
-- **WHEN** the operator configured a wall-clock budget and a run exceeds it while its worker is alive
-- **THEN** the worker aborts it in-process and records a terminal `run.expired` — no separate liveness job is involved
+- **WHEN** the operator configured a wall-clock budget, and a Run exceeds it while its worker is alive
+- **THEN** the worker aborts it in process and records a terminal `run.expired`
+- **AND** no separate liveness job takes part
 
 #### Scenario: A run reaching the execution ceiling ends before the queue expires it
 
-- **WHEN** a run is still executing 23 hours 55 minutes after its current execution attempt started
+- **WHEN** a Run still executes 23 hours 55 minutes after the worker claimed it
 - **THEN** the worker records a terminal `run.expired` whose message names the execution ceiling
 - **AND** the queue does not fail or retry the job
 
 #### Scenario: A stalled model stream fails the run
 
-- **WHEN** a model request yields no streamed part for 300 seconds, before its first part or between two parts
-- **THEN** the request is aborted and the run is recorded as terminally failed with error code `model_stream_idle`
-- **AND** the parts observed before the stall remain in the run's record and the request is not retried
+- **WHEN** a model request gives no streamed part for 300 seconds, before its first part or between two parts
+- **THEN** the worker aborts the request and records the Run as terminally failed with error code `model_stream_idle`
+- **AND** the parts observed before the stall stay in the record of the Run, and the request is not sent again
 
 #### Scenario: A long tool call does not trip the stream watchdog
 
 - **WHEN** a tool call executes for longer than 300 seconds between two model requests
-- **THEN** the stream watchdog does not fire, and the next model request starts with a fresh 300-second window
+- **THEN** the stream watchdog does not fire, and the next model request starts with a new 300-second window
 
 #### Scenario: A dead worker's run is recovered, not orphaned
 
-- **WHEN** the worker executing a run dies mid-run
-- **THEN** the queue detects the stalled job and retries it, and a healthy worker re-executes the run — the run does not sit non-terminal forever
+- **WHEN** the worker that executes a Run dies during the Run
+- **THEN** the queue detects the stalled job and retries it, and a healthy worker executes the Run again
+- **AND** the Run does not stay non-terminal without end
 
 #### Scenario: Retry exhaustion expires the run in-tenant
 
-- **WHEN** a run's job exhausts its retries (e.g. it keeps killing its worker)
-- **THEN** it is settled to a terminal `run.expired` in the owner's tenant scope via the dead-letter path — without any cross-tenant scan
+- **WHEN** the job of a Run uses all its retries, for example because it kills its worker each time
+- **THEN** the dead-letter path settles it to a terminal `run.expired` in the tenant scope of the owner
+- **AND** the path makes no cross-tenant scan
+
+#### Scenario: A delivery does not restart the execution ceiling
+
+- **WHEN** a Run claimed 23 hours ago delivers a steer
+- **THEN** the worker ends the Run 23 hours 55 minutes after the claim, during the new segment
 
 ### Requirement: Enqueue is fail-fast and self-healing
 
@@ -295,6 +349,13 @@ reply from the full event log of the Run, with no in-Run items, and write termin
 before start, or a pickup or claim failure before dispatch. The finalizer MUST then write no
 assistant message and no usage. An assistant message MUST NOT stay `running` after its Run is terminal.
 
+A delivery of `run-steering` makes the delivered message the message of the Run and starts a new
+attempt. From then on, the assistant message of the Run is the reply to the delivered message. The
+dispatch transaction of the first request of that attempt MUST create it. A finalizer MUST act
+only on that reply. It MUST NOT change the reply of an earlier segment. Its rebuild window, and the
+full event log of the Run in the rules above, MUST start after the latest `run.delivered` event.
+The kept parts of a Continue Run belong only to its first segment.
+
 Owner-facing reads are chat history, public share, the sources of shared-Chat and owner forks, and
 the chat-list preview. They MUST omit an assistant message whose usage status is `running`. The
 live stream shows it, and it becomes visible after finalization.
@@ -367,9 +428,11 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 
 - **WHEN** attempt A streamed output and stored an in-Run item on the assistant message of the Run before its worker died
 - **AND** attempt B of the same Run dispatches its first request
-- **THEN** the dispatch transaction of B resets that assistant message to `running` for B, and removes the output and the in-Run item of A together
+- **THEN** the dispatch transaction of B resets that assistant message to `running` for B
+- **AND** it removes the output and the in-Run item of A together
 - **AND** the request of B carries neither the output nor the in-Run item of A
-- **AND** the accepted-turn items on the triggering user message do not change, and B stores only the items that its comparison newly yields after them
+- **AND** the accepted-turn items on the triggering user message do not change
+- **AND** B stores only the new items of its comparison, after them
 
 #### Scenario: A settler that never dispatched finalizes the dispatched attempt's reply
 
@@ -381,7 +444,8 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 
 #### Scenario: A retry that fails before dispatch leaves the earlier reply
 
-- **WHEN** attempt A dispatched, streamed output, and stored an in-Run item, and attempt B of the same Run fails during preparation before its first request
+- **WHEN** attempt A dispatched, streamed output, and stored an in-Run item
+- **AND** attempt B of the same Run fails in preparation before its first request
 - **THEN** B does not reset the assistant message of the Run, which keeps the output and the in-Run item of A
 - **AND** the terminal settlement of the Run finalizes that message from the events of A, with usage that names the attempt of A
 
@@ -419,7 +483,20 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 #### Scenario: A Continue rebuild starts with the kept parts
 
 - **WHEN** the worker of a Continue Run dies after it stored an in-Run item, and a settler without the collector finalizes the Run
-- **THEN** the reply holds the kept parts of `run.continued` once, then the rebuilt parts of the attempt, with its own in-Run item in its step position
+- **THEN** the reply holds the kept parts of `run.continued` once, then the rebuilt parts of the attempt
+- **AND** its own in-Run item is in its step position
+
+#### Scenario: A finalizer leaves the reply of an earlier segment
+
+- **WHEN** a Run delivers an interrupt, and its worker dies before the first request of the next segment
+- **AND** a settler without the collector expires the Run
+- **THEN** the reply of the first segment keeps its parts and its `aborted` usage
+- **AND** the delivered message gets no reply, because no request of its attempt was sent
+
+#### Scenario: A rebuild covers only the current segment
+
+- **WHEN** the worker dies in the second segment after one tool step, and a settler without the collector finalizes the Run
+- **THEN** the reply of the second segment holds only the parts of the events after the latest `run.delivered`
 
 ### Requirement: Received reasoning is durable before browser delivery
 

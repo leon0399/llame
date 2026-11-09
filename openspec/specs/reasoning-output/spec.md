@@ -315,11 +315,13 @@ Reasoning support on the `openai-completions` wire SHALL be accepted only after 
 
 A reasoning part of an earlier turn MUST replay only when two conditions are
 true. Its reply came from a Run with the llame model id of the request, and that
-Run completed. Otherwise the
-system MUST omit the part and its provider metadata. Within one turn, and in the
-kept parts of a Continue Run, a reasoning part MUST replay on the model of its
-Run. The system MUST NOT select reasoning parts by their content or
-their age.
+Run completed. Otherwise the system MUST omit the part and its provider metadata.
+Within one turn, and in the kept parts of a Continue Run, a reasoning part MUST
+replay on the model of its Run. The segments of one Run are one turn for this rule,
+also before the Run completes. In a reply that an interrupt closed, the part that
+the interrupt cut MUST NOT replay. A reasoning part with no later kept part in that
+reply MUST NOT replay either. The system MUST NOT select reasoning parts by
+their content or their age.
 
 #### Scenario: The same model keeps earlier reasoning
 
@@ -348,3 +350,14 @@ their age.
 - **WHEN** turn 1 completed on `sonnet`, turn 2 completed on `glm-5`, and turn 3 runs on `sonnet`
 - **THEN** the first request of turn 3 carries the reasoning parts of turn 1
 - **AND** it carries no reasoning part of turn 2
+
+#### Scenario: A later segment keeps the reasoning of an earlier segment
+
+- **WHEN** the first segment of a Run on `sonnet` stored a reasoning part, and a steer starts a second segment
+- **THEN** the first request of the second segment carries that reasoning part with its provider metadata
+
+#### Scenario: An interrupted reply keeps only reasoning with a later part
+
+- **WHEN** an interrupt closes a reply with a signed reasoning part, a text part, a second signed reasoning part, and a cut part
+- **THEN** a later request of the same Run carries the first reasoning part and the text part
+- **AND** it carries neither the second reasoning part nor the cut part

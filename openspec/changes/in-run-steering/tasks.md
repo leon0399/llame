@@ -175,7 +175,9 @@ Re-measure each at its boundary, and request a named exception before publicatio
 ## 9. finalize
 
 - [ ] 9.1 Enter `in-run-steering/finalize` with `$gh-stack` before `$openspec-sync-specs` writes canonical specs.
+  - Evidence: the worktree is on `in-run-steering/finalize`, stacked on `in-run-steering/web`; the sync commit lands there.
 - [ ] 9.2 Sync the delta specs into `openspec/specs`, including the new `run-steering` capability. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+  - Evidence: 10 canonical specs updated with 15 MODIFIED requirements, `run-steering` created with a Purpose. `validate --specs --strict` fails for the same 46 specs as before the sync (existing >500-character requirement warnings), and `run-steering` passes. `validate --all --strict` passes `change/in-run-steering`; its only error is in `change/tool-search`.
 - [ ] 9.3 Confirm archive readiness: every task above is checked and `openspec status --change in-run-steering --json` reports all artifacts done.
 
 ## Workflow follow-up
