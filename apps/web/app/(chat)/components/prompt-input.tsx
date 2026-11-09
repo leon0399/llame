@@ -36,6 +36,9 @@ export type PromptInputTextareaProps = ComponentProps<
   minHeight?: number;
   maxHeight?: number;
   submitBehavior?: "enter" | "shift-enter";
+  /** Replaces the submit of Mod+Enter: while a Run is active, Enter steers and
+   *  Mod+Enter queues (run-steering D11). */
+  onModEnter?: () => void;
 };
 
 export const PromptInputTextarea = ({
@@ -45,6 +48,7 @@ export const PromptInputTextarea = ({
   minHeight = 48,
   maxHeight = 164,
   submitBehavior = "enter",
+  onModEnter,
   ...props
 }: PromptInputTextareaProps) => {
   const textareaRef = useAutoResizeTextarea({
@@ -54,6 +58,11 @@ export const PromptInputTextarea = ({
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key !== "Enter") return;
+    if (onModEnter && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      onModEnter();
+      return;
+    }
     // Enter-key behaviour is fixed by `submitBehavior`; it is not user-configurable.
     const shouldSubmit =
       submitBehavior === "enter" ? !e.shiftKey : e.metaKey || e.ctrlKey;

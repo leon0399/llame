@@ -7,6 +7,7 @@ import {
   type ReplacementContext,
 } from "./history-adoption";
 import {
+  interruptedNoticePart,
   isInstructionsPart,
   isPromptImportsPart,
   messageRenderKey,
@@ -427,6 +428,40 @@ describe("trusted model-context projection", () => {
     );
 
     expect(message?.parts).toEqual([{ type: "text", text: "Continue" }]);
+  });
+
+  it("overlays the interrupted notice of a delivered user message only", () => {
+    const notice = {
+      type: "data-context" as const,
+      data: {
+        v: 1 as const,
+        producer: "interrupted" as const,
+        form: "notice" as const,
+        runId: "a5dc235e-1de8-4aad-84d8-e0e247b6a135",
+        payload: { stoppedCalls: [] },
+        text: '<system-reminder producer="interrupted" form="notice">The owner interrupted your previous step.</system-reminder>',
+      },
+    };
+    const text = { type: "text" as const, text: "Change of plan" };
+    const server = [
+      { id: "user-2", role: "user" as const, parts: [notice, text] },
+      { id: "assistant-3", role: "assistant" as const, parts: [notice, text] },
+    ];
+    const live = [
+      { id: "user-2", role: "user" as const, parts: [text] },
+      { id: "assistant-3", role: "assistant" as const, parts: [text] },
+    ];
+
+    const [user, assistant] = mergeTrustedModelContextParts(live, server);
+
+    expect(interruptedNoticePart({ parts: user?.parts ?? [] })).toEqual(notice);
+    expect(user?.parts.at(0)).toEqual(notice);
+    expect(assistant?.parts).toEqual([text]);
+    expect(
+      interruptedNoticePart({
+        parts: [{ ...notice, data: { ...notice.data, payload: "x" } }],
+      }),
+    ).toBeNull();
   });
 
   it("reads the owner-only run id from completed assistant metadata", () => {

@@ -33,6 +33,7 @@ import {
 } from "./use-chat-markdown-ready";
 import { ChatTranscript } from "./chat-transcript";
 import { ChatComposer } from "./chat-composer";
+import { PendingDeliveries } from "./pending-deliveries";
 import { useChatPageProject } from "./composer-project";
 import { useChatCreation } from "./use-chat-creation";
 import {
@@ -331,6 +332,7 @@ type ChatSessionComposerProps = {
   exists: boolean;
   status: ReturnType<typeof useChatConversation>["status"];
   composer: ReturnType<typeof useChatConversation>["composer"];
+  pending: ReturnType<typeof useChatConversation>["pending"];
   disabled: boolean;
 };
 
@@ -344,6 +346,7 @@ function ChatSessionComposer({
   exists,
   status,
   composer,
+  pending,
   disabled,
 }: ChatSessionComposerProps) {
   const { project, draftProjectId } = useChatPageProject(exists);
@@ -364,6 +367,9 @@ function ChatSessionComposer({
       onInputChange={composer.setInput}
       onSubmit={creates ? creation.onSubmit : composer.handleSubmit}
       status={status}
+      runActive={composer.runActive}
+      onDeliver={composer.onDeliver}
+      pending={<PendingDeliveries {...pending} />}
       onStop={composer.handleStop}
       pendingStop={composer.pendingStop}
       modelReadyForSend={composer.modelReadyForSend}
@@ -383,7 +389,7 @@ function ChatSessionBody({
   conversation,
   ...session
 }: ChatSessionBodyProps) {
-  const { status, composer, transcript, dialog } = conversation;
+  const { status, composer, pending, transcript, dialog } = conversation;
   const archived = useOpenChatArchived(session.chatId);
   return (
     <>
@@ -402,6 +408,7 @@ function ChatSessionBody({
         }
         status={status}
         composer={composer}
+        pending={pending}
         disabled={markdown.renderers === null || archived}
       />
       <ChatSessionDialog dialog={dialog} />

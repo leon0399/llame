@@ -57,6 +57,7 @@ export function isContextItemPart(
 /** The producers whose items this build reads from stored parts. */
 export type NoticeProducer =
   | "effective-context-change"
+  | "interrupted"
   | "instructions"
   | "prompt-imports"
   | "regenerate";

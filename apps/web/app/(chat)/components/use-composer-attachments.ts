@@ -15,9 +15,11 @@ import { useChatContext } from "@/contexts/chat-context";
 import {
   ATTACHABLE_IMAGE_TYPES,
   ATTACHABLE_PDF_TYPE,
+  fetchMediaDescriptor,
   type MediaDescriptor,
   uploadAttachment,
 } from "@/lib/services/media/uploads";
+import { storedImageSources } from "@/lib/services/media/urls";
 import { mediaQueryKeys } from "@/lib/services/media/queries";
 import {
   modelDisplayName,
@@ -71,6 +73,10 @@ export interface ComposerAttachments {
   /** Puts a failed send's attachments back ahead of any attached while it was
    *  pending, up to the cap; revokes the previews the cap drops. */
   restore: (sent: AttachmentList) => void;
+  /** Puts the files of a withdrawn pending item back, as ready attachments
+   *  ahead of the current ones, up to the cap. Each file's descriptor is read
+   *  again; a file that cannot be read is dropped with a toast. */
+  restoreFiles: (files: ReadonlyArray<FileUIPart>) => Promise<void>;
   /** The file picker's `accept`: the kinds the selected model declares. */
   accept: string;
   /** The selected model declares neither image nor pdf input: the picker is
@@ -176,12 +182,47 @@ function useUploader(update: UpdateAttachments): UploadAttachment {
   );
 }
 
+/** A stored file as a ready composer attachment: the file itself is not kept,
+ *  so the placeholder carries only its name and type, and the preview loads
+ *  from the stored upload. `null` when the stored upload cannot be read. */
+async function storedAttachment(
+  part: FileUIPart,
+): Promise<ComposerAttachment | null> {
+  try {
+    const descriptor = await fetchMediaDescriptor(part.url);
+    if (descriptor === null) return null;
+    return {
+      key: safeRandomUUID(),
+      file: new File([], descriptor.name, { type: descriptor.mediaType }),
+      previewUrl: storedImageSources(descriptor.locator)?.thumbnail ?? "",
+      status: "ready",
+      descriptor,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function useAttachmentEdits(
   itemsRef: RefObject<AttachmentList>,
   update: UpdateAttachments,
   upload: UploadAttachment,
-): Pick<ComposerAttachments, "remove" | "retry" | "restore"> {
+): Pick<ComposerAttachments, "remove" | "retry" | "restore" | "restoreFiles"> {
+  const restore = (sent: AttachmentList) => {
+    const merged = [...sent, ...itemsRef.current];
+    revokePreviews(merged.slice(MAX_COMPOSER_ATTACHMENTS));
+    update(() => merged.slice(0, MAX_COMPOSER_ATTACHMENTS));
+  };
   return {
+    restore,
+    restoreFiles: async (files) => {
+      const stored = await Promise.all(files.map(storedAttachment));
+      const restored = stored.filter((item) => item !== null);
+      if (restored.length < files.length) {
+        toast("Some attachments could not be restored");
+      }
+      restore(restored);
+    },
     remove: (key) => {
       revokePreviews(itemsRef.current.filter((item) => item.key === key));
       update((current) => current.filter((item) => item.key !== key));
@@ -189,11 +230,6 @@ function useAttachmentEdits(
     retry: (key) => {
       const item = itemsRef.current.find((candidate) => candidate.key === key);
       if (item) upload(key, item.file);
-    },
-    restore: (sent) => {
-      const merged = [...sent, ...itemsRef.current];
-      revokePreviews(merged.slice(MAX_COMPOSER_ATTACHMENTS));
-      update(() => merged.slice(0, MAX_COMPOSER_ATTACHMENTS));
     },
   };
 }

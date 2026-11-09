@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deliveredMessageId,
   isInterruptedStream,
   isTerminalRunStatus,
   notificationLabel,
@@ -154,5 +155,33 @@ describe("isInterruptedStream", () => {
         finishReason: undefined,
       }),
     ).toBe(true);
+  });
+});
+
+describe("deliveredMessageId", () => {
+  it("names the message a segment's stream ended at", () => {
+    expect(
+      deliveredMessageId({
+        parts: [
+          { type: "text", text: "reply" },
+          { type: "data-run-delivered", data: { messageId: "m2" } },
+        ],
+      }),
+    ).toBe("m2");
+  });
+
+  it("is null for a stream that ended any other way", () => {
+    expect(deliveredMessageId(undefined)).toBeNull();
+    expect(
+      deliveredMessageId({ parts: [{ type: "text", text: "reply" }] }),
+    ).toBeNull();
+  });
+
+  it("is null when the part does not name a message", () => {
+    expect(
+      deliveredMessageId({
+        parts: [{ type: "data-run-delivered", data: { messageId: 7 } }],
+      }),
+    ).toBeNull();
   });
 });

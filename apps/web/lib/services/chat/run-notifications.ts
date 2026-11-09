@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { z } from "zod";
 
 /**
  * Pure decision logic for run tracking, stream completion, and background
@@ -7,6 +8,8 @@ import type { UIMessage } from "ai";
  */
 
 export type RunStatus = string;
+
+const deliveredDataSchema = z.object({ messageId: z.string() });
 
 // A run past this point won't change again (mirrors the api's TERMINAL_STATUSES).
 const TERMINAL: ReadonlySet<RunStatus> = new Set([
@@ -90,7 +93,26 @@ export type StreamCompletion = {
   isError: boolean;
   finishReason?: string | undefined;
   messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>;
+  /** The message the stream just finished. */
+  message?: Pick<UIMessage, "parts">;
 };
+
+/**
+ * The message a Run delivered at the end of the segment this stream carried
+ * (run-steering D9), or null when the stream ended some other way. The bridge
+ * writes `data-run-delivered` right before `finish`, and the Run keeps
+ * executing: the client adopts history, then attaches for the next segment.
+ */
+export function deliveredMessageId(
+  message: Pick<UIMessage, "parts"> | undefined,
+): string | null {
+  for (const part of message?.parts ?? []) {
+    if (part.type !== "data-run-delivered") continue;
+    const delivered = deliveredDataSchema.safeParse(part.data);
+    if (delivered.success) return delivered.data.messageId;
+  }
+  return null;
+}
 
 /**
  * Whether a finished stream ended while its Run was still executing: the

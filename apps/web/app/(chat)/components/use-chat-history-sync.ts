@@ -36,22 +36,18 @@ type UseChatHistorySyncArgs = {
   /** The Run whose stream ended while it was still executing (see
    *  `isInterruptedStream`), or null. */
   interruption: StreamInterruption | null;
+  /** The ids the next segment's attach waits for: it starts once any one is in
+   *  the live log (see `useRunHandoff`). */
+  awaitedMessageIds: ReadonlyArray<string>;
+  /** Called as the hand-off attach starts. */
+  onHandoffAttached: () => void;
 };
 
 /** Resume-on-refresh and live first-send recovery (#49), re-attaching after an
  *  interrupted stream (#1284), and adopting the refetched history it triggers
  *  (#261). */
-export function useChatHistorySync({
-  resume,
-  resumeStream,
-  refreshChatMessages,
-  chatMessages,
-  messages,
-  status,
-  setMessages,
-  latestRun,
-  interruption,
-}: UseChatHistorySyncArgs) {
+export function useChatHistorySync(args: UseChatHistorySyncArgs) {
+  const { resume, resumeStream, refreshChatMessages, messages, status } = args;
   // One attach per mount for the `resume` probe; the repair below claims the
   // same slot so the two cannot race two reconnects on the same Chat instance
   // (#259/#260 — see the note at the useChat call in `useChatEngine`).
@@ -93,27 +89,60 @@ export function useChatHistorySync({
   }, []);
   useStreamRepair({
     attach,
-    interruption,
+    interruption: args.interruption,
     currentRunId: streamingRunId(messages),
     healthy: status === "streaming",
     onAttempt: claimAttachSlot,
   });
 
-  // Adopt that refetched history — the client half of #261. useChat freezes
-  // `messages` at creation (see PersistedChatSession) and never re-adopts a
-  // later fetch, and the post-finish `router.replace` does NOT remount this
-  // component (key={chatId} is unchanged), so a healed history otherwise never
-  // reaches the log: the durable answer sits in the query cache, unread. A
-  // resume can leave the log stale in two ways — 204 with no stream at all, or
-  // a reconnect that arrives after the run's deltas were already emitted and
-  // so replays nothing visible. Both end with the server holding the truth.
-  // This is also how an on-demand older page (#187) reaches the transcript:
-  // the query grows, adoptServerHistory sees newer coverage or a longer
-  // window, and the merged list lands via the same setMessages. Guarded on
-  // settled state inside adoptServerHistory: mid-turn the live copy
-  // legitimately runs AHEAD of the server (an optimistic user turn, an answer
-  // still streaming), and overwriting it there is how duplicated/rewound
-  // transcripts happen (#259).
+  useHistoryAdoption(args);
+  useHandoffAttach({ ...args, attach });
+}
+
+/** The next segment of a Run that delivered a message: attach once history put
+ *  the delivered message in the log and the segment's stream has ended. The
+ *  attach is not the mount probe's, so it does not take that slot. */
+function useHandoffAttach({
+  awaitedMessageIds,
+  status,
+  messages,
+  attach,
+  onHandoffAttached,
+}: UseChatHistorySyncArgs & { attach: () => void }) {
+  useEffect(() => {
+    if (awaitedMessageIds.length === 0 || status !== "ready") return;
+    if (!messages.some((message) => awaitedMessageIds.includes(message.id))) {
+      return;
+    }
+    onHandoffAttached();
+    attach();
+  }, [awaitedMessageIds, status, messages, attach, onHandoffAttached]);
+}
+
+/**
+ * Adopt that refetched history — the client half of #261. useChat freezes
+ * `messages` at creation (see PersistedChatSession) and never re-adopts a
+ * later fetch, and the post-finish `router.replace` does NOT remount this
+ * component (key={chatId} is unchanged), so a healed history otherwise never
+ * reaches the log: the durable answer sits in the query cache, unread. A
+ * resume can leave the log stale in two ways — 204 with no stream at all, or
+ * a reconnect that arrives after the run's deltas were already emitted and
+ * so replays nothing visible. Both end with the server holding the truth.
+ * This is also how an on-demand older page (#187) reaches the transcript:
+ * the query grows, adoptServerHistory sees newer coverage or a longer
+ * window, and the merged list lands via the same setMessages. Guarded on
+ * settled state inside adoptServerHistory: mid-turn the live copy
+ * legitimately runs AHEAD of the server (an optimistic user turn, an answer
+ * still streaming), and overwriting it there is how duplicated/rewound
+ * transcripts happen (#259).
+ */
+function useHistoryAdoption({
+  chatMessages,
+  messages,
+  status,
+  setMessages,
+  latestRun,
+}: UseChatHistorySyncArgs) {
   useEffect(() => {
     const healed = adoptServerHistory({
       status,

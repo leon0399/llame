@@ -25,8 +25,12 @@ import {
  * `instructions` and `prompt-imports` producers: their chips are the owner's
  * disclosure of the files a trigger loaded, truncated, or had denied (design
  * D9), and of how a prompt's `@` markers resolved. The model-change
- * boundary above the message remains the only owner-facing surface for the
- * other producers. One branch rather than a list of producers, so a
+ * boundary and the `regenerate` and `interrupted` notices above the message
+ * are the only owner-facing surfaces for the other producers, and no segment
+ * paints them.
+ *
+ * `data-run-delivered` is the stream's end-of-segment signal (run-steering
+ * D9): the client reads it from the finished message and never paints it. One branch rather than a list of producers, so a
  * producer this build does not know about cannot fall through to the
  * "unsupported part type" span and print debug text into the owner's
  * transcript on reload.
@@ -36,6 +40,7 @@ import {
 export function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.kind === "reasoning") return segment.text.trim() !== "";
   if (segment.part.type === "file") return false;
+  if (segment.part.type === "data-run-delivered") return false;
   if (segment.part.type === "data-context") {
     return (
       isInstructionsPart(segment.part) || isPromptImportsPart(segment.part)

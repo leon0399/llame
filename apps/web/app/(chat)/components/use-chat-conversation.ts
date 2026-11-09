@@ -31,6 +31,8 @@ import {
   supersededReplyIndexes,
 } from "@/lib/services/chat/history-adoption";
 import { usePendingStop } from "./use-pending-stop";
+import { useChatDelivery } from "./use-chat-delivery";
+import { useRunHandoff } from "./use-run-handoff";
 import {
   attachmentFileParts,
   type ComposerAttachments,
@@ -199,6 +201,8 @@ type UseChatSideEffectsArgs = {
   refreshChatBinding: () => void;
   latestRun: ChatLatestRunResponse | null;
   interruption: StreamInterruption | null;
+  awaitedMessageIds: ReadonlyArray<string>;
+  onHandoffAttached: () => void;
 };
 
 /** Every effect the conversation state drives once messages exist: the
@@ -219,6 +223,8 @@ function useChatSideEffects({
   refreshChatBinding,
   latestRun,
   interruption,
+  awaitedMessageIds,
+  onHandoffAttached,
 }: UseChatSideEffectsArgs) {
   useChatHistorySync({
     resume,
@@ -230,6 +236,8 @@ function useChatSideEffects({
     setMessages,
     latestRun,
     interruption,
+    awaitedMessageIds,
+    onHandoffAttached,
   });
   useChatPresenceEffects({
     status,
@@ -308,6 +316,7 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
   // `Chat` instance `useChatEngine` returns, and an effect is where that
   // boundary is already crossed.
   const streamInterruption = useStreamInterruption();
+  const handoff = useRunHandoff(setup.refreshChatMessages);
   const engine = useChatEngine({
     ...setup,
     chatId,
@@ -316,6 +325,7 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
     onTargetSendInterrupted: args.onTargetSendInterrupted,
     onSendFailed: args.onSendFailed,
     onStreamInterrupted: streamInterruption.report,
+    onSegmentDelivered: handoff.begin,
   });
   const transcript = deriveChatTranscript({
     messages: engine.messages,
@@ -336,9 +346,11 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
     chatId,
     latestRun,
     interruption: streamInterruption.interruption,
+    awaitedMessageIds: handoff.awaited,
+    onHandoffAttached: handoff.settle,
   });
 
-  return { engine, ...transcript };
+  return { engine, handoff, ...transcript };
 }
 
 /** Pure — no hooks: the `ChatComposer` props derived from setup and
@@ -347,12 +359,22 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
 function buildComposerState(
   setup: ReturnType<typeof useChatSetup>,
   actions: ReturnType<typeof useChatActions>,
+  delivery: ReturnType<typeof useChatDelivery>,
 ) {
   return {
     input: actions.input,
     setInput: actions.setInput,
-    handleSubmit: actions.handleSubmit,
-    handleStop: actions.handleStop,
+    // While a Run is active a send is a delivery (Enter steers); otherwise it
+    // is a plain chat send.
+    handleSubmit: delivery.runActive
+      ? (event: React.FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          return delivery.deliver("steer");
+        }
+      : actions.handleSubmit,
+    handleStop: delivery.handleStop,
+    runActive: delivery.runActive,
+    onDeliver: delivery.deliver,
     pendingStop: actions.pendingStop,
     attachments: actions.attachments,
     modelReadyForSend: setup.modelReadyForSend,
@@ -398,12 +420,48 @@ export type UseChatConversationArgs = {
   chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
   latestRun: ChatLatestRunResponse | null;
+  initialChatExists: boolean;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
   onSendFailed: () => void;
   onSendStarted: () => void;
   resume: boolean;
 };
+
+/** Pure — no hooks: the `PendingDeliveries` props from the delivery state. */
+function buildPendingState(delivery: ReturnType<typeof useChatDelivery>) {
+  return {
+    items: delivery.items,
+    paused: delivery.paused,
+    onSteerNow: delivery.steerNow,
+    onInterruptNow: delivery.interruptNow,
+    onDelete: delivery.remove,
+    onEdit: delivery.edit,
+  };
+}
+
+/** The messages that wait for a live Run: the composer's draft, the engine's
+ *  stream, and the hand-off to the next segment, joined (run-steering D11). */
+function useConversationDelivery(
+  args: UseChatConversationArgs,
+  setup: ReturnType<typeof useChatSetup>,
+  engineState: ReturnType<typeof useChatEngineState>,
+  actions: ReturnType<typeof useChatActions>,
+) {
+  return useChatDelivery({
+    chatId: args.chatId,
+    exists: args.initialChatExists || engineState.displayMessages.length > 0,
+    status: engineState.engine.status,
+    latestRun: args.latestRun,
+    messages: engineState.engine.messages,
+    input: actions.input,
+    setInput: actions.setInput,
+    attachments: actions.attachments,
+    modelReadyForSend: setup.modelReadyForSend,
+    stop: actions.handleStop,
+    handoff: engineState.handoff,
+  });
+}
 
 /**
  * Owns every piece of state `ChatSessionContent` needs: the model
@@ -431,10 +489,12 @@ export function useChatConversation(args: UseChatConversationArgs) {
     engineState.engine.regenerate,
     onSendStarted,
   );
+  const delivery = useConversationDelivery(args, setup, engineState, actions);
 
   return {
     status: engineState.engine.status,
-    composer: buildComposerState(setup, actions),
+    composer: buildComposerState(setup, actions, delivery),
+    pending: buildPendingState(delivery),
     transcript: {
       ...buildTranscriptState(setup, actions, engineState),
       latestRun: args.latestRun,
