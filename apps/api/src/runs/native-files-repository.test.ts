@@ -141,8 +141,8 @@ describe('NativeFilesRepository segment mutation scope', () => {
     const outer = db.select({ id: schema.runEvents.sequence });
     let condition: SQL | undefined;
     vi.spyOn(db, 'select')
-      .mockImplementationOnce((fields?: SelectedFields) =>
-        fields === undefined ? subqueries.select() : subqueries.select(fields),
+      .mockImplementationOnce((fields: SelectedFields) =>
+        subqueries.select(fields),
       )
       .mockReturnValueOnce(outer);
     // The outer query captures its filter instead of reaching a database.

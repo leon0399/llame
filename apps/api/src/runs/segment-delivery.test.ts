@@ -96,11 +96,11 @@ function pending(id: string, text: string): ChatDelivery {
     id,
     chatId,
     ownerUserId: userId,
-    producer: 'user',
+    producer: 'owner',
     senderRef: null,
     mode: 'steer',
     parts: [{ type: 'text', text }],
-    settings: {},
+    settings: { modelId: 'fake-model', permissionMode: 'default' },
     state: 'pending',
     position: 1,
     deliveredMessageId: null,
@@ -358,7 +358,7 @@ describe('deliverPendingSteering', () => {
   it('reports no closed reply when the finalizer wrote none', async () => {
     serve();
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue(
-      undefined,
+      {},
     );
 
     const outcome = await deliver();
