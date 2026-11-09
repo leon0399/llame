@@ -366,3 +366,15 @@ their content or their age.
 
 - **WHEN** an interrupt cuts a reasoning part, the owner withdraws the item, and the reply then completes
 - **THEN** the next turn on the same model does not carry the cut part
+
+#### Scenario: An interrupt-closed reply keeps its kept reasoning for the next turn
+
+- **WHEN** an interrupt closes a reply with a signed reasoning part followed by a text part, and the next turn runs on the same model
+- **THEN** the next turn carries that reasoning part
+- **AND** a reply that a cancellation or an expiry closed carries no reasoning into the next turn
+
+#### Scenario: A completed segment of a failed Run keeps its reasoning
+
+- **WHEN** a steer closes the first segment reply `completed` with a reasoning part, the Run then fails in its second segment, and turn 2 runs on the same model
+- **THEN** the first request of turn 2 carries the reasoning part of the first segment
+- **AND** it carries no reasoning part of the failed second segment
