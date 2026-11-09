@@ -9073,18 +9073,20 @@ describe('RunExecutionService executeRun — a Continue Run', () => {
               payload: { chatId, messageId, replacesUsage },
               createdAt: now,
             }
-          : {
-              sequence: 2,
-              runId,
-              eventType: 'run.continued',
-              payload: {
-                sourceRunId: SOURCE_RUN,
-                parts: keptParts,
-                steps: { [KEPT_CALL]: 0 },
-                results: {},
-              },
-              createdAt: now,
-            },
+          : eventType === 'run.continued'
+            ? {
+                sequence: 2,
+                runId,
+                eventType: 'run.continued',
+                payload: {
+                  sourceRunId: SOURCE_RUN,
+                  parts: keptParts,
+                  steps: { [KEPT_CALL]: 0 },
+                  results: {},
+                },
+                createdAt: now,
+              }
+            : undefined,
       ),
     );
     return vi.spyOn(RunEventsRepository.prototype, 'findFirstByType');
