@@ -39,7 +39,7 @@ test it with items that the test harness stores directly.
 | `finalize`     | `web`          | Spec sync, task records, and archive movement only.                                                                                              | ~2,000            | none   |
 
 **Named budget exception: the proposal layer is about 2,500 authored lines.** It adds one
-capability with 42 requirements and modifies 15 requirements in 10 capabilities. Most MODIFIED
+capability with 43 requirements and modifies 15 requirements in 10 capabilities. Most MODIFIED
 blocks are long canonical requirements that must be copied whole and rewritten in Simplified
 Technical English. Measure it with `git diff --numstat origin/master` before publication. Each
 implementation layer is planned inside about 2,000 lines; `queue` and `segments` are at the limit.
@@ -82,7 +82,7 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 - [ ] 4.1 Detect a first dispatch per segment and read earlier-segment Runs through reply usage in baseline queries; skip compaction after the first segment (design D3). Verify "A steer with a skill mention", "A delivered steer activates its skill", "A delivered steer imports a file", "A segment start does not compact", and "A steer sent with another model".
 - [ ] 4.2 Apply Continue and Regenerate state only to the first segment. Verify "A steer inside a Continue Run" and "A delivered message does not repeat the kept parts".
-- [ ] 4.3 Count completeness by the attempts after the latest `run.delivered`, write first-epoch baselines at the first steer delivery (none when an interrupt closes the first segment), and title from the `run.created` message. Verify "A reply that a steer closed is complete", "Every request reported", "A reclaimed Run is incomplete", and "A steer in the first Run".
+- [ ] 4.3 Count completeness by the attempts after the latest `run.delivered`, write first-epoch baselines at the first steer delivery (none when an interrupt closes the first segment; an interrupt-closed segment 1 followed by a steer writes them at the second close), and title from the `run.created` message. Verify "A reply that a steer closed is complete", "Every request reported", "A reclaimed Run is incomplete", and "A steer in the first Run".
 - [ ] 4.4 Replay earlier-segment reasoning inside the Run. Verify "A later segment keeps the reasoning of an earlier segment" in projection tests.
 - [ ] 4.5 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [ ] 4.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
@@ -112,7 +112,7 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 - [ ] 7.1 Add `interruptFate` to the static registry and `cancel` to dynamic MCP bindings. Verify "A write finishes before the interrupt applies", "Workspace entry finishes", and a test that every registered tool and every MCP binding has a fate.
 - [ ] 7.2 Stop the segment on interrupt only while work is in flight, route the abort in `onError`, and settle open calls by fate with a per-call interrupt signal and recorded native results (design D7). Verify "An interrupt during a model response", "An interrupt takes the pending steers along", "An interrupt kills a long command", "Two calls of one step, one started", "A late tool result does not replace the settlement", "A withdrawal after an interrupt stopped work", a tool admission after the interrupt delivery that writes no attempt, "An interrupt during compaction", and "An interrupt reaches a dedicated worker".
-- [ ] 7.3 Apply the interrupted-reply reasoning rule in the projection and mark the cut part (design D8). Verify "The cut reasoning part never replays" and "An interrupted reply keeps only reasoning with a later part" on the Responses, Messages, and Chat Completions wires.
+- [ ] 7.3 Apply the interrupted-reply reasoning rule in the projection and mark the cut part (design D8). Verify "The cut reasoning part never replays", "An interrupted reply keeps only reasoning with a later part", and "A withdrawn interrupt's completed reply keeps the cut part out of later turns" on the Responses, Messages, and Chat Completions wires.
 - [ ] 7.4 Run the live Anthropic probe: a request that keeps a signed thinking block of an interrupted reply and drops the open block. Record the request shape and the answer in the PR body. Stop and amend the proposal if the provider rejects it.
 - [ ] 7.5 Add the `interrupted` producer, its packaged template, and its first precedence rank. Verify "The notice comes first", "A killed command is named", and "An interrupted item comes before the owner text".
 - [ ] 7.6 Accept `delivery: "interrupt"` and `PATCH` to `interrupt`, with `NOTIFY` in the admission transaction. Verify an admission test for `interrupt` and a mode-change test from `steer` to `interrupt`.

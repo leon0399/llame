@@ -7,9 +7,9 @@ true. Its reply came from a Run with the llame model id of the request, and that
 Run completed. Otherwise the system MUST omit the part and its provider metadata.
 Within one turn, and in the kept parts of a Continue Run, a reasoning part MUST
 replay on the model of its Run. The segments of one Run are one turn for this rule,
-also before the Run completes. In a reply that an interrupt closed, the part that
-the interrupt cut MUST NOT replay. A reasoning part with no later kept part in that
-reply MUST NOT replay either. The system MUST NOT select reasoning parts by
+also before the Run completes. A reasoning part that an interrupt cut MUST NOT
+replay in any later request, whatever the status of its reply. In a reply that an
+interrupt closed, a reasoning part with no later kept part MUST NOT replay either. The system MUST NOT select reasoning parts by
 their content or their age.
 
 #### Scenario: The same model keeps earlier reasoning
@@ -50,3 +50,8 @@ their content or their age.
 - **WHEN** an interrupt closes a reply with a signed reasoning part, a text part, a second signed reasoning part, and a cut part
 - **THEN** a later request of the same Run carries the first reasoning part and the text part
 - **AND** it carries neither the second reasoning part nor the cut part
+
+#### Scenario: A withdrawn interrupt's completed reply keeps the cut part out of later turns
+
+- **WHEN** an interrupt cuts a reasoning part, the owner withdraws the item, and the reply then completes
+- **THEN** the next turn on the same model does not carry the cut part

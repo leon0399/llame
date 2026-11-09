@@ -141,10 +141,11 @@ The attempt machinery needs these changes to work per segment:
   receipts of attempts after the latest `run.delivered`, so a segment attempt does not mark the
   final reply incomplete.
 - **Baselines.** A steer delivery writes the first-epoch baselines (`recencyDigest`
-  initialization, `skillCatalogFreeze`) that `finishRun` writes for a completed first Run, when the
-  closed reply is the first segment of the Chat's first Run. A steer closes that reply
-  `completed`, which is the successful turn that `chat-recency-digest` requires. An interrupt
-  closes it `aborted` and writes no baseline.
+  initialization, `skillCatalogFreeze`) that `finishRun` writes for a completed first Run, when
+  the Chat has none yet: the first successful close of the Chat's first Run. A steer closes a
+  reply `completed`, which is the successful turn that `chat-recency-digest` requires. An
+  interrupt closes it `aborted` and writes none, so a later steer close or the Run's completion
+  writes them.
 - **Title.** Title generation reads the message of `run.created`, not the Run's current message.
 
 `executeRun` keeps its signature. It returns a result, built on `wrapStreamTextResult`, whose
@@ -263,8 +264,10 @@ implementation; #1051 adds it.
 The rule needs no open-or-closed signal from the stream, which the Chat Completions wire does not
 give (`openai-completions-model-client.ts:345-366` routes reasoning through `onChunk`, which
 carries no `reasoning-end`). An interrupt stops the stream, so the cut reasoning part is the last
-part of the reply. In a reply whose usage status is `aborted` from an interrupt, the `turn-replay`
-projection omits each reasoning part that has no later kept part. That covers the cut part and a
+part of the reply. The `turn-replay` projection omits every reasoning part marked
+`providerMetadata.llame.interrupted`, whatever the status of its reply, so a withdrawn interrupt's
+completed reply never replays its cut part. In a reply whose usage status is `aborted` from an
+interrupt, it also omits each reasoning part that has no later kept part. That covers the cut part and a
 completed reasoning item with nothing after it, which OpenAI Responses rejects. The collector
 still marks the cut part with `providerMetadata.llame.interrupted: true` for the transcript. A tool
 call is a stored part only after the SDK emits the complete call, so incomplete arguments never
@@ -338,6 +341,10 @@ and is reviewed in the `web` layer's Storybook stories.
 
 ## Revision history
 
+- **v7 (2026-11-09):** Third GitHub review round: the cut reasoning part is filtered by its marker
+  for every reply status (new `reasoning-output` scenario); baselines are written at the first
+  successful close of the first Run (an interrupt-closed segment 1 followed by a steer writes them
+  at the second close); requirement count corrected.
 - **v6 (2026-11-09):** Second GitHub review round on #1637 (10 accepted, 6 rejected): baselines on
   the first steer delivery only (task 4.3); the context-injection scenario keeps "binding"; a
   withdrawn interrupt does not replay the cut reasoning (new scenario); chat deletion confirms by
