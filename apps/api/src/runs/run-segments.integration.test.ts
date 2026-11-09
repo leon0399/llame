@@ -20,7 +20,11 @@ import { MessagesRepository } from '../chats/chats-repository';
 import { type Run } from '../db/schema';
 import { waitFor } from '../testing/support';
 import { finalizeRunReply } from './run-reply-finalizer';
-import { answer, call, useSegmentsFixture } from './run-segments.test-fixture';
+import {
+  answer,
+  call,
+  useSegmentsFixture,
+} from '../testing/run-segments.test-fixture';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
 import { createUser } from './worker-harness';

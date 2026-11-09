@@ -20,18 +20,18 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { MessagesRepository } from '../chats/chats-repository';
 import { type ChatDeliveryMode } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { waitFor } from '../testing/support';
-import { notifyRunControl } from './run-control';
-import { isTerminalRunStatus } from './run-status';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { type ScriptedStep } from './scripted-model-step';
+import { waitFor } from './support';
+import { notifyRunControl } from '../runs/run-control';
+import { isTerminalRunStatus } from '../runs/run-status';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { type ScriptedStep } from '../runs/scripted-model-step';
 import {
   bootWorkerHarness,
   createUser,
   dispatchRun,
   seedRun,
   type WorkerHarness,
-} from './worker-harness';
+} from '../runs/worker-harness';
 
 export const answer = (text: string): ScriptedStep => [
   { type: 'text', id: 't', text },

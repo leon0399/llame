@@ -39,7 +39,7 @@ import {
   call,
   useSegmentsFixture,
   type SeededRun,
-} from './run-segments.test-fixture';
+} from '../testing/run-segments.test-fixture';
 import { isTerminalRunStatus } from './run-status';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
