@@ -111,7 +111,7 @@ export class ChatDeliveriesService {
         if (mode === 'interrupt')
           await notifyLiveRunInterrupt(tx, { chatId, userId });
         return { item: changed };
-      assertNotArchived(chat);
+      }
       resolveSendSettings(
         this.models,
         this.instanceConfig.config.tools.permissionModes,
