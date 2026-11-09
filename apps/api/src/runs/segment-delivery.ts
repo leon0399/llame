@@ -9,14 +9,12 @@ import { randomUUID } from 'node:crypto';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import {
-  type Chat,
-  type ChatDelivery,
-  type Message,
-  type Run,
-  type SkillCatalogBaseline,
-} from '../db/schema';
+import { type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import {
+  type RecencyDigestInitialization,
+  type SkillCatalogFreeze,
+} from './run-execution.service';
 import {
   finalizeRunReply,
   type AssistantTurnTelemetry,
@@ -33,29 +31,18 @@ import { finalizeUsageCompleteness } from './usage-completeness';
  * attempt-fenced transaction that closes the turn.
  */
 export type FirstEpochBaselines = {
-  recencyDigestInitialization?:
-    | {
-        baseline: NonNullable<Chat['recencyDigestBaseline']>;
-        told: NonNullable<Chat['recencyDigestTold']>;
-      }
-    | undefined;
-  skillCatalogFreeze?:
-    | {
-        baseline: SkillCatalogBaseline;
-        rebakedFrom: string | null;
-        told: NonNullable<Chat['skillCatalogTold']>;
-      }
-    | undefined;
+  recencyDigestInitialization?: RecencyDigestInitialization | undefined;
+  skillCatalogFreeze?: SkillCatalogFreeze | undefined;
 };
 
 export async function persistFirstEpochBaselines(
   tx: Db,
   run: { chatId: string; userId: string },
-  baselines: FirstEpochBaselines,
+  baselines: FirstEpochBaselines | undefined,
 ): Promise<void> {
   const chatsRepo = new ChatsRepository(tx);
   const { recencyDigestInitialization: digest, skillCatalogFreeze: freeze } =
-    baselines;
+    baselines ?? {};
   if (digest !== undefined) {
     await chatsRepo.setRecencyDigestIfAbsent(
       run.chatId,
@@ -113,33 +100,28 @@ type DeliveryInput = {
   /**
    * The first-epoch baselines the closing segment's attempt derived: a steer
    * closes its reply `completed`, the successful turn that establishes them.
-   * An interrupt closes `aborted` and passes none.
+   * They are written only when every delivered item is a steer.
    */
   baselines?: FirstEpochBaselines;
 };
 
-/**
- * The steer closes the reply while the Run is live, so the Run's terminal
- * status does not decide the completeness of its usage
- * (run-usage-accounting).
- */
-function finalizeClosingUsage(
+async function storeDeliveredMessage(
   tx: Db,
-  input: DeliveryInput,
   locked: Run,
-  telemetry: AssistantTurnTelemetry,
-): Promise<void> {
-  return finalizeUsageCompleteness(tx, {
-    userId: locked.userId,
-    runId: locked.id,
-    attemptId: input.attemptId,
-    run: locked,
+  items: ReadonlyArray<ChatDelivery>,
+): Promise<Message> {
+  const message = await new MessagesRepository(tx).createUserMessageIfAbsent({
+    id: randomUUID(),
     chatId: locked.chatId,
-    inReplyTo: input.live?.inReplyTo ?? locked.messageId,
-    telemetry,
-    closedBySteer: true,
+    senderUserId: locked.userId,
+    parts: items.flatMap((item) => item.parts),
   });
+  if (!message) {
+    throw new Error(`Run ${locked.id} could not store its delivery.`);
+  }
+  return message;
 }
+
 /**
  * Close the segment's reply as `completed` and publish its usage, then store
  * ONE user message holding every item's parts in order.
@@ -150,13 +132,20 @@ async function closeSegmentAndStore(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<{ closedReply: Message | undefined; message: Message }> {
-  if (input.modelCompleted?.telemetry) {
-    await finalizeClosingUsage(
-      tx,
-      input,
-      locked,
-      input.modelCompleted.telemetry,
-    );
+  // The steer closes the reply while the Run is live, so the Run's status
+  // does not decide the completeness of its usage (run-usage-accounting).
+  const telemetry = input.modelCompleted?.telemetry;
+  if (telemetry) {
+    await finalizeUsageCompleteness(tx, {
+      userId: locked.userId,
+      runId: locked.id,
+      attemptId: input.attemptId,
+      run: locked,
+      chatId: locked.chatId,
+      inReplyTo: input.live?.inReplyTo ?? locked.messageId,
+      telemetry,
+      closedBySteer: true,
+    });
   }
   const closedReply = await finalizeRunReply(tx, {
     run: locked,
@@ -173,14 +162,7 @@ async function closeSegmentAndStore(
       input.modelCompleted,
     );
   }
-  const message = await new MessagesRepository(tx).createUserMessageIfAbsent({
-    id: randomUUID(),
-    chatId: locked.chatId,
-    senderUserId: locked.userId,
-    parts: items.flatMap((item) => item.parts),
-  });
-  if (!message)
-    throw new Error(`Run ${locked.id} could not store its delivery.`);
+  const message = await storeDeliveredMessage(tx, locked, items);
   return { closedReply, message };
 }
 
@@ -246,23 +228,23 @@ export async function deliverPendingSteering(
     input.attemptId,
   );
   if (!locked) return { kind: 'fenced' };
-  // The items stay pending and the caller settles the Run cancelled.
   if (locked.cancelRequestedAt !== null) return { kind: 'cancelled' };
   const { chatId, userId } = locked;
   if (!(await new ChatsRepository(tx).lock(chatId, userId))) {
     return { kind: 'fenced' };
   }
-  const deliveries = new ChatDeliveriesRepository(tx);
-  const items = await deliveries.lockPendingSteering(chatId, userId);
+  const items = await new ChatDeliveriesRepository(tx).lockPendingSteering(
+    chatId,
+    userId,
+  );
   if (items.length === 0) return { kind: 'nothing-pending' };
-
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
     input,
     locked,
     items,
   );
-  if (input.baselines !== undefined) {
+  if (items.every((item) => item.mode === 'steer')) {
     await persistFirstEpochBaselines(tx, locked, input.baselines);
   }
   const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {

@@ -731,6 +731,9 @@ function mockNormalExecutionRepositories() {
       createdAt: now,
     });
   vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(event);
+  vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
+    null,
+  );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   const touch = vi

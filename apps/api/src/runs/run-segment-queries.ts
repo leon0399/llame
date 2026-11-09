@@ -9,13 +9,37 @@
 import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
-import { chats, messages, runs } from '../db/schema';
+import { messages, runs, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   dispatchedRunPredicate,
   RunEventsRepository,
   type CompletedRunWithTrigger,
+  type RunEventType,
 } from './runs-repository';
+
+/**
+ * The Run's latest `run.delivered` (undefined before the first delivery) and
+ * the events of `eventTypes` after it, or all of them when none was delivered.
+ * A bounded `limit` caps the slice.
+ */
+export async function eventsSinceLatestDelivery(
+  tx: Db,
+  runId: string,
+  userId: string,
+  options: { eventTypes: ReadonlyArray<RunEventType>; limit?: number },
+): Promise<{ delivered: RunEvent | undefined; events: Array<RunEvent> }> {
+  const repo = new RunEventsRepository(tx);
+  const found = await repo.findFirstByType(runId, userId, 'run.delivered', {
+    newest: true,
+  });
+  const delivered = found ?? undefined;
+  const events = await repo.listByRunId(runId, userId, {
+    ...options,
+    ...(delivered !== undefined && { afterSequence: delivered.sequence }),
+  });
+  return { delivered, events };
+}
 
 /**
  * Where the Run's current segment stands: whether a delivery started it, and
@@ -29,18 +53,13 @@ export async function currentSegmentState(
   runId: string,
   userId: string,
 ): Promise<{ delivered: boolean; dispatched: boolean }> {
-  const log = await new RunEventsRepository(tx).listByRunId(runId, userId, {
-    eventTypes: ['run.delivered', 'model.requested'],
-  });
-  const delivered = log.findLastIndex(
-    ({ eventType }) => eventType === 'run.delivered',
+  const { delivered, events } = await eventsSinceLatestDelivery(
+    tx,
+    runId,
+    userId,
+    { eventTypes: ['model.requested'], limit: 1 },
   );
-  return {
-    delivered: delivered !== -1,
-    dispatched: log
-      .slice(delivered + 1)
-      .some(({ eventType }) => eventType === 'model.requested'),
-  };
+  return { delivered: delivered !== undefined, dispatched: events.length > 0 };
 }
 
 /**
@@ -57,7 +76,6 @@ export async function findEarlierSegmentBaseline(
   const [row] = await tx
     .select({ run: runs, triggeringUserSeq: trigger.seq })
     .from(messages)
-    .innerJoin(chats, eq(messages.chatId, chats.id))
     .innerJoin(
       trigger,
       and(
@@ -65,11 +83,13 @@ export async function findEarlierSegmentBaseline(
         eq(trigger.chatId, messages.chatId),
       ),
     )
-    .innerJoin(runs, eq(runs.id, input.runId))
+    .innerJoin(
+      runs,
+      and(eq(runs.id, input.runId), eq(runs.chatId, messages.chatId)),
+    )
     .where(
       and(
         eq(messages.chatId, input.chatId),
-        eq(chats.ownerUserId, input.userId),
         eq(messages.role, 'assistant'),
         lt(messages.seq, input.beforeSeq),
         sql`(${messages.usage} ->> 'runId') = ${input.runId}`,

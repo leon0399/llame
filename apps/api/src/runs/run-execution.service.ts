@@ -302,10 +302,8 @@ import { modelGitAdmission } from '../git-state/model-git-admission';
 import { type GitObservation } from '../git-state/git-state-view';
 import { placeRailPart, refreshTurnGit, type TurnGit } from './turn-git';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
-import {
-  finalizeUsageCompleteness,
-  readCreatedFlags,
-} from './usage-completeness';
+import { readCreatedFlags } from './run-created-flags';
+import { finalizeUsageCompleteness } from './usage-completeness';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   aggregateTurnTelemetry,
@@ -404,7 +402,7 @@ import {
  * completes the turn: the baseline lives only in the system prompt, so no
  * history item accompanies it and a losing attempt must never freeze it.
  */
-type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']> & {
+export type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']> & {
   readonly told: NonNullable<Chat['skillCatalogTold']>;
 };
 type WorkspaceWrites = {
@@ -787,7 +785,7 @@ export type RunUserMessage = {
   parts: Array<MessagePart>;
 };
 
-type RecencyDigestInitialization = {
+export type RecencyDigestInitialization = {
   baseline: NonNullable<Chat['recencyDigestBaseline']>;
   told: NonNullable<Chat['recencyDigestTold']>;
 };
@@ -4418,7 +4416,12 @@ export class RunExecutionService {
     if (input.modelCompleted) {
       await events.append(input.runId, 'model.completed', input.modelCompleted);
     }
-    await this.persistWinningTurnBaselines(tx, input, finished);
+    // The baselines only the winning turn establishes live in the system
+    // prompt, so they ride this attempt-fenced transaction; a losing attempt
+    // can never freeze a prompt the winner never rendered.
+    if (input.status === 'completed') {
+      await persistFirstEpochBaselines(tx, finished, input);
+    }
     await events.append(input.runId, `run.${input.status}`, input.runPayload);
     const promoted =
       input.status === 'completed' && this.runDispatch !== undefined
@@ -4529,23 +4532,6 @@ export class RunExecutionService {
       parts: turn.parts,
       usage: turn.telemetry,
     });
-  }
-
-  /**
-   * The baselines only the winning turn establishes: the chat's first digest
-   * baseline and a first-epoch skill-catalog freeze. Both live only in the
-   * system prompt, so no history item accompanies them and they ride this
-   * attempt-fenced terminal transaction; a losing attempt can never freeze a
-   * prompt the winner never rendered. Every other told write committed with
-   * the items it accounts for, in the dispatch transaction.
-   */
-  private async persistWinningTurnBaselines(
-    tx: Db,
-    input: FinishRunInput,
-    finished: Run,
-  ): Promise<void> {
-    if (input.status !== 'completed') return;
-    await persistFirstEpochBaselines(tx, finished, input);
   }
 
   /**

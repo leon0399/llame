@@ -142,13 +142,14 @@ describeIfDb('run steering segment preparation', () => {
     chatId: string,
     text: string,
     modelId = 'ignored-by-steer',
+    mode: 'steer' | 'interrupt' = 'steer',
   ): Promise<void> {
     await db((tx) =>
       new ChatDeliveriesRepository(tx).insertPending({
         id: randomUUID(),
         chatId,
         ownerUserId: userId,
-        mode: 'steer',
+        mode,
         parts: [{ type: 'text', text }],
         settings: { modelId, permissionMode: 'default' },
       }),
@@ -235,6 +236,7 @@ describeIfDb('run steering segment preparation', () => {
       ...seeded,
       modelId: runModelId,
       finished,
+      rawPrompts: harness.models.prompts.slice(promptsBefore),
       prompts: harness.models.prompts
         .slice(promptsBefore)
         .map((prompt) => flatten(prompt)),
@@ -406,6 +408,46 @@ describeIfDb('run steering segment preparation', () => {
       expect(started.prompts).toHaveLength(2);
       const messages = await chatMessages(started.chatId);
       expect(messages.map(({ role }) => role)).not.toContain('checkpoint');
+    });
+
+    it('A later segment keeps the reasoning of an earlier segment', async () => {
+      const providerMetadata = {
+        openai: { itemId: 'rs_segment_1', reasoningEncryptedContent: 'ENC_1' },
+      };
+      const started = await steeredRun({
+        steps: [
+          [
+            {
+              type: 'reasoning',
+              id: 'r',
+              text: 'SEGMENT_ONE_THOUGHT',
+              providerMetadata,
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'a',
+              toolName: 'read',
+              input: { path: directory },
+            },
+          ],
+          answer('done'),
+        ],
+        steer: 'second segment',
+      });
+
+      expect(started.finished.status).toBe('completed');
+      // The second segment's first request is the second one of the Run.
+      const [, second] = started.rawPrompts;
+      const replayed = (second ?? []).flatMap((message): Array<unknown> =>
+        isString(message.content) ? [] : [...message.content],
+      );
+      expect(replayed).toContainEqual(
+        expect.objectContaining({
+          type: 'reasoning',
+          text: 'SEGMENT_ONE_THOUGHT',
+          providerOptions: providerMetadata,
+        }),
+      );
     });
   });
 
@@ -778,6 +820,37 @@ describeIfDb('run steering segment preparation', () => {
       ).toMatchObject({ complete: false });
     });
 
+    it('A reclaim inside the first segment leaves the closed reply incomplete', async () => {
+      const modelId = `segment-prep-${randomUUID()}`;
+      const seeded = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId,
+        text: 'first message',
+      });
+      const started = await steeredRun({
+        seed: seeded,
+        steps: [call('a', 'read', { path: directory }), answer('done')],
+        steer: 'after the reclaim',
+        // An earlier attempt of the first segment left a receipt behind.
+        beforeStep: async (index) => {
+          if (index === 0) await writeReceipt(seeded.runId, randomUUID());
+        },
+      });
+
+      const messages = await chatMessages(started.chatId);
+      const users = messages.filter(({ role }) => role === 'user');
+      // The delivery closed the first reply, which the stale attempt taints;
+      // the second segment does not count it.
+      expect(usageOf(replyTo(messages, users[0]))).toMatchObject({
+        status: 'completed',
+        complete: false,
+      });
+      expect(usageOf(replyTo(messages, users[1]))).toMatchObject({
+        complete: true,
+      });
+    });
+
     it('A steer delivery writes the first-epoch baselines of the first Run', async () => {
       const seen: Array<boolean> = [];
       const started = await steeredRun({
@@ -796,6 +869,62 @@ describeIfDb('run steering segment preparation', () => {
       expect(started.finished.status).toBe('completed');
       expect(seen[0]).toBe(false);
       expect(seen[1]).toBe(true);
+    });
+
+    it('An interrupt delivery writes no first-epoch baselines', async () => {
+      const seeded = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: 'unused',
+      });
+      const started = await db((tx) =>
+        new RunsRepository(tx).markStarted(seeded.runId, userId),
+      );
+      const baselines = {
+        recencyDigestInitialization: {
+          baseline: {
+            pinned: [],
+            recent: [],
+            pinnedShown: 0,
+            pinnedTotal: 0,
+            recentShown: 0,
+            recentTotal: 0,
+            compiledOn: '2026-11-08',
+          },
+          told: [],
+        },
+        skillCatalogFreeze: {
+          baseline: { entries: [], omitted: 0 },
+          rebakedFrom: null,
+          told: [],
+        },
+      };
+      const deliver = (attemptId: string | null | undefined) =>
+        db((tx) =>
+          deliverPendingSteering(tx, {
+            run: { runId: seeded.runId, userId },
+            attemptId: attemptId ?? '',
+            models: [],
+            baselines,
+          }),
+        );
+      const chat = () =>
+        db((tx) => new ChatsRepository(tx).findById(seeded.chatId, userId));
+
+      await storeSteer(seeded.chatId, 'stop that', undefined, 'interrupt');
+      const interrupted = await deliver(started?.activeAttemptId);
+      expect(interrupted.kind).toBe('delivered');
+      expect((await chat())?.skillCatalogBaseline).toBeNull();
+      expect((await chat())?.recencyDigestBaseline).toBeNull();
+
+      // A steer delivery of the same Run establishes them.
+      await storeSteer(seeded.chatId, 'carry on');
+      const steered = await deliver(
+        interrupted.kind === 'delivered' ? interrupted.attemptId : undefined,
+      );
+      expect(steered.kind).toBe('delivered');
+      expect((await chat())?.skillCatalogBaseline).not.toBeNull();
+      expect((await chat())?.recencyDigestBaseline).not.toBeNull();
     });
 
     it('A steer in the first Run', async () => {
