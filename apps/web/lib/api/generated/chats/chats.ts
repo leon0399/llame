@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1
  */
 import type {
+  ChangeChatDeliveryDto,
   ChatCreationRecordResponse,
   ChatDeliveriesResponse,
   ChatDeliveryResponse,
@@ -445,6 +446,52 @@ export const withdrawChatDelivery = async (
       `DELETE ${getWithdrawChatDeliveryUrl(chatId, deliveryId)} failed (${res.status})`,
     );
     const data: withdrawChatDeliveryError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ChatDeliveryResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type changeChatDeliveryError = void | void | void | void | void | ModelDomainErrorResponse;
+
+export const getChangeChatDeliveryUrl = (
+  chatId: string,
+  deliveryId: string,
+) => {
+  return `/api/v1/chats/${chatId}/deliveries/${deliveryId}`;
+};
+
+export const changeChatDelivery = async (
+  chatId: string,
+  deliveryId: string,
+  changeChatDeliveryDto: ChangeChatDeliveryDto,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ChatDeliveryResponse> => {
+  const res = await fetchFn(getChangeChatDeliveryUrl(chatId, deliveryId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(changeChatDeliveryDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: changeChatDeliveryError;
+      status?: number;
+    } = new globalThis.Error(
+      `PATCH ${getChangeChatDeliveryUrl(chatId, deliveryId)} failed (${res.status})`,
+    );
+    const data: changeChatDeliveryError = (() => {
       try {
         return body ? JSON.parse(body) : {};
       } catch {

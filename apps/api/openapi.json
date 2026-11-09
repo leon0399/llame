@@ -1154,6 +1154,86 @@
         ],
         "summary": "",
         "tags": ["chats"]
+      },
+      "patch": {
+        "operationId": "changeChatDelivery",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "deliveryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeChatDeliveryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The item after the change. With no live Run it is `delivered` and its Run has started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatDeliveryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed id, or a mode that a change cannot set"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat or item not found, or not owned"
+          },
+          "409": {
+            "description": "The item is no longer pending, or the Chat is archived"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
+          },
+          "422": {
+            "description": "A paused item whose model or effort a send cannot use now; the item stays pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
       }
     },
     "/api/v1/chats/{id}/creation-record": {
@@ -5233,7 +5313,7 @@
           },
           "delivery": {
             "type": "string",
-            "enum": ["queue"],
+            "enum": ["queue", "steer"],
             "description": "How a message that arrives during a live Run reaches the Chat. A send with `delivery` to a Chat with a live Run answers 202 with a pending item; to an idle Chat it starts a Run like any send."
           },
           "message": {
@@ -5408,6 +5488,18 @@
           }
         },
         "required": ["items"]
+      },
+      "ChangeChatDeliveryDto": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["steer"],
+            "description": "The new mode of a pending item. `steer` delivers it at the next step boundary of the live Run, or starts a Run for it when the Chat has none."
+          }
+        },
+        "required": ["mode"],
+        "additionalProperties": false
       },
       "CreateChatWorktreeDto": {
         "type": "object",

@@ -111,12 +111,18 @@ Re-measure each at its boundary, and request a named exception before publicatio
 
 ## 5. steer
 
-- [ ] 5.1 Accept `delivery: "steer"` and `PATCH` to `steer`. Verify "A steer during a Run is accepted as a pending item", "Steer now changes a queue item", "A retry after delivery starts no Run", "An item id from another Chat is a duplicate", and "A steer after completion starts a Run".
-- [ ] 5.2 Move pending `steer` and `interrupt` items to the head of the queue in `markFinished` under the chat-row lock for every non-completed status, route `cancelActiveRunsForMessage` through it, and start a Run for a mode change on a paused item. Verify "A failed Run pauses the queue" for every terminal writer and "Steer now on a paused item", including invalid settings.
-- [ ] 5.3 End the UI stream segment at `run.delivered` and resume after the latest delivery through a start-sequence parameter (design D9). Verify "A live client sees the delivery", "A resume after a delivery replays only the current segment", and "Resume identifies the active Run first" in `run-stream-bridge.test.ts` and the `chats.controller` tests.
-- [ ] 5.4 Verify "Continue on a delivered message" and "Regenerate on a delivered message" in follow-up admission integration tests.
-- [ ] 5.5 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 5.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+- [x] 5.1 Accept `delivery: "steer"` and `PATCH` to `steer`. Verify "A steer during a Run is accepted as a pending item", "Steer now changes a queue item", "A retry after delivery starts no Run", "An item id from another Chat is a duplicate", and "A steer after completion starts a Run".
+  - Evidence: `delivery: "steer"` and `PATCH /chats/:chatId/deliveries/:deliveryId` (`changeChatDelivery`) added; the five scenarios pass in `chat-steering.integration.test.ts`; OpenAPI and client regenerated.
+- [x] 5.2 Move pending `steer` and `interrupt` items to the head of the queue in `markFinished` under the chat-row lock for every non-completed status, route `cancelActiveRunsForMessage` through it, and start a Run for a mode change on a paused item. Verify "A failed Run pauses the queue" for every terminal writer and "Steer now on a paused item", including invalid settings.
+  - Evidence: `markFinished` and `cancelActiveRunsForMessage` call `pauseQueueBehind`; a completion with a recorded cancellation also pauses and promotes nothing; failed, cancelled, expired, dead-letter, admission-expiry, and paused-item scenarios pass in `chat-steering.integration.test.ts`.
+- [x] 5.3 End the UI stream segment at `run.delivered` and resume after the latest delivery through a start-sequence parameter (design D9). Verify "A live client sees the delivery", "A resume after a delivery replays only the current segment", and "Resume identifies the active Run first" in `run-stream-bridge.test.ts` and the `chats.controller` tests.
+  - Evidence: the bridge emits `data-run-delivered` then `finish` and closes; resume passes the latest delivery sequence as `afterSequence`; bridge and controller tests pass.
+- [x] 5.4 Verify "Continue on a delivered message" and "Regenerate on a delivered message" in follow-up admission integration tests.
+  - Evidence: both scenarios added to `follow-up-admission.integration.test.ts` and pass.
+- [x] 5.5 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: `CHANGELOG.md` entry of 2026-11-08 added; `pnpm lint:markdown` run.
+- [x] 5.6 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm --filter api lint`, `typecheck`, full unit and integration suites, `pnpm format:check`, `git diff --check`, and `openspec validate in-run-steering --strict` pass.
 - [ ] 5.7 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 5.8 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

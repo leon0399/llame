@@ -157,6 +157,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       case 'run.completed':
       case 'run.cancelled':
         return this.onRunTerminated(event);
+      case 'run.delivered':
+        return this.onRunDelivered(event);
       case 'run.expired':
       case 'run.failed':
         return this.onRunFailed(event);
@@ -367,6 +369,24 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     ];
   }
 
+  /**
+   * A delivery ends the stream of the current segment (run-steering D9): the
+   * client adopts history at this part and resumes for the next segment, since
+   * one UI message streams once.
+   */
+  private onRunDelivered(event: RunEventLike): Array<UiChunk> {
+    const messageId = payloadString(event.payload, 'messageId');
+    if (messageId === undefined) return [];
+    this.isFinished = true;
+    return [
+      ...this.prelude(),
+      ...this.closeReasoning(),
+      ...this.closeText(),
+      { type: 'data-run-delivered', data: { messageId } },
+      { type: 'finish', finishReason: 'stop' },
+    ];
+  }
+
   private onRunFailed(event: RunEventLike): Array<UiChunk> {
     this.isFinished = true;
     const message = payloadString(event.payload, 'message') ?? 'Run failed.';
@@ -419,6 +439,11 @@ export class RunStreamBridgeService {
   createUiMessageStreamResponse(input: {
     runId: string;
     userId: string;
+    /**
+     * Replay only the events after this sequence: a resume passes the latest
+     * `run.delivered` of the Run, so it streams the current segment (D9).
+     */
+    afterSequence?: number;
     abortSignal?: AbortSignal;
   }): Response {
     const translator = createRunEventTranslator(input.runId);
@@ -467,6 +492,9 @@ export class RunStreamBridgeService {
       for (const chunk of translator.translate(event)) {
         emit(chunk);
       }
+      // A segment ends at its delivery: the events after it belong to the
+      // next segment's stream, which a resume replays.
+      if (translator.finished()) break;
     }
     return { cursor: nextCursor, count: events.length };
   }
@@ -478,11 +506,16 @@ export class RunStreamBridgeService {
    */
   private async pumpUiMessageEvents(options: {
     controller: ReadableStreamDefaultController<string>;
-    input: { runId: string; userId: string; abortSignal?: AbortSignal };
+    input: {
+      runId: string;
+      userId: string;
+      afterSequence?: number;
+      abortSignal?: AbortSignal;
+    };
     translator: RunEventTranslator;
   }): Promise<void> {
     const { controller, input, translator } = options;
-    let cursor = 0;
+    let cursor = input.afterSequence ?? 0;
     let lastWriteAt = Date.now();
     const emit = (chunk: UiChunk) => {
       lastWriteAt = Date.now();

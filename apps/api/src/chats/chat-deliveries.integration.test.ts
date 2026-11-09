@@ -253,7 +253,7 @@ describe('chat deliveries — the queue mode', () => {
       expect(await itemsOf(chatId)).toEqual([]);
     });
 
-    it.each(['steer', 'interrupt', 'later'])(
+    it.each(['interrupt', 'later'])(
       'A delivery mode that this API does not accept (%s) gets 400',
       async (delivery) => {
         const { chatId } = await chatWithLiveRun();

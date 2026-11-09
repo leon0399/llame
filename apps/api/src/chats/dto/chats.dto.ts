@@ -204,7 +204,7 @@ export class CreateMessageDto {
   permissionMode?: PermissionMode;
 
   // ValidateIf (not IsOptional) for the reason `permissionMode` states. Only
-  // `queue` ships in this layer; a later layer widens the accepted values.
+  // `queue` and `steer` ship in this layer; a later layer widens the values.
   @ApiPropertyOptional({
     enum: SENDABLE_DELIVERY_MODES,
     description:

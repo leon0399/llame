@@ -1081,12 +1081,13 @@ describeIfDb(
           queriedChatId: string,
           queriedUserId: string,
         ): Promise<Run | undefined> {
+          // A bare status write: `markFinished` takes the Chat row lock that
+          // the admission awaiting this stand-in already holds.
           await tenantDb.runAs(queriedUserId, (tx2) =>
-            new RunsRepository(tx2).markFinished(
-              blocker!.id,
-              queriedUserId,
-              'cancelled',
-            ),
+            tx2
+              .update(schema.runs)
+              .set({ status: 'cancelled', finishedAt: new Date() })
+              .where(eq(schema.runs.id, blocker!.id)),
           );
           spy.mockRestore();
           return this.findActiveByChatId(queriedChatId, queriedUserId);

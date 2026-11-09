@@ -5,13 +5,14 @@
  * the table's forced RLS policy.
  */
 
-import { and, asc, eq, exists, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, eq, exists, inArray, isNotNull, sql } from 'drizzle-orm';
 
 import {
   chatDeliveries,
   chats,
   messages,
   runs,
+  type Run,
   type ChatDelivery,
   type ChatDeliveryMode,
   type ChatDeliverySettings,
@@ -183,6 +184,72 @@ export class ChatDeliveriesRepository {
   }
 
   /**
+   * The queue pauses behind a Run that did not deliver its steering items
+   * (run-steering D5): move the Chat's pending `steer` and `interrupt` items
+   * to the head of the queue, in their order. A Run that completes delivers or
+   * promotes them itself; one that completes with a recorded cancellation, as
+   * one that does not complete, leaves the owner to decide. The Chat row lock
+   * comes after the Run row the caller already holds, the codebase lock
+   * order, and it serializes with an admission that read the Run as live:
+   * that item is committed first and this move sees it.
+   */
+  async pauseBehind(run: Run): Promise<void> {
+    if (run.status === 'completed' && run.cancelRequestedAt === null) return;
+    const { chatId, userId: ownerUserId } = run;
+    await this.db
+      .select({ id: chats.id })
+      .from(chats)
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
+      .for('update');
+    const moving = await this.lockPendingSteering(chatId, ownerUserId);
+    if (moving.length === 0) return;
+    const [head] = await this.db
+      .select({ position: sql<string | null>`min(${chatDeliveries.position})` })
+      .from(chatDeliveries)
+      .where(
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          eq(chatDeliveries.mode, 'queue'),
+        ),
+      );
+    // Below the first queue item, or where they are when there is none.
+    const below =
+      head?.position == null
+        ? undefined
+        : Number(head.position) - moving.length;
+    for (const [index, item] of moving.entries()) {
+      await this.db
+        .update(chatDeliveries)
+        .set({
+          mode: 'queue',
+          ...(below !== undefined && { position: below + index }),
+          updatedAt: new Date(),
+        })
+        .where(eq(chatDeliveries.id, item.id));
+    }
+  }
+
+  /**
+   * One conditional update, as for a withdrawal: only a `pending` item of this
+   * Chat changes mode, so a delivery that won the race leaves it untouched.
+   */
+  async changePendingMode(
+    chatId: string,
+    id: string,
+    ownerUserId: string,
+    mode: ChatDeliveryMode,
+  ): Promise<ChatDelivery | undefined> {
+    const [changed] = await this.db
+      .update(chatDeliveries)
+      .set({ mode, updatedAt: new Date() })
+      .where(
+        and(this.pendingOf(chatId, ownerUserId), eq(chatDeliveries.id, id)),
+      )
+      .returning();
+    return changed;
+  }
+
+  /**
    * Mark a pending item delivered as the user message and Run it became.
    * Returns false when the item was no longer pending (zero rows), so the
    * caller rolls the promotion back.
@@ -218,4 +285,9 @@ export class ChatDeliveriesRepository {
       eq(chatDeliveries.state, 'pending'),
     );
   }
+}
+
+/** The queue pauses behind a Run that ended; see `pauseBehind`. */
+export function pauseQueueBehind(db: Db, run: Run): Promise<void> {
+  return new ChatDeliveriesRepository(db).pauseBehind(run);
 }

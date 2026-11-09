@@ -1013,4 +1013,98 @@ describeIfDb('follow-up admission', () => {
       });
     });
   });
+
+  describe('run-steering — a Run that delivered a message', () => {
+    /**
+     * The Run failed in its second segment: the first reply closed `completed`
+     * when a steer arrived, the delivery moved the Run to the steer message,
+     * and the second reply holds the settled parts the failure left.
+     */
+    async function seedDeliveredTurn(): Promise<{
+      fixture: TurnFixture;
+      firstReplyId: string;
+    }> {
+      const first = await seedTurn({
+        status: 'failed',
+        replyUsageStatus: 'completed',
+        replyParts: [{ type: 'text', text: 'first segment' }],
+      });
+      const delivered = await api.tenantDb.runAs(api.userId, async (tx) => {
+        const messages = new MessagesRepository(tx);
+        const steer = await messages.create({
+          chatId: first.chatId,
+          role: 'user',
+          senderUserId: api.userId,
+          parts: [{ type: 'text', text: 'also do this' }],
+        });
+        const reply = await messages.create({
+          chatId: first.chatId,
+          role: 'assistant',
+          senderUserId: null,
+          parts: settledCall('call-2'),
+          usage: { status: 'error', runId: first.runId, modelId: MODEL_ID },
+          inReplyTo: steer.id,
+        });
+        await tx
+          .update(schema.runs)
+          .set({ messageId: steer.id })
+          .where(eq(schema.runs.id, first.runId));
+        return { steerId: steer.id, replyId: reply.id };
+      });
+      return {
+        fixture: {
+          ...first,
+          messageId: delivered.steerId,
+          replyId: delivered.replyId,
+        },
+        firstReplyId: first.replyId!,
+      };
+    }
+
+    it('Continue on a delivered message', async () => {
+      const { fixture } = await seedDeliveredTurn();
+
+      const admitted = await admit(fixture, { action: 'continue' });
+
+      expect(admitted.userMessage.id).toBe(fixture.messageId);
+      expect(await runById(admitted.runId)).toMatchObject({
+        messageId: fixture.messageId,
+        followUpAction: 'continue',
+        sourceRunId: fixture.runId,
+      });
+      const events = await eventsOfRun(admitted.runId);
+      // The kept parts are those of the second segment reply only.
+      expect(events[1]?.payload).toEqual({
+        sourceRunId: fixture.runId,
+        parts: settledCall('call-2'),
+      });
+    });
+
+    it('Regenerate on a delivered message', async () => {
+      const { fixture, firstReplyId } = await seedDeliveredTurn();
+
+      const admitted = await admit(fixture, {
+        action: 'regenerate',
+        modelId: MODEL_ID,
+      });
+
+      expect(await runById(admitted.runId)).toMatchObject({
+        messageId: fixture.messageId,
+        followUpAction: 'regenerate',
+        sourceRunId: fixture.runId,
+      });
+      // Only the reply of the delivered message is replaced: the first
+      // segment's reply stays in the Chat.
+      const firstReply = await api.tenantDb.runAs(api.userId, (tx) =>
+        new MessagesRepository(tx).findById(
+          fixture.chatId,
+          api.userId,
+          firstReplyId,
+        ),
+      );
+      expect(firstReply?.parts).toEqual([
+        { type: 'text', text: 'first segment' },
+      ]);
+    });
+  });
 });

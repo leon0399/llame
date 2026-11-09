@@ -5,10 +5,27 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { assertNotArchived } from '../db/assert-not-archived';
 import { type ChatDelivery } from '../db/schema';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
+import {
+  ModelsService,
+  resolveSendSettings,
+  type ModelSelectionValidator,
+} from '../models/models.service';
+import { startItemRun } from '../runs/queue-promotion';
+import {
+  RunDispatchService,
+  type RunDispatcher,
+} from '../runs/run-dispatch.service';
+import { claimActiveRunSlot } from './chat-admission';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
+import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
 
 /**
  * The owner's view of the pending items of a Chat (run-steering). Every read
@@ -20,6 +37,12 @@ export class ChatDeliveriesService {
   constructor(
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
+    @Inject(ModelsService)
+    private readonly models: ModelSelectionValidator,
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
+    @Inject(RunDispatchService)
+    private readonly dispatch: RunDispatcher,
   ) {}
 
   /** The pending items of the Chat, first to deliver first. */
@@ -45,12 +68,69 @@ export class ChatDeliveriesService {
       const items = new ChatDeliveriesRepository(tx);
       const withdrawn = await items.withdrawPending(chatId, deliveryId, userId);
       if (withdrawn) return withdrawn;
-      const existing = await items.findById(deliveryId, userId);
-      if (existing?.chatId === chatId) {
-        throw new ConflictException('The item is no longer pending');
-      }
-      throw new NotFoundException(`Delivery ${deliveryId} not found`);
+      throw await this.missOf(items, chatId, deliveryId, userId);
     });
+  }
+
+  /**
+   * Change the mode of one pending item (run-steering D2). The Chat row lock
+   * comes first, as in admission, so the change and a Run that completes see
+   * each other. With a live Run the item waits for its next step boundary. An
+   * idle Chat starts a Run for the item now, through the code a completion
+   * uses; settings a send cannot use leave the item pending, as a send of
+   * those settings fails.
+   */
+  async changeMode(
+    chatId: string,
+    deliveryId: string,
+    mode: ChangeableDeliveryMode,
+    userId: string,
+  ): Promise<ChatDelivery> {
+    const { item, job } = await this.tenantDb.runAs(userId, async (tx) => {
+      const chat = await new ChatsRepository(tx).lock(chatId, userId);
+      if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
+      const items = new ChatDeliveriesRepository(tx);
+      const changed = await items.changePendingMode(
+        chatId,
+        deliveryId,
+        userId,
+        mode,
+      );
+      if (!changed) throw await this.missOf(items, chatId, deliveryId, userId);
+      const slot = await claimActiveRunSlot({
+        tx,
+        chatId,
+        userId,
+        dispatch: this.dispatch,
+        instanceConfig: this.instanceConfig,
+      });
+      if (slot === 'blocked') return { item: changed };
+      assertNotArchived(chat);
+      resolveSendSettings(
+        this.models,
+        this.instanceConfig.config.tools.permissionModes,
+        changed.settings,
+      );
+      const job = await startItemRun(tx, changed);
+      if (!job) throw new ConflictException('Message id already exists');
+      const delivered = await items.findById(deliveryId, userId);
+      return { item: delivered ?? changed, job };
+    });
+    if (job) await this.dispatch.dispatch(job);
+    return item;
+  }
+
+  /** 409 for an item that is no longer pending, else 404. */
+  private async missOf(
+    items: ChatDeliveriesRepository,
+    chatId: string,
+    deliveryId: string,
+    userId: string,
+  ): Promise<Error> {
+    const existing = await items.findById(deliveryId, userId);
+    return existing?.chatId === chatId
+      ? new ConflictException('The item is no longer pending')
+      : new NotFoundException(`Delivery ${deliveryId} not found`);
   }
 
   private async requireChat(

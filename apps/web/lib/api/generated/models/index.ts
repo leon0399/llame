@@ -14,6 +14,8 @@ export * from "./authTokenResponse";
 export * from "./availableModelResponse";
 export * from "./availableModelResponseInputItem";
 export * from "./availableModelResponseSource";
+export * from "./changeChatDeliveryDto";
+export * from "./changeChatDeliveryDtoMode";
 export * from "./changeMembershipRoleDto";
 export * from "./changeMembershipRoleDtoRole";
 export * from "./chatCreationAttemptResponse";

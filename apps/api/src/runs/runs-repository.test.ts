@@ -50,6 +50,7 @@ function queryResult(value: QueryRows, calls: Array<QueryCall>) {
     where: chain,
     orderBy: chain,
     limit: chain,
+    for: chain,
     values,
     set,
     returning: () => {

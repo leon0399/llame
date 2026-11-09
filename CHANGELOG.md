@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-08
 
+- **Steer a live Run through the API.** An owner can send a message with
+  `delivery: "steer"` while a Run is live. The API answers 202 with a pending
+  item, and the Run delivers it at its next step end or final answer, as one
+  user message that starts a new segment of the same Run. `PATCH
+  /api/v1/chats/:chatId/deliveries/:deliveryId` with `{ "mode": "steer" }`
+  changes a pending queue item the same way; a change to `queue` gets 400. When
+  the Chat has no live Run, the change stores the item as a user message and
+  starts a Run for it with the settings it was sent with, and settings a send
+  cannot use leave the item pending with the error of a chat send. A Run that
+  ends `failed`, `cancelled`, or `expired`, or that completes after the owner
+  asked to stop it, moves its pending `steer` items to the head of the queue
+  and starts nothing: the queue is paused until the owner acts. The Run stream
+  ends each segment at its delivery with a `data-run-delivered` part, and
+  `GET /api/v1/chats/:id/stream` replays only the current segment. Continue and
+  Regenerate on the latest turn name the delivered message.
+
 - **Run segments (internal machinery).** A live Run can now deliver pending
   `steer` and `interrupt` items. Nothing admits them yet: `steer` still gets
   400, so no user-visible behavior changes. A Run stops a model call at a step

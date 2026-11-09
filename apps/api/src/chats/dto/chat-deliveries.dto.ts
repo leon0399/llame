@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsIn } from 'class-validator';
 
 import {
   chatDeliveryModes,
@@ -18,8 +19,23 @@ import { withoutRetainedMedia } from '../retained-media-egress';
  * The delivery modes a send may name. A layer that ships another mode adds it
  * here; the table and `ChatDeliveryResponse` already hold all three.
  */
-export const SENDABLE_DELIVERY_MODES = ['queue'] as const;
+export const SENDABLE_DELIVERY_MODES = ['queue', 'steer'] as const;
 export type SendableDeliveryMode = (typeof SENDABLE_DELIVERY_MODES)[number];
+
+/** The modes a `PATCH` may set: a change to `queue` is never allowed. */
+export const CHANGEABLE_DELIVERY_MODES = ['steer'] as const;
+export type ChangeableDeliveryMode = (typeof CHANGEABLE_DELIVERY_MODES)[number];
+
+export class ChangeChatDeliveryDto {
+  @ApiProperty({
+    enum: CHANGEABLE_DELIVERY_MODES,
+    description:
+      'The new mode of a pending item. `steer` delivers it at the next step ' +
+      'boundary of the live Run, or starts a Run for it when the Chat has none.',
+  })
+  @IsIn(CHANGEABLE_DELIVERY_MODES)
+  mode!: ChangeableDeliveryMode;
+}
 
 export class ChatDeliveryResponse {
   @ApiProperty({

@@ -32,6 +32,7 @@ import {
   type RunEvent,
   type RunStatus,
 } from '../db/schema';
+import { pauseQueueBehind } from '../chats/chat-deliveries.repository';
 import { type Db } from '../db/tenant-db.service';
 import { nonTerminalRun, type TerminalRunStatus } from './run-status';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
@@ -469,7 +470,7 @@ export class RunsRepository {
     messageId: string,
     userId: string,
   ): Promise<Array<Run>> {
-    return this.db
+    const cancelled = await this.db
       .update(runs)
       .set({ status: 'cancelled' satisfies RunStatus, finishedAt: new Date() })
       .where(
@@ -480,6 +481,8 @@ export class RunsRepository {
         ),
       )
       .returning();
+    for (const run of cancelled) await pauseQueueBehind(this.db, run);
+    return cancelled;
   }
 
   /**
@@ -522,6 +525,8 @@ export class RunsRepository {
       .set(markFinishedUpdate(status, options))
       .where(markFinishedPredicate(runId, userId, options?.attemptId))
       .returning();
+    // The queue pauses behind a Run that did not deliver its steering items.
+    if (updated) await pauseQueueBehind(this.db, updated);
     return updated;
   }
 

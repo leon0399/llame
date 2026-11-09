@@ -90,7 +90,13 @@ function settingsStillValid(
   }
 }
 
-async function startItemRun(
+/**
+ * Store one pending item as the user message of a new Run and mark it
+ * delivered. The completion path and a mode change on a paused item share it,
+ * so both start the Run the same way. Undefined when the item's id is already
+ * a message.
+ */
+export async function startItemRun(
   tx: Db,
   item: ChatDelivery,
 ): Promise<RunJob | undefined> {
