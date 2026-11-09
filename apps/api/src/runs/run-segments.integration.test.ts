@@ -6,7 +6,7 @@
  * end check, the delivery transaction, the completion check, and recovery of
  * the current segment.
  *
- * TEST_DATABASE_URL-gated; run by test:integration.
+ * Requires TEST_DATABASE_URL (throws without it); run by `test:integration`.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -38,9 +38,11 @@ import {
   type WorkerHarness,
 } from './worker-harness';
 
-const describeIfDb = process.env['TEST_DATABASE_URL']
-  ? describe
-  : describe.skip;
+if (!process.env['TEST_DATABASE_URL']) {
+  throw new Error(
+    'run-segments.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration`.',
+  );
+}
 
 vi.setConfig({ testTimeout: 90_000 });
 
@@ -79,7 +81,7 @@ type SegmentFixtureOptions = NonNullable<
 type SeededRun = Awaited<ReturnType<typeof seedRun>> & { modelId: string };
 
 /**
- * One worker harness, one owner, and a scratch directory for a `describeIfDb`
+ * One worker harness, one owner, and a scratch directory for a `describe`
  * block, booted around it, with the helpers every scenario shares. The
  * helpers read the booted state when they are called.
  */
@@ -260,7 +262,7 @@ function useSegmentsFixture(label: string, options: SegmentFixtureOptions) {
   };
 }
 
-describeIfDb('run steering segments', () => {
+describe('run steering segments', () => {
   const fx = useSegmentsFixture('run-segments', {
     allowedTools: ['read', 'bash'],
     nativeExecutorId: 'run-segments-host',
@@ -1013,7 +1015,7 @@ describeIfDb('run steering segments', () => {
   });
 });
 
-describeIfDb('run steering segments without tools', () => {
+describe('run steering segments without tools', () => {
   const fx = useSegmentsFixture('run-segments-bare', { allowedTools: [] });
 
   it('A steer during the final answer, with no tools', async () => {
@@ -1061,7 +1063,7 @@ describeIfDb('run steering segments without tools', () => {
   });
 });
 
-describeIfDb('run steering segments and the time limits', () => {
+describe('run steering segments and the time limits', () => {
   const fx = useSegmentsFixture('run-segments-budget', {
     allowedTools: ['bash'],
     nativeExecutorId: 'run-segments-budget-host',
