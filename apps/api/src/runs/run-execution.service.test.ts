@@ -18056,7 +18056,9 @@ describe('RunExecutionService executeRun — run segments', () => {
       expect.objectContaining({ id: deliveredId }),
     );
     // Only the first segment resumes a Continue Run's state.
-    expect(continued).toHaveBeenCalledTimes(1);
+    expect(
+      continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
+    ).toHaveLength(1);
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
   });
 
@@ -18320,7 +18322,9 @@ describe('RunExecutionService executeRun — run segments', () => {
       expect.objectContaining({ id: deliveredId }),
     );
     // A delivered segment never applies the job's follow-up rules.
-    expect(continued).not.toHaveBeenCalled();
+    expect(
+      continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
+    ).toHaveLength(0);
     expect(segment.calls).toHaveLength(1);
   });
 

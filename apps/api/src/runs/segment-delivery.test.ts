@@ -13,6 +13,7 @@ import { type Db } from '../db/tenant-db.service';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 const runId = '11111111-1111-4111-8111-111111111111';
 const chatId = '22222222-2222-4222-8222-222222222222';
@@ -143,6 +144,11 @@ describe('deliverPendingSteering', () => {
     } = {},
   ) {
     const has = <K extends keyof typeof overrides>(key: K) => key in overrides;
+    // No other attempt's receipt, so the closing usage stays complete.
+    vi.spyOn(
+      SystemPromptReceiptsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue([]);
     const lockForDelivery = vi
       .spyOn(RunsRepository.prototype, 'lockForDelivery')
       .mockResolvedValue(has('locked') ? overrides.locked : run);
