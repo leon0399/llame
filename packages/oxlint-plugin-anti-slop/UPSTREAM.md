@@ -2,15 +2,21 @@
 
 The base of this directory is vendored from
 [`dmmulroy/anti-slop`](https://github.com/dmmulroy/anti-slop) commit
-`c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b` (upstream `main`, 9 commits past the
-`v0.1.2` tag, which predates the last four rule changes).
+`13909c9e07590f5a85d93c62712259fe14a883f7` (upstream `main`, 2026-10-13).
 
 - Source path: `skills/install-anti-slop/assets/anti-slop/`
 - License: MIT; retained in [`LICENSE`](LICENSE)
 - `package.json` marks the vendored TypeScript boundary as ESM for Node's plugin
   loader; `tsconfig.json` applies upstream's strict compiler settings to the
   installed asset and its local regression.
-- Previous base: `446268e5d15baa968eaec669ff65358d36ae6259`, reconciled on
+- Previous base: `c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b`. Its only
+  successor commit, `d2a9aea`, changes `require-readable-spacing` alone: a run
+  of single-line variable declarations stays grouped at every scope, including
+  exported module bindings, and a binding with its own leading comment starts a
+  new group. Reconciled on 2026-11-10 by adopting that rule, its vendored
+  `vendor/eslint-stylistic/` engine and upstream's `RuleTester` file verbatim
+  (formatting is `oxfmt`). No other vendored file changed upstream.
+- Base before that: `446268e5d15baa968eaec669ff65358d36ae6259`, reconciled on
   2026-09-12 with upstream's own `skills/install-anti-slop/references/update.md`
   three-way procedure (base was recoverable from the pinned asset, so every
   incoming change is classified rather than ported blind). That merge added
@@ -20,17 +26,25 @@ The base of this directory is vendored from
   `shared/dictionary-types.ts` on per-use alias resolution, and adopted
   upstream's tests for every rule whose semantics changed.
 
+## `require-readable-spacing`
+
+The 2026-09-12 reconciliation left this rule out: it is an autofixable
+blank-line policy that `oxfmt` does not have, and its autofix then measured
+11,315 insertions across 757 files. It is now enabled at error in the root
+`.oxlintrc.json`. Its autofix was applied in one commit that contains nothing
+else: 32,713 blank-line insertions across 1,634 files, no deletions. A branch
+that conflicts with that commit regenerates the spacing with `pnpm lint:fix`
+after rebasing instead of merging blank lines by hand.
+
+`vendor/eslint-stylistic/` is upstream's adapted copy of
+`@stylistic/eslint-plugin`'s `padding-line-between-statements`, with its own
+[`LICENSE`](vendor/eslint-stylistic/LICENSE) and
+[`UPSTREAM.md`](vendor/eslint-stylistic/UPSTREAM.md). It typechecks under this
+package's strict `tsconfig.json` without `@ts-nocheck`; like the rest of
+`vendor/`, it is excluded from llame's lint rules.
+
 ## Deliberately not adopted from the current revision
 
-- `require-readable-spacing` and its vendored
-  `vendor/eslint-stylistic/padding-line-between-statements.ts`. It is an
-  autofixable blank-line policy, llame's formatter is `oxfmt` and has no
-  blank-line policy, and applying it measured **11,315 insertions across 757
-  files** (362 of them non-test source) — a repository-wide formatting
-  migration, not a lint-rule upgrade. Upstream's own install guidance keeps
-  whitespace fixes out of semantic edits and warns against enabling a competing
-  formatting preset. Adopt it, if ever, as its own isolated autofix commit with
-  a repository-wide diff and no other change in it.
 - The `effect/` plugin and its five rules. llame has no `effect` dependency and
   no `effect` import, and the upstream skill says to register that group only
   for repositories that depend on Effect directly.
@@ -167,13 +181,15 @@ now a single-pass push/pop.
 
 ## Verification of the current base
 
-`pnpm lint:code` (all workspaces), `pnpm --filter api typecheck`, the plugin's
-`registry.check.mjs`, and its 16 `RuleTester` files all pass. Behavior parity was
-checked by running the installed plugin against the pinned revision on the same
-fixtures: the existence probe, the borrowed member name, and the type-parameter
-constraint stopped reporting; the union alias, the generic alias return, and the
-known argument to a local `unknown` predicate started reporting; the
-non-null-wrapper assertion chain still reports here and not upstream.
+At the `13909c9` reconciliation, `pnpm lint:code` (all workspaces),
+`pnpm format:check`, the plugin's `typecheck`, `registry.check.mjs`, and its 18
+`RuleTester` files pass with `require-readable-spacing` enabled. At the
+`c44ef22` reconciliation, behavior parity was checked by running the installed
+plugin against the pinned revision on the same fixtures: the existence probe,
+the borrowed member name, and the type-parameter constraint stopped reporting;
+the union alias, the generic alias return, and the known argument to a local
+`unknown` predicate started reporting; the non-null-wrapper assertion chain
+still reports here and not upstream.
 
 Update by reviewing the upstream diff, running its `install.mjs` into a temporary
 directory, and reconciling every local patch above before replacement. Remove a
