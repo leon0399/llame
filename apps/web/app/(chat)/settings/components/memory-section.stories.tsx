@@ -13,6 +13,7 @@ import { MemorySection } from "./memory-section";
 const useMemoryQuery = vi.mocked(memoryQueries.useMemoryQuery, {
   partial: true,
 });
+
 const useUpdateMemoryMutation = vi.mocked(
   memoryMutations.useUpdateMemoryMutation,
   { partial: true },
@@ -39,6 +40,7 @@ const meta = {
 } satisfies Meta<typeof MemorySection>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

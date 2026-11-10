@@ -8,6 +8,7 @@ const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`;
 function subscribeToMobileQuery(onChange: () => void) {
   const mql = window.matchMedia(MOBILE_QUERY);
   mql.addEventListener("change", onChange);
+
   return () => mql.removeEventListener("change", onChange);
 }
 

@@ -13,10 +13,13 @@ const adapter = createHuggingfaceAdapter(
   { id: 'hf', use: 'huggingface' },
   { origin: API_ORIGIN },
 );
+
 const SHARED =
   'expand[]=cardData&expand[]=createdAt&expand[]=lastModified&expand[]=likes&expand[]=sha&expand[]=tags';
+
 const MODEL_URL = `${API_ORIGIN}/api/models/org/model?${SHARED}&expand[]=library_name&expand[]=pipeline_tag&expand[]=downloads&expand[]=gated&expand[]=safetensors`;
 const MODEL_README = `${API_ORIGIN}/org/model/raw/abc123/README.md`;
+
 const NOT_FOUND: WebFetchFailure = {
   type: 'http_status',
   message: 'HTTP 401',
@@ -30,6 +33,7 @@ function markdown(body: string): Reply {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 

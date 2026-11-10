@@ -65,6 +65,7 @@ export class SessionsRepository {
         ),
       )
       .limit(1);
+
     if (fresh[0]) {
       return fresh[0];
     }
@@ -113,6 +114,7 @@ export class SessionsRepository {
     idleTtlMs: number,
   ): Promise<Array<SessionRecord>> {
     const now = Date.now();
+
     return this.db
       .select()
       .from(sessions)
@@ -137,6 +139,7 @@ export class SessionsRepository {
     idleTtlMs: number,
   ): Promise<SessionRecord | undefined> {
     const now = Date.now();
+
     const rows = await this.db
       .select()
       .from(sessions)
@@ -199,6 +202,7 @@ export class SessionsRepository {
    */
   async deleteExpired(idleTtlMs: number): Promise<number> {
     const now = Date.now();
+
     const deleted = await this.db
       .delete(sessions)
       .where(

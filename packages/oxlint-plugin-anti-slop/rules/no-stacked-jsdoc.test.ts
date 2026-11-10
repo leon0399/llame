@@ -5,6 +5,7 @@ import { noStackedJsdocRule } from "./no-stacked-jsdoc.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "stacked" };
 
 tester.run("anti-slop/no-stacked-jsdoc", noStackedJsdocRule, {

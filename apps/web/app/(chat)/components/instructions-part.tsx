@@ -56,6 +56,7 @@ function chipEntryDepths(
       entry.canonicalPath === null ? [] : [[entry.path, entry] as const],
     ),
   );
+
   const depths = new Map<InstructionFileChipEntry, number>();
 
   const depthOf = (
@@ -63,15 +64,19 @@ function chipEntryDepths(
     ancestors: Set<InstructionFileChipEntry>,
   ): number => {
     const cached = depths.get(entry);
+
     if (cached !== undefined) return cached;
+
     if (ancestors.has(entry)) return 0;
 
     const importer =
       entry.importedBy === undefined
         ? undefined
         : entriesByPath.get(entry.importedBy);
+
     if (importer === undefined || importer === entry) {
       depths.set(entry, 0);
+
       return 0;
     }
 
@@ -79,6 +84,7 @@ function chipEntryDepths(
     const depth = depthOf(importer, ancestors) + 1;
     ancestors.delete(entry);
     depths.set(entry, depth);
+
     return depth;
   };
 
@@ -100,6 +106,7 @@ function InstructionFileChipRow({
   depth: number;
 }) {
   const indent = DEPTH_INDENT[Math.min(depth, DEPTH_INDENT.length - 1)];
+
   const detail =
     entry.canonicalPath !== null && entry.canonicalPath !== entry.path
       ? `${entry.path} → ${entry.canonicalPath}`

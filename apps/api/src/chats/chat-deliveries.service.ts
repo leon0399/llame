@@ -53,6 +53,7 @@ export class ChatDeliveriesService {
   listPending(chatId: string, userId: string): Promise<Array<ChatDelivery>> {
     return this.tenantDb.runAs(userId, async (tx) => {
       await this.requireChat(new ChatsRepository(tx), chatId, userId);
+
       return new ChatDeliveriesRepository(tx).listPending(chatId, userId);
     });
   }
@@ -71,6 +72,7 @@ export class ChatDeliveriesService {
     return this.tenantDb.runAs(userId, async (tx) => {
       const items = new ChatDeliveriesRepository(tx);
       const withdrawn = await items.withdrawPending(chatId, deliveryId, userId);
+
       if (withdrawn) return withdrawn;
       throw await this.missOf(items, chatId, deliveryId, userId);
     });
@@ -93,6 +95,7 @@ export class ChatDeliveriesService {
   ): Promise<ChatDelivery> {
     const { item, job } = await this.tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).lock(chatId, userId);
+
       if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
       assertNotArchived(chat);
       // The slot comes before the change: expiring a stuck Run pauses the
@@ -100,28 +103,37 @@ export class ChatDeliveriesService {
       // `queue`.
       const slot = await this.claimSlot(tx, chatId, userId);
       const items = new ChatDeliveriesRepository(tx);
+
       const changed = await items.changePendingMode(
         chatId,
         deliveryId,
         userId,
         mode,
       );
+
       if (!changed) throw await this.missOf(items, chatId, deliveryId, userId);
+
       if (slot === 'blocked') {
         if (mode === 'interrupt')
           await notifyLiveRunInterrupt(tx, { chatId, userId });
+
         return { item: changed };
       }
+
       resolveSendSettings(
         this.models,
         this.instanceConfig.config.tools.permissionModes,
         changed.settings,
       );
       const started = await startItemRun(tx, changed);
+
       if (!started) throw new ConflictException('Message id already exists');
+
       return { item: started.delivered, job: started.job };
     });
+
     if (job) await this.dispatch.dispatch(job);
+
     return item;
   }
 
@@ -143,6 +155,7 @@ export class ChatDeliveriesService {
     userId: string,
   ): Promise<Error> {
     const existing = await items.findById(deliveryId, userId);
+
     return existing?.chatId === chatId
       ? new ConflictException('The item is no longer pending')
       : new NotFoundException(`Delivery ${deliveryId} not found`);

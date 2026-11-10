@@ -58,15 +58,19 @@ function createFakeTransport(
   const { onSend } = options;
   const sent: Array<SentMessage> = [];
   const requestIds = new Map<string, string | number>();
+
   const held = new Map<
     string,
     { readonly resolve: () => void; readonly reject: (error: Error) => void }
   >();
+
   const calls = { start: 0, close: 0 };
+
   const transport: FakeTransport = {
     protocolVersion: undefined,
     start(): Promise<void> {
       calls.start += 1;
+
       return Promise.resolve();
     },
     send(
@@ -75,18 +79,23 @@ function createFakeTransport(
     ): Promise<void> {
       sent.push({ message, options: sendOptions });
       const failure = onSend?.(message);
+
       if (failure !== undefined) return Promise.reject(failure);
+
       // A notification is told to every listener at once, so it cannot be held.
       if (!('method' in message) || !('id' in message)) {
         return Promise.resolve();
       }
+
       requestIds.set(message.method, message.id);
+
       return new Promise<void>((resolve, reject) => {
         held.set(message.method, { resolve, reject });
       });
     },
     close(): Promise<void> {
       calls.close += 1;
+
       return Promise.resolve();
     },
     setProtocolVersion(version: string): void {
@@ -96,22 +105,27 @@ function createFakeTransport(
     calls,
     answer(method: string, result: UnknownRecord): void {
       const id = requestIds.get(method);
+
       if (id === undefined) {
         throw new Error(`The client never sent a ${method} request.`);
       }
+
       transport.onmessage?.(
         validateJSONRPCMessage({ jsonrpc: '2.0', id, result }),
       );
     },
     fail(method: string, error: Error): void {
       const pending = held.get(method);
+
       if (pending === undefined) {
         throw new Error(`The client never sent a ${method} request.`);
       }
+
       held.delete(method);
       pending.reject(error);
     },
   };
+
   return transport;
 }
 
@@ -149,8 +163,10 @@ async function connectTransportClient(
     transport,
     ...overrides,
   });
+
   await vi.waitFor(() => expect(hasSent(transport, 'initialize')).toBe(true));
   transport.answer('initialize', initializeResult('2025-06-18'));
+
   return connecting;
 }
 
@@ -163,6 +179,7 @@ async function discoverTools(
   const discovering = client.discover();
   await vi.waitFor(() => expect(hasSent(transport, 'tools/list')).toBe(true));
   transport.answer('tools/list', { tools: [...tools] });
+
   return discovering;
 }
 
@@ -174,6 +191,7 @@ async function callTool(
 ): Promise<McpCallOutcome> {
   await vi.waitFor(() => expect(hasSent(transport, 'tools/call')).toBe(true));
   transport.answer('tools/call', result);
+
   return toolCall;
 }
 
@@ -185,11 +203,13 @@ describe('McpServerClient.connectTransport', () => {
   it('hands the handshake its own abort signal and fails a caller abort as cancelled', async () => {
     const transport = createFakeTransport();
     const controller = new AbortController();
+
     const connecting = McpServerClient.connectTransport({
       serverId: 'machine-storybook',
       transport,
       signal: controller.signal,
     });
+
     const settled = connecting.catch((error: unknown) => error);
     await vi.waitFor(() => expect(transport.sent).toHaveLength(1));
 
@@ -213,10 +233,12 @@ describe('McpServerClient.connectTransport', () => {
   it('fails a handshake that outlives the deadline as a timeout', async () => {
     vi.useFakeTimers();
     const transport = createFakeTransport();
+
     const connecting = McpServerClient.connectTransport({
       serverId: 'machine-storybook',
       transport,
     });
+
     const settled = connecting.catch((error: unknown) => error);
     await vi.advanceTimersByTimeAsync(0);
     expect(transport.sent).toHaveLength(1);
@@ -241,10 +263,12 @@ describe('McpServerClient.connectTransport', () => {
   it('clears the handshake deadline once the handshake settled', async () => {
     vi.useFakeTimers();
     const transport = createFakeTransport();
+
     const connecting = McpServerClient.connectTransport({
       serverId: 'machine-storybook',
       transport,
     });
+
     await vi.advanceTimersByTimeAsync(0);
     expect(transport.sent).toHaveLength(1);
     // The handshake is still in flight, so its deadline is armed.
@@ -260,10 +284,12 @@ describe('McpServerClient.connectTransport', () => {
 
   it('refuses a revision the SDK accepts but llame does not', async () => {
     const transport = createFakeTransport();
+
     const connecting = McpServerClient.connectTransport({
       serverId: 'machine-storybook',
       transport,
     });
+
     const settled = connecting.catch((error: unknown) => error);
     await vi.waitFor(() => expect(hasSent(transport, 'initialize')).toBe(true));
 
@@ -277,10 +303,12 @@ describe('McpServerClient.connectTransport', () => {
     'accepts the negotiated revision %s',
     async (protocolVersion) => {
       const transport = createFakeTransport();
+
       const connecting = McpServerClient.connectTransport({
         serverId: 'machine-storybook',
         transport,
       });
+
       await vi.waitFor(() =>
         expect(hasSent(transport, 'initialize')).toBe(true),
       );
@@ -305,9 +333,11 @@ describe('McpServerClient.connectTransport', () => {
           ? new Error('The Machine Workspace MCP channel is closed.')
           : undefined,
     });
+
     const client = await connectTransportClient(transport, {
       unavailable: () => true,
     });
+
     const discovery = await discoverTools(transport, client, [DEPLOY_TOOL]);
 
     const outcome = await discovery.tools[0].execute(
@@ -334,9 +364,11 @@ describe('McpServerClient.connectTransport', () => {
           ? new Error('The server refused the call.')
           : undefined,
     });
+
     const client = await connectTransportClient(transport, {
       unavailable: () => false,
     });
+
     const discovery = await discoverTools(transport, client, [DEPLOY_TOOL]);
 
     const outcome = await discovery.tools[0].execute(
@@ -358,9 +390,11 @@ describe('McpServerClient.connectTransport', () => {
   it('redacts the values the transport reports, and no value it does not', async () => {
     const reported = 'machine-session-sentinel';
     const transport = createFakeTransport();
+
     const client = await connectTransportClient(transport, {
       protectedValues: () => [reported],
     });
+
     const discovery = await discoverTools(transport, client, [DEPLOY_TOOL]);
 
     const outcome = await callTool(

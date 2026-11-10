@@ -142,6 +142,7 @@ describe('phaseOfEvent', () => {
 describe('RunProgressTracker', () => {
   const progress = (tracker: RunProgressTracker, n: ChangeNotification) => {
     const message = tracker.apply(n);
+
     return message && [message.phase, message.step];
   };
 
@@ -198,6 +199,7 @@ describe('RunProgressTracker', () => {
   it('remembers a bounded number of finished Runs', () => {
     const tracker = new RunProgressTracker();
     const finish = (id: string) => tracker.apply(runEvent('run.completed', id));
+
     const straggler = (id: string) =>
       tracker.apply(runEvent('tool.started', id));
 
@@ -230,9 +232,11 @@ describe('recordJobFor', () => {
   const machineRecord = liveMachineRecord();
   const pinRecords = livePinRecords();
   const deliveryRecord = liveDeliveryRecord();
+
   const machineLookup = vi.fn((name: string) =>
     Promise.resolve(name === LIVE_MACHINE_NAME ? machineRecord : undefined),
   );
+
   const loader: LiveRecordLoader = {
     chat: vi.fn((o: string, id: string) =>
       Promise.resolve(o === owner && id === chat ? chatRecord : undefined),
@@ -249,9 +253,12 @@ describe('recordJobFor', () => {
       Promise.resolve(o === owner && id === run ? runRecord : undefined),
     ),
   };
+
   const load = (n: ChangeNotification) => {
     const job = recordJobFor(n);
+
     if (!job) throw new Error('expected a job');
+
     return job.load(loader);
   };
 

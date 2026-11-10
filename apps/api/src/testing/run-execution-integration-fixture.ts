@@ -51,7 +51,9 @@ export function catalogValidator(
   return {
     validateModelSelection: (modelId) => {
       const entry = entries.find(({ id }) => id === modelId);
+
       if (entry === undefined) throw new Error(`Unknown model ${modelId}`);
+
       return entry;
     },
     resolveEffortSelection: () => undefined,
@@ -110,6 +112,7 @@ export function scriptedClient(
     contextWindowTokens: options.contextWindowTokens ?? 128_000,
     streamText(input) {
       options.requests?.push(input);
+
       return streamText({
         model,
         system: input.system,
@@ -148,6 +151,7 @@ export function makeRunExecutionService(input: {
         ? Promise.reject(new Error('window summarization is not exercised'))
         : Promise.resolve(null),
   };
+
   return new RunExecutionService(
     input.tenantDb,
     noopCompaction,

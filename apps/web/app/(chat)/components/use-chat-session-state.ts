@@ -31,6 +31,7 @@ function useDraftUrlSync(chatId: string, session: DraftSessionState) {
       new URLSearchParams(window.location.search).get("draft") === "sent"
         ? "sent"
         : draftPhase;
+
     window.history.replaceState(
       window.history.state,
       "",
@@ -52,6 +53,7 @@ function useHistoryArrivalEffects(
     if (session.kind !== "recovering" || historyQuery.data === undefined) {
       return;
     }
+
     dispatch({ type: "chat-visible" });
   }, [historyQuery.data, session.kind, dispatch]);
 
@@ -93,12 +95,14 @@ export function useChatSessionState({
       ? initialDraftSession(initialDraftPhase, initialChatExists)
       : { kind: "persisted", resumeRequested: false },
   );
+
   const historyQuery = useChatMessagesQuery({
     chatId,
     enabled: shouldQueryChatHistory(session),
     recoverSentDraft: session.kind === "recovering",
     targetSeq: targetSeq ?? undefined,
   });
+
   const { onTargetSendInterrupted, onSendStarted, onSendFailed, onFinished } =
     useTargetSendTracking({
       chatId,

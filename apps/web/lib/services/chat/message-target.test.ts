@@ -47,10 +47,13 @@ describe("useMessageTarget", () => {
     const addEventListener = vi.spyOn(window, "addEventListener");
     const removeEventListener = vi.spyOn(window, "removeEventListener");
     const values: Array<number | null | undefined> = [];
+
     function Probe() {
       values.push(useMessageTarget("chat-1").targetSeq);
+
       return null;
     }
+
     const { unmount } = render(createElement(Probe));
 
     expect(values[0]).toBeUndefined();
@@ -83,8 +86,10 @@ describe("useMessageTarget", () => {
 
   it("resolves no hash to ordinary history after hydration", async () => {
     const values: Array<number | null | undefined> = [];
+
     function Probe() {
       values.push(useMessageTarget("chat-1").targetSeq);
+
       return null;
     }
 
@@ -105,6 +110,7 @@ describe("useMessageTarget", () => {
       ({ chatId }) => useMessageTarget(chatId).targetSeq,
       { initialProps: { chatId: "chat-1" } },
     );
+
     await waitFor(() => expect(result.current).toBe(42));
 
     window.history.replaceState(window.history.state, "", "/chat/chat-2");

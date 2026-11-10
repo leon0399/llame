@@ -15,6 +15,7 @@ const meta = {
 } satisfies Meta<typeof ModelSwitchBoundary>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -29,6 +30,7 @@ export const Collapsed: Story = {
     const trigger = canvas.getByRole("button", {
       name: "Model changed from system:openai:gpt-5.4-mini to custom:anthropic:claude-sonnet",
     });
+
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(canvas.getByText("system:openai:gpt-5.4-mini")).toBeVisible();
     await expect(
@@ -69,14 +71,18 @@ export const LongModelIds: Story = {
     );
 
     await userEvent.hover(trigger);
+
     // Base UI's tooltip popup carries no `role="tooltip"`; find it by data-slot.
     const tooltip = await waitFor(() => {
       const content = document.querySelector<HTMLElement>(
         "[data-slot='tooltip-content']",
       );
+
       if (!content) throw new Error("Tooltip content not rendered");
+
       return content;
     });
+
     await expect(tooltip).toHaveTextContent(
       "system:openai/model-with-a-deliberately-long-public-identifier-and-version",
     );

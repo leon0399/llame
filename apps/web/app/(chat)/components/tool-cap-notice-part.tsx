@@ -18,6 +18,7 @@ function isFiniteNumber(value: unknown): value is number {
 
 function readNumber(value: unknown): number | undefined {
   if (!isFiniteNumber(value)) return undefined;
+
   return value;
 }
 
@@ -49,6 +50,7 @@ export function parseCapNoticePart(part: unknown): CapNoticeData | null {
   const record = part as RawCapNoticePart;
 
   let nested: { stepsUsed?: unknown; maxSteps?: unknown } | undefined;
+
   if (isPlainObject(record.data)) {
     // SAFETY: `isPlainObject` proves `record.data` is a non-null object only;
     // `stepsUsed`/`maxSteps` stay `unknown` and are guarded by `readNumber`.
@@ -57,7 +59,9 @@ export function parseCapNoticePart(part: unknown): CapNoticeData | null {
 
   const stepsUsed = readNumber(nested?.stepsUsed ?? record.stepsUsed);
   const maxSteps = readNumber(nested?.maxSteps ?? record.maxSteps);
+
   if (stepsUsed === undefined || maxSteps === undefined) return null;
+
   return { stepsUsed, maxSteps };
 }
 

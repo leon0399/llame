@@ -46,17 +46,21 @@ async function withMediaApp(
   run: (server: Server, media: MediaService) => Promise<void>,
 ): Promise<void> {
   const media = new MediaService({ runAs: vi.fn() });
+
   const moduleRef = await Test.createTestingModule({
     controllers: [MediaController],
     providers: [{ provide: MediaService, useValue: media }],
   }).compile();
+
   const app: INestApplication<Server> = moduleRef.createNestApplication({
     logger: false,
   });
+
   app.use((req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
     req.authContext = new AuthContext(OWNER, 'session');
     next();
   });
+
   try {
     await app.init();
     await run(app.getHttpServer(), media);
@@ -199,6 +203,7 @@ describe('MediaController byte routes', () => {
     async (variant, contentType) => {
       await withMediaApp(async (server, media) => {
         vi.spyOn(media, 'findOwned').mockResolvedValue(stored);
+
         const readVariant = vi
           .spyOn(media, 'readVariant')
           .mockResolvedValue(Buffer.from(`${variant}-bytes`));
@@ -258,6 +263,7 @@ describe('MediaController byte routes', () => {
         .mockResolvedValueOnce(undefined)
         .mockResolvedValue(storedPdf);
       const readVariant = vi.spyOn(media, 'readVariant');
+
       const unknown = await request(server)
         .get(`/api/v1/media/${ID}/model`)
         .expect(404);

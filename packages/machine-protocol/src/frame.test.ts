@@ -14,6 +14,7 @@ const id = 1;
 /** A success message padded so its serialized form is exactly `byteSize`. */
 function paddedResult(byteSize: number): string {
   const shell = JSON.stringify({ jsonrpc: "2.0", id, result: "" });
+
   return "x".repeat(byteSize - Buffer.byteLength(shell, "utf8"));
 }
 
@@ -29,6 +30,7 @@ describe("frame encoding", () => {
         error: { code: -32_001, message: "no", data: { code: "internal" } },
       },
     ] as const;
+
     for (const message of messages) {
       const line = encodeFrame({ s: 3, m: message });
       expect(decodeFrame(line)).toEqual({
@@ -41,10 +43,12 @@ describe("frame encoding", () => {
   it("accepts a message at the byte bound and refuses one above it", () => {
     const shell = JSON.stringify({ jsonrpc: "2.0", id, result: "" });
     const overhead = Buffer.byteLength(shell, "utf8");
+
     const atBound = encodeFrame({
       s: 1,
       m: { jsonrpc: "2.0", id, result: paddedResult(MAX_MESSAGE_BYTES) },
     });
+
     expect(atBound.length).toBeLessThan(MAX_FRAME_BYTES);
     expect(decodeFrame(atBound).ok).toBe(true);
     expect(() =>
@@ -88,6 +92,7 @@ describe("frame decoding", () => {
       '{"s":1,"m":{"jsonrpc":"2.0","id":1,"error":{"code":1,"message":2}}}',
       '{"s":1,"m":{"jsonrpc":"2.0","id":1,"result":null,"method":"ping"}}',
     ];
+
     for (const line of malformed)
       expect(decodeFrame(line)).toMatchObject({
         ok: false,

@@ -31,6 +31,7 @@ const generatedRoot = join(import.meta.dirname, "generated");
 function generatedTypeScriptFiles(directory: string): Array<string> {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
+
     return entry.isDirectory()
       ? generatedTypeScriptFiles(path)
       : entry.name.endsWith(".ts")
@@ -42,15 +43,18 @@ function generatedTypeScriptFiles(directory: string): Array<string> {
 function generatedEndpointTypeScriptFiles(directory: string): Array<string> {
   return generatedTypeScriptFiles(directory).filter((file) => {
     const source = readFileSync(file, "utf8");
+
     return /export const \w+ = async \(/.test(source);
   });
 }
 
 function generatedImportSpecifiers(source: string): Array<string> {
   const code = source.replaceAll(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+
   const fromImports = code.matchAll(
     /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?[\s\S]*?\sfrom\s*["']([^"']+)["']/g,
   );
+
   const sideEffectImports = code.matchAll(
     /(?:^|\n)\s*import\s*["']([^"']+)["']/g,
   );
@@ -69,6 +73,7 @@ function resolveGeneratedModule(sourceFile: string, specifier: string) {
   const modulePath = resolvePath(dirname(sourceFile), specifier);
   const extension = extname(modulePath);
   const sourceExtensions = [".ts", ".mts", ".cts"];
+
   const candidates = sourceExtensions.includes(extension)
     ? [modulePath]
     : [
@@ -89,11 +94,13 @@ function resolveGeneratedModule(sourceFile: string, specifier: string) {
 
 function isGeneratedInternalImport(sourceFile: string, specifier: string) {
   const resolvedModule = resolveGeneratedModule(sourceFile, specifier);
+
   if (!resolvedModule) {
     return false;
   }
 
   const pathFromGeneratedRoot = relative(generatedRoot, resolvedModule);
+
   return (
     pathFromGeneratedRoot !== "" &&
     !isAbsolute(pathFromGeneratedRoot) &&
@@ -118,6 +125,7 @@ describe("generated API contract", () => {
       about: "Engineer",
       responsePreferences: "Concise",
     };
+
     expect(update).toEqual({
       preferredName: "Ada",
       about: "Engineer",
@@ -138,6 +146,7 @@ describe("generated API contract", () => {
       pinnedAt: "2026-08-21T00:00:00.000Z",
       item: { id: "chat-1", title: "Chat", archivedAt: null },
     };
+
     const projectPin: ProjectPinnedItemResponse = {
       itemType: "project",
       itemId: "project-1",
@@ -148,10 +157,12 @@ describe("generated API contract", () => {
     function cardId(pin: ChatPinnedItemResponse | ProjectPinnedItemResponse) {
       if (pin.itemType === "chat") {
         const card: ChatRefCard = pin.item;
+
         return card.id;
       }
 
       const card: ProjectRefCard = pin.item;
+
       return card.id;
     }
 
@@ -181,10 +192,12 @@ describe("generated API contract", () => {
       message: "Membership already exists",
       code: "DUPLICATE_MEMBERSHIP",
     };
+
     const typedErrorBody: Extract<
       createChildOrgUnitError,
       OrgUnitConflictErrorResponse
     > = errorBody;
+
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(
@@ -202,6 +215,7 @@ describe("generated API contract", () => {
 
   it("preserves status and raw text for non-JSON errors", async () => {
     const rawBody = "<html><body>unauthorized</body></html>";
+
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(rawBody, { status: 401 }));
@@ -214,6 +228,7 @@ describe("generated API contract", () => {
 
   it("preserves status and raw text for malformed JSON errors", async () => {
     const rawBody = "{bad json";
+
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(rawBody, {
         status: 401,
@@ -245,6 +260,7 @@ describe("generated API contract", () => {
     const files = generatedTypeScriptFiles(generatedRoot);
     const endpointFiles = generatedEndpointTypeScriptFiles(generatedRoot);
     expect(endpointFiles).toContain(join(generatedRoot, "models", "models.ts"));
+
     const endpointSource = endpointFiles
       .map((file) => readFileSync(file, "utf8"))
       .join("\n");
@@ -281,6 +297,7 @@ describe("generated API contract", () => {
         }),
       ),
     );
+
     const externalImports = imports.filter(
       ({ file, specifier }) => !isGeneratedInternalImport(file, specifier),
     );
@@ -310,12 +327,15 @@ describe("generated API contract", () => {
     const listModelsFetch = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("{}", { status: 200 }));
+
     const loginFetch = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("{}", { status: 200 }));
+
     const listChatsFetch = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("[]", { status: 200 }));
+
     const listPinsFetch = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("[]", { status: 200 }));
@@ -360,6 +380,7 @@ describe("generated API contract", () => {
     const endpointSources = endpointFiles.map((file) =>
       readFileSync(file, "utf8"),
     );
+
     for (const source of endpointSources) {
       expect(source).toMatch(
         /options: RequestInit \| undefined,\n {2}fetchFn: typeof globalThis\.fetch/,
@@ -392,6 +413,7 @@ describe("generated API contract", () => {
         return listPins(undefined);
       },
     ];
+
     expect(callsWithoutFetch).toHaveLength(4);
   });
 

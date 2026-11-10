@@ -65,6 +65,7 @@ let fetchMock: Mock<typeof fetch>;
 beforeEach(() => {
   fetchMock = stubFetch();
 });
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -179,6 +180,7 @@ describe("isRunActive", () => {
         false,
       );
     }
+
     expect(isRunActive({ status: "ready", latestRun: null })).toBe(false);
   });
 });
@@ -190,6 +192,7 @@ describe("firstPendingSteer", () => {
       item("b", "interrupt"),
       item("c", "steer"),
     ];
+
     expect(firstPendingSteer(items)?.id).toBe("c");
     expect(firstPendingSteer(items.slice(0, 2))).toBeUndefined();
   });

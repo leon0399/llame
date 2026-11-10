@@ -62,20 +62,25 @@ function scripted(
   handler: (index: number, call: Call) => Response | Promise<Response>,
 ) {
   const calls: Array<Call> = [];
+
   const fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const call = { url: new Request(input).url, init: init ?? {} };
     calls.push(call);
+
     return handler(calls.length - 1, call);
   };
+
   return { calls, fetch };
 }
 
 function recordedSleep() {
   const waits: Array<number> = [];
+
   return {
     waits,
     sleep: (ms: number) => {
       waits.push(ms);
+
       return Promise.resolve();
     },
   };
@@ -117,15 +122,18 @@ function abortOnSignal(call: Call): Promise<Response> {
   call.init.signal?.addEventListener('abort', () => {
     reject(new DOMException('timed out', 'TimeoutError'));
   });
+
   return promise;
 }
 
 function streamOf(chunks: ReadonlyArray<Uint8Array>, onCancel: () => void) {
   let index = 0;
+
   return new ReadableStream<Uint8Array>({
     pull(controller) {
       const chunk = chunks[index];
       index += 1;
+
       if (chunk === undefined) controller.close();
       else controller.enqueue(chunk);
     },
@@ -328,10 +336,12 @@ describe('rerank client response', () => {
   it('cancels a stream without Content-Length at the byte bound', async () => {
     let cancelled = false;
     const chunk = new Uint8Array(64 * 1024).fill(0x20);
+
     const chunks = Array.from(
       { length: DECISION_RESPONSE_MAX_BYTES / chunk.byteLength + 8 },
       () => chunk,
     );
+
     const { calls, fetch } = scripted(
       () =>
         new Response(
@@ -465,6 +475,7 @@ describe('rerank client retries', () => {
   it('retries a transport failure', async () => {
     const { calls, fetch } = scripted((index) => {
       if (index === 0) throw new TypeError('fetch failed');
+
       return json(okBody());
     });
 
@@ -490,6 +501,7 @@ describe('rerank client retries', () => {
         ? new Response('', { status: 429, headers: { 'retry-after': '30' } })
         : json(okBody()),
     );
+
     const { waits, sleep } = recordedSleep();
 
     await rerank(fetch, { sleep });
@@ -512,12 +524,14 @@ describe('rerank client retries', () => {
 describe('rerank client abort', () => {
   it('aborts the in-flight fetch and rejects instead of retrying', async () => {
     const controller = new AbortController();
+
     const { calls, fetch } = scripted((_index, call) => {
       const { promise, reject } = Promise.withResolvers<Response>();
       call.init.signal?.addEventListener('abort', () => {
         reject(new Error('aborted'));
       });
       controller.abort(new Error('deadline'));
+
       return promise;
     });
 
@@ -530,10 +544,12 @@ describe('rerank client abort', () => {
   it('stops a retry wait on abort and starts no retry', async () => {
     const controller = new AbortController();
     const { calls, fetch } = scripted(() => new Response('', { status: 503 }));
+
     // The abort lands while the backoff wait runs, which ends the wait early.
     const sleep = (_ms: number, signal?: AbortSignal) => {
       expect(signal).toBe(controller.signal);
       controller.abort(new Error('cancelled'));
+
       return Promise.resolve();
     };
 

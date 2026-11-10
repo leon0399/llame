@@ -66,8 +66,10 @@ function createGatedPort(
   const closed: Array<string> = [];
   const reads = new Map<string, GatedRead>();
   const releasedFiles = new Set<string>();
+
   const pending: Array<{ readonly ready: () => boolean; resolve: () => void }> =
     [];
+
   let inFlight = 0;
   let peak = 0;
   let allReleased = false;
@@ -75,6 +77,7 @@ function createGatedPort(
   function notify(): void {
     for (let index = pending.length - 1; index >= 0; index -= 1) {
       const waiter = pending[index];
+
       if (!waiter.ready()) continue;
       pending.splice(index, 1);
       waiter.resolve();
@@ -98,20 +101,25 @@ function createGatedPort(
       latch: { released: allReleased || releasedFiles.has(rel), waiters: [] },
       closed: false,
     };
+
     reads.set(rel, read);
+
     return read;
   }
 
   function release(rel: string): void {
     releasedFiles.add(rel);
     const read = reads.get(rel);
+
     if (read === undefined) return;
     read.latch.released = true;
+
     for (const waiter of read.latch.waiters.splice(0)) waiter();
   }
 
   function close(rel: string): Promise<void> {
     const read = readOf(rel);
+
     if (read.closed) return Promise.resolve();
     read.closed = true;
     inFlight -= 1;
@@ -120,6 +128,7 @@ function createGatedPort(
     // never keeps the scan waiting.
     release(rel);
     notify();
+
     return Promise.resolve();
   }
 
@@ -130,6 +139,7 @@ function createGatedPort(
     const read = readOf(rel);
     const bytes = Buffer.from(file.content, "utf8");
     const width = file.chunkBytes ?? bytes.byteLength;
+
     try {
       for (
         let offset = 0, index = 0;
@@ -140,6 +150,7 @@ function createGatedPort(
           await new Promise<void>((resolve) =>
             read.latch.released ? resolve() : read.latch.waiters.push(resolve),
           );
+
         if (read.closed) return;
         onChunk?.(rel, index);
         yield bytes.subarray(offset, offset + width);
@@ -161,6 +172,7 @@ function createGatedPort(
     },
     releaseAll() {
       allReleased = true;
+
       for (const rel of Object.keys(files)) release(rel);
     },
     started: (count) => until(() => inFlight >= count),
@@ -169,24 +181,31 @@ function createGatedPort(
       const prefix = rel.length === 0 ? "" : `${rel}/`;
       const names = new Set<string>();
       const entries: Array<GrepEntry> = [];
+
       for (const key of Object.keys(files)) {
         if (!key.startsWith(prefix)) continue;
         const rest = key.slice(prefix.length);
         const separator = rest.indexOf("/");
         const name = separator === -1 ? rest : rest.slice(0, separator);
+
         if (names.has(name)) continue;
         names.add(name);
         entries.push({ name, kind: separator === -1 ? "file" : "directory" });
       }
+
       return Promise.resolve(entries);
     },
     open(rel: string) {
       const file = files[rel];
+
       if (file === undefined) return Promise.resolve({ kind: "unreadable" });
+
       if (file.failure !== undefined) {
         opened.push(rel);
+
         return Promise.reject(file.failure);
       }
+
       // Each open starts its own read, so a file a second call opens again
       // streams its bytes again.
       newRead(rel);
@@ -194,6 +213,7 @@ function createGatedPort(
       inFlight += 1;
       peak = Math.max(peak, inFlight);
       notify();
+
       return Promise.resolve<GrepFileStream>({
         size: Buffer.byteLength(file.content, "utf8"),
         close: () => close(rel),
@@ -212,7 +232,9 @@ async function settle(turns = 32): Promise<void> {
 function decode(cursor: string | undefined): DecodedGrepCursor {
   if (cursor === undefined) throw new Error("expected a cursor");
   const decoded = decodeGrepCursor(cursor, "input-hash");
+
   if ("error" in decoded) throw new Error(decoded.error);
+
   return decoded;
 }
 
@@ -234,6 +256,7 @@ describe("grep read-ahead", () => {
     const port = createGatedPort(
       numberedFiles(200, { content: "hit\n", holdAfter: 0 }),
     );
+
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"]);
     await port.started(8);
     await settle();
@@ -257,22 +280,28 @@ describe("grep read-ahead", () => {
           : { content: "miss\n" },
       ]),
     );
+
     const port = createGatedPort(files);
     const asked: Array<string> = [];
+
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
       onCandidate: (locator) => {
         asked.push(locator);
+
         // The head file is admitted and held; every later file is refused.
         return Promise.resolve(locator.endsWith("/f00000.ts"));
       },
     });
+
     // The consumer waits on the gated head while refused candidates fill the
     // queue; the count stops growing only when the cap parks the walk.
     let admitted = -1;
+
     for (let round = 0; round < 40 && asked.length !== admitted; round += 1) {
       admitted = asked.length;
       await settle(10_000);
     }
+
     // A refusal costs a record and a candidate, so the 10,000-event queue
     // parks the walk near 5,000 admitted files instead of all 10,100.
     expect(asked.length).toBeGreaterThan(4000);
@@ -286,6 +315,7 @@ describe("grep read-ahead", () => {
       "a.ts": { content: "a hit\n", holdAfter: 0 },
       "b.ts": { content: "b hit\n", holdAfter: 0 },
     });
+
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"]);
     await port.started(2);
     port.release("b.ts");
@@ -306,7 +336,9 @@ describe("grep read-ahead", () => {
       "d.ts": { content: "hit\n", holdAfter: 0 },
       "e.ts": { content: "hit\n", holdAfter: 0 },
     };
+
     const port = createGatedPort(files);
+
     const first = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -314,6 +346,7 @@ describe("grep read-ahead", () => {
         budget: { limit: 3 },
       },
     );
+
     expect(first.complete).toBe(false);
     expect(first.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.ts:1-1",
@@ -330,11 +363,13 @@ describe("grep read-ahead", () => {
 
     const again = createGatedPort(files);
     again.releaseAll();
+
     const second = await runMemoryScan(
       [memoryScope(0, "/repo/", again)],
       ["hit"],
       { cursor: decode(first.cursor) },
     );
+
     // The cursor's own file opens only to resume after the passage it names;
     // the files the stop discarded are opened again from their first line.
     expect(again.opened).toEqual(["c.ts", "d.ts", "e.ts"]);
@@ -346,11 +381,13 @@ describe("grep read-ahead", () => {
 
   it("opens no more files than the file bound leaves", async () => {
     const port = createGatedPort(numberedFiles(10));
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       { budget: { files: 3 } },
     );
+
     expect(port.opened).toEqual(["f00.ts", "f01.ts", "f02.ts"]);
     expect(result.results).toHaveLength(3);
     expect(result.complete).toBe(false);
@@ -364,7 +401,9 @@ describe("grep read-ahead", () => {
       "c.ts": { content: "miss\n" },
       "d.ts": { content: "hit\n" },
     };
+
     const port = createGatedPort(files);
+
     const first = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -372,6 +411,7 @@ describe("grep read-ahead", () => {
         budget: { entries: 3 },
       },
     );
+
     expect(first.results).toEqual([]);
     expect(first.consumed.files).toBe(3);
     expect(first.complete).toBe(false);
@@ -382,11 +422,13 @@ describe("grep read-ahead", () => {
     });
 
     const again = createGatedPort(files);
+
     const second = await runMemoryScan(
       [memoryScope(0, "/repo/", again)],
       ["hit"],
       { cursor: decode(first.cursor) },
     );
+
     expect(again.opened).toEqual(["d.ts"]);
     expect(second.results.map((passage) => passage.locator)).toEqual([
       "/repo/d.ts:1-1",
@@ -398,6 +440,7 @@ describe("grep read-ahead", () => {
       "a.ts": { content: "hit\n" },
       "b.ts": { content: "hit\n" },
     });
+
     // The head file is one chunk exactly at the byte bound: the old probe cut
     // its first line's remaining patterns and silently lost the match.
     const result = await runMemoryScan(
@@ -405,6 +448,7 @@ describe("grep read-ahead", () => {
       ["zzz", "hit"],
       { budget: { bytes: 4 } },
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.ts:1-1",
     ]);
@@ -416,16 +460,19 @@ describe("grep read-ahead", () => {
       "a.ts": { content: "hit\n" },
       "b.ts": { content: "hit\n" },
     });
+
     const failing = {
       followsLinks: false,
       list: () => Promise.reject(new GrepPortError("later scope list failed")),
       open: () => Promise.resolve({ kind: "unreadable" as const }),
     };
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", first), memoryScope(1, "/later/", failing)],
       ["hit"],
       { budget: { limit: 1 } },
     );
+
     expect(result.results).toHaveLength(1);
     expect(result.complete).toBe(false);
   });
@@ -435,11 +482,13 @@ describe("grep read-ahead", () => {
       "a.ts": { content: "hit\n".repeat(30) },
       "b.ts": { content: "hit\n" },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", long)],
       ["hit"],
       { budget: { pageUnits: reservedRoom("a.ts", 20) } },
     );
+
     // The page ends on the passage it could not hold whole; a later file's
     // small match must not follow it, or the cursor would skip it.
     expect(result.results).toHaveLength(1);
@@ -449,11 +498,13 @@ describe("grep read-ahead", () => {
 
   it("adds no bound warning when the page filled on the same file", async () => {
     const port = createGatedPort(numberedFiles(3));
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       { budget: { files: 2, limit: 2 } },
     );
+
     expect(result.results).toHaveLength(2);
     expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([]);
@@ -462,22 +513,26 @@ describe("grep read-ahead", () => {
   it("counts a read refusal only for the file it takes", async () => {
     let clock = 0;
     const asked: Array<string> = [];
+
     const port = createGatedPort({
       "a.ts": { content: "" },
       "p.ts": { content: "hit\n" },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       {
         onCandidate: (locator) => {
           asked.push(locator);
+
           return Promise.resolve(!locator.endsWith("/p.ts"));
         },
         budget: { deadlineMs: 10 },
         now: () => (clock += 10),
       },
     );
+
     // The deadline passes between the first file's take and the refusal's.
     expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([{ kind: "deadline", count: 1 }]);
@@ -493,6 +548,7 @@ describe("grep read-ahead", () => {
       "boom.ts": { content: "", failure: new Error("scope failed") },
       "held.ts": { content: "hit\n", holdAfter: 0 },
     });
+
     // The page fills on the first file, so the failing read is discarded; its
     // promise was caught where it was created, so nothing rejects unhandled.
     const result = await runMemoryScan(
@@ -500,6 +556,7 @@ describe("grep read-ahead", () => {
       ["hit"],
       { budget: { limit: 1 } },
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.ts:1-1",
     ]);
@@ -512,6 +569,7 @@ describe("grep read-ahead", () => {
     const port = createGatedPort({
       "boom.ts": { content: "", failure: new Error("scope failed") },
     });
+
     await expect(
       runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"]),
     ).rejects.toThrow("scope failed");
@@ -521,6 +579,7 @@ describe("grep read-ahead", () => {
 describe("grep unfinished files", () => {
   it("discards the files opened ahead of a deadline stop", async () => {
     const clock = { value: 0 };
+
     const files = {
       "a.ts": { content: "miss\n" },
       "b.ts": { content: "miss\n" },
@@ -528,11 +587,14 @@ describe("grep unfinished files", () => {
       "d.ts": { content: "miss\n", holdAfter: 0 },
       "e.ts": { content: "miss\n", holdAfter: 0 },
     } satisfies Record<string, GatedFile>;
+
     const port = createGatedPort(files);
+
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle(200);
     clock.value = 40;
     port.releaseAll();
@@ -556,18 +618,23 @@ describe("grep unfinished files", () => {
 
   it("names the file a deadline stopped inside and skips it next time", async () => {
     const clock = { value: 0 };
+
     const files = {
       "big.log": { content: "x".repeat(128), chunkBytes: 32, holdAfter: 0 },
       "z.log": { content: "miss\n" },
     } satisfies Record<string, GatedFile>;
+
     const port = createGatedPort(files, (rel, index) => {
       if (rel === "big.log" && index === 1) clock.value = 40;
     });
+
     const scope = memoryScope(0, "/var/log/", port);
+
     const run = runMemoryScan([scope], ["hit"], {
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle();
     // Only the gated read still holds a file and the scan is pending, so the
     // call waits on it: the release runs the head's deadline check.
@@ -585,32 +652,39 @@ describe("grep unfinished files", () => {
     });
 
     const again = createGatedPort(files);
+
     const second = await runMemoryScan(
       [memoryScope(0, "/var/log/", again)],
       ["hit"],
       { cursor: decode(first.cursor) },
     );
+
     expect(again.opened).toEqual(["z.log"]);
     expect(second.complete).toBe(true);
   });
 
   it("skips an unfinished single-file scope to the next ordinal", async () => {
     const clock = { value: 0 };
+
     const single = createGatedPort(
       { "": { content: "x".repeat(128), chunkBytes: 32, holdAfter: 0 } },
       (_rel, index) => {
         if (index === 1) clock.value = 40;
       },
     );
+
     const directory = createGatedPort({ "a.ts": { content: "hit\n" } });
+
     const scopes = [
       memoryScope(0, "/var/log/big.log", single, { singleFile: true }),
       memoryScope(1, "/srv/app/", directory),
     ];
+
     const run = runMemoryScan(scopes, ["hit"], {
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle();
     single.release("");
     const first = await run;
@@ -626,6 +700,7 @@ describe("grep unfinished files", () => {
     const second = await runMemoryScan(scopes, ["hit"], {
       cursor: decode(first.cursor),
     });
+
     expect(second.results.map((passage) => passage.locator)).toEqual([
       "/srv/app/a.ts:1-1",
     ]);
@@ -636,19 +711,23 @@ describe("grep unfinished files", () => {
 
   it("ends an unfinished last single-file scope on the next call", async () => {
     const clock = { value: 0 };
+
     const single = createGatedPort(
       { "": { content: "x".repeat(128), chunkBytes: 32, holdAfter: 0 } },
       (_rel, index) => {
         if (index === 1) clock.value = 40;
       },
     );
+
     const scopes = [
       memoryScope(0, "/var/log/big.log", single, { singleFile: true }),
     ];
+
     const run = runMemoryScan(scopes, ["hit"], {
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle();
     single.release("");
     const first = await run;
@@ -658,6 +737,7 @@ describe("grep unfinished files", () => {
     const second = await runMemoryScan(scopes, ["hit"], {
       cursor: decode(first.cursor),
     });
+
     expect(second.results).toEqual([]);
     expect(second.complete).toBe(true);
     expect(single.opened).toEqual([""]);
@@ -665,6 +745,7 @@ describe("grep unfinished files", () => {
 
   it("counts no progress from a cursor on the parent directory", async () => {
     const clock = { value: 0 };
+
     const port = createGatedPort(
       {
         "logs/big.log": {
@@ -678,6 +759,7 @@ describe("grep unfinished files", () => {
         if (rel === "logs/big.log" && index === 1) clock.value = 40;
       },
     );
+
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
       cursor: {
         kind: "position",
@@ -688,6 +770,7 @@ describe("grep unfinished files", () => {
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle();
     port.release("logs/big.log");
     const result = await run;
@@ -703,17 +786,21 @@ describe("grep unfinished files", () => {
 
   it("resumes at the file when the call progressed before the stop", async () => {
     const clock = { value: 0 };
+
     const files = {
       "a.ts": { content: "miss\n" },
       "b.ts": { content: "miss\n", chunkBytes: 2, holdAfter: 0 },
     } satisfies Record<string, GatedFile>;
+
     const port = createGatedPort(files, (rel, index) => {
       if (rel === "b.ts" && index === 1) clock.value = 40;
     });
+
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle();
     // The finished first file is progress, so the release stops inside the
     // second one without naming it.
@@ -738,18 +825,23 @@ describe("grep unfinished files", () => {
 
   it("counts the progress of an earlier segment", async () => {
     const clock = { value: 0 };
+
     const files = {
       "big.log": { content: "x".repeat(128), chunkBytes: 32, holdAfter: 0 },
     } satisfies Record<string, GatedFile>;
+
     const port = createGatedPort(files, (rel, index) => {
       if (rel === "big.log" && index === 1) clock.value = 40;
     });
+
     const scope = memoryScope(0, "/var/log/", port);
+
     const run = runMemoryScan([scope], ["hit"], {
       progressed: true,
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle();
     port.release("big.log");
     const result = await run;
@@ -766,6 +858,7 @@ describe("grep unfinished files", () => {
 
   it("counts an emitted passage as progress", async () => {
     const clock = { value: 0 };
+
     const port = createGatedPort(
       {
         "a.log": { content: "hit\nhit\n" },
@@ -775,6 +868,7 @@ describe("grep unfinished files", () => {
         if (rel === "b.log" && index === 1) clock.value = 40;
       },
     );
+
     const run = runMemoryScan([memoryScope(0, "/repo/", port)], ["hit"], {
       cursor: {
         kind: "passage",
@@ -787,6 +881,7 @@ describe("grep unfinished files", () => {
       budget: { deadlineMs: 10 },
       now: () => clock.value,
     });
+
     await settle();
     port.release("b.log");
     const result = await run;

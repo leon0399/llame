@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { withRegexTokens } from "./regex-code-highlighter.js";
 
 type CodeHighlighter = NonNullable<PluginConfig["code"]>;
+
 type HighlightResult = NonNullable<ReturnType<CodeHighlighter["highlight"]>>;
 
 // SAFETY: `language` and `themes` are valid BundledLanguage/theme-pair
@@ -48,15 +49,18 @@ describe("withRegexTokens", () => {
         },
       ],
     ]);
+
     const base = baseHighlighter(() => highlighted);
     const decorated = withRegexTokens(base);
 
     const actual = decorated.highlight(options);
 
     expect(actual).not.toBeNull();
+
     const marked = actual?.tokens[0].filter(
       (token) => token.htmlAttrs?.["data-regex-token"],
     );
+
     expect(marked?.map((token) => token.content).join("")).toBe(
       String.raw`/\d+/g`,
     );
@@ -98,10 +102,13 @@ describe("withRegexTokens", () => {
   it("decorates a highlight delivered through the asynchronous callback", () => {
     const highlighted = result([[{ content: "const id = /\\d+/;" }]]);
     let callbackResult: HighlightResult | undefined;
+
     const base = baseHighlighter((_options, callback) => {
       callback?.(highlighted);
+
       return null;
     });
+
     const decorated = withRegexTokens(base);
 
     const actual = decorated.highlight(options, (value) => {

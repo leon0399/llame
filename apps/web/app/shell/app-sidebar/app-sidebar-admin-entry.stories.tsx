@@ -50,6 +50,7 @@ function MobileViewport({
 
       if (original) {
         Object.defineProperty(window, "innerWidth", original);
+
         return;
       }
 
@@ -81,6 +82,7 @@ const meta = {
 } satisfies Meta<typeof AppSidebarAdminEntry>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -96,6 +98,7 @@ export const Basic: Story = {
     const link = within(canvasElement).getByRole("link", {
       name: /Administration/i,
     });
+
     await expect(link).toHaveAttribute("href", "/admin/organizations");
   },
 };
@@ -118,6 +121,7 @@ export const ActiveOnAdminRoute: Story = {
     const link = within(canvasElement).getByRole("link", {
       name: /Administration/i,
     });
+
     // asChild renders the Link straight through Slot — data-active lands on
     // the <a> itself, there is no separate wrapping <button>.
     await expect(link).toHaveAttribute("data-active");

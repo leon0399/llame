@@ -17,6 +17,7 @@ import {
 
 /** Entries per catalog page when the request omits `limit`. */
 export const SKILL_CATALOG_DEFAULT_LIMIT = 100;
+
 /** Largest catalog page a caller may request. */
 export const SKILL_CATALOG_MAX_LIMIT = 200;
 
@@ -99,12 +100,14 @@ export function toSkillCatalogCollection(
   page: { readonly limit: number; readonly after?: string },
 ): SkillCatalogCollectionResponse {
   const after = page.after;
+
   const remaining =
     after === undefined
       ? snapshot.entries
       : snapshot.entries.filter(
           (entry) => compareSkillNames(entry.name, after) > 0,
         );
+
   const items = remaining.slice(0, page.limit);
   const hasMore = remaining.length > items.length;
   const lastItem = items.at(-1);

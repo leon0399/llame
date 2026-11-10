@@ -34,6 +34,7 @@ describe("paginateAllMessages", () => {
       .fn()
       .mockResolvedValueOnce({ messages: page(200, CHAT_HISTORY_PAGE_SIZE) })
       .mockResolvedValueOnce({ messages: page(50, 50) });
+
     const all = await paginateAllMessages(fetchPage);
     expect(all[0].seq).toBe(1); // oldest first
     expect(all.at(-1)?.seq).toBe(200); // newest last
@@ -53,6 +54,7 @@ describe("paginateAllMessages", () => {
       .fn()
       .mockResolvedValueOnce({ messages: page(100, CHAT_HISTORY_PAGE_SIZE) })
       .mockResolvedValueOnce({ messages: [] });
+
     const all = await paginateAllMessages(fetchPage);
     expect(all).toHaveLength(CHAT_HISTORY_PAGE_SIZE);
     expect(fetchPage).toHaveBeenCalledTimes(2);
@@ -62,11 +64,14 @@ describe("paginateAllMessages", () => {
     // Full pages with a strictly-decreasing cursor → advances forever; the cap
     // is what stops it (loads the latest MAX_PAGES*PAGE_SIZE turns).
     let endSeq = 100_000;
+
     const fetchPage = vi.fn().mockImplementation(() => {
       const p = page(endSeq, CHAT_HISTORY_PAGE_SIZE);
       endSeq -= CHAT_HISTORY_PAGE_SIZE;
+
       return Promise.resolve({ messages: p });
     });
+
     const all = await paginateAllMessages(fetchPage);
     expect(fetchPage).toHaveBeenCalledTimes(CHAT_HISTORY_MAX_PAGES);
     expect(all).toHaveLength(CHAT_HISTORY_MAX_PAGES * CHAT_HISTORY_PAGE_SIZE);
@@ -78,6 +83,7 @@ describe("paginateAllMessages", () => {
     const fetchPage = vi
       .fn()
       .mockResolvedValue({ messages: page(200, CHAT_HISTORY_PAGE_SIZE) });
+
     const all = await paginateAllMessages(fetchPage);
     // First page accepted and merged; second call returns the SAME cursor
     // (101, not < 101) → rejected before merging, so only the first page's

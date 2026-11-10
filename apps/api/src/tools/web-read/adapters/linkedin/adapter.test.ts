@@ -10,6 +10,7 @@ import { createLinkedInAdapter, parseLinkedInUrl } from './adapter';
 const adapter = createLinkedInAdapter({ id: 'linkedin', use: 'linkedin' });
 
 const PROFILE = 'https://www.linkedin.com/in/asandler';
+
 const POST =
   'https://www.linkedin.com/posts/leon0399_aiagents-developertools-softwareengineering-ugcPost-7513004942043824128-IVu5/';
 
@@ -26,12 +27,14 @@ function page<Value>(json: Value, ogTitle?: string): string {
     ogTitle === undefined
       ? ''
       : `<meta property="og:title" content="${ogTitle}">`;
+
   return `<!DOCTYPE html><html><head>${meta}<script type="application/ld+json">${JSON.stringify(json)}</script></head></html>`;
 }
 
 async function read(source: string, reply: Reply, requestUrl = source) {
   const run = scriptedIo(new Map([[requestUrl, [reply]]]));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
@@ -39,7 +42,9 @@ function rendered(
   outcome: Awaited<ReturnType<typeof read>>['outcome'],
 ): string {
   expect(outcome.kind).toBe('rendered');
+
   if (outcome.kind !== 'rendered') throw new Error('expected render');
+
   return outcome.content;
 }
 
@@ -111,11 +116,13 @@ describe('LinkedIn adapter read', () => {
 
   it('renders the recorded public post from its JSON-LD', async () => {
     const body = fixture('leon0399-post.html');
+
     const { outcome, requests } = await read(
       `${POST}?trk=public_post`,
       htmlResponse(body, POST),
       POST,
     );
+
     const content = rendered(outcome);
 
     expect(requests).toStrictEqual([
@@ -135,6 +142,7 @@ describe('LinkedIn adapter read', () => {
 
   it('renders a fully public profile, including dates, and drops a bad affiliation', async () => {
     const source = 'https://www.linkedin.com/in/ada-example';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -148,6 +156,7 @@ describe('LinkedIn adapter read', () => {
 
   it('uses a job title when no organization is visible and ignores a masked headline', async () => {
     const source = 'https://es.linkedin.com/in/title-only';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -174,6 +183,7 @@ describe('LinkedIn adapter read', () => {
 
   it('reads a headline without the LinkedIn suffix and a single organization', async () => {
     const source = 'https://www.linkedin.com/in/suffix-free';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -210,6 +220,7 @@ describe('LinkedIn adapter read', () => {
 
   it('aligns each title with its organization and leaves a past start open', async () => {
     const source = 'https://www.linkedin.com/in/aligned';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -235,6 +246,7 @@ describe('LinkedIn adapter read', () => {
 
   it('applies a single job title only to the first current organization', async () => {
     const source = 'https://www.linkedin.com/in/one-title';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -269,6 +281,7 @@ describe('LinkedIn adapter read', () => {
 
   it('keeps a role when its membership block cannot be read', async () => {
     const source = 'https://www.linkedin.com/in/partial-role';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -292,6 +305,7 @@ describe('LinkedIn adapter read', () => {
 
   it('falls through when the profile has no public name or JSON-LD', async () => {
     const source = 'https://www.linkedin.com/in/empty-name';
+
     for (const body of [
       page({ '@type': 'Person', name: '**** ****' }),
       page({ '@type': 'Person', name: '   ' }),
@@ -308,16 +322,19 @@ describe('LinkedIn adapter read', () => {
 
   it('uses a later JSON-LD block when the first one does not parse', async () => {
     const source = 'https://www.linkedin.com/in/second-block';
+
     const html = `<html><head>
       <script type="application/ld+json">{</script>
       <script type="application/ld+json">${JSON.stringify({ '@type': 'Person', name: 'Second Block' })}</script>
       </head></html>`;
+
     const { outcome } = await read(source, htmlResponse(html, source));
     expect(rendered(outcome)).toContain('# Second Block');
   });
 
   it('renders a post from a graph, a text body, and both reaction schemes', async () => {
     const source = 'https://www.linkedin.com/feed/update/urn:li:share:12345678';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -370,6 +387,7 @@ describe('LinkedIn adapter read', () => {
 
   it('prefers article text, a direct comment count, and an https canonical URL', async () => {
     const source = 'https://www.linkedin.com/posts/a-activity-12345678-abcd';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -419,15 +437,18 @@ describe('LinkedIn adapter read', () => {
 
   it('falls through a post page with no posting', async () => {
     const source = 'https://www.linkedin.com/posts/a-activity-12345678';
+
     const { outcome } = await read(
       source,
       htmlResponse(page({ '@type': 'Person', name: 'Ada' }), source),
     );
+
     expect(outcome).toEqual({ kind: 'failed', failure: 'parse' });
   });
 
   it('keeps a zero count and skips a statistic or image that is not an object', async () => {
     const source = 'https://www.linkedin.com/posts/a-share-12345678-zero';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -463,6 +484,7 @@ describe('LinkedIn adapter read', () => {
 
   it('omits a null comment count instead of printing it', async () => {
     const source = 'https://www.linkedin.com/posts/a-activity-87654321-none';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -486,6 +508,7 @@ describe('LinkedIn adapter read', () => {
 
   it('names a post with no author and still records the requested URL', async () => {
     const source = 'https://www.linkedin.com/posts/a-share-12345678-zzzz';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -493,26 +516,31 @@ describe('LinkedIn adapter read', () => {
         source,
       ),
     );
+
     expect(rendered(outcome)).toBe(`# LinkedIn post\n\nURL: ${source}`);
   });
 
   it('does not fetch a URL it does not claim', async () => {
     const run = scriptedIo(new Map());
+
     const outcome = await adapter.read(
       new URL('https://www.linkedin.com/company/acme'),
       run.io,
     );
+
     expect(outcome).toEqual({ kind: 'failed', failure: 'parse' });
     expect(run.requests).toEqual([]);
   });
 
   it('falls through an authwall, a login redirect, and a non-LinkedIn final URL', async () => {
     const source = 'https://www.linkedin.com/in/leon0399';
+
     const authwall: WebFetchFailure = {
       type: 'http_status',
       message: 'The server answered HTTP 999.',
       httpStatus: 999,
     };
+
     const blocked = await read(source, authwall);
     expect(blocked.outcome).toEqual({ kind: 'failed', failure: 'status' });
 
@@ -521,6 +549,7 @@ describe('LinkedIn adapter read', () => {
       message: 'The server answered HTTP 429.',
       httpStatus: 429,
     };
+
     const throttled = await read(source, limited);
     expect(throttled.outcome).toEqual({
       kind: 'failed',
@@ -531,6 +560,7 @@ describe('LinkedIn adapter read', () => {
       type: 'call_timeout',
       message: 'The web read reached its deadline.',
     };
+
     const spent = await read(source, timeout);
     expect(spent.outcome).toMatchObject({
       kind: 'failed',
@@ -555,12 +585,14 @@ describe('LinkedIn adapter read', () => {
           finalUrl,
         ),
       );
+
       expect(outcome).toEqual({ kind: 'failed', failure: 'status' });
     }
   });
 
   it('accepts a final URL that only shares a prefix with a login path', async () => {
     const source = 'https://www.linkedin.com/in/still-public';
+
     const { outcome } = await read(
       source,
       htmlResponse(
@@ -568,6 +600,7 @@ describe('LinkedIn adapter read', () => {
         'https://www.linkedin.com/login-help',
       ),
     );
+
     expect(rendered(outcome)).toContain('# Still Public');
 
     const usage = await read(
@@ -577,6 +610,7 @@ describe('LinkedIn adapter read', () => {
         'https://fr.linkedin.com/usage',
       ),
     );
+
     expect(rendered(usage.outcome)).toContain('# Usage Page');
   });
 });

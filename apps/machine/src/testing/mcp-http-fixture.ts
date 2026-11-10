@@ -35,6 +35,7 @@ export type McpHttpFixtureOptions = {
 
 function headerOf(request: IncomingMessage, name: string): string | null {
   const value = request.headers[name];
+
   return isString(value) ? value : null;
 }
 
@@ -47,8 +48,10 @@ function readRequestBody(request: IncomingMessage): Promise<JsonValue> {
     request.on("end", () => {
       if (body.length === 0) {
         resolve(null);
+
         return;
       }
+
       const parsed: unknown = JSON.parse(body);
       resolve(toJsonValue(parsed));
     });
@@ -61,6 +64,7 @@ function listen(httpServer: Server): Promise<string> {
     httpServer.once("error", reject);
     httpServer.listen(0, "127.0.0.1", () => {
       const address = httpServer.address();
+
       if (address === null || isString(address))
         reject(new Error("the fixture has no TCP address"));
       else resolve(`http://127.0.0.1:${String(address.port)}/mcp`);
@@ -106,13 +110,16 @@ export async function startMcpHttpFixture(
   const sessionId = options.sessionId ?? "machine-fixture-session";
   const toolName = options.toolName ?? "ping";
   const requests: Array<McpHttpRequestLog> = [];
+
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => sessionId,
   });
+
   const server = new McpServer(
     { name: "machine-http-fixture", version: "0.0.0" },
     { capabilities: { tools: {} } },
   );
+
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [toolDeclaration(toolName)],
   }));

@@ -54,6 +54,7 @@ const LOCAL = "@local";
 /** The last path segment, which is how a folder reads in a small control. */
 export function folderName(path: string): string {
   const trimmed = path.replace(/\/+$/u, "");
+
   return trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
 }
 
@@ -81,6 +82,7 @@ function DirectoryGroup({
   options: Array<WorkingDirectoryOption>;
 }) {
   if (options.length === 0) return null;
+
   return (
     <DropdownMenuGroup>
       <DropdownMenuLabel>{title}</DropdownMenuLabel>
@@ -103,10 +105,13 @@ export function WorkingDirectoryItems({
   onOtherFolder: () => void;
 }) {
   const options = location.workingDirectories;
+
   const select = (checkoutId: string) => {
     const row = location.checkouts.find((item) => item.id === checkoutId);
+
     if (row !== undefined) location.selectWorkingDirectory(row);
   };
+
   return (
     <>
       <DropdownMenuRadioGroup
@@ -168,14 +173,18 @@ export function ComposerWorkingDirectorySubmenu({
  */
 function folderLocator(machine: string, path: string): string {
   const trimmed = path.replace(/(.)\/+$/u, "$1");
+
   if (machine === LOCAL) return trimmed;
+
   const encoded = Array.from(trimmed, (char) => {
     const code = char.charCodeAt(0);
     const escaped = code < 0x20 || code === 0x7f || "%#?\\".includes(char);
+
     return escaped
       ? `%${code.toString(16).toUpperCase().padStart(2, "0")}`
       : char;
   }).join("");
+
   return `machine://${machine}${encoded}`;
 }
 
@@ -186,7 +195,9 @@ function registeredAt(
   locator: string,
 ): CheckoutResponse | undefined {
   const row = checkouts.find((item) => item.path === locator);
+
   if (row === undefined || row.kind === "main") return row;
+
   return checkouts.find((item) => item.id === row.parentCheckoutId);
 }
 
@@ -199,6 +210,7 @@ function MachineField({
 }) {
   const id = useId();
   const machines = useMachinesQuery().data ?? [];
+
   const items = [
     { value: LOCAL, label: "This server" },
     ...machines.map((machine) => ({
@@ -206,6 +218,7 @@ function MachineField({
       label: machine.name,
     })),
   ];
+
   return (
     <div className="grid gap-2">
       <Label htmlFor={id}>Machine</Label>
@@ -270,13 +283,17 @@ function FolderPathField({
 function useTypedFolder(location: ComposerLocation, onClose: () => void) {
   const [failure, setFailure] = useState<string | null>(null);
   const register = useRegisterCheckout();
+
   const submit = async (machine: string, path: string) => {
     if (!path.startsWith("/") || register.isPending) return;
+
     try {
       const locator = folderLocator(machine, path);
+
       const row =
         registeredAt(location.checkouts, locator) ??
         (await register.mutateAsync({ path: locator }));
+
       location.selectWorkingDirectory(row);
       onClose();
     } catch (error) {
@@ -285,6 +302,7 @@ function useTypedFolder(location: ComposerLocation, onClose: () => void) {
       );
     }
   };
+
   return { submit, failure, pending: register.isPending };
 }
 
@@ -301,6 +319,7 @@ function OtherFolderForm({
   const [path, setPath] = useState("");
   const folder = useTypedFolder(location, onClose);
   const submit = () => void folder.submit(machine, path.trim());
+
   return (
     <>
       <MachineField value={machine} onChange={setMachine} />

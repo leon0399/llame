@@ -58,8 +58,11 @@ function webResultEnvelope(
     method: render.method,
     ...(render.adapter !== undefined && { adapter: render.adapter }),
   };
+
   const notes = render.notes ?? [];
+
   if (notes.length > 0) envelope.notes = notes;
+
   return envelope;
 }
 
@@ -75,17 +78,21 @@ export async function buildWebReadResult(
   render: WebRender,
 ): Promise<WebReadSuccess | WebReadFailure> {
   const envelope = webResultEnvelope(finalUrl, render);
+
   try {
     const target: ReadTarget = {
       ...applySelectorSuffix(locator.url, locator.selector),
       reserveCodeUnits: readAttributionReserve(envelope),
     };
+
     if (render.directory !== undefined) {
       return buildDirectoryReadResult(target, envelope, render.directory);
     }
+
     return await buildWebFileResult(target, envelope, render);
   } catch (error) {
     if (!(error instanceof NativeFileError)) throw error;
+
     return {
       status: 'error',
       type: error.type,
@@ -132,17 +139,21 @@ async function buildWebFileResult(
   // an `N-` or a `-K` resolves against, exactly as a file's own lines are.
   const renderedLines =
     target.pending === undefined ? undefined : splitSourceLines(render.content);
+
   const resolved =
     renderedLines === undefined
       ? target
       : resolveEndRelativeSelector(target, renderedLines.length);
+
   if (resolved.outline) {
     if (render.truncated === true)
       return representationTooLarge(ADAPTER_OUTLINE_TOO_LARGE_MESSAGE);
     const lines = renderedLines ?? splitSourceLines(render.content);
     const read = await outlineReader(render.mediaType)(lines, resolved);
+
     return { ...read, ...envelope };
   }
+
   // A cut document's end is not the document's end, so a `-K` member is
   // refused rather than answered with the wrong end. An `N-` member names a
   // real start, and the ordinary truncation note already covers the cut.
@@ -153,6 +164,7 @@ async function buildWebFileResult(
   ) {
     return representationTooLarge(ADAPTER_TAIL_TOO_LARGE_MESSAGE);
   }
+
   // A comma request needs the multi-range walk: the render is text in
   // hand, so it cannot go through the file-backed stream reader, and
   // `selectSourceLines` serves one window.
@@ -160,6 +172,7 @@ async function buildWebFileResult(
     resolved.ranges === undefined
       ? selectSourceLines(render.content, resolved, render.mediaType)
       : selectMultiRangeLines(render.content, resolved, render.mediaType);
+
   // The selection stored its own count: the lines are in hand, and a `-K`
   // member resolved against the same count.
   return { ...read, ...envelope };
@@ -172,6 +185,7 @@ function directorySelectorFailure(
   // listing's entry count: a flat slice has no second interval to show.
   const comma =
     target.ranges !== undefined || (target.pending?.includes(',') ?? false);
+
   const message = target.outline
     ? 'The :outline member is not supported for directory reads.'
     : target.raw
@@ -179,6 +193,7 @@ function directorySelectorFailure(
       : comma
         ? 'Comma-separated selectors are not supported for directory reads.'
         : undefined;
+
   return message === undefined
     ? undefined
     : { status: 'error', type: 'invalid_selector', message };
@@ -190,7 +205,9 @@ function buildDirectoryReadResult(
   directory: WebDirectory,
 ): WebReadSuccess | WebReadFailure {
   const refusal = directorySelectorFailure(target);
+
   if (refusal !== undefined) return refusal;
+
   const options = {
     displayPath: target.path,
     reserveCodeUnits: readAttributionReserve(envelope),
@@ -201,14 +218,17 @@ function buildDirectoryReadResult(
     // starts past the last entry.
     ...(target.pending !== undefined && { pending: target.pending }),
   };
+
   const result = renderCollectedDirectory(
     directory.displayPath,
     directory.entries,
     options,
   );
+
   if (result.status === 'error') {
     return { status: 'error', type: result.type, message: result.message };
   }
+
   return { ...result, ...envelope };
 }
 
@@ -224,10 +244,12 @@ function selectorFailureMessage(
 ): string {
   const lines = splitSourceLines(content).length;
   const written = selector === undefined ? '' : `:${selector} `;
+
   // A render with no lines has no range to point at, so the sentence that
   // would name one is left out rather than naming `1-0`.
   if (lines === 0) {
     return `The selector ${written}selected no line of this page, which rendered no text.`;
   }
+
   return `The selector ${written}selected no line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1. Write :N, :N-M, or :N+K within 1-${lines}, or omit the selector to read from the start.`;
 }

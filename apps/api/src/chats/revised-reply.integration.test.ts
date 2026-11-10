@@ -64,13 +64,16 @@ describeIfDb('a revised reply', () => {
         ownerUserId: owner,
         title: 'Revised reply',
       });
+
       const messages = new MessagesRepository(tx);
+
       const user = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: owner,
         parts: [{ type: 'text', text: 'ask the question' }],
       });
+
       const reply = await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -84,6 +87,7 @@ describeIfDb('a revised reply', () => {
         },
         inReplyTo: user.id,
       });
+
       return {
         chatId: chat.id,
         userSeq: user.seq,
@@ -91,7 +95,9 @@ describeIfDb('a revised reply', () => {
         replyId: reply.id,
       };
     });
+
     await new SearchIndexService(tenantDb).reindexChat(seeded.chatId, owner);
+
     return seeded;
   }
 
@@ -101,6 +107,7 @@ describeIfDb('a revised reply', () => {
         .select({ content: schema.searchChatDocuments.content })
         .from(schema.searchChatDocuments)
         .where(eq(schema.searchChatDocuments.chatId, chatId));
+
       return rows.map(({ content }) => content).join('\n');
     });
 
@@ -168,9 +175,11 @@ describeIfDb('a revised reply', () => {
 
   it('is not counted by timeline discovery', async () => {
     const seeded = await seedAnsweredChat();
+
     const before = (await timelineOf(owner)).find(
       ({ chatId }) => chatId === seeded.chatId,
     );
+
     expect(before?.messageCount).toBe(2);
 
     await markRevised(seeded.replyId);
@@ -178,6 +187,7 @@ describeIfDb('a revised reply', () => {
     const after = (await timelineOf(owner)).find(
       ({ chatId }) => chatId === seeded.chatId,
     );
+
     expect(after?.messageCount).toBe(1);
   });
 

@@ -15,6 +15,7 @@ const metadata: ArgumentMetadata = {
   metatype: UpdateMemoryDto,
   data: '',
 };
+
 const pipe = new ValidationPipe({
   whitelist: true,
   forbidNonWhitelisted: true,

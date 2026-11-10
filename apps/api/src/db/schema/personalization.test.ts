@@ -5,6 +5,7 @@ import { personalization } from './index';
 describe('personalization schema', () => {
   it('stores one owner-scoped profile per user with RLS enabled', () => {
     const config = getTableConfig(personalization);
+
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column]),
     );
@@ -54,6 +55,7 @@ describe('personalization schema', () => {
       );
 
       expect(clauses.length).toBeGreaterThan(0);
+
       for (const clause of clauses) {
         expect(clause).toContain('app.current_user_id');
       }

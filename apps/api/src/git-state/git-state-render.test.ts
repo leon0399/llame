@@ -169,6 +169,7 @@ describe('renderGitObservation', () => {
     const text = render({
       entries: [{ xy: '??', path: 'a\nBranch: main\nb' }],
     });
+
     const lines = text.split('\n');
 
     expect(lines).toContain(String.raw`?? "a\nBranch: main\nb"`);
@@ -279,6 +280,7 @@ describe('normalizeGitState', () => {
       ...BASE,
       remotes: [{ name: 'origin', url }],
     });
+
     const text = render({ remotes: [{ name: 'origin', url }] });
 
     expect(JSON.stringify(view)).not.toContain('secret');
@@ -322,6 +324,7 @@ describe('normalizeGitState', () => {
       name: `r${index}`,
       url: `https://github.com/o/r${index}`,
     }));
+
     const view = normalizeGitState({ ...BASE, remotes });
     const text = render({ remotes });
 
@@ -364,6 +367,7 @@ describe('normalizeGitState', () => {
 
   it('keeps values at their limits whole and never splits a surrogate pair', () => {
     const exact = 'e'.repeat(72);
+
     const view = normalizeGitState({
       ...BASE,
       commits: [
@@ -386,6 +390,7 @@ describe('normalizeGitState', () => {
 
   it('shows the address of a transport helper without its token', () => {
     const url = 'https::https://user:ghp_secret@github.com/leon0399/llame.git';
+
     const view = normalizeGitState({
       ...BASE,
       remotes: [{ name: 'origin', url }],
@@ -455,6 +460,7 @@ describe('normalizeGitState', () => {
       xy: '??',
       path: `f${index}`,
     }));
+
     const view = normalizeGitState({
       ...BASE,
       omitted: 1,
@@ -477,6 +483,7 @@ describe('normalizeGitState', () => {
       xy: '??',
       path: `f${index}`,
     }));
+
     const view = normalizeGitState({
       ...BASE,
       omitted: 0,
@@ -491,11 +498,13 @@ describe('normalizeGitState', () => {
 
   it('does not list a submodule path over 4,096 characters', () => {
     const long = 'a'.repeat(5000);
+
     const view = normalizeGitState({
       ...BASE,
       omitted: 0,
       submodules: [long, 'vendor/lib'],
     });
+
     const text = render({ omitted: 0, submodules: [long, 'vendor/lib'] });
 
     expect(view.submodules).toEqual(['vendor/lib']);

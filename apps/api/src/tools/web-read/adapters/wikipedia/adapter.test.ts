@@ -18,6 +18,7 @@ function html(body: string): WebResponse {
 async function read(source: string, reply: Reply, url = `${API}/Rust/html`) {
   const run = scriptedIo(new Map([[url, [reply]]]));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map((request) => request.url) };
 }
 
@@ -106,6 +107,7 @@ describe('Wikipedia adapter read', () => {
       message: 'HTTP 404',
       httpStatus: 404,
     };
+
     const source = 'https://en.wikipedia.org/wiki/Rust';
 
     await expect(read(source, missing)).resolves.toMatchObject({

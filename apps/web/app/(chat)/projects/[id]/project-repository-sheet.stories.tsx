@@ -38,6 +38,7 @@ function stubClipboard() {
     configurable: true,
     value: { writeText },
   });
+
   return () => {
     if (original) Object.defineProperty(navigator, "clipboard", original);
     else Reflect.deleteProperty(navigator, "clipboard");
@@ -76,11 +77,13 @@ const meta = {
       isPending: false,
       isError: false,
     });
+
     return routeFetch();
   },
 } satisfies Meta<typeof RepositorySheet>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 async function sheet() {
@@ -209,6 +212,7 @@ export const CopyPath: Story = {
     const view = await sheet();
 
     const [localCopy] = view.getAllByRole("button", { name: "Copy path" });
+
     if (localCopy === undefined) throw new Error("no local copy button");
     await userEvent.click(localCopy);
     await waitFor(() =>
@@ -235,9 +239,11 @@ export const CopyLocator: Story = {
     await userEvent.click(
       view.getByRole("button", { name: "Copy path or locator" }),
     );
+
     const item = await screen.findByRole("menuitem", {
       name: "Path on devbox",
     });
+
     // The menu fades in; its items are visible once that ends.
     await waitFor(() => expect(item).toBeVisible());
     await userEvent.click(screen.getByRole("menuitem", { name: "Locator" }));

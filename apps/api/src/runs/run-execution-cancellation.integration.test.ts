@@ -63,6 +63,7 @@ describeIfDb('post-claim cancellation settlement', () => {
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, userId),
     );
+
     return events.map((event) => event.eventType);
   };
 
@@ -70,6 +71,7 @@ describeIfDb('post-claim cancellation settlement', () => {
     const messages = await harness.tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     return messages.filter((message) => message.role === 'assistant');
   };
 
@@ -80,6 +82,7 @@ describeIfDb('post-claim cancellation settlement', () => {
     const requested = await harness.tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).requestCancel(runId, userId),
     );
+
     return { requested };
   }
 
@@ -87,6 +90,7 @@ describeIfDb('post-claim cancellation settlement', () => {
     waitFor(
       async () => {
         const run = await runStatus(runId);
+
         return run && TERMINAL_STATUSES.includes(run.status) ? run : undefined;
       },
       20_000,
@@ -105,15 +109,18 @@ describeIfDb('post-claim cancellation settlement', () => {
     // recorded `run.started`, and before `model.requested` can exist. Cancel
     // from inside it, so the cancellation provably lands in that window.
     const spy = vi.spyOn(personalization, 'resolvePromptUser');
+
     let cancellation:
       | Awaited<ReturnType<typeof requestCancellation>>
       | undefined;
+
     const seed = await seedAndDispatchRun(harness, { userId, modelId });
     spy.mockImplementation(async (ownerUserId) => {
       // Restored first, so preparation continues through the real resolver and
       // a second attempt would not cancel itself.
       spy.mockRestore();
       cancellation = await requestCancellation(seed.runId);
+
       return personalization.resolvePromptUser(ownerUserId);
     });
 
@@ -121,6 +128,7 @@ describeIfDb('post-claim cancellation settlement', () => {
       seed.runId,
       'the preparing Run to settle after the cancellation',
     );
+
     expect(settled.status).toBe('cancelled');
     expect(cancellation?.requested).toBeDefined();
 
@@ -156,6 +164,7 @@ describeIfDb('post-claim cancellation settlement', () => {
       seed.runId,
       'the in-flight Run to settle after the cancellation',
     );
+
     expect(settled.status).toBe('cancelled');
 
     // The turn the abort persists carries the output observed before it —
@@ -164,11 +173,13 @@ describeIfDb('post-claim cancellation settlement', () => {
     const assistants = await waitFor(
       async () => {
         const messages = await assistantMessages(seed.chatId);
+
         return messages.length > 0 ? messages : undefined;
       },
       20_000,
       'the aborted assistant turn to be readable',
     );
+
     expect(assistants).toHaveLength(1);
     expect(assistants[0].parts).toEqual([]);
     expect(isRecord(assistants[0].usage) && assistants[0].usage.status).toBe(

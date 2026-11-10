@@ -27,6 +27,7 @@ const UNSAFE_VALUE = /[@\s\p{Cc}]/u;
 function isLocalPath(value: string): boolean {
   const colon = value.indexOf(':');
   const slash = value.indexOf('/');
+
   return colon === -1 || (slash !== -1 && slash < colon);
 }
 
@@ -42,20 +43,27 @@ function remoteValue(url: string): string {
   const trimmed = url.trim();
   const helper = HELPER_FORM.exec(trimmed);
   const address = helper === null ? trimmed : helper[1].trim();
+
   if (helper !== null && !SCHEME.test(address) && !SCP_ADDRESS.test(address)) {
     return LOCAL_REMOTE;
   }
+
   if (DRIVE_PATH.test(address) || isLocalPath(address)) return LOCAL_REMOTE;
   const withoutTail = address.split(/[?#]/u, 1)[0];
   const scheme = SCHEME.exec(withoutTail);
+
   if (scheme?.[0].toLowerCase() === 'file://') return LOCAL_REMOTE;
+
   const afterScheme =
     scheme === null ? withoutTail : withoutTail.slice(scheme[0].length);
+
   const credentialFree =
     scheme === null
       ? withoutTail
       : `${scheme[0]}${afterScheme.slice(afterScheme.lastIndexOf('@') + 1)}`;
+
   const normalized = normalizeRemote(credentialFree);
+
   const hostless =
     normalized.startsWith('/') ||
     normalized.startsWith('.') ||
@@ -63,6 +71,7 @@ function remoteValue(url: string): string {
     normalized.includes('\\') ||
     !normalized.includes('/') ||
     UNSAFE_VALUE.test(normalized);
+
   return hostless ? LOCAL_REMOTE : cut(normalized, NAME_LIMIT);
 }
 
@@ -75,8 +84,10 @@ const ABSOLUTE_TIME = /(?:Z|[+-]\d{2}:?\d{2})$/u;
 function canonicalTime(value: string | null): string | null {
   if (value === null || !ABSOLUTE_TIME.test(value)) return null;
   const time = new Date(value).getTime();
+
   if (Number.isNaN(time)) return null;
   const iso = new Date(time).toISOString();
+
   return /^\d{4}-/u.test(iso) ? iso : null;
 }
 
@@ -84,21 +95,26 @@ function canonicalTime(value: string | null): string | null {
 function boundLists(state: GitStateSuccess) {
   const valid = state.entries.filter((entry) => STATUS_CODE.test(entry.xy));
   const entries = valid.slice(0, MAX_LISTED);
+
   const listable = state.submodules.filter(
     (path) => path.length <= MAX_PATH_LENGTH,
   );
+
   const submodules = listable.slice(0, MAX_LISTED - entries.length);
+
   const dropped =
     state.entries.length -
     entries.length +
     state.submodules.length -
     submodules.length;
+
   return { entries, submodules, dropped };
 }
 
 /** The state result as the view: bounded, normalized, no raw URL. */
 export function normalizeGitState(state: GitStateSuccess): GitStateView {
   const { entries, submodules, dropped } = boundLists(state);
+
   return {
     toplevel: state.toplevel,
     rootRelative: state.rootRelative,

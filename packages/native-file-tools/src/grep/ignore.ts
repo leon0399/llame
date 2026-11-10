@@ -14,7 +14,9 @@ export interface CompiledIgnoreRule {
 /** One rule line, or undefined for a blank line or a comment. */
 function ruleLine(line: string): string | undefined {
   const text = line.endsWith("\r") ? line.slice(0, -1) : line;
+
   if (text.length === 0 || text.startsWith("#")) return undefined;
+
   return text;
 }
 
@@ -41,23 +43,30 @@ export interface CompiledIgnoreLayer {
  */
 export function compileIgnoreRules(text: string): CompiledIgnoreLayer {
   const rules: Array<CompiledIgnoreRule> = [];
+
   for (const line of text.split("\n")) {
     const rule = ruleLine(line);
+
     if (rule === undefined) continue;
     const negated = rule.startsWith("!");
+
     const manager = ignore({ ignorecase: false }).add(
       negated ? rule : `!${rule}`,
     );
+
     rules.push({
       ignored: !negated,
       match: (pathname) => manager.test(pathname).unignored,
     });
   }
+
   const gate = ignore({ ignorecase: false }).add(text);
+
   return {
     rules,
     matchesAny: (pathname) => {
       const verdict = gate.test(pathname);
+
       return verdict.ignored || verdict.unignored;
     },
   };
@@ -74,8 +83,10 @@ export function decideIgnoreLayer(
 ): boolean | undefined {
   if (!layer.matchesAny(pathname)) return undefined;
   let verdict: boolean | undefined;
+
   for (const rule of layer.rules) {
     if (rule.match(pathname)) verdict = rule.ignored;
   }
+
   return verdict;
 }

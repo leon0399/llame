@@ -35,6 +35,7 @@ export const TITLE_SYSTEM_PROMPT = renderTitleSystemTemplate({});
 
 /** Tool identity from the pre-cutover generator's generate_title tool. */
 export const TITLE_SCHEMA_NAME = 'generate_title';
+
 export const TITLE_SCHEMA_DESCRIPTION =
   'Generate a concise title for the conversation';
 

@@ -14,13 +14,16 @@ import { ChatsService } from './chats.service';
 describe('ChatsService.searchChats', () => {
   it('maps internal ranked candidates to the public web result shape', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     });
+
     vi.spyOn(tenantDb, 'runAs').mockImplementation(
       async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
     );
+
     const internalRows = [
       {
         id: 'chat-1',
@@ -30,9 +33,11 @@ describe('ChatsService.searchChats', () => {
         bestDocumentId: 'document-1',
       },
     ];
+
     vi.spyOn(ChatsRepository.prototype, 'searchByOwner').mockResolvedValue(
       internalRows,
     );
+
     const service = new ChatsService(
       tenantDb,
       noopReindexDispatch(),
@@ -55,6 +60,7 @@ describe('ChatsService.searchChats', () => {
 
 describe('ChatsService.getChatMessages targetSeq', () => {
   const ownerUserId = 'owner-1';
+
   const chat: Chat = {
     id: 'chat-1',
     ownerUserId,
@@ -117,6 +123,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     });
+
     vi.spyOn(tenantDb, 'runAs').mockImplementation(
       async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
@@ -124,6 +131,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     vi.spyOn(RunsRepository.prototype, 'findLatestByChatId').mockResolvedValue(
       undefined,
     );
+
     return new ChatsService(
       tenantDb,
       noopReindexDispatch(),
@@ -138,12 +146,15 @@ describe('ChatsService.getChatMessages targetSeq', () => {
 
   it('uses one target-bounded history query and returns a chronological window ending at the target', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const findById = vi
       .spyOn(ChatsRepository.prototype, 'findById')
       .mockResolvedValue(chat);
+
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([message(20), message(30)]);
+
     const countAbsorbedMessages = vi.spyOn(
       MessagesRepository.prototype,
       'countAbsorbedMessages',
@@ -170,6 +181,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
   it('returns the closed missing-chat result when the bounded window does not end at the target', async () => {
     const db: Db = drizzle.mock({ schema });
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([message(20)]);
@@ -191,9 +203,11 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     const db: Db = drizzle.mock({ schema });
     const secondCheckpoint = checkpoint(6, 5);
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([message(5), secondCheckpoint]);
+
     const countAbsorbedMessages = vi
       .spyOn(MessagesRepository.prototype, 'countAbsorbedMessages')
       .mockResolvedValue(new Map([[secondCheckpoint.id, 2]]));
@@ -217,6 +231,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
 
 describe('ChatsService message windows, updates and forks', () => {
   const ownerUserId = 'owner-1';
+
   const chat: Chat = {
     id: 'chat-1',
     ownerUserId,
@@ -262,21 +277,25 @@ describe('ChatsService message windows, updates and forks', () => {
 
   function makeService() {
     const db: Db = drizzle.mock({ schema });
+
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     });
+
     const runAs = vi
       .spyOn(tenantDb, 'runAs')
       .mockImplementation(
         async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
           callback(db),
       );
+
     vi.spyOn(tenantDb, 'runAsPublic').mockImplementation(
       async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     );
     vi.spyOn(RunsRepository.prototype, 'findLatestByChatId').mockResolvedValue(
       undefined,
     );
+
     return {
       service: new ChatsService(
         tenantDb,
@@ -313,6 +332,7 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
         undefined,
       );
+
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([]);
@@ -327,6 +347,7 @@ describe('ChatsService message windows, updates and forks', () => {
 
     it('translates the exclusive beforeSeq cursor into an inclusive maxSeq one below it', async () => {
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([message(7), message(8)]);
@@ -349,6 +370,7 @@ describe('ChatsService message windows, updates and forks', () => {
 
     it('leaves the window unbounded when no cursor is supplied', async () => {
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([message(1)]);
@@ -396,6 +418,7 @@ describe('ChatsService message windows, updates and forks', () => {
       const rejected = makeService().service.updateChat(chat.id, ownerUserId, {
         projectId: 'missing-project',
       });
+
       await expect(rejected).rejects.toBeInstanceOf(NotFoundException);
       await expect(rejected).rejects.toThrow('Project not found');
     });
@@ -408,6 +431,7 @@ describe('ChatsService message windows, updates and forks', () => {
       const rejected = makeService().service.updateChat(chat.id, ownerUserId, {
         projectId: 'someone-elses-project',
       });
+
       await expect(rejected).rejects.toBeInstanceOf(NotFoundException);
       await expect(rejected).rejects.toThrow('Project not found');
     });
@@ -416,6 +440,7 @@ describe('ChatsService message windows, updates and forks', () => {
       const guard = Object.assign(new BadRequestException('Chat is archived'), {
         code: '23503',
       });
+
       vi.spyOn(ChatsRepository.prototype, 'update').mockRejectedValue(guard);
 
       await expect(
@@ -455,6 +480,7 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
         chat,
       );
+
       const listPublic = vi
         .spyOn(MessagesRepository.prototype, 'listPublicByChatId')
         .mockResolvedValue([message(4)]);
@@ -476,6 +502,7 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
         chat,
       );
+
       const listPublic = vi
         .spyOn(MessagesRepository.prototype, 'listPublicByChatId')
         .mockResolvedValue([]);
@@ -492,6 +519,7 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
         undefined,
       );
+
       const listPublic = vi.spyOn(
         MessagesRepository.prototype,
         'listPublicByChatId',
@@ -524,24 +552,30 @@ describe('ChatsService message windows, updates and forks', () => {
 
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {
       const first = message(5);
+
       const second = message(6, {
         role: 'assistant',
         senderUserId: null,
         inReplyTo: first.id,
         usage: { status: 'completed', totalTokens: 12 },
       });
+
       const created: Chat = {
         ...chat,
         id: 'chat-fork',
         title: 'Source (fork)',
       };
+
       const create = vi
         .spyOn(ChatsRepository.prototype, 'create')
         .mockResolvedValue(created);
+
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
       const findForkSource = vi
         .spyOn(MessagesRepository.prototype, 'findForkSource')
         .mockResolvedValue([first, second]);
+
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
         .mockResolvedValue(undefined);
@@ -579,9 +613,11 @@ describe('ChatsService message windows, updates and forks', () => {
 
     it('leaves an untitled source untitled instead of forking an empty title', async () => {
       const untitled: Chat = { ...chat, title: null };
+
       const create = vi
         .spyOn(ChatsRepository.prototype, 'create')
         .mockResolvedValue({ ...untitled, id: 'chat-fork' });
+
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
         untitled,
       );
@@ -608,12 +644,15 @@ describe('ChatsService message windows, updates and forks', () => {
         ...chat,
         id: 'chat-fork',
       });
+
       const findById = vi
         .spyOn(MessagesRepository.prototype, 'findById')
         .mockResolvedValue(anchor);
+
       const findForkSource = vi
         .spyOn(MessagesRepository.prototype, 'findForkSource')
         .mockResolvedValue([anchor]);
+
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
@@ -673,6 +712,7 @@ describe('ChatsService message windows, updates and forks', () => {
         ownerUserId,
         'foreign-message',
       );
+
       await expect(rejected).rejects.toBeInstanceOf(NotFoundException);
       await expect(rejected).rejects.toThrow(
         'Fork-point message not found in this chat',
@@ -686,11 +726,13 @@ describe('ChatsService message windows, updates and forks', () => {
       const userTurn = message(1, {
         attachments: [{ type: 'file', url: 'https://example.test/a.png' }],
       });
+
       const assistantTurn = message(2, {
         role: 'assistant',
         senderUserId: null,
         inReplyTo: userTurn.id,
       });
+
       vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
         chat,
       );
@@ -702,6 +744,7 @@ describe('ChatsService message windows, updates and forks', () => {
         ...chat,
         id: 'chat-fork',
       });
+
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
         .mockResolvedValue(undefined);
@@ -720,20 +763,25 @@ describe('ChatsService message windows, updates and forks', () => {
         mediaType: 'image/png',
         url: `media://01920000-0000-7000-8000-00000000000${id}`,
       });
+
       const u1 = message(1, {
         parts: [{ type: 'text', text: 'see this' }, file('a')],
       });
+
       const a1 = message(2, {
         role: 'assistant',
         senderUserId: null,
         inReplyTo: u1.id,
       });
+
       const u2 = message(3, { parts: [file('b')] });
+
       const a2 = message(4, {
         role: 'assistant',
         senderUserId: null,
         inReplyTo: u2.id,
       });
+
       vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
         chat,
       );
@@ -745,6 +793,7 @@ describe('ChatsService message windows, updates and forks', () => {
         ...chat,
         id: 'chat-fork',
       });
+
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
         .mockResolvedValue(undefined);
@@ -752,11 +801,13 @@ describe('ChatsService message windows, updates and forks', () => {
       await makeService().service.forkSharedChat(chat.id, 'visitor-9');
 
       const copied = createMany.mock.calls[0][0];
+
       const projected = copied.map(({ seq, role, parts }) => ({
         seq,
         role,
         parts,
       }));
+
       expect(projected).toEqual([
         { seq: 1, role: 'user', parts: [{ type: 'text', text: 'see this' }] },
         { seq: 2, role: 'assistant', parts: a1.parts },
@@ -769,6 +820,7 @@ describe('ChatsService message windows, updates and forks', () => {
 
     it('skips only user rows whose projection emptied of file parts', async () => {
       const u1 = message(1, { parts: [{ type: 'data-context', data: {} }] });
+
       const a1 = message(2, {
         role: 'assistant',
         senderUserId: null,
@@ -780,6 +832,7 @@ describe('ChatsService message windows, updates and forks', () => {
           },
         ],
       });
+
       vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
         chat,
       );
@@ -791,6 +844,7 @@ describe('ChatsService message windows, updates and forks', () => {
         ...chat,
         id: 'chat-fork',
       });
+
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
         .mockResolvedValue(undefined);
@@ -850,9 +904,11 @@ describe('ChatsService message windows, updates and forks', () => {
         RunsRepository.prototype,
         'findActiveByChatId',
       ).mockResolvedValue(activeRun);
+
       const requestCancel = vi
         .spyOn(RunsRepository.prototype, 'requestCancel')
         .mockResolvedValue(activeRun);
+
       vi.spyOn(ChatsRepository.prototype, 'deleteById').mockResolvedValue(true);
       const { service } = makeService();
 

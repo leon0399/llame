@@ -83,6 +83,7 @@ export class KnowledgeSpaceRepository {
         asc(knowledgeSpaces.knowledgeSpaceId),
       )
       .limit(1);
+
     return row;
   }
 
@@ -100,6 +101,7 @@ export class KnowledgeSpaceRepository {
       // Binding-time reads must serialize with a concurrent revoke/update.
       .for('share')
       .limit(1);
+
     return row;
   }
 
@@ -110,11 +112,13 @@ export class KnowledgeSpaceRepository {
       .where(eq(users.id, ownerUserId))
       .for('update')
       .limit(1);
+
     if (owner === undefined) {
       throw new Error('Knowledge Space owner was not available');
     }
 
     const existing = await this.findForOwner(ownerUserId);
+
     if (existing !== undefined) {
       return existing;
     }
@@ -133,9 +137,11 @@ export class KnowledgeSpaceRepository {
     }
 
     const conflicted = await this.findForOwner(ownerUserId);
+
     if (conflicted === undefined) {
       throw new Error('Knowledge Space owner row was not available');
     }
+
     return conflicted;
   }
 
@@ -153,6 +159,7 @@ export class KnowledgeSpaceRepository {
         ),
       )
       .limit(1);
+
     return row;
   }
 
@@ -166,6 +173,7 @@ export class KnowledgeSpaceRepository {
     after?: KnowledgeSpaceCursor,
   ): Promise<Array<KnowledgeSpace>> {
     const conditions = [eq(knowledgeSpaces.ownerUserId, ownerUserId)];
+
     if (after !== undefined) {
       conditions.push(
         or(
@@ -198,9 +206,11 @@ export class KnowledgeSpaceRepository {
       .insert(knowledgeSpaces)
       .values(input)
       .returning();
+
     if (created === undefined) {
       throw new Error('Knowledge Space was not created');
     }
+
     return created;
   }
 
@@ -219,6 +229,7 @@ export class KnowledgeSpaceRepository {
         ),
       )
       .returning();
+
     return updated;
   }
 }

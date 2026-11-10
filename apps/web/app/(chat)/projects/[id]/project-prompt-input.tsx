@@ -28,6 +28,7 @@ export function ProjectPromptInput({
   const composerChatId = `project:${projectId}`;
   const [input, setInput] = React.useState("");
   const attachments = useComposerAttachments();
+
   const creation = useChatCreation({
     projectId,
     composerChatId,
@@ -36,6 +37,7 @@ export function ProjectPromptInput({
     attachments,
     initial,
   });
+
   return (
     // The create supplies the send, its failure, the location, and the
     // model's readiness.

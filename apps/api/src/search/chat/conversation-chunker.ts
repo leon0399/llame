@@ -77,6 +77,7 @@ function extractMessageText(message: ChunkerMessage): string {
 function truncateAnchorExcerpt(text: string): string {
   if (text.length <= CHUNK_ANCHOR_MAX_CHARS) return text;
   const cut = cutTextAtBoundary(text, 0, CHUNK_ANCHOR_MAX_CHARS);
+
   // trimEnd: cutTextAtBoundary includes the boundary whitespace in the head
   // (the splitter needs that to reconstruct losslessly; a presentation-only
   // excerpt doesn't), so drop it before the elision marker.
@@ -106,6 +107,7 @@ function messageToBlocks(
   anchorSource: string | null,
 ): Array<MessageBlock> {
   const prefix = `[${message.role}] `;
+
   return prefix.length + text.length <= CHUNK_MAX_CHARS
     ? [
         {
@@ -145,6 +147,7 @@ function sliceOversizedMessage(
   // lookahead to `budget`, so advancing the cursor keeps total work linear.
   let cursor = 0;
   let isFirst = true;
+
   while (cursor < text.length) {
     const budget = isFirst ? firstMax : continuationMax;
     const cut = cutTextAtBoundary(text, cursor, budget);
@@ -160,6 +163,7 @@ function sliceOversizedMessage(
     cursor = cut;
     isFirst = false;
   }
+
   return blocks;
 }
 
@@ -179,10 +183,12 @@ function buildBlocks(
   for (const message of messages) {
     if (!isImmutableEvidenceMessage(message)) continue;
     const text = extractMessageText(message);
+
     if (text.length === 0) continue;
 
     const anchorSource =
       message.role === 'assistant' ? precedingUserText : null;
+
     blocks.push(...messageToBlocks(message, text, anchorSource));
 
     if (message.role === 'user') precedingUserText = text;
@@ -207,14 +213,18 @@ export function chunkConversation(
 
   return groups.map((group, chunkOrdinal) => {
     const content = group.map((b) => b.content).join('\n\n');
+
     const normalizedContent = normalizeForSearch(
       group.map((b) => b.lexicalContent).join('\n\n'),
     );
+
     const [first] = group;
     const last = group.at(-1);
+
     if (first === undefined || last === undefined) {
       throw new Error('chunkByCharBudget emitted an empty group');
     }
+
     return {
       chunkOrdinal,
       firstMessageId: first.messageId,

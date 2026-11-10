@@ -27,11 +27,14 @@ export async function resolveKnowledgeBindingDirectory(
   validateBinding(binding);
   const root = path.resolve(binding.root);
   const directory = path.resolve(binding.directory);
+
   if (directory !== path.join(root, binding.id)) {
     throw new KnowledgeFilesystemError('knowledge_space_unavailable');
   }
+
   await assertCanonicalDirectory(root, port);
   await assertCanonicalDirectory(directory, port);
+
   return directory;
 }
 
@@ -40,9 +43,11 @@ async function assertCanonicalDirectory(
   port: KnowledgeBindingPort,
 ): Promise<void> {
   const stats = await port.lstat(target);
+
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
     throw new KnowledgeFilesystemError('knowledge_space_unavailable');
   }
+
   if ((await port.realpath(target)) !== target) {
     throw new KnowledgeFilesystemError('knowledge_space_unavailable');
   }

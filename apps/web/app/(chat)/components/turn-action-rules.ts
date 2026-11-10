@@ -38,6 +38,7 @@ export function isSettledToolPart(
   part: UIMessage["parts"][number],
 ): part is SettledToolPart {
   if (!isToolUIPart(part)) return false;
+
   return part.state === "output-available" || part.state === "output-error";
 }
 
@@ -56,17 +57,20 @@ function isActionableStatus(status: ChatStatus): boolean {
 function discardsEffects(part: SettledToolPart): boolean {
   const classification =
     "classification" in part ? part.classification : undefined;
+
   return classification !== "read_only" && classification !== null;
 }
 
 /** The tools a Regenerate would discard, each named once, in stored order. */
 export function discardedCallNames(parts: UIMessage["parts"]): Array<string> {
   const names = new Set<string>();
+
   for (const part of parts) {
     if (isSettledToolPart(part) && discardsEffects(part)) {
       names.add(getToolName(part));
     }
   }
+
   return [...names];
 }
 
@@ -77,8 +81,11 @@ function continuesTurn(
   reply: TurnReply,
 ): boolean {
   if (latestRun.status === "completed") return false;
+
   if (runIdFromMessageMetadata(reply.metadata) !== latestRun.id) return false;
+
   if (parseTurnUsage(reply.metadata)?.status === "completed") return false;
+
   return reply.parts.some(isSettledToolPart);
 }
 
@@ -94,8 +101,11 @@ export function turnActionVisibility(input: {
   status: ChatStatus;
 }): TurnActionVisibility | null {
   const { latestRun, reply, status } = input;
+
   if (!isActionableStatus(status)) return null;
+
   if (latestRun === null || !isTerminalRunStatus(latestRun.status)) return null;
+
   return {
     continueTurn: reply !== null && continuesTurn(latestRun, reply),
   };
@@ -109,10 +119,12 @@ function turnUserIndex(
 ): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+
     if (message?.role === "user" && message.id === latestRun.messageId) {
       return index;
     }
   }
+
   return -1;
 }
 
@@ -128,13 +140,19 @@ export function carriesTurnActions(input: {
   status: ChatStatus;
 }): boolean {
   const { messages, latestRun, status } = input;
+
   if (!isActionableStatus(status)) return false;
+
   if (latestRun === null || !isTerminalRunStatus(latestRun.status)) {
     return false;
   }
+
   const reply = messages.at(-1);
+
   if (reply === undefined || reply.role !== "assistant") return false;
+
   if (!hasVisibleContent(reply.parts)) return false;
+
   return turnUserIndex(messages, latestRun) === messages.length - 2;
 }
 
@@ -152,12 +170,17 @@ export function needsFailedTurnRow(input: {
   status: ChatStatus;
 }): boolean {
   const { messages, latestRun, status } = input;
+
   if (!isActionableStatus(status)) return false;
+
   if (latestRun === null || !isTerminalRunStatus(latestRun.status)) {
     return false;
   }
+
   const userIndex = turnUserIndex(messages, latestRun);
+
   if (userIndex === -1) return false;
+
   return messages
     .slice(userIndex + 1)
     .every(
@@ -181,13 +204,18 @@ export function hiddenFollowUpReplyIndex(
   latestRun: ChatLatestRunResponse | null,
 ): number | null {
   if (latestRun === null || latestRun.followUpAction === null) return null;
+
   if (isTerminalRunStatus(latestRun.status)) return null;
   const userIndex = turnUserIndex(messages, latestRun);
+
   if (userIndex === -1) return null;
   const replyIndex = userIndex + 1;
   const reply = messages[replyIndex];
+
   if (reply === undefined || reply.role !== "assistant") return null;
+
   if (messageSeqFromMetadata(reply.metadata) === null) return null;
+
   return runIdFromMessageMetadata(reply.metadata) === latestRun.id
     ? null
     : replyIndex;

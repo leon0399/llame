@@ -36,11 +36,14 @@ function schemaOnlyTools(
   declarations: ReadonlyArray<ModelToolDeclaration>,
 ): ToolSet | null {
   const entries: Array<[string, ToolSet[string]]> = [];
+
   for (const declaration of declarations) {
     const inputSchema = toFlexibleSchema(declaration.inputSchema);
+
     if (inputSchema === null) {
       return null;
     }
+
     entries.push([
       declaration.id,
       tool({
@@ -49,6 +52,7 @@ function schemaOnlyTools(
       }),
     ]);
   }
+
   return Object.fromEntries(entries);
 }
 
@@ -69,6 +73,7 @@ export function toStoredMessages(
           `Malformed message part in message ${message.id}: expected an object`,
         );
       }
+
       return part;
     }),
   }));
@@ -175,6 +180,7 @@ export class CompactionService {
     input: CompactionSummaryRequest,
   ): Promise<CompactionSummary | null> {
     input.abortSignal?.throwIfAborted();
+
     const checkpoint = await this.tenantDb.runAs(input.userId, (tx) =>
       new MessagesRepository(tx).findActiveCheckpoint(
         input.chatId,
@@ -182,7 +188,9 @@ export class CompactionService {
         { beforeSeq: input.triggeringUserSeq },
       ),
     );
+
     const previous = checkpoint && toContextCheckpoint(checkpoint);
+
     return input.variant === 'window'
       ? this.summarizeWithSourceModel(input, previous)
       : this.summarizeWithAttemptModel(input, previous);
@@ -203,12 +211,15 @@ export class CompactionService {
       previous,
       absorb: input.plan.absorb,
     });
+
     // The prefix's retained bytes live in its rows: the summarizer projects
     // them from this attempt's map like any request of the epoch.
     if (input.media !== undefined) {
       mergeRetainedMedia(input.media.retainedMedia, request.retainedMedia);
     }
+
     let inference: SummaryInference;
+
     try {
       inference = await this.summarize({
         client: input.client,
@@ -225,17 +236,22 @@ export class CompactionService {
       if (input.abortSignal?.aborted) {
         throw error;
       }
+
       this.logger.warn(
         `Compaction summary failed for chat ${input.chatId}; proceeding without a checkpoint`,
       );
+
       return null;
     }
+
     if (inference.summary === null) {
       this.logger.warn(
         `Compaction summary came back empty for chat ${input.chatId}; proceeding without a checkpoint`,
       );
+
       return null;
     }
+
     return this.toCheckpoint({
       client: input.client,
       effort: input.effort,
@@ -266,7 +282,9 @@ export class CompactionService {
         input.userId,
         { beforeSeq: input.triggeringUserSeq },
       );
+
       const run = found?.run;
+
       return run === undefined || run.completedAttemptId == null
         ? undefined
         : {
@@ -278,17 +296,20 @@ export class CompactionService {
             ),
           };
     });
+
     if (source?.receipt === undefined) {
       throw new ContextIncompatibleError(
         'The complete request exceeds the target model context window and no previous completed run can summarize its history.',
       );
     }
+
     // Read off the source run this method loaded, so passing the incoming
     // turn's effort by mistake is not expressible: it was validated against a
     // different model's declared levels.
     const effort = source.run.effort ?? undefined;
 
     let client: ModelClient;
+
     try {
       client = this.models.createClient(source.run.modelId);
     } catch (error) {
@@ -304,9 +325,11 @@ export class CompactionService {
       previous,
       absorb: input.plan.absorb,
     });
+
     if (input.media !== undefined) {
       mergeRetainedMedia(input.media.retainedMedia, request.retainedMedia);
     }
+
     if (
       !requestFitsContextWindow({
         system: request.system,
@@ -329,6 +352,7 @@ export class CompactionService {
     }
 
     let inference: SummaryInference;
+
     try {
       inference = await this.summarize({
         client,
@@ -345,16 +369,19 @@ export class CompactionService {
       if (input.abortSignal?.aborted) {
         throw error;
       }
+
       throw new ContextIncompatibleError(
         'Source-model summarization of the history this request carries failed.',
         { cause: error },
       );
     }
+
     if (inference.summary === null) {
       throw new ContextIncompatibleError(
         'Source-model summarization returned no valid text summary.',
       );
     }
+
     return this.toCheckpoint({
       client,
       effort,
@@ -413,6 +440,7 @@ export class CompactionService {
   }): Promise<SummaryInference> {
     const tools = schemaOnlyTools(input.toolDeclarations);
     const startedAt = Date.now();
+
     if (tools === null) {
       return {
         summary: null,
@@ -421,6 +449,7 @@ export class CompactionService {
         latencyMs: Date.now() - startedAt,
       };
     }
+
     const result = input.client.streamText({
       system: input.system,
       messages: input.messages,
@@ -432,18 +461,21 @@ export class CompactionService {
       ...(input.toolDeclarations.length > 0 && { tools }),
       toolChoice: 'none',
     });
+
     const [text, toolCalls, usage, finishReason] = await Promise.all([
       Promise.resolve(result.text),
       Promise.resolve(result.toolCalls).catch(() => []),
       Promise.resolve(result.usage).catch(() => null),
       Promise.resolve(result.finishReason).catch(() => null),
     ]);
+
     // A provider that returns a tool call despite `toolChoice: 'none'` has no
     // executor here, so its output is rejected rather than persisted: a
     // checkpoint may be summary text and nothing else.
     const providerReturnedToolCall =
       (Array.isArray(toolCalls) && toolCalls.length > 0) ||
       finishReason === 'tool-calls';
+
     return {
       summary: providerReturnedToolCall
         ? null

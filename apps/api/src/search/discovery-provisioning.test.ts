@@ -12,6 +12,7 @@ import {
 } from './discovery-provisioning';
 
 type ProvisioningRow = { bypass: boolean };
+
 type ProvisioningTx = { execute: () => Promise<Array<ProvisioningRow>> };
 
 function fakeTenantDb(rows: Array<ProvisioningRow>) {

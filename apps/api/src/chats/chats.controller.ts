@@ -175,16 +175,20 @@ export class ChatsController {
     // run lookup is in flight fires 'close' before any listener would exist,
     // and the bridge would then stream to a destroyed response until its cap.
     const abort = requestAbortSignal(response);
+
     try {
       const { run, afterSequence } = await this.findActiveRunSegment(
         userId,
         id,
       );
+
       if (abort.signal.aborted) {
         return; // client is gone — nothing to write to
       }
+
       if (!run) {
         response.status(204).end();
+
         return;
       }
 
@@ -194,6 +198,7 @@ export class ChatsController {
         afterSequence,
         abortSignal: abort.signal,
       });
+
       await writeWebResponse(streamResponse, response, abort.signal);
     } finally {
       abort.cleanup();
@@ -211,9 +216,11 @@ export class ChatsController {
         chatId,
         userId,
       );
+
       const afterSequence = run
         ? await latestDeliverySequence(tx, run.id, userId)
         : 0;
+
       return { run, afterSequence };
     });
   }
@@ -232,6 +239,7 @@ export class ChatsController {
       archived: query.archived,
       pinned: query.pinned,
     });
+
     return chats.map(({ chat, lastMessage }) =>
       toChatListItemResponse(chat, lastMessage),
     );
@@ -254,6 +262,7 @@ export class ChatsController {
       query.q,
       query.limit,
     );
+
     return { results };
   }
 
@@ -269,6 +278,7 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ChatResponse> {
     const chat = await this.chatsService.getChatById(id, userId);
+
     if (!chat) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
@@ -297,6 +307,7 @@ export class ChatsController {
       beforeSeq: query.beforeSeq,
       targetSeq: query.targetSeq,
     });
+
     if (!view) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
@@ -379,6 +390,7 @@ export class ChatsController {
         message: input.message,
         abortSignal: abort.signal,
       };
+
       const result =
         input.delivery === undefined
           ? await this.chatLoopService.createMessageStream(send)
@@ -391,8 +403,10 @@ export class ChatsController {
         response.status(202);
         response.setHeader('Content-Type', 'application/json; charset=utf-8');
         response.end(JSON.stringify(toChatDeliveryResponse(result.delivery)));
+
         return;
       }
+
       await this.answerWithRunStream(response, abort.signal, result);
     } catch (error) {
       throwModelDomainError(error);
@@ -462,6 +476,7 @@ export class ChatsController {
     @Res() response: ChatStreamResponse,
   ): Promise<void> {
     const abort = requestAbortSignal(response);
+
     try {
       const accepted = await this.followUpAdmission.admitFollowUpRun({
         chatId,
@@ -471,10 +486,12 @@ export class ChatsController {
         // declared class, so the empty request is what admission judges.
         request: input ?? {},
       });
+
       const result = await this.chatLoopService.finalizeAcceptedRun({
         ...accepted,
         abortSignal: abort.signal,
       });
+
       await this.answerWithRunStream(response, abort.signal, result);
     } catch (error) {
       throwModelDomainError(error);
@@ -499,9 +516,11 @@ export class ChatsController {
           'Model stream failed',
           error instanceof Error ? error.stack : String(error),
         );
+
         return 'An error occurred.';
       },
     });
+
     await writeWebResponse(streamResponse, response, abortSignal);
   }
 
@@ -525,6 +544,7 @@ export class ChatsController {
     @Body() input: UpdateChatDto,
   ): Promise<ChatResponse> {
     const chat = await this.chatsService.updateChat(id, userId, input);
+
     if (!chat) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
@@ -547,6 +567,7 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     const deleted = await this.chatsService.deleteChat(userId, id);
+
     if (!deleted) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
@@ -581,6 +602,7 @@ export class ChatsController {
       userId,
       input.fromMessageId,
     );
+
     return toChatResponse(forked);
   }
 }

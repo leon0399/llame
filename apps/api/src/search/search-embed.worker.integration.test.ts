@@ -68,7 +68,9 @@ import { SearchIndexService } from './search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const text = (t: string) => [{ type: 'text', text: t }];
 const MODEL_KEY = 'embed-model-a';
 
@@ -103,6 +105,7 @@ class SearchPathTenantDb extends TenantDbService {
         await tx.execute(
           sql.raw(`SET LOCAL search_path TO ${this.searchPath}`),
         );
+
         return fn(tx);
       },
       config,
@@ -136,6 +139,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
       await chats.createIfAbsent({ id, ownerUserId: owner, title });
+
       for (const m of msgs) {
         await messages.create({
           chatId: id,
@@ -145,6 +149,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         });
       }
     });
+
     return id;
   }
 
@@ -157,7 +162,9 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
   }) {
     const enqueueChatEmbed =
       overrides?.enqueueChatEmbed ?? vi.fn().mockResolvedValue(undefined);
+
     const workerTenantDb = overrides?.tenantDb ?? tenantDb;
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         SearchEmbedWorker,
@@ -192,7 +199,9 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         },
       ],
     }).compile();
+
     openModules.push(moduleRef);
+
     return {
       worker: moduleRef.get(SearchEmbedWorker),
       enqueueChatEmbed,
@@ -231,6 +240,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         embedding_fail_reason: z.string().nullable(),
       }),
     );
+
     return row;
   }
 
@@ -239,6 +249,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       sql`SELECT id FROM search_chat_documents WHERE chat_id = ${chatId} ORDER BY chunk_ordinal LIMIT 1`,
       z.object({ id: z.string() }),
     );
+
     return id;
   }
 
@@ -271,10 +282,12 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Basic embed', [
       { role: 'user', text: 'find this with a vector one day' },
     ]);
+
     await indexService.reindexChat(id, u);
     const docId = await firstDocId(id);
 
     const { worker } = await buildWorker();
+
     const backend = fakeBackend((documents) =>
       Promise.resolve(
         documents.map((d) => ({
@@ -284,6 +297,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
+
     await worker.embedChat(id, u, MODEL, backend);
 
     const row = await embeddingRow(docId);
@@ -311,6 +325,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('First batch short-changed', [
       { role: 'user', text: 'this one is never embedded' },
     ]);
+
     await indexService.reindexChat(id, u);
 
     const { worker } = await buildWorker();
@@ -335,11 +350,13 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
+
     await worker.embedChat(id, u, freshModel, goodBackend);
 
     const other = await seed('Later short batch', [
       { role: 'user', text: 'a second chat, embedded later' },
     ]);
+
     await indexService.reindexChat(other, u);
     await expect(
       worker.embedChat(other, u, freshModel, shortBackend),
@@ -349,6 +366,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
   it('writes the binding ledger row on the first persisted vector, and is a no-op thereafter', async () => {
     const modelId = `ledger-model-${crypto.randomUUID()}`;
     const model = { ...MODEL, id: modelId };
+
     const ledgerRow = () =>
       ownedRows(
         sql`SELECT provider_id, provider_model_id, dimensions, distance_metric,
@@ -370,8 +388,10 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Bootstraps the ledger', [
       { role: 'user', text: 'first ever vector for this model key' },
     ]);
+
     await indexService.reindexChat(id, u);
     const { worker } = await buildWorker();
+
     const backend = fakeBackend((documents) =>
       Promise.resolve(
         documents.map((d) => ({
@@ -381,6 +401,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
+
     await worker.embedChat(id, u, model, backend);
 
     const [row] = await ledgerRow();
@@ -400,6 +421,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const secondId = await seed('Second document, same model', [
       { role: 'user', text: 'a second document embedded under the same key' },
     ]);
+
     await indexService.reindexChat(secondId, u);
     await worker.embedChat(secondId, u, model, backend);
     expect(await ledgerRow()).toHaveLength(1);
@@ -416,6 +438,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('No feedback loop', [
       { role: 'user', text: 'must not retrigger the lexical sweep' },
     ]);
+
     await indexService.reindexChat(id, u);
 
     const snapshot = () =>
@@ -431,6 +454,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
           state_updated_at: z.string(),
         }),
       );
+
     const [before] = await snapshot();
 
     // Give the clock room to move so an accidental `now()` write would be
@@ -438,6 +462,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     await new Promise((r) => setTimeout(r, 25));
 
     const { worker } = await buildWorker();
+
     const backend = fakeBackend((documents) =>
       Promise.resolve(
         documents.map((d) => ({
@@ -447,6 +472,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
+
     await worker.embedChat(id, u, MODEL, backend);
 
     const [after] = await snapshot();
@@ -465,14 +491,17 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Terminal failure', [
       { role: 'user', text: 'this one will fail terminally' },
     ]);
+
     await indexService.reindexChat(id, u);
     const docId = await firstDocId(id);
 
     const { worker } = await buildWorker();
+
     const terminalError = new EmbeddingBackendError(
       'embedding provider request failed (HTTP 401)',
       true,
     );
+
     const failingBackend = fakeBackend(() => Promise.reject(terminalError));
     await worker.embedChat(id, u, MODEL, failingBackend);
 
@@ -486,10 +515,13 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     // Not re-attempted: a second pass at the SAME content must not call the
     // backend again for this document.
     const secondCallDocumentIds: Array<string> = [];
+
     const trackingBackend = fakeBackend((documents) => {
       secondCallDocumentIds.push(...documents.map((d) => d.documentId));
+
       return Promise.resolve([]);
     });
+
     await worker.embedChat(id, u, MODEL, trackingBackend);
     expect(secondCallDocumentIds).not.toContain(docId);
   });
@@ -498,14 +530,17 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Transient failure', [
       { role: 'user', text: 'this one fails transiently' },
     ]);
+
     await indexService.reindexChat(id, u);
     const docId = await firstDocId(id);
 
     const { worker } = await buildWorker();
+
     const transientError = new EmbeddingBackendError(
       'embedding provider request failed (HTTP 429)',
       false,
     );
+
     const backend = fakeBackend(() => Promise.reject(transientError));
     await expect(worker.embedChat(id, u, MODEL, backend)).rejects.toThrow(
       transientError,
@@ -529,6 +564,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Systematic dimension mismatch', [
       { role: 'user', text: 'this model is misconfigured for its provider' },
     ]);
+
     await indexService.reindexChat(id, u);
     const docId = await firstDocId(id);
 
@@ -543,6 +579,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
           warnings: [],
         }),
     });
+
     const realBackend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       {
@@ -550,6 +587,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
           const provider: OpenAIEmbeddingProvider = {
             textEmbeddingModel: () => wrongWidthModel,
           };
+
           return provider;
         },
       },
@@ -580,6 +618,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       sql`SELECT chat_id FROM llame_search_embedding_coverage(${MODEL_KEY}, ${EMBED_INPUT_VERSION}, 1000) WHERE chat_id = ${id}`,
       z.object({ chat_id: z.string() }),
     );
+
     expect(coverageRow).toEqual([]);
 
     const classification = await ownedRows(
@@ -593,6 +632,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         FROM search_chat_documents WHERE id = ${docId}`,
       z.object({ needs_embedding: z.boolean(), has_failure: z.boolean() }),
     );
+
     expect(classification).toEqual([
       { needs_embedding: false, has_failure: true },
     ]);
@@ -605,13 +645,17 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       sql`SELECT chat_id FROM llame_search_embedding_backlog(1000) WHERE chat_id = ${id}`,
       z.object({ chat_id: z.string() }),
     );
+
     expect(backlog).toEqual([]);
 
     const secondPassDocumentIds: Array<string> = [];
+
     const trackingBackend = fakeBackend((documents) => {
       secondPassDocumentIds.push(...documents.map((d) => d.documentId));
+
       return Promise.resolve([]);
     });
+
     await worker.embedChat(id, u, MODEL, trackingBackend);
     expect(secondPassDocumentIds).not.toContain(docId);
   });
@@ -622,14 +666,17 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Edited mid-flight', [
       { role: 'user', text: 'original phrasing before the race' },
     ]);
+
     await indexService.reindexChat(id, u);
     const docId = await firstDocId(id);
+
     const [{ id: msgId }] = await ownedRows(
       sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
       z.object({ id: z.string() }),
     );
 
     const { worker } = await buildWorker();
+
     const backend = fakeBackend(async (documents) => {
       // Simulate a concurrent turn landing while the provider call for THIS
       // batch is still in flight.
@@ -639,12 +686,14 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         ),
       );
       await indexService.reindexChat(id, u);
+
       return documents.map((d) => ({
         documentId: d.documentId,
         contentHash: d.contentHash, // the STALE hash the batch was read with
         embedding: vector(3),
       }));
     });
+
     await worker.embedChat(id, u, MODEL, backend);
 
     const row = await embeddingRow(docId);
@@ -657,19 +706,23 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Deleted mid-flight', [
       { role: 'user', text: 'will be deleted before the write' },
     ]);
+
     await indexService.reindexChat(id, u);
 
     const { worker } = await buildWorker();
+
     const backend = fakeBackend(async (documents) => {
       await tenantDb.runAs(u, (tx) =>
         tx.execute(sql`DELETE FROM chats WHERE id = ${id}`),
       );
+
       return documents.map((d) => ({
         documentId: d.documentId,
         contentHash: d.contentHash,
         embedding: vector(4),
       }));
     });
+
     await expect(
       worker.embedChat(id, u, MODEL, backend),
     ).resolves.toBeUndefined();
@@ -678,6 +731,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       sql`SELECT count(*)::int AS n FROM search_chat_documents WHERE chat_id = ${id}`,
       z.object({ n: z.number() }),
     );
+
     expect(remaining[0].n).toBe(0);
   });
 
@@ -687,12 +741,15 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Stale input version', [
       { role: 'user', text: 'unchanged content across a version bump' },
     ]);
+
     await indexService.reindexChat(id, u);
     const docId = await firstDocId(id);
+
     const [{ content_hash }] = await ownedRows(
       sql`SELECT content_hash FROM search_chat_documents WHERE id = ${docId}`,
       z.object({ content_hash: z.string() }),
     );
+
     // Simulate a vector already embedded under an OLDER input version, same
     // model key and content hash (no content change).
     await tenantDb.runAs(u, (tx) =>
@@ -706,6 +763,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     );
 
     const { worker } = await buildWorker();
+
     const backend = fakeBackend((documents) =>
       Promise.resolve(
         documents.map((d) => ({
@@ -715,6 +773,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       ),
     );
+
     await worker.embedChat(id, u, MODEL, backend);
 
     const row = await embeddingRow(docId);
@@ -728,6 +787,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
   // batchSize documents per call.
   it('calls the backend with exactly one persist-batch (<= batchSize documents per call)', async () => {
     const batchSize = 2;
+
     const id = await seed(
       'Multiple documents',
       Array.from({ length: 5 }, (_, i) => ({
@@ -740,17 +800,22 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         text: `distinct message number ${i} ${'x'.repeat(3200)}`,
       })),
     );
+
     await indexService.reindexChat(id, u);
+
     const docCount = await ownedRows(
       sql`SELECT count(*)::int AS n FROM search_chat_documents WHERE chat_id = ${id}`,
       z.object({ n: z.number() }),
     );
+
     expect(docCount[0].n).toBeGreaterThan(batchSize);
 
     const { worker } = await buildWorker();
     const callSizes: Array<number> = [];
+
     const backend = fakeBackend((documents) => {
       callSizes.push(documents.length);
+
       return Promise.resolve(
         documents.map((d) => ({
           documentId: d.documentId,
@@ -759,9 +824,11 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         })),
       );
     });
+
     await worker.embedChat(id, u, { ...MODEL, batchSize }, backend);
 
     expect(callSizes.length).toBeGreaterThan(0);
+
     for (const size of callSizes) {
       expect(size).toBeLessThanOrEqual(batchSize);
     }
@@ -771,6 +838,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     const id = await seed('Zero progress', [
       { role: 'user', text: 'the backend will silently reject this vector' },
     ]);
+
     await indexService.reindexChat(id, u);
     const docId = await firstDocId(id);
 
@@ -802,21 +870,27 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       { length: 9000 },
       (_, i) => `word${i % 997}`,
     ).join(' ');
+
     const id = await seed('Oversized for bounding', [
       { role: 'user', text: bigText },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const totalDocs = await ownedRows(
       sql`SELECT count(*)::int AS n FROM search_chat_documents WHERE chat_id = ${id}`,
       z.object({ n: z.number() }),
     );
+
     expect(totalDocs[0].n).toBeGreaterThan(EMBED_MAX_BATCHES_PER_JOB);
 
     let counter = 0;
+
     const backend = fakeBackend((documents) =>
       Promise.resolve(
         documents.map((d) => {
           counter += 1;
+
           return {
             documentId: d.documentId,
             contentHash: d.contentHash,
@@ -828,6 +902,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
 
     const { worker: worker1, enqueueChatEmbed: reenqueue1 } =
       await buildWorker();
+
     await worker1.embedChat(id, u, { ...MODEL, batchSize: 1 }, backend);
     expect(reenqueue1).toHaveBeenCalledTimes(1);
     expect(reenqueue1).toHaveBeenCalledWith(id, u);
@@ -836,6 +911,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       sql`SELECT count(*)::int AS n FROM search_chat_documents WHERE chat_id = ${id} AND embedding IS NOT NULL`,
       z.object({ n: z.number() }),
     );
+
     expect(embeddedAfterFirst[0].n).toBe(EMBED_MAX_BATCHES_PER_JOB);
     expect(embeddedAfterFirst[0].n).toBeLessThan(totalDocs[0].n);
 
@@ -843,6 +919,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     // NOT re-enqueue again.
     const { worker: worker2, enqueueChatEmbed: reenqueue2 } =
       await buildWorker();
+
     await worker2.embedChat(id, u, { ...MODEL, batchSize: 1 }, backend);
     expect(reenqueue2).not.toHaveBeenCalled();
 
@@ -850,6 +927,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       sql`SELECT count(*)::int AS n FROM search_chat_documents WHERE chat_id = ${id} AND embedding IS NOT NULL`,
       z.object({ n: z.number() }),
     );
+
     expect(embeddedAfterSecond[0].n).toBe(totalDocs[0].n);
   });
 
@@ -883,6 +961,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     function recordingBackend(sent: Array<string>, base: number) {
       return fakeBackend((documents) => {
         sent.push(...documents.map((d) => d.documentId));
+
         return Promise.resolve(
           documents.map((d, index) => ({
             documentId: d.documentId,
@@ -899,6 +978,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       const msgs = [
         { role: 'user' as const, text: `${label} ${crypto.randomUUID()}` },
       ];
+
       const source = await seed(`${label} source`, msgs);
       await indexService.reindexChat(source, u);
       const { worker } = await buildWorker();
@@ -908,17 +988,20 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       const [sourceDoc] = await documentsOf(u, source);
       const [duplicateDoc] = await documentsOf(u, duplicate);
       expect(duplicateDoc.content).toBe(sourceDoc.content);
+
       return { worker, source, duplicate, duplicateDoc };
     }
 
     it('a fork takes its source vectors with no provider call, each stamped with its own content hash', async () => {
       const token = crypto.randomUUID();
+
       const source = await seed('Fork source', [
         { role: 'user', text: `fork ${token} first question` },
         { role: 'assistant', text: `fork ${token} first answer` },
         // Over the chunk budget, so the transcript spans several documents.
         { role: 'user', text: `fork ${token} ${'long '.repeat(900)}` },
       ]);
+
       await indexService.reindexChat(source, u);
       const { worker } = await buildWorker();
       const sourceSent: Array<string> = [];
@@ -935,6 +1018,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         noopEmbedDispatch(),
         noopQueryEmbedder(),
       );
+
       const fork = await chats.forkChat(source, u);
       await indexService.reindexChat(fork.id, u);
       const forkSent: Array<string> = [];
@@ -969,10 +1053,12 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     it('never reuses identical content owned by another user', async () => {
       const other = crypto.randomUUID();
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${other}, 'O', ${`o-${other}@t.com`})`;
+
       try {
         const msgs = [
           { role: 'user' as const, text: `tenant ${crypto.randomUUID()}` },
         ];
+
         const mine = await seed('Mine', msgs);
         await indexService.reindexChat(mine, u);
         const { worker } = await buildWorker();
@@ -1002,6 +1088,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     it('does not reuse a vector produced under another model key', async () => {
       const { worker, duplicate, duplicateDoc } =
         await embeddedSourceAndDuplicate('model key');
+
       const otherModel = { ...MODEL, id: `reuse-other-${crypto.randomUUID()}` };
 
       const sent: Array<string> = [];
@@ -1021,6 +1108,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     it('does not reuse a vector produced under a superseded input version', async () => {
       const { worker, source, duplicate, duplicateDoc } =
         await embeddedSourceAndDuplicate('input version');
+
       await tenantDb.runAs(u, (tx) =>
         tx.execute(sql`
           UPDATE search_chat_documents
@@ -1039,6 +1127,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
     it('does not reuse a source vector whose stamp no longer matches its content hash', async () => {
       const { worker, source, duplicate, duplicateDoc } =
         await embeddedSourceAndDuplicate('stale stamp');
+
       await tenantDb.runAs(u, (tx) =>
         tx.execute(sql`
           UPDATE search_chat_documents
@@ -1061,22 +1150,27 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       await sqlClient.unsafe(
         `CREATE FUNCTION ${schemaName}.md5(text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT 'collide' $$`,
       );
+
       try {
         const source = await seed('Collision source', [
           { role: 'user', text: `alpha ${crypto.randomUUID()}` },
         ]);
+
         await indexService.reindexChat(source, u);
         const { worker } = await buildWorker();
         await worker.embedChat(source, u, MODEL, recordingBackend([], 10));
+
         const target = await seed('Collision target', [
           { role: 'user', text: `beta ${crypto.randomUUID()}` },
         ]);
+
         await indexService.reindexChat(target, u);
 
         const colliding = new SearchPathTenantDb(
           db,
           `${schemaName}, pg_catalog, public`,
         );
+
         const [probe] = await colliding
           .runAs(u, (tx) =>
             tx.execute(sql`SELECT md5('alpha') = md5('beta') AS collides`),
@@ -1087,11 +1181,13 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
               .array()
               .parse([...rows]),
           );
+
         expect(probe.collides).toBe(true);
 
         const { worker: collidingWorker } = await buildWorker({
           tenantDb: colliding,
         });
+
         const sent: Array<string> = [];
         await collidingWorker.embedChat(
           target,

@@ -54,6 +54,7 @@ function safeInternalPath(raw: string | null): Route {
   ) {
     return "/";
   }
+
   // SAFETY: the checks above confirmed `raw` is a same-origin relative
   // path (starts with a single `/`, not `//` or `/\`) — exactly what
   // `Route`'s typedRoutes contract requires.
@@ -81,9 +82,11 @@ function useLoginSubmit(form: ReturnType<typeof useForm<LoginFormValues>>) {
       // the destination remounts and refetches anyway (and invalidating here can
       // race the Set-Cookie commit).
       queryClient.setQueryData(authQueryKeys.me, result.user);
+
       const callbackUrl = new URLSearchParams(window.location.search).get(
         "callbackUrl",
       );
+
       router.push(safeInternalPath(callbackUrl));
     } catch (error) {
       form.setError("root", {
@@ -180,6 +183,7 @@ export function LoginForm() {
       password: "",
     },
   });
+
   const { isLoading, onSubmit } = useLoginSubmit(form);
 
   return (

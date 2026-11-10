@@ -40,6 +40,7 @@ export async function probeMachinePromptTarget(
   ) {
     return undefined;
   }
+
   // Every way a Machine can fail to answer — a refused request, an unreachable
   // session, an answer the protocol does not promise — reads the same here,
   // exactly as an unreadable host path does. `resolve().then` turns a connector
@@ -61,6 +62,8 @@ export async function probeMachinePromptTarget(
     )
     .then(readFsStatResult)
     .catch(() => undefined);
+
   if (answer === undefined || answer.kind === 'missing') return undefined;
+
   return formatMachineLocator(target.name, answer.realPath ?? target.path);
 }

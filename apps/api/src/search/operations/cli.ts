@@ -42,6 +42,7 @@ config({ path: '.env.local' });
 
 async function main(command: string): Promise<void> {
   const app = await NestFactory.createApplicationContext(OperationsModule);
+
   try {
     await runCommand(command, {
       tenantDb: app.get(TenantDbService),
@@ -64,6 +65,7 @@ async function main(command: string): Promise<void> {
 }
 
 const command = process.argv[2];
+
 if (!command) {
   console.error(
     'Usage: tsx src/search/operations/cli.ts <backfill|prune|retry-failed|coverage|projection-coverage>',

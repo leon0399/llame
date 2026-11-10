@@ -39,9 +39,11 @@ export function groupAssistantParts(
 
   while (index < parts.length) {
     const part = parts[index];
+
     if (part === undefined) {
       break;
     }
+
     if (part.type !== "reasoning") {
       grouped.push({ kind: "part", part, index });
       index += 1;
@@ -51,17 +53,23 @@ export function groupAssistantParts(
     const startIndex = index;
     const texts: Array<string> = [];
     let isStreaming = false;
+
     while (index < parts.length) {
       const current = parts[index];
+
       if (current === undefined || current.type !== "reasoning") {
         break;
       }
+
       texts.push(current.text);
+
       if (current.state === "streaming") {
         isStreaming = true;
       }
+
       index += 1;
     }
+
     grouped.push({
       kind: "reasoning",
       text: texts.join("\n\n"),

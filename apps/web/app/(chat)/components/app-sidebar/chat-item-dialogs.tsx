@@ -75,10 +75,13 @@ function RenameChatForm({
 
   const submit = () => {
     const next = title.trim();
+
     if (!next || next === chat.title) {
       onSaved();
+
       return;
     }
+
     rename.mutate({ id: chat.id, title: next }, { onSuccess: onSaved });
   };
 

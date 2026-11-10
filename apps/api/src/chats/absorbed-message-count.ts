@@ -52,6 +52,7 @@ export async function countAbsorbedMessages(
   if (checkpointIds.length === 0) {
     return new Map();
   }
+
   const rows = await db
     .select({ checkpointId: checkpoint.id, value: count(messages.id) })
     .from(checkpoint)

@@ -34,6 +34,7 @@ beforeEach(() => {
 function load(json: string, env: NodeJS.ProcessEnv = {}) {
   const file = path.join(dir, 'llame.config.json');
   writeFileSync(file, json);
+
   return loadInstanceConfig({ ...env, LLAME_CONFIG_PATH: file });
 }
 
@@ -42,8 +43,10 @@ function loadError(json: string, env: NodeJS.ProcessEnv = {}): string {
     load(json, env);
   } catch (error) {
     if (!(error instanceof Error)) throw error;
+
     return error.message;
   }
+
   throw new Error('expected loadInstanceConfig to throw');
 }
 
@@ -89,6 +92,7 @@ describe('tools.permissions configuration', () => {
       mcpServers: { docs: { type: 'http', url: 'https://docs.test/mcp' } },
       tools: { permissions: { mcp__docs__fetch: { allow: true } } },
     });
+
     expect(load(json).tools.permissions).toEqual({
       mcp__docs__fetch: { allow: true },
     });
@@ -136,6 +140,7 @@ describe('tools.permissions configuration', () => {
       }),
       { PERM_LITERAL: 'git push' },
     );
+
     expect(resolved.tools.permissions).toEqual({
       bash: { allow: [{ field: 'command', literal: 'git push' }] },
     });
@@ -145,6 +150,7 @@ describe('tools.permissions configuration', () => {
     const resolved = load(
       tools({ bash: { reject: [{ field: 'command', regex: 'a{{b' }] } }),
     );
+
     expect(resolved.tools.permissions).toEqual({
       bash: { reject: [{ field: 'command', regex: 'a{b' }] },
     });
@@ -163,10 +169,12 @@ const ALLOW: MatrixExpectation = {
   decision: 'allow',
   reason: 'matched_allow',
 };
+
 const EXPLICIT_REJECT: MatrixExpectation = {
   decision: 'reject',
   reason: 'explicit_reject',
 };
+
 const NO_ALLOW: MatrixExpectation = { decision: 'reject', reason: 'no_allow' };
 
 describe('shipped example configuration', () => {
@@ -180,11 +188,14 @@ describe('shipped example configuration', () => {
   function examplePermissions(): UnknownRecord {
     if (!isRecord(exampleDocument)) throw new Error('example is not an object');
     const toolsSection = exampleDocument['tools'];
+
     if (!isRecord(toolsSection)) throw new Error('example tools missing');
     const permissions = toolsSection['permissions'];
+
     if (!isRecord(permissions)) {
       throw new Error('example tools.permissions missing');
     }
+
     return permissions;
   }
 
@@ -192,10 +203,13 @@ describe('shipped example configuration', () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
     );
+
     const entryGroup = loaded.tools.permissions.enter_workspace;
+
     if (entryGroup?.reject === undefined) {
       throw new Error('example enter_workspace rejects missing');
     }
+
     const policy = await buildToolPermissionPolicy({
       ...loaded.tools.permissions,
       enter_workspace: {
@@ -210,18 +224,21 @@ describe('shipped example configuration', () => {
         reject: entryGroup.reject,
       },
     });
+
     const protectedPaths = [
       ['/home/operator/projects/app/node_modules', 3],
       ['/tmp/project', 4],
       ['/var/tmp/x', 4],
       ['/home/operator/projects/Downloads', 5],
     ] as const;
+
     for (const [entryPath, clauseIndex] of protectedPaths) {
       const decision = decideDefault(policy, {
         toolId: 'enter_workspace',
         args: { path: entryPath },
         projectFieldValue: nativeFileProjection('enter_workspace'),
       });
+
       expect(decision).toMatchObject({
         decision: 'reject',
         reason: 'explicit_reject',
@@ -232,11 +249,13 @@ describe('shipped example configuration', () => {
         },
       });
     }
+
     const allowedDecision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/projects/app' },
       projectFieldValue: nativeFileProjection('enter_workspace'),
     });
+
     expect(allowedDecision).toMatchObject(ALLOW);
   });
 
@@ -244,12 +263,15 @@ describe('shipped example configuration', () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
     );
+
     const policy = await buildToolPermissionPolicy(loaded.tools.permissions);
+
     const decision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/projects/app/sub' },
       projectFieldValue: nativeFileProjection('enter_workspace'),
     });
+
     expect(decision).toMatchObject({
       ...NO_ALLOW,
       reference: null,
@@ -260,6 +282,7 @@ describe('shipped example configuration', () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
     );
+
     expect(loaded.tools.permissions).toEqual(PORTABLE_TOOL_PERMISSIONS);
   });
 
@@ -267,9 +290,11 @@ describe('shipped example configuration', () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
     );
+
     const fromExample = await buildToolPermissionPolicy(
       loaded.tools.permissions,
     );
+
     const portable = await buildToolPermissionPolicy(PORTABLE_TOOL_PERMISSIONS);
 
     const matrix: ReadonlyArray<
@@ -339,6 +364,7 @@ describe('shipped example configuration', () => {
           isBashCommandField(toolId, field),
         projectFieldValue: nativeFileProjection(toolId),
       };
+
       const left = decideDefault(fromExample, options);
       const right = decideDefault(portable, options);
       expect({ decision: left.decision, reason: left.reason }).toEqual({
@@ -364,11 +390,13 @@ describe('shipped example configuration', () => {
         reject: PORTABLE_TOOL_PERMISSIONS.enter_workspace.reject,
       },
     });
+
     const decision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/.ssh' },
       projectFieldValue: nativeFileProjection('enter_workspace'),
     });
+
     expect(decision).toMatchObject(EXPLICIT_REJECT);
   });
 
@@ -380,6 +408,7 @@ describe('shipped example configuration', () => {
         ],
       },
     });
+
     const decisionFor = (path: string) =>
       decideDefault(policy, {
         toolId: 'read',
@@ -393,8 +422,10 @@ describe('shipped example configuration', () => {
     ]) {
       expect(decisionFor(path)).toMatchObject(ALLOW);
     }
+
     // A spelling of the allowed authority is the allowed resource.
     expect(decisionFor('https://DOCS.example.com/guide')).toMatchObject(ALLOW);
+
     for (const path of [
       'https://other.example/guide',
       '/etc/hosts',

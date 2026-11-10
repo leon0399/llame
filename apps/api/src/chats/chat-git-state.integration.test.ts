@@ -45,6 +45,7 @@ for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'])
 vi.setConfig({ testTimeout: 120_000 });
 
 const EXECUTOR = 'git-state-host';
+
 const SECRET_REMOTE =
   'https://x-access-token:ghp_secret@github.com/leon0399/llame.git';
 
@@ -74,6 +75,7 @@ function clone(): string {
   runGit(directory, ['add', 'README.md']);
   runGit(directory, ['commit', '--quiet', '--message', 'first']);
   runGit(directory, ['remote', 'add', 'origin', SECRET_REMOTE]);
+
   return directory;
 }
 
@@ -99,8 +101,10 @@ describe('the git state route over HTTP', () => {
         name: `Git state ${label}`,
       })
       .expect(201);
+
     const body: unknown = registered.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(registered), userId: body.user.id };
   }
 
@@ -113,10 +117,12 @@ describe('the git state route over HTTP', () => {
       .overrideProvider(ModelsService)
       .useValue(new FakeModelsService())
       .compile();
+
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.listen(0);
     const server: unknown = app.getHttpServer();
+
     if (!(server instanceof Server)) throw new Error('Expected a Node server');
     http = server;
     sql = postgres(process.env.POSTGRES_URL!, { max: 2 });
@@ -140,6 +146,7 @@ describe('the git state route over HTTP', () => {
   afterAll(async () => {
     await sql?.end();
     await app?.close();
+
     for (const directory of created.splice(0)) {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -147,6 +154,7 @@ describe('the git state route over HTTP', () => {
 
   const stateOf = (as?: Owner) => {
     const call = request(http).get(`/api/v1/chats/${chatId}/git-state`);
+
     return as === undefined ? call : call.set('Cookie', as.cookie);
   };
 
@@ -179,11 +187,14 @@ describe('the git state route over HTTP', () => {
   // The route's own ceiling (30/min per IP). Last: it spends that budget.
   it('THROTTLE: rapid git state reads are rejected with 429', async () => {
     let tooMany = 0;
+
     for (let i = 0; i < 35; i += 1) {
       const res = await stateOf(owner);
+
       if (res.status === 429) tooMany += 1;
       else expect(res.status).toBe(200);
     }
+
     expect(tooMany).toBeGreaterThan(0);
   });
 });

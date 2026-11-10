@@ -37,15 +37,19 @@ export function resolvePackagedToolDescriptionPath(
  */
 export function loadPackagedToolDescription(toolId: ToolPromptId): string {
   const filePath = resolvePackagedToolDescriptionPath(toolId);
+
   if (!statSync(filePath, { throwIfNoEntry: false })?.isFile()) {
     throw new Error(
       `Packaged tool description missing: ${toolId} (expected ${filePath})`,
     );
   }
+
   const raw = readFileSync(filePath, 'utf-8');
   const normalized = raw.replaceAll(/\r\n?/gu, '\n').replace(/\s+$/u, '');
+
   if (normalized.length === 0) {
     throw new Error(`Packaged tool description empty: ${toolId}`);
   }
+
   return normalized;
 }

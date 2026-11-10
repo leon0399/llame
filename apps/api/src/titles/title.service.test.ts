@@ -27,6 +27,7 @@ const titleModel = {
   systemPromptSource: 'project_default' as const,
   referencesSkills: false,
 };
+
 const provider: ProviderConfig = {
   id: 'openai',
   type: 'openai-responses',
@@ -37,15 +38,18 @@ const provider: ProviderConfig = {
 
 function makeService(client?: ModelClient) {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   const runAs = vi
     .spyOn(tenantDb, 'runAs')
     .mockImplementation(
       async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
     );
+
   const models = new ModelsService({
     config: {
       ...BUILT_IN_DEFAULTS,
@@ -58,14 +62,19 @@ function makeService(client?: ModelClient) {
     },
     productUserAgent: 'llame/0.0.0-test',
   });
+
   const resolveTitleModelConfig = vi
     .spyOn(models, 'resolveTitleModelConfig')
     .mockReturnValue(titleModel);
+
   const createClient = vi.spyOn(models, 'createClient');
+
   if (client !== undefined) createClient.mockReturnValue(client);
+
   const setGeneratedTitle = vi
     .spyOn(ChatsRepository.prototype, 'setGeneratedTitle')
     .mockResolvedValue(undefined);
+
   return {
     service: new TitleService(tenantDb, models),
     models,
@@ -97,8 +106,10 @@ describe('TitleService', () => {
 
   it('skips generation when no title model is configured', async () => {
     const client = createFakeModelClient(['unused']);
+
     const { service, resolveTitleModelConfig, createClient } =
       makeService(client);
+
     resolveTitleModelConfig.mockReturnValue(undefined);
 
     await expect(
@@ -113,10 +124,13 @@ describe('TitleService', () => {
 
   it('prefers structured generation, sanitizes it, and writes only the generated title', async () => {
     const client = createFakeModelClient(['unused']);
+
     const generateObject = vi
       .fn<NonNullable<ModelClient['generateObject']>>()
       .mockResolvedValue({ title: '  Title: **Generated topic**  ' });
+
     Object.assign(client, { generateObject });
+
     const { service, createClient, runAs, setGeneratedTitle } =
       makeService(client);
 
@@ -143,9 +157,11 @@ describe('TitleService', () => {
 
   it('falls back to streamed text when structured generation fails', async () => {
     const client = createFakeModelClient(['# Fallback title']);
+
     const generateObject = vi
       .fn<NonNullable<ModelClient['generateObject']>>()
       .mockRejectedValue(new Error('tool calling unsupported'));
+
     Object.assign(client, { generateObject });
     const streamText = vi.spyOn(client, 'streamText');
     const { service, setGeneratedTitle } = makeService(client);
@@ -162,10 +178,12 @@ describe('TitleService', () => {
     );
     // ...and the identity is not smuggled into the prompt text itself.
     const titleRequest = streamText.mock.calls[0]?.[0];
+
     const sent = JSON.stringify({
       system: titleRequest?.system,
       messages: titleRequest?.messages,
     });
+
     expect(sent).not.toContain('chat-1');
     expect(setGeneratedTitle).toHaveBeenCalledWith(
       'chat-1',
@@ -176,9 +194,11 @@ describe('TitleService', () => {
 
   it('does not write an unusable title and swallows model failures', async () => {
     const emptyClient = createFakeModelClient(['unused']);
+
     const generateObject = vi
       .fn<NonNullable<ModelClient['generateObject']>>()
       .mockResolvedValue({ title: '### ""' });
+
     Object.assign(emptyClient, { generateObject });
     const empty = makeService(emptyClient);
     await empty.service.maybeGenerateTitle({
@@ -204,6 +224,7 @@ describe('TitleService', () => {
 
   it('logs a failure without the configured credential the provider echoed', async () => {
     const key = 'CONFIGURED-KEY-CANARY-3d9e';
+
     // The real Chat Completions client behind the factory's wrapper, with only
     // the transport stubbed: the upstream echoes the entry's own key.
     const client = createModelClient(
@@ -237,12 +258,15 @@ describe('TitleService', () => {
           }),
       },
     );
+
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     const { service } = makeService(client);
 
     await service.maybeGenerateTitle({
@@ -255,6 +279,7 @@ describe('TitleService', () => {
       .flat()
       .map(String)
       .join('\n');
+
     expect(printed).toContain('[REDACTED]');
     expect(printed).not.toContain(key);
   });

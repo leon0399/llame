@@ -43,6 +43,7 @@ let checkoutSequence = 0;
 
 function checkoutRow(overrides: Partial<Checkout> = {}): Checkout {
   checkoutSequence += 1;
+
   return {
     id: `checkout-${checkoutSequence}`,
     ownerUserId: 'owner-1',
@@ -122,10 +123,12 @@ afterEach(() => {
 describe('adoptSource', () => {
   it('reuses the recorded main row and its repository', async () => {
     const stubs = catalog();
+
     const main = checkoutRow({
       id: 'checkout-main',
       path: '/home/me/src/llame',
     });
+
     const repository = repositoryRow();
     stubs.findCheckoutByPath.mockResolvedValue(main);
     stubs.findRepository.mockResolvedValue(repository);
@@ -200,10 +203,12 @@ describe('adoptSource', () => {
 
   it('drops its own repository when a concurrent adopter committed the main row first', async () => {
     const stubs = catalog();
+
     const winner = checkoutRow({
       id: 'checkout-winner',
       repositoryId: 'repo-winner',
     });
+
     stubs.findCheckoutByPath
       .mockResolvedValueOnce(undefined)
       .mockResolvedValue(winner);
@@ -228,10 +233,12 @@ describe('adoptSource', () => {
 
   it('keeps the winner repository when it adopted the same remote row', async () => {
     const stubs = catalog();
+
     const winner = checkoutRow({
       id: 'checkout-winner',
       repositoryId: 'repo-winner',
     });
+
     stubs.findCheckoutByPath
       .mockResolvedValueOnce(undefined)
       .mockResolvedValue(winner);
@@ -253,10 +260,12 @@ describe('adoptSource', () => {
 
   it('answers nothing when the winner main row names a repository that is gone', async () => {
     const stubs = catalog();
+
     const winner = checkoutRow({
       id: 'checkout-winner',
       repositoryId: 'repo-gone',
     });
+
     stubs.findCheckoutByPath
       .mockResolvedValueOnce(undefined)
       .mockResolvedValue(winner);
@@ -292,6 +301,7 @@ describe('adoptSource', () => {
           : checkoutRow({ ...input, id: 'checkout-linked' }),
       ),
     );
+
     const adoption = source({
       inspection: inspection({
         toplevel: '/home/me/src/other',
@@ -317,6 +327,7 @@ describe('adoptSource', () => {
 
   it('records one row when the linked toplevel is the main clone itself', async () => {
     const stubs = catalog();
+
     const adoption = source({
       inspection: inspection({
         linked: true,

@@ -16,6 +16,7 @@ const meta = {
 } satisfies Meta<typeof StatusBar>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

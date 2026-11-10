@@ -34,6 +34,7 @@ function asError(error: unknown): Error {
   if (!(error instanceof Error)) {
     throw new TypeError('expected an error');
   }
+
   return error;
 }
 
@@ -202,6 +203,7 @@ describe('redactModelFailure', () => {
 
   it('redacts a credential in cause, lastError, and errors[]', () => {
     const lastError = apiError(`rate limit for ${CANARY}`);
+
     const retried = new RetryError({
       message: `Failed after 2 attempts. ${CANARY}`,
       reason: 'maxRetriesExceeded',
@@ -216,9 +218,11 @@ describe('redactModelFailure', () => {
     expect(surfaces(retried.lastError)).toContain(
       PROTECTED_VALUE_REDACTION_MARKER,
     );
+
     for (const error of retried.errors) {
       expect(surfaces(error)).not.toContain(CANARY);
     }
+
     expect(surfaces(retried)).not.toContain(CANARY);
   });
 
@@ -282,6 +286,7 @@ describe('redactModelFailure', () => {
 
   it('never leaks a frozen child through its alias (RetryError.lastError)', () => {
     const frozenLast = Object.freeze(apiError(`limit ${CANARY}`));
+
     const retried = new RetryError({
       message: 'Failed after 2 attempts',
       reason: 'maxRetriesExceeded',
@@ -289,6 +294,7 @@ describe('redactModelFailure', () => {
     });
 
     const redacted = asError(redactModelFailure(retried, credentials));
+
     if (!RetryError.isInstance(redacted)) {
       throw new TypeError('expected the retry wrapper to survive');
     }
@@ -306,6 +312,7 @@ describe('redactModelFailure', () => {
     const aggregate = new AggregateError([frozen, frozen], 'both failed');
 
     const redacted = asError(redactModelFailure(aggregate, credentials));
+
     if (!(redacted instanceof AggregateError)) {
       throw new TypeError('expected the aggregate error to survive');
     }

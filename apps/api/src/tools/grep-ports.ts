@@ -41,7 +41,9 @@ export type ScopeProbe =
 /** The path two relative parts join to, with no separator for an empty part. */
 export function joinedPath(prefix: string, rel: string): string {
   if (prefix.length === 0) return rel;
+
   if (rel.length === 0) return prefix;
+
   return `${prefix}/${rel}`;
 }
 
@@ -70,21 +72,26 @@ export async function readBoundedFileBytes(
 ): Promise<Buffer> {
   const chunks: Array<Uint8Array> = [];
   let totalBytes = 0;
+
   while (totalBytes <= maxBytes) {
     signal?.throwIfAborted();
+
     const chunk = Buffer.allocUnsafe(
       Math.min(READ_CHUNK_BYTES, maxBytes + 1 - totalBytes),
     );
+
     const { bytesRead } = await file.read(
       chunk,
       0,
       chunk.byteLength,
       totalBytes,
     );
+
     if (!Number.isInteger(bytesRead) || bytesRead <= 0) break;
     chunks.push(chunk.subarray(0, Math.min(bytesRead, chunk.byteLength)));
     totalBytes += bytesRead;
   }
+
   return Buffer.concat(chunks, Math.min(totalBytes, maxBytes + 1));
 }
 
@@ -100,9 +107,12 @@ export async function probeHostPath(
   signal: AbortSignal | undefined,
 ): Promise<ScopeProbe> {
   signal?.throwIfAborted();
+
   try {
     const stats = await lstat(root);
+
     if (stats.isDirectory()) return { kind: 'directory' };
+
     return stats.isFile() ? { kind: 'file' } : { kind: 'missing' };
   } catch {
     return { kind: 'missing' };
@@ -140,22 +150,27 @@ async function listHostDirectory(
 ): Promise<ReadonlyArray<GrepEntry>> {
   signal?.throwIfAborted();
   const directory = hostPath(root, rel);
+
   if (rel.length === 0) await refuseNonDirectoryRoot(directory);
   let dirents: Array<Dirent>;
+
   try {
     dirents = await readdir(directory, { withFileTypes: true });
   } catch (error) {
     // A subdirectory the process cannot list, or one that vanished mid-walk,
     // contributes nothing; only the scope root itself fails the call.
     if (rel.length > 0) return [];
+
     const code =
       error instanceof Error && 'code' in error ? String(error.code) : '';
+
     throw new GrepScopeFailure(
       code === 'ENOENT' || code === 'ENOTDIR'
         ? notFoundResult()
         : hostPathFailureResult(),
     );
   }
+
   return dirents.map((dirent): GrepEntry => ({
     name: dirent.name,
     kind: dirent.isSymbolicLink()
@@ -176,11 +191,13 @@ async function listHostDirectory(
  */
 async function refuseNonDirectoryRoot(target: string): Promise<void> {
   let ownDirectory: boolean;
+
   try {
     ownDirectory = (await lstat(target)).isDirectory();
   } catch {
     return;
   }
+
   if (!ownDirectory) throw new GrepScopeFailure(notFoundResult());
 }
 
@@ -196,10 +213,13 @@ async function readIgnoreFiles(
 ): Promise<ReadonlyArray<string>> {
   const directory = hostPath(root, rel);
   const texts: Array<string> = [];
+
   for (const name of GREP_IGNORE_FILE_NAMES) {
     const text = await readIgnoreText(directory, name, signal);
+
     if (text !== undefined) texts.push(text);
   }
+
   return texts;
 }
 
@@ -211,21 +231,25 @@ async function readIgnoreText(
 ): Promise<string | undefined> {
   const file = path.join(directory, name);
   let handle: FileHandle | undefined;
+
   try {
     // Policy comes from a real file only, opened by the walk's own rule: a
     // link is never followed and a FIFO never blocks the walk.
     handle = await open(file, openFlags(false));
     const stats = await handle.stat();
+
     if (!stats.isFile()) return undefined;
     // The cap applies to the bytes read, so a file that announced the wrong
     // size applies no rules either way.
     const bytes = await readBoundedFileBytes(handle, IGNORE_FILE_BYTES, signal);
+
     return bytes.byteLength > IGNORE_FILE_BYTES
       ? undefined
       : bytes.toString('utf8');
   } catch {
     // A cancellation is not an absent file: let the walk end the call.
     signal?.throwIfAborted();
+
     return undefined;
   } finally {
     await handle?.close();
@@ -238,6 +262,7 @@ export function createKnowledgeWalkPort(
   signal: AbortSignal | undefined,
 ): GrepWalkPort {
   const adapter = createKnowledgeWalkAdapter(binding);
+
   return {
     followsLinks: false,
     async list(rel) {
@@ -267,9 +292,11 @@ export async function probeKnowledgePath(
       prefixPath,
       signal,
     );
+
     return { kind };
   } catch (error) {
     const result = mapKnowledgeResolutionFailure(error);
+
     return result.type === 'not_found' ? { kind: 'missing' } : { result };
   }
 }
@@ -279,8 +306,10 @@ export async function probeSkillPath(
   signal: AbortSignal | undefined,
 ): Promise<ScopeProbe> {
   signal?.throwIfAborted();
+
   try {
     const stats = await stat(root);
+
     return { kind: stats.isDirectory() ? 'directory' : 'file' };
   } catch {
     return { kind: 'missing' };
@@ -312,12 +341,15 @@ async function listSkillDirectory(
   signal?.throwIfAborted();
   const directory = rel.length === 0 ? root : path.join(root, rel);
   let dirents: Array<Dirent>;
+
   try {
     dirents = await readdir(directory, { withFileTypes: true });
   } catch {
     throw new GrepScopeFailure(skillUnavailableResult());
   }
+
   const currentReal = await realpathOrUndefined(directory);
+
   return Promise.all(
     dirents.map((dirent) => skillEntry(directory, dirent, currentReal)),
   );
@@ -329,17 +361,24 @@ async function skillEntry(
   currentReal: string | undefined,
 ): Promise<GrepEntry> {
   const child = path.join(directory, dirent.name);
+
   if (!dirent.isSymbolicLink()) {
     if (dirent.isDirectory()) {
       const identity = await realpathOrUndefined(child);
+
       if (identity === undefined)
         return { name: dirent.name, kind: 'directory' };
+
       return { name: dirent.name, kind: 'directory', identity };
     }
+
     return { name: dirent.name, kind: dirent.isFile() ? 'file' : 'other' };
   }
+
   const real = await realpathOrUndefined(child);
+
   if (real === undefined) return { name: dirent.name, kind: 'link' };
+
   // A link back to the directory being listed, or to one of its ancestors, is
   // the loop the walk must not enter.
   if (
@@ -348,11 +387,14 @@ async function skillEntry(
   ) {
     return { name: dirent.name, kind: 'link' };
   }
+
   try {
     const stats = await stat(child);
+
     if (stats.isDirectory()) {
       return { name: dirent.name, kind: 'directory', identity: real };
     }
+
     return { name: dirent.name, kind: stats.isFile() ? 'file' : 'other' };
   } catch {
     return { name: dirent.name, kind: 'link' };

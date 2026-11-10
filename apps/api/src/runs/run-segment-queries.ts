@@ -30,14 +30,18 @@ export async function eventsSinceLatestDelivery(
   options: { eventTypes: ReadonlyArray<RunEventType>; limit?: number },
 ): Promise<{ delivered: RunEvent | undefined; events: Array<RunEvent> }> {
   const repo = new RunEventsRepository(tx);
+
   const found = await repo.findFirstByType(runId, userId, 'run.delivered', {
     newest: true,
   });
+
   const delivered = found ?? undefined;
+
   const events = await repo.listByRunId(runId, userId, {
     ...options,
     ...(delivered !== undefined && { afterSequence: delivered.sequence }),
   });
+
   return { delivered, events };
 }
 
@@ -59,6 +63,7 @@ export async function currentSegmentState(
     userId,
     { eventTypes: ['model.requested'], limit: 1 },
   );
+
   return { delivered: delivered !== undefined, dispatched: events.length > 0 };
 }
 
@@ -77,6 +82,7 @@ export async function latestDeliverySequence(
     'run.delivered',
     { newest: true },
   );
+
   return delivered?.sequence ?? 0;
 }
 
@@ -91,6 +97,7 @@ export async function findEarlierSegmentBaseline(
   input: { chatId: string; userId: string; runId: string; beforeSeq: number },
 ): Promise<CompletedRunWithTrigger | undefined> {
   const trigger = alias(messages, 'trigger');
+
   const [row] = await tx
     .select({ run: runs, triggeringUserSeq: trigger.seq })
     .from(messages)
@@ -117,5 +124,6 @@ export async function findEarlierSegmentBaseline(
     )
     .orderBy(desc(messages.seq))
     .limit(1);
+
   return row;
 }

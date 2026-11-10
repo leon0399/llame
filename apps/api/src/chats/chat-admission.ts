@@ -37,6 +37,7 @@ async function blockerIsLive(input: {
   run: Run;
 }): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
+
   const state = await Promise.race([
     input.dispatch.jobState(input.run.id),
     new Promise<'unreadable'>((resolve) => {
@@ -48,6 +49,7 @@ async function blockerIsLive(input: {
   ])
     .catch(() => 'unreadable' as const)
     .finally(() => clearTimeout(timer));
+
   if (state !== 'absent') {
     return (
       state === 'unreadable' ||
@@ -56,7 +58,9 @@ async function blockerIsLive(input: {
       state === 'active'
     );
   }
+
   const lastSignOfLife = input.run.startedAt ?? input.run.createdAt;
+
   return (
     Date.now() - lastSignOfLife.getTime() <
     heartbeatSeconds(input.instanceConfig.config) * 1000
@@ -82,10 +86,14 @@ export async function claimActiveRunSlot(
 ): Promise<'free' | 'blocked'> {
   const runsRepo = new RunsRepository(input.tx);
   const eventsRepo = new RunEventsRepository(input.tx);
+
   const findActive = () =>
     runsRepo.findActiveByChatId(input.chatId, input.userId);
+
   const blocking = await findActive();
+
   if (!blocking) return 'free';
+
   if (await blockerIsLive({ ...input, run: blocking })) {
     // Re-check the row once: `blocking` may have finished between the read
     // above and now, in which case the chat is simply free. Its job state
@@ -96,12 +104,14 @@ export async function claimActiveRunSlot(
 
   const message =
     'Expired by a new request: run stuck with no execution progress.';
+
   const expired = await runsRepo.markFinished(
     blocking.id,
     input.userId,
     'expired',
     { error: { message } },
   );
+
   if (!expired) return 'free';
   // The chat row is held first and the run row next, so finalizing the reply
   // after them keeps the worker's run-then-reply order.
@@ -114,6 +124,7 @@ export async function claimActiveRunSlot(
     status: 'expired',
     message,
   });
+
   return 'free';
 }
 
@@ -146,5 +157,6 @@ export async function notifyLiveRunInterrupt(
     chat.chatId,
     chat.userId,
   );
+
   if (live) await notifyRunControl(tx, { runId: live.id, kind: 'interrupt' });
 }

@@ -17,6 +17,7 @@ const MESSAGE_SEQUENCE_INSERT_ATTEMPTS = 8;
 const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
 
 export type MessageInsert = typeof messages.$inferInsert;
+
 export type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
 
 function isCauseChainLink(value: unknown): value is UnknownRecord {
@@ -34,10 +35,12 @@ function isMessageSequenceUniqueViolation(error: unknown): boolean {
         current['constraint_name'] === MESSAGE_SEQUENCE_UNIQUE_INDEX) ||
       (isString(current['message']) &&
         current['message'].includes(MESSAGE_SEQUENCE_UNIQUE_INDEX));
+
     if (current['code'] === '23505' && namesSequenceIndex) {
       return true;
     }
   }
+
   return false;
 }
 
@@ -51,6 +54,7 @@ export async function insertWithChatSequence(
   insert: (tx: Db, row: MessageInsert) => Promise<Message | undefined>,
 ): Promise<Message | undefined> {
   let sequenceConflict: unknown;
+
   for (let attempt = 0; attempt < MESSAGE_SEQUENCE_INSERT_ATTEMPTS; attempt++) {
     try {
       return await db.transaction(async (tx) => {
@@ -58,20 +62,25 @@ export async function insertWithChatSequence(
           .select({ value: max(messages.seq) })
           .from(messages)
           .where(eq(messages.chatId, values.chatId));
+
         const seq = (current?.value ?? 0) + 1;
+
         if (!Number.isSafeInteger(seq) || seq <= 0) {
           throw new Error(
             `Chat ${values.chatId} exhausted safe message sequence values`,
           );
         }
+
         return insert(tx, { ...values, seq });
       });
     } catch (error) {
       if (!isMessageSequenceUniqueViolation(error)) {
         throw error;
       }
+
       sequenceConflict = error;
     }
   }
+
   throw sequenceConflict;
 }

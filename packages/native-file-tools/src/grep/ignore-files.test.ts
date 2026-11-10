@@ -40,6 +40,7 @@ describe("collectAncestorIgnoreFiles", () => {
     await writeAt(".gitignore", "outside\n");
     await writeAt("repo/.gitignore", "repo\n");
     await writeAt("repo/.ignore", "pair\n");
+
     const files = await collectAncestorIgnoreFiles(
       {
         prefix: join(base, "repo/sub"),
@@ -48,6 +49,7 @@ describe("collectAncestorIgnoreFiles", () => {
       },
       read,
     );
+
     expect(files).toEqual([
       { above: "repo/sub/", text: "top\n" },
       { above: "sub/", text: "repo\n" },
@@ -58,10 +60,12 @@ describe("collectAncestorIgnoreFiles", () => {
   it("takes the fallback as the repository when none is above", async () => {
     await writeAt(".gitignore", "root\n");
     await writeAt(".ignore", "all\n");
+
     const files = await collectAncestorIgnoreFiles(
       { prefix: join(base, "project"), root: base, fallbackRepository: base },
       read,
     );
+
     expect(files).toEqual([
       { above: "project/", text: "root\n" },
       { above: "project/", text: "all\n" },

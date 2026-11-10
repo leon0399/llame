@@ -55,15 +55,20 @@ export async function readArtifact(
         'Artifact locators are read-only; edit and write cannot target them.',
     };
   }
+
   const { path, selector } = splitSelectorSuffix(submitted);
   const scheme = parsePathScheme(path);
+
   if (scheme?.scheme === ARTIFACT_SCHEME && scheme.rest === '') {
     return listChatArtifacts(context, selector);
   }
+
   const locator = parseArtifactLocatorText(path);
+
   if (locator === undefined) return invalidLocatorResult();
 
   context.abortSignal?.throwIfAborted();
+
   return context.tenantDb.runAs(context.userId, (db) =>
     readLocator(context, repository(db), {
       chatId: context.chatId,
@@ -93,16 +98,20 @@ export async function readLocator(
       locator.seq,
       locator.part,
     );
+
     return part === undefined
       ? notFoundResult()
       : readStoredPart(context, path, part, selector);
   }
+
   const found = await repository.findParts(
     chatId,
     locator.toolName,
     locator.seq,
   );
+
   if (found === undefined) return notFoundResult();
+
   if (found.parts.length === 1 && found.parts[0].name === '') {
     const part = await repository.readPart(
       chatId,
@@ -110,10 +119,12 @@ export async function readLocator(
       locator.seq,
       '',
     );
+
     return part === undefined
       ? notFoundResult()
       : readStoredPart(context, path, part, selector);
   }
+
   return listStreams(path, locator, found, selector);
 }
 
@@ -124,10 +135,12 @@ async function listChatArtifacts(
   const rows = await context.tenantDb.runAs(context.userId, (db) =>
     new ArtifactsRepository(db).listChat(context.chatId),
   );
+
   const entries = rows.map(
     (row) =>
       `${formatArtifactLocator(row.toolName, row.seq)} (${row.toolName}, ${count(row.lineCount, 'line')}, ${count(row.byteSize, 'byte')}, ${row.createdAt.toISOString()})`,
   );
+
   return renderListing(BARE_LOCATOR, entries, selector, 'no artifacts');
 }
 
@@ -141,6 +154,7 @@ function listStreams(
     (part) =>
       `${path}/${part.name} (${locator.toolName}, ${count(part.lineCount, 'line')}, ${count(part.byteSize, 'byte')}, ${found.createdAt.toISOString()})`,
   );
+
   return renderListing(path, entries, selector, 'no streams');
 }
 
@@ -158,12 +172,14 @@ async function readStoredPart(
   try {
     const target = applySelectorSuffix(path, selector);
     const source = part.content.toString('utf8');
+
     const text = withholdFindings(
       context,
       part,
       artifactText(source),
       resolveEndRelativeSelector(target, part.lineCount),
     );
+
     return await selectInMemoryText({
       target,
       text,
@@ -172,6 +188,7 @@ async function readStoredPart(
     });
   } catch (error) {
     const refused = nativeErrorResult(error);
+
     if (refused !== undefined) return refused;
     throw error;
   }
@@ -189,18 +206,22 @@ function renderListing(
   emptyText: string,
 ): ToolResult {
   const placed = placeListingSelector(path, selector, entries.length);
+
   if ('refusal' in placed) return listingRefusal(placed.refusal);
   const { offset, limit } = placed.window;
   const end = Math.min(offset + (limit ?? entries.length), entries.length);
+
   const content =
     entries.length === 0
       ? `${path}\n(${emptyText})\n`
       : [path, ...entries.slice(offset, end)].join('\n') + '\n';
+
   const result = directoryResult(path, entries.length, {
     content,
     truncated: end < entries.length,
     ...(end < entries.length && { nextOffset: end }),
   });
+
   return boundFlatResult(result, offset, MAX_RESULT_CODE_UNITS);
 }
 
@@ -212,6 +233,7 @@ function listingRefusal(refusal: ListingRefusal): ToolResult {
       : refusal === 'outline'
         ? 'The :outline member is not supported for artifact listings.'
         : 'An artifact listing accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.';
+
   return { status: 'error', type: 'invalid_selector', message };
 }
 

@@ -27,7 +27,9 @@ export function replaceableReplyGuard(input: {
 }): SQL {
   const status = sql`(${messages.usage} ->> 'status')`;
   const replyRunId = sql`(${messages.usage} ->> 'runId')`;
+
   if (!input.regenerate) return replaceableReply;
+
   return sql`(${replaceableReply}) or (${status} = 'completed' and ${replyRunId} is not null and ${replyRunId} <> ${input.runId})`;
 }
 
@@ -57,6 +59,7 @@ export class RunningReplyRepository {
     followUpAction: FollowUpAction | null;
   }): Promise<Message | undefined> {
     const regenerate = input.followUpAction === 'regenerate';
+
     return insertWithChatSequence(
       this.db,
       {
@@ -85,6 +88,7 @@ export class RunningReplyRepository {
             }),
           })
           .returning();
+
         return upserted;
       },
     );

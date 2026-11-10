@@ -54,6 +54,7 @@ function isOpenUpdater(
 /** Reads the shared sidebar state (open/collapsed, mobile) from context; throws outside a `SidebarProvider`. */
 function useSidebar() {
   const context = React.useContext(SidebarContext);
+
   if (!context) {
     throw new Error("useSidebar must be used within a SidebarProvider.");
   }
@@ -98,9 +99,11 @@ function SidebarProvider({
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen);
   const open = openProp ?? _open;
+
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
       const openState = isOpenUpdater(value) ? value(open) : value;
+
       if (setOpenProp) {
         setOpenProp(openState);
       } else {
@@ -120,6 +123,7 @@ function SidebarProvider({
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
     if (keyboardShortcut === null) return;
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === keyboardShortcut && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
@@ -128,6 +132,7 @@ function SidebarProvider({
     };
 
     window.addEventListener("keydown", handleKeyDown);
+
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [keyboardShortcut, toggleSidebar]);
 
@@ -600,6 +605,7 @@ function SidebarMenuButton({
     tooltip?: string | React.ComponentProps<typeof TooltipContent>;
   } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const { isMobile, state } = useSidebar();
+
   const comp = useRender({
     defaultTagName: "button",
     props: mergeProps<"button">(
@@ -704,10 +710,12 @@ function SidebarMenuSkeleton({
   // hydration mismatch. A hash of `useId()` (identical on both sides) gives
   // the same 50-89% spread deterministically. Re-apply on `shadcn add` upgrades.
   const id = React.useId();
+
   const hash = Array.from(id).reduce(
     (acc, char) => Math.imul(acc, 31) + char.charCodeAt(0),
     7,
   );
+
   const width = `${50 + ((hash >>> 0) % 40)}%`;
 
   return (

@@ -16,9 +16,11 @@ describe('runs follow-up schema', () => {
     const check = getTableConfig(runs).checks.find(
       (entry) => entry.name === 'runs_follow_up_action_check',
     );
+
     if (check === undefined) {
       throw new Error('runs_follow_up_action_check is missing');
     }
+
     const sql = dialect
       .sqlToQuery(check.value)
       .sql.replaceAll(/\s+/gu, ' ')
@@ -35,15 +37,18 @@ describe('runs follow-up schema', () => {
     const check = getTableConfig(runs).checks.find(
       (entry) => entry.name === 'runs_permission_mode_check',
     );
+
     if (check === undefined) {
       throw new Error('runs_permission_mode_check is missing');
     }
+
     const sql = dialect
       .sqlToQuery(check.value)
       .sql.replaceAll(/\s+/gu, ' ')
       .toLowerCase();
 
     expect(sql).toContain('"runs"."permission_mode" in (');
+
     for (const mode of ['default', 'bypass', 'read-only']) {
       expect(sql).toContain(`'${mode}'`);
     }

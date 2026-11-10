@@ -72,7 +72,9 @@ const connectors: Array<MachineConnector> = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+
   for (const connector of connectors.splice(0)) connector.onModuleDestroy();
+
   for (const directory of created.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -81,6 +83,7 @@ afterEach(() => {
 function tempDirectory(prefix = 'worktree-entry-'): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   created.push(directory);
+
   return directory;
 }
 
@@ -107,15 +110,18 @@ function clone(options: { readonly remote?: string } = {}): string {
   writeFileSync(join(directory, 'README.md'), 'readme\n');
   runGit(directory, ['add', 'README.md']);
   runGit(directory, ['commit', '--quiet', '--message', 'first']);
+
   if (options.remote !== undefined) {
     runGit(directory, ['remote', 'add', 'origin', options.remote]);
   }
+
   return directory;
 }
 
 function linkedWorktree(main: string, branch: string): string {
   const target = join(tempDirectory('worktree-linked-'), branch);
   runGit(main, ['worktree', 'add', '--quiet', '-b', branch, target]);
+
   return target;
 }
 
@@ -143,6 +149,7 @@ function hostile(repository: string): string {
     'core.fsmonitor',
     join(monitor, 'fsmonitor.sh'),
   ]);
+
   return marker;
 }
 
@@ -153,7 +160,9 @@ function executors(): ExecutorGit {
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
   });
+
   connectors.push(connector);
+
   return new ExecutorGit(
     { config: configWith({}) },
     connector,
@@ -173,6 +182,7 @@ function machineFixture(options: ProtocolPeerOptions) {
     methods: ['git.inspect', 'git.worktreeAdd', 'git.worktreeRemove'],
     ...options,
   });
+
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     machines: {
@@ -182,7 +192,9 @@ function machineFixture(options: ProtocolPeerOptions) {
     transportFactory: peer.factory,
     idleCloseMs: 1000,
   });
+
   connectors.push(connector);
+
   return {
     peer,
     executors: new ExecutorGit(
@@ -213,6 +225,7 @@ function machineInspect(root: string): PeerAnswer {
 /** The node path inside one `fs.stat` request, or `undefined`. */
 function statPath(call: PeerCall): string | undefined {
   const path = isRecord(call.params) ? call.params['path'] : undefined;
+
   return isString(path) ? path : undefined;
 }
 
@@ -236,10 +249,12 @@ function policy(group: PermissionGroup = { allow: true }): CompiledPolicy {
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb: TenantRunner = {
     runAs: async <T>(_userId: string, operation: (db: Db) => Promise<T>) =>
       operation(db),
   };
+
   return {
     runId: 'run-1',
     nativeExecutorId: 'worktree-host',
@@ -284,6 +299,7 @@ function repositoryRow(overrides: Partial<Repository> = {}): Repository {
 
 function checkoutRow(overrides: Partial<Checkout> = {}): Checkout {
   checkoutSequence += 1;
+
   return {
     id: `checkout-${checkoutSequence}`,
     ownerUserId: 'owner-1',
@@ -365,6 +381,7 @@ function errorOf(result: ToolResult) {
   if (result.status !== 'error') {
     throw new Error(`The call succeeded: ${JSON.stringify(result)}`);
   }
+
   return { type: result.type, message: result.message };
 }
 
@@ -397,6 +414,7 @@ describe('enter_workspace with a worktree', () => {
       'llame',
       'clear-field-0192',
     );
+
     expect(result).toMatchObject({
       status: 'success',
       root: directory,
@@ -513,6 +531,7 @@ describe('enter_workspace with a worktree', () => {
       status: 'success',
       worktree: { baseCommit: linkedHead },
     });
+
     const directory = join(
       source,
       '..',
@@ -520,6 +539,7 @@ describe('enter_workspace with a worktree', () => {
       'llame',
       'clear-field-0192',
     );
+
     expect(headOf(directory)).toBe(linkedHead);
     expect(database.createLease).toHaveBeenCalledWith({
       ownerUserId: 'owner-1',
@@ -630,9 +650,11 @@ describe('enter_workspace with a worktree', () => {
       status: 'success',
       root: join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
     });
+
     const paths = database.createCheckout.mock.calls.map(
       (call) => call[0].path,
     );
+
     // The main clone, the linked source the owner entered, and the new worktree.
     expect(paths).toStrictEqual([
       source,
@@ -802,6 +824,7 @@ describe('enter_workspace with a worktree', () => {
     if (!('worktree' in result)) {
       throw new Error('A worktree entry must report its worktree.');
     }
+
     expect(result.worktree).toMatchObject({
       branch: expect.stringMatching(/^llame\/[a-z]+-[a-z]+-[0-9a-f]{4}$/u),
     });
@@ -860,9 +883,11 @@ describe('enter_workspace with a worktree', () => {
     const database = stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
     const executorsOf = executors();
+
     const canonical = vi
       .spyOn(executorsOf, 'canonical')
       .mockResolvedValue('/tmp/elsewhere/llame/taken');
+
     const remove = vi
       .spyOn(executorsOf, 'removeWorktree')
       .mockResolvedValue({ status: 'ok' });
@@ -889,6 +914,7 @@ describe('enter_workspace with a worktree', () => {
   it('names the directory a failed removal leaves behind', async () => {
     stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+
     const directory = join(
       source,
       '..',
@@ -896,6 +922,7 @@ describe('enter_workspace with a worktree', () => {
       'llame',
       'clear-field-0192',
     );
+
     const executorsOf = executors();
     vi.spyOn(executorsOf, 'canonical').mockResolvedValue(
       '/tmp/elsewhere/llame/taken',
@@ -941,6 +968,7 @@ describe('enter_workspace with a worktree', () => {
     const database = stubbedDatabase();
     database.enter.mockResolvedValue({ status: 'fence_lost' });
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+
     const directory = join(
       source,
       '..',
@@ -986,6 +1014,7 @@ describe('the decisions of a worktree entry', () => {
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
     const executorsOf = executors();
     const inspect = vi.spyOn(executorsOf, 'inspect');
+
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
@@ -1010,6 +1039,7 @@ describe('the decisions of a worktree entry', () => {
     symlinkSync(source, alias, 'dir');
     const executorsOf = executors();
     const inspect = vi.spyOn(executorsOf, 'inspect');
+
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
@@ -1034,6 +1064,7 @@ describe('the decisions of a worktree entry', () => {
     const executorsOf = executors();
     const inspect = vi.spyOn(executorsOf, 'inspect');
     const add = vi.spyOn(executorsOf, 'worktreeAdd');
+
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
@@ -1057,6 +1088,7 @@ describe('the decisions of a worktree entry', () => {
     const linked = linkedWorktree(source, 'feature');
     const executorsOf = executors();
     const add = vi.spyOn(executorsOf, 'worktreeAdd');
+
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
@@ -1078,6 +1110,7 @@ describe('the decisions of a worktree entry', () => {
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
     const executorsOf = executors();
     const add = vi.spyOn(executorsOf, 'worktreeAdd');
+
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
@@ -1204,6 +1237,7 @@ describe('worktree failures that come from the executor', () => {
   it('reports a Link lost after the add as unknown with the decided directory', async () => {
     const database = stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+
     const directory = join(
       source,
       '..',
@@ -1211,6 +1245,7 @@ describe('worktree failures that come from the executor', () => {
       'llame',
       'clear-field-0192',
     );
+
     const executorsOf = executors();
     vi.spyOn(executorsOf, 'worktreeAdd').mockRejectedValue(
       new ExecutorGitError('machine_unavailable', 'refused', true),
@@ -1420,16 +1455,19 @@ describe('worktree names the entry generates', () => {
     stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
     const executorsOf = executors();
+
     const exists = vi
       .spyOn(executorsOf, 'exists')
       .mockResolvedValueOnce(true)
       .mockResolvedValue(false);
+
     const add = vi.spyOn(executorsOf, 'worktreeAdd').mockResolvedValue({
       status: 'ok',
       path: '/x',
       branch: 'llame/x',
       head: 'a',
     });
+
     vi.spyOn(executorsOf, 'inspect').mockResolvedValue({
       status: 'ok',
       toplevel: source,
@@ -1518,11 +1556,13 @@ describe('the source clone a worktree entry reads', () => {
       status: 'success',
       root: join(base, 'llame', 'clear-field-0192'),
     });
+
     // The main clone row exists, so only the entered linked source and the new
     // worktree are recorded.
     const paths = database.createCheckout.mock.calls.map(
       (call) => call[0].path,
     );
+
     expect(paths).toStrictEqual([
       linked,
       join(base, 'llame', 'clear-field-0192'),
@@ -1566,18 +1606,23 @@ describe('the source clone a worktree entry reads', () => {
 describe('a worktree entry on a Machine', () => {
   it('refuses a worktree parent the daemon does not register', async () => {
     const database = stubbedDatabase();
+
     const machine = machineFixture({
       answer: (call) => {
         if (call.method === 'git.inspect')
           return machineInspect('machine://nas/srv/llame');
+
         if (call.method !== 'fs.stat') return undefined;
         const path = statPath(call);
+
         if (path === '/srv/.llame-worktrees')
           return { error: 'path_not_registered' };
+
         if (path === '/srv' || path === '/srv/llame')
           return {
             value: { kind: 'directory', isLink: false, realPath: path },
           };
+
         return { value: { kind: 'missing', isLink: false } };
       },
     });
@@ -1603,17 +1648,22 @@ describe('a worktree entry on a Machine', () => {
         worktreeBase: 'machine://nas/srv/trees',
       }),
     );
+
     const machine = machineFixture({
       answer: (call) => {
         if (call.method === 'git.inspect')
           return machineInspect('machine://nas/srv/llame');
+
         if (call.method !== 'fs.stat') return undefined;
         const path = statPath(call);
+
         if (path === '/srv/trees') return { error: 'path_not_registered' };
+
         if (path === '/srv' || path === '/srv/llame')
           return {
             value: { kind: 'directory', isLink: false, realPath: path },
           };
+
         return { value: { kind: 'missing', isLink: false } };
       },
     });
@@ -1639,16 +1689,21 @@ describe('a worktree entry on a Machine', () => {
 
   it('creates the worktree through the daemon and binds its locator', async () => {
     const database = stubbedDatabase();
+
     const directory =
       'machine://nas/srv/.llame-worktrees/llame/clear-field-0192';
+
     const head = 'b'.repeat(40);
     let added = false;
+
     const machine = machineFixture({
       answer: (call) => {
         if (call.method === 'git.inspect')
           return machineInspect('machine://nas/srv/llame');
+
         if (call.method === 'git.worktreeAdd') {
           added = true;
+
           return {
             value: {
               status: 'ok',
@@ -1658,16 +1713,20 @@ describe('a worktree entry on a Machine', () => {
             },
           };
         }
+
         if (call.method !== 'fs.stat') return undefined;
         const path = statPath(call);
+
         if (path === '/srv' || path === '/srv/llame')
           return {
             value: { kind: 'directory', isLink: false, realPath: path },
           };
+
         if (added && path === '/srv/.llame-worktrees/llame/clear-field-0192')
           return {
             value: { kind: 'directory', isLink: false, realPath: path },
           };
+
         return { value: { kind: 'missing', isLink: false } };
       },
     });

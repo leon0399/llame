@@ -14,6 +14,7 @@ import {
   useRunContextReceipt,
   type RunContextReceipt,
 } from "@/lib/services/chat/runs";
+
 function promptSourceLabel(source: "project_default" | "model_override") {
   return source === "model_override"
     ? "Model-specific override"
@@ -132,7 +133,9 @@ function EffectiveContextBody({
   receipt: ReturnType<typeof useRunContextReceipt>;
 }) {
   if (receipt.isPending) return <EffectiveContextLoading />;
+
   if (receipt.isError) return <EffectiveContextError />;
+
   return <EffectiveContextData data={receipt.data} />;
 }
 

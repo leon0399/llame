@@ -53,6 +53,7 @@ export class KnowledgeToolCandidateResolver {
     const tools = [...(input.codeOwnedTools ?? TOOL_REGISTRY.values())].filter(
       (tool) => this.admitsHostCapability(tool),
     );
+
     const shouldResolveOwner = tools.some(
       (tool) =>
         isKnowledgeToolId(tool.id) &&
@@ -99,8 +100,10 @@ export class KnowledgeToolCandidateResolver {
     const { nativeExecutorId } = this.instanceConfig.config.tools;
     const machines = this.instanceConfig.config.machines !== undefined;
     const ssh = this.instanceConfig.config.ssh !== undefined;
+
     if (isBashTool(tool))
       return nativeExecutorId !== undefined || machines || ssh;
+
     // `grep` is advertised only when a backend can serve it: a host executor,
     // a Knowledge root, an operator skill source, or a Machine.
     if (isGrepTool(tool)) {
@@ -111,8 +114,11 @@ export class KnowledgeToolCandidateResolver {
         machines
       );
     }
+
     if (!isNativeFileTool(tool)) return true;
+
     if (tool.id === 'read') return true;
+
     return (
       nativeExecutorId !== undefined ||
       this.instanceConfig.config.knowledge.root !== undefined ||

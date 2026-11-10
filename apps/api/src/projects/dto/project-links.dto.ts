@@ -192,6 +192,7 @@ export function toProjectRepositoryLinkWithDefaultsResponse(
   defaults: ReadonlyArray<ProjectRepositoryDefault>,
 ): ProjectRepositoryLinkWithDefaultsResponse {
   const base = toProjectRepositoryLinkResponse(link);
+
   return {
     id: base.id,
     ownerUserId: base.ownerUserId,

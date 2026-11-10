@@ -39,6 +39,7 @@ export function resolveEffectiveRole(
   // Walk leaf → root: the first (deepest) membership decides.
   for (let i = ids.length - 1; i >= 0; i -= 1) {
     const role = byUnit.get(ids[i]);
+
     if (role !== undefined) {
       return {
         role,
@@ -47,5 +48,6 @@ export function resolveEffectiveRole(
       };
     }
   }
+
   return null;
 }

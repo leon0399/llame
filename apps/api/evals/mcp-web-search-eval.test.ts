@@ -49,6 +49,7 @@ type LiveEvalConfigResolution = {
 };
 
 const LIVE_TOOL_EXECUTION_TIMEOUT_MS = 30_000;
+
 const LIVE_SEARCH_QUERY =
   'Run a live web search now. Find one source that states the current UTC date in YYYY-MM-DD format. ' +
   'Return non-empty sourced evidence including an HTTP(S) reference and that exact date.';
@@ -59,6 +60,7 @@ function resolveLiveEvalConfig(): LiveEvalConfigResolution {
   }
 
   const missing = ENV_NAMES.filter((name) => !process.env[name]?.trim());
+
   if (missing.length > 0) {
     throw new Error(
       `MCP web-search evaluation is enabled but missing ${missing.join(', ')}.`,
@@ -74,11 +76,13 @@ function resolveLiveEvalConfig(): LiveEvalConfigResolution {
   };
 
   let url: URL;
+
   try {
     url = new URL(values.MCP_WEB_SEARCH_URL);
   } catch {
     throw new Error('MCP_WEB_SEARCH_URL must be a valid absolute URL.');
   }
+
   if (
     (url.protocol !== 'http:' && url.protocol !== 'https:') ||
     url.username.length > 0 ||
@@ -88,6 +92,7 @@ function resolveLiveEvalConfig(): LiveEvalConfigResolution {
       'MCP_WEB_SEARCH_URL must use HTTP(S) and must not contain userinfo.',
     );
   }
+
   try {
     new Headers({
       [values.MCP_WEB_SEARCH_AUTH_HEADER]: values.MCP_WEB_SEARCH_AUTH_VALUE,
@@ -132,9 +137,11 @@ function assertCredentialAbsent(value: unknown, credential: string): void {
 
 function captureConsole(): CapturedConsole {
   const values: Array<unknown> = [];
+
   const capture = (...args: Array<unknown>) => {
     values.push(args);
   };
+
   const spies = [
     vi.spyOn(console, 'debug').mockImplementation(capture),
     vi.spyOn(console, 'error').mockImplementation(capture),
@@ -142,6 +149,7 @@ function captureConsole(): CapturedConsole {
     vi.spyOn(console, 'log').mockImplementation(capture),
     vi.spyOn(console, 'warn').mockImplementation(capture),
   ];
+
   return {
     values,
     restore: () => {
@@ -159,9 +167,11 @@ function findTool(
       definition.remoteName === configuredName ||
       definition.id === configuredName,
   );
+
   if (tool === undefined) {
     throw new Error('The configured MCP web-search tool was not discovered.');
   }
+
   return tool;
 }
 
@@ -169,9 +179,11 @@ function assertStringQueryField(tool: McpDiscoveredTool, field: string): void {
   const properties = tool.definition.inputSchema['properties'];
   const querySchema = isRecord(properties) ? properties[field] : undefined;
   const type = isRecord(querySchema) ? querySchema['type'] : undefined;
+
   const acceptsString =
     type === 'string' ||
     (Array.isArray(type) && type.some((entry) => entry === 'string'));
+
   if (!acceptsString) {
     throw new Error(
       'MCP_WEB_SEARCH_QUERY_FIELD must name a discovered string property.',
@@ -185,14 +197,17 @@ function assertCurrentSourcedEvidence(
   expectedUtcDate: string,
 ): void {
   const evidence = inspectableJson(output);
+
   if (evidence.trim().length === 0) {
     throw new Error('The MCP web-search tool returned no evidence.');
   }
+
   if (!evidence.includes(expectedUtcDate)) {
     throw new Error(
       'The MCP web-search evidence did not establish the exact current UTC date.',
     );
   }
+
   if (!/https?:\/\/[^\s<>"')\]}]+/u.test(evidence)) {
     throw new Error(
       'The MCP web-search evidence did not include an HTTP(S) reference.',
@@ -236,7 +251,9 @@ describe('current sourced evidence gate', () => {
         process.env[name],
       ]),
     );
+
     process.env.RUN_MCP_WEB_SEARCH_EVAL = '1';
+
     for (const name of ENV_NAMES) delete process.env[name];
 
     try {
@@ -260,11 +277,13 @@ d(
   () => {
     it('discovers and executes current sourced search without exposing credentials', async () => {
       const config = resolved.config;
+
       if (config === undefined) {
         throw new Error(
           'The real MCP web-search evaluation was not configured.',
         );
       }
+
       const captured = captureConsole();
       let client: McpServerClient | undefined;
       let safeFailure: Error | undefined;
@@ -285,16 +304,20 @@ d(
         assertStringQueryField(tool, config.queryField);
 
         const expectedUtcDate = new Date().toISOString().slice(0, 10);
+
         const options = {
           toolCallId: crypto.randomUUID(),
           messages: [],
           abortSignal: AbortSignal.timeout(LIVE_TOOL_EXECUTION_TIMEOUT_MS),
         };
+
         const outcome = await tool.execute(
           { [config.queryField]: LIVE_SEARCH_QUERY },
           options,
         );
+
         assertCredentialAbsent(outcome, config.authValue);
+
         if (
           outcome.disposition !== 'none' ||
           outcome.result.status !== 'success'
@@ -303,6 +326,7 @@ d(
             'The MCP web-search tool did not execute successfully.',
           );
         }
+
         assertCurrentSourcedEvidence(outcome.result['output'], expectedUtcDate);
 
         // This exercises the adapter's failure path without issuing a second
@@ -311,7 +335,9 @@ d(
           { [config.queryField]: config.authValue },
           options,
         );
+
         assertCredentialAbsent(rejected, config.authValue);
+
         if (
           rejected.disposition !== 'call_local' ||
           rejected.result.status !== 'error' ||
@@ -329,6 +355,7 @@ d(
             'The real MCP web-search evaluation failed its credential boundary.',
           );
         }
+
         safeFailure ??= new Error(
           'The real MCP web-search evaluation failed before proving sourced evidence.',
         );
@@ -338,6 +365,7 @@ d(
       }
 
       assertCredentialAbsent(captured.values, config.authValue);
+
       if (safeFailure !== undefined) throw safeFailure;
     });
   },

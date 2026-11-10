@@ -49,6 +49,7 @@ const meta = {
 } satisfies Meta<typeof GrepTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -64,9 +65,11 @@ export const Basic: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
     await expect(canvas.getByText("3 in 2 files")).toBeInTheDocument();
     await expect(canvas.getByText("in apps/api/src")).toBeInTheDocument();
+
     const file = canvas.getByRole("group", {
       name: "Matches in apps/api/src/tools/grep.ts",
     });
+
     await expect(file).toHaveTextContent("const parsed");
     await expect(file).not.toHaveTextContent("121: const");
     await expect(within(file).getByText("⋯")).toBeInTheDocument();
@@ -306,9 +309,11 @@ export const SameFileRunsAfterReorder: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+
     const groups = canvas.getAllByRole("group", {
       name: "Matches in src/a.ts",
     });
+
     await expect(groups).toHaveLength(2);
     await expect(groups[0]?.closest("li")).toContainElement(
       canvas.getByText("#1 · p1 · score 0.90"),
@@ -339,9 +344,11 @@ export const TruncatedFinalRun: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+
     const groups = canvas.getAllByRole("group", {
       name: "Matches in src/a.ts",
     });
+
     await expect(groups).toHaveLength(2);
     await expect(groups[1]?.closest("li")).toContainElement(
       canvas.getByText("#2 · p0 · score 0.40"),

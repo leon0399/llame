@@ -19,6 +19,7 @@ const USER_ID = 'owner-1';
 function contextOf(): ToolContext {
   const db = drizzle.mock({ schema });
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
+
   return {
     configuredCredentials: [],
     userId: USER_ID,
@@ -38,6 +39,7 @@ describe('artifact locators through the tools', () => {
       createdAt: new Date('2026-11-02T10:00:00.000Z'),
       parts: [{ name: '', lineCount: 1, byteSize: 6 }],
     });
+
     const readPart = vi
       .spyOn(ArtifactsRepository.prototype, 'readPart')
       .mockResolvedValue({

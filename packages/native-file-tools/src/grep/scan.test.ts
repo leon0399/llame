@@ -35,13 +35,17 @@ function hit(): MemoryNode {
 function decode(cursor: string | undefined): DecodedGrepCursor {
   if (cursor === undefined) throw new Error("expected a cursor");
   const decoded = decodeGrepCursor(cursor, "input-hash");
+
   if ("error" in decoded) throw new Error(decoded.error);
+
   return decoded;
 }
 
 function passageCursor(cursor: string | undefined): GrepPassageCursor {
   const decoded = decode(cursor);
+
   if (decoded.kind !== "passage") throw new Error("expected a passage cursor");
+
   return decoded;
 }
 
@@ -78,10 +82,12 @@ describe("grep walk order and ignore rules", () => {
 
   it("visits files in byte order, depth first, and honors .gitignore", async () => {
     const port = createMemoryPort(repoTree());
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/.editorconfig:1-2",
       "/repo/.env:1-1",
@@ -103,10 +109,12 @@ describe("grep walk order and ignore rules", () => {
 
   it("orders names by UTF-8 bytes, not UTF-16 code units", async () => {
     const port = createMemoryPort({ "😀.md": hit(), "～.md": hit() });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/～.md:1-1",
       "/repo/😀.md:1-1",
@@ -122,10 +130,12 @@ describe("grep walk order and ignore rules", () => {
       },
       true,
     );
+
     const result = await runMemoryScan(
       [memoryScope(0, "/pkg/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/pkg/a.md:1-1",
       "/pkg/z.md:1-1",
@@ -151,10 +161,12 @@ describe("grep walk order and ignore rules", () => {
       },
       true,
     );
+
     const result = await runMemoryScan(
       [memoryScope(0, "/pkg/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/pkg/pkg/deep.md:1-1",
     ]);
@@ -163,6 +175,7 @@ describe("grep walk order and ignore rules", () => {
 
   it("searches an exact gitignored file through a single-file scope", async () => {
     const port = createSingleFilePort(hit(), "app.js\n");
+
     const result = await runMemoryScan(
       [
         memoryScope(0, "/repo/dist/app.js", port, {
@@ -171,6 +184,7 @@ describe("grep walk order and ignore rules", () => {
       ],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/dist/app.js:1-1",
     ]);
@@ -181,6 +195,7 @@ describe("grep walk order and ignore rules", () => {
   it("repeats the file line when an overlapping later scope yields the same file", async () => {
     const tree = createMemoryPort({ "app.js": file("hit\nplain\nhit\n") });
     const single = createSingleFilePort(file("hit\nplain\nhit\n"));
+
     const result = await runMemoryScan(
       [
         memoryScope(0, "/repo/dist/", tree),
@@ -188,6 +203,7 @@ describe("grep walk order and ignore rules", () => {
       ],
       ["hit"],
     );
+
     // Both scopes yield the same file and the same lines, so the later run
     // starts a new file line instead of merging under the first.
     expect(renderGrepText({ results: result.results, complete: true })).toBe(
@@ -210,10 +226,12 @@ describe("grep walk order and ignore rules", () => {
       "b.txt": hit(),
       sub: directory({ "c.md": hit(), "d.txt": hit() }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port, { glob: "*.md" })],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.md:1-1",
     ]);
@@ -223,10 +241,12 @@ describe("grep walk order and ignore rules", () => {
   it("orders passages by submitted scope index", async () => {
     const first = createMemoryPort({ "b.md": hit() });
     const second = createMemoryPort({ "a.md": hit() });
+
     const result = await runMemoryScan(
       [memoryScope(1, "/later/", first), memoryScope(0, "/first/", second)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/first/a.md:1-1",
       "/later/b.md:1-1",
@@ -237,6 +257,7 @@ describe("grep walk order and ignore rules", () => {
     const port = createMemoryPort({
       "a*.md": file("line1\nline2\nhit\nline4\n"),
     });
+
     const result = await runMemoryScan(
       [
         memoryScope(0, "kb://space/notes/", port, {
@@ -246,6 +267,7 @@ describe("grep walk order and ignore rules", () => {
       ],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "kb://space/notes/a%2A.md:2-4",
     ]);
@@ -258,10 +280,12 @@ describe("grep walk order and ignore rules", () => {
       "x.log": hit(),
       "y.LOG": hit(),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/x.log:1-1",
     ]);
@@ -275,10 +299,12 @@ describe("grep walk order and ignore rules", () => {
         build: directory({ "keep.js": hit(), "noise.log": hit() }),
       }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/sub/build/keep.js:1-1",
     ]);
@@ -289,10 +315,12 @@ describe("grep walk order and ignore rules", () => {
     const port = createMemoryPort({ "index.js": hit() }, false, [
       { above: "node_modules/react/", text: "node_modules/\n" },
     ]);
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/node_modules/react/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/node_modules/react/index.js:1-1",
     ]);
@@ -303,10 +331,12 @@ describe("grep walk order and ignore rules", () => {
       ".gitignore": file("node_modules/\n"),
       node_modules: directory({ react: directory({ "index.js": hit() }) }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port, { glob: "**/node_modules/react/*.js" })],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
   });
 
@@ -319,10 +349,12 @@ describe("grep walk order and ignore rules", () => {
       false,
       [{ above: "node_modules/react/", text: "node_modules/\n" }],
     );
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/node_modules/react/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/node_modules/react/index.js:1-1",
     ]);
@@ -334,10 +366,12 @@ describe("grep walk order and ignore rules", () => {
       lib: directory({ "c.js": hit() }),
       src: directory({ a: directory({ "b.js": hit() }) }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/src/a/b.js:1-1",
     ]);
@@ -348,10 +382,12 @@ describe("grep walk order and ignore rules", () => {
       ".gitignore": file("build*\n!build-tools/\n"),
       "build-tools": directory({ "build.sh": hit(), "tool.js": hit() }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/build-tools/tool.js:1-1",
     ]);
@@ -365,10 +401,12 @@ describe("grep walk order and ignore rules", () => {
         keep: directory({ "a.md": hit() }),
       }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
   });
 
@@ -378,10 +416,12 @@ describe("grep walk order and ignore rules", () => {
       ".ignore": file("!build/\nhit\n"),
       build: directory({ "app.js": hit() }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/build/app.js:1-1",
     ]);
@@ -396,10 +436,12 @@ describe("grep walk order and ignore rules", () => {
       false,
       [{ above: "node_modules/react/", text: "/lib\n" }],
     );
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/node_modules/react/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/node_modules/react/index.js:1-1",
       "/repo/node_modules/react/lib/a.js:1-1",
@@ -410,10 +452,12 @@ describe("grep walk order and ignore rules", () => {
     const port = createMemoryPort({ "a.md": hit(), "b.md": hit() }, false, [
       { above: "apps/", text: "b.md\n" },
     ]);
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/apps/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/apps/a.md:1-1",
     ]);
@@ -427,21 +471,26 @@ describe("grep excluded-directory report", () => {
       node_modules: directory({ "dep.js": hit() }),
       "src.js": hit(),
     });
+
     const first = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(first.ignored).toEqual({
       paths: ["/repo/node_modules"],
       atLeast: false,
     });
+
     const nodeModules = createMemoryPort({
       "dep.js": hit(),
     });
+
     const second = await runMemoryScan(
       [memoryScope(0, "/repo/node_modules/", nodeModules)],
       ["hit"],
     );
+
     expect(second.results.map((passage) => passage.locator)).toEqual([
       "/repo/node_modules/dep.js:1-1",
     ]);
@@ -454,10 +503,12 @@ describe("grep excluded-directory report", () => {
         node_modules: directory({ "dep.js": hit() }),
       }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.ignored?.paths).toEqual(["/repo/node_modules"]);
   });
 
@@ -468,19 +519,23 @@ describe("grep excluded-directory report", () => {
       b: directory({ "b.md": file("plain\n") }),
       c: directory({ "c.md": hit() }),
     });
+
     const first = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       { budget: { entries: 2, files: null, bytes: null } },
     );
+
     expect(first.ignored?.paths).toEqual(["/repo/a"]);
     const cursor = decode(first.cursor);
     expect(cursor.kind).toBe("position");
+
     const second = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       { cursor },
     );
+
     expect(second.ignored).toBeUndefined();
   });
 
@@ -490,8 +545,10 @@ describe("grep excluded-directory report", () => {
       content: "1: hit",
       matches: [1],
     };
+
     const ignored = { count: 1, locators: ["/repo/a"], atLeast: false };
     const fixedReserve = 5;
+
     const pageUnits =
       Math.max(
         grepContinuationUnits({ scopeIndex: 0, rel: ".gitignore" }),
@@ -502,40 +559,49 @@ describe("grep excluded-directory report", () => {
       grepIgnoredUnits(ignored) +
       fixedReserve -
       1;
+
     const excluded = createMemoryPort({
       ".gitignore": file("a/\n"),
       a: directory({}),
       "b.md": hit(),
     });
+
     const reserved = await runMemoryScan(
       [memoryScope(0, "/repo/", excluded)],
       ["hit"],
       { budget: { pageUnits, fixedReserve } },
     );
+
     expect(reserved.ignored?.paths).toEqual(["/repo/a"]);
     expect(reserved.results).toEqual([{ ...expected, cut: true }]);
+
     const control = await runMemoryScan(
       [memoryScope(0, "/repo/", createMemoryPort({ "b.md": hit() }))],
       ["hit"],
       { budget: { pageUnits, fixedReserve } },
     );
+
     expect(control.results).toEqual([expected]);
   });
 
   it("ends the page before an exclusion whose line no longer fits", async () => {
     const inputHash = "a".repeat(64);
+
     const ignoredUnits = grepIgnoredUnits({
       count: 1,
       locators: ["/repo/node_modules"],
       atLeast: false,
     });
+
     const continuation = grepContinuationUnits({
       scopeIndex: 0,
       rel: "a.md",
       startLine: 1,
     });
+
     const room = 15_000 - continuation;
     const line = (width: number): string => "a".repeat(width);
+
     const passageOf = (widthsOf: ReadonlyArray<number>) => ({
       locator: `/repo/a.md:1-${widthsOf.length}`,
       content: widthsOf
@@ -543,34 +609,42 @@ describe("grep excluded-directory report", () => {
         .join("\n"),
       matches: widthsOf.map((_, index) => index + 1),
     });
+
     const unitsOfLines = (count: number): number =>
       grepPassageUnits(
         undefined,
         passageOf(Array.from({ length: count }, () => 20)),
       );
+
     let low = 1;
     let high = 2000;
+
     while (low < high) {
       const middle = Math.ceil((low + high) / 2);
+
       if (unitsOfLines(middle) <= room) low = middle;
       else high = middle - 1;
     }
+
     const widths = Array.from({ length: low }, () => 20);
     let units = unitsOfLines(low);
     widths[widths.length - 1] += room - units;
     units = grepPassageUnits(undefined, passageOf(widths));
     expect(units).toBe(room);
+
     const tree = createMemoryPort({
       ".gitignore": file("node_modules/\n"),
       "a.md": file(`${widths.map(line).join("\n")}\n`),
       node_modules: directory({ "dep.js": hit() }),
       "z.md": file("plain\n"),
     });
+
     const first = await runMemoryScan([memoryScope(0, "/repo/", tree)], ["a"], {
       literal: true,
       inputHash,
       budget: { pageUnits: 15_000, fixedReserve: 0 },
     });
+
     expect(first.results.map((passage) => passage.locator)).toEqual([
       `/repo/a.md:1-${widths.length}`,
     ]);
@@ -581,7 +655,9 @@ describe("grep excluded-directory report", () => {
     expect(first.consumed.entries).toBe(2);
     expect(measureGrepRendering({ ...first })).toBeLessThanOrEqual(15_000);
     const decoded = decodeGrepCursor(first.cursor ?? "", inputHash);
+
     if ("error" in decoded) throw new Error(decoded.error);
+
     const second = await runMemoryScan(
       [memoryScope(0, "/repo/", tree)],
       ["a"],
@@ -592,6 +668,7 @@ describe("grep excluded-directory report", () => {
         budget: { pageUnits: 15_000, fixedReserve: 0 },
       },
     );
+
     expect(second.ignored?.paths).toEqual(["/repo/node_modules"]);
     expect(second.complete).toBe(true);
     expect(ignoredUnits + room + continuation).toBeGreaterThan(15_000);
@@ -607,12 +684,15 @@ describe("grep excluded-directory report", () => {
         ]),
       ),
     } satisfies MemoryTree;
+
     const port = createMemoryPort(children);
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       { budget: { entries: null, files: null, bytes: null } },
     );
+
     expect(result.ignored?.paths).toHaveLength(1000);
     expect(result.ignored?.atLeast).toBe(true);
   });
@@ -624,10 +704,12 @@ describe("grep walk bounds", () => {
       "bin.md": binary(Uint8Array.of(0x68, 0x69, 0x74, 0x00)),
       "txt.md": hit(),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/txt.md:1-1",
     ]);
@@ -638,10 +720,12 @@ describe("grep walk bounds", () => {
     const port = createMemoryPort({
       "bad.md": binary(Uint8Array.of(0xff, 0xfe)),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "invalid_utf8", count: 1 }]);
   });
@@ -651,10 +735,12 @@ describe("grep walk bounds", () => {
       "big.md": { kind: "file", content: "", refusal: "oversized" },
       "locked.md": { kind: "file", content: "", refusal: "unreadable" },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.warnings).toEqual([
       { kind: "oversized", count: 1 },
       { kind: "unreadable", count: 1 },
@@ -667,6 +753,7 @@ describe("grep walk bounds", () => {
       "b.md": hit(),
       "c.md": hit(),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -674,6 +761,7 @@ describe("grep walk bounds", () => {
         budget: { files: 2 },
       },
     );
+
     expect(result.results).toHaveLength(2);
     expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
@@ -687,21 +775,28 @@ describe("grep walk bounds", () => {
       "a.md": hit(),
       "b.bin": binary(Uint8Array.of(0x00, 0x01)),
     };
+
     const whole = await runMemoryScan(
       [memoryScope(0, "/repo/", createMemoryPort(tree))],
       ["hit"],
     );
+
     const passage = whole.results[0];
+
     if (passage === undefined) throw new Error("the fixture has a passage");
+
     const pageUnits =
       grepPassageUnits(undefined, passage) +
       grepContinuationUnits({ scopeIndex: 0, rel: "a.md", startLine: 1 }) +
       1;
+
     const port = createMemoryPort(tree);
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { pageUnits },
     });
+
     expect(first.results.map((entry) => entry.locator)).toEqual([
       "/repo/a.md:1-1",
     ]);
@@ -721,6 +816,7 @@ describe("grep walk bounds", () => {
     const second = await runMemoryScan([scope], ["hit"], {
       cursor: passageCursor(first.cursor),
     });
+
     expect(second.warnings).toEqual([{ kind: "binary", count: 1 }]);
     expect(second.complete).toBe(true);
   });
@@ -731,13 +827,16 @@ describe("grep walk bounds", () => {
       { budget: { entries: 0 }, warning: "entry_bound" },
       { budget: { bytes: 0 }, warning: "byte_bound" },
     ] as const;
+
     for (const { budget, warning } of cases) {
       const port = createMemoryPort({ "a.md": hit(), "b.md": hit() });
+
       const result = await runMemoryScan(
         [memoryScope(0, "/repo/", port)],
         ["hit"],
         { budget },
       );
+
       expect(result.results).toEqual([]);
       expect(result.complete).toBe(false);
       expect(result.warnings).toEqual([{ kind: warning, count: 1 }]);
@@ -755,10 +854,13 @@ describe("grep walk bounds", () => {
       "b.md": file("miss\n"),
       "c.md": hit(),
     });
+
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { files: 2 },
     });
+
     expect(first.results).toEqual([]);
     expect(first.complete).toBe(false);
     expect(first.warnings).toEqual([{ kind: "file_bound", count: 1 }]);
@@ -782,7 +884,9 @@ describe("grep walk bounds", () => {
       "b.md": file("miss\n"),
       "c.md": hit(),
     });
+
     let clock = 0;
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -791,6 +895,7 @@ describe("grep walk bounds", () => {
         now: () => (clock += 1000),
       },
     );
+
     expect(result.results).toEqual([]);
     expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([{ kind: "deadline", count: 1 }]);
@@ -806,6 +911,7 @@ describe("grep walk bounds", () => {
       "b.md": hit(),
       "c.md": hit(),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -813,6 +919,7 @@ describe("grep walk bounds", () => {
         budget: { entries: 1 },
       },
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.md:1-1",
     ]);
@@ -826,6 +933,7 @@ describe("grep walk bounds", () => {
       d2: directory({ "b.md": hit() }),
       d3: directory({ "c.md": hit() }),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -833,6 +941,7 @@ describe("grep walk bounds", () => {
         budget: { entries: 1 },
       },
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "entry_bound", count: 1 }]);
     expect(result.complete).toBe(false);
@@ -845,9 +954,11 @@ describe("grep walk bounds", () => {
   it("stops at the byte bound before opening a file and restarts the scope", async () => {
     const port = createMemoryPort({ "a.md": hit() });
     const scope = memoryScope(0, "/repo/", port);
+
     const result = await runMemoryScan([scope], ["hit"], {
       budget: { bytes: 0 },
     });
+
     expect(result.results).toEqual([]);
     expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
@@ -868,23 +979,28 @@ describe("grep walk bounds", () => {
 
   it("resumes past 20,000 unopened link entries", async () => {
     const tree: Record<string, MemoryNode> = {};
+
     for (let index = 0; index <= 20_000; index += 1)
       tree[`l${String(index).padStart(5, "0")}`] = { kind: "link" };
     tree["z.md"] = hit();
     const port = createMemoryPort(tree);
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { entries: 20_000 },
     });
+
     expect(first.results).toEqual([]);
     expect(first.complete).toBe(false);
     expect(first.warnings).toEqual([{ kind: "entry_bound", count: 1 }]);
     // The bound stopped before the file, but every link it counted was reached.
     const cursor = decode(first.cursor);
     expect(cursor).toMatchObject({ kind: "position", rel: "l19999" });
+
     const second = await runMemoryScan([scope], ["hit"], {
       cursor: decode(first.cursor),
     });
+
     expect(second.results.map((passage) => passage.locator)).toEqual([
       "/repo/z.md:1-1",
     ]);
@@ -898,10 +1014,12 @@ describe("grep walk bounds", () => {
     const port = createMemoryPort({ "a.md": hit() });
     const scope = memoryScope(0, "/repo/", port);
     let clock = 0;
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { deadlineMs: 2500 },
       now: () => (clock += 5000),
     });
+
     expect(first.results).toEqual([]);
     expect(first.complete).toBe(false);
     expect(first.warnings).toEqual([{ kind: "deadline", count: 1 }]);
@@ -921,13 +1039,16 @@ describe("grep walk bounds", () => {
   it("never re-opens a single-file scope after a later scope stops at a bound", async () => {
     const solo = createSingleFilePort(file("miss\n"));
     const rest = createMemoryPort({ "a.md": hit() });
+
     const scopes = [
       memoryScope(0, "/repo/solo.md", solo, { singleFile: true }),
       memoryScope(1, "/repo/dir/", rest),
     ];
+
     const first = await runMemoryScan(scopes, ["hit"], {
       budget: { files: 1 },
     });
+
     expect(first.complete).toBe(false);
     expect(solo.reads).toEqual([""]);
     expect(decode(first.cursor)).toMatchObject({
@@ -935,9 +1056,11 @@ describe("grep walk bounds", () => {
       scopeIndex: 1,
       rel: "",
     });
+
     const second = await runMemoryScan(scopes, ["hit"], {
       cursor: decode(first.cursor),
     });
+
     expect(second.results.map((passage) => passage.locator)).toEqual([
       "/repo/dir/a.md:1-1",
     ]);
@@ -948,16 +1071,20 @@ describe("grep walk bounds", () => {
     const text = Array.from({ length: 30 }, () => "hit").join("\n");
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { pageUnits: 150 },
     });
+
     const cursor = passageCursor(first.cursor);
     let clock = 0;
+
     const stalled = await runMemoryScan([scope], ["hit"], {
       cursor,
       budget: { deadlineMs: 2500 },
       now: () => (clock += 5000),
     });
+
     expect(stalled.results).toEqual([]);
     expect(stalled.complete).toBe(false);
     // Never behind the cursor it was given: no replay of the first page.
@@ -969,28 +1096,35 @@ describe("grep walk bounds", () => {
       d: directory({ "a.md": file("miss\n"), "b.md": file("miss\n") }),
       "z.md": hit(),
     });
+
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { entries: 1 },
     });
+
     // The directory was reached before it was descended, so the cursor names it.
     expect(decode(first.cursor)).toMatchObject({
       kind: "position",
       rel: "d",
     });
+
     const second = await runMemoryScan([scope], ["hit"], {
       cursor: decode(first.cursor),
       budget: { entries: 1 },
     });
+
     expect(second.results).toEqual([]);
     // The first child it opened moves the resume point past the directory.
     expect(decode(second.cursor)).toMatchObject({
       kind: "position",
       rel: "d/a.md",
     });
+
     const third = await runMemoryScan([scope], ["hit"], {
       cursor: decode(second.cursor),
     });
+
     expect(third.results.map((passage) => passage.locator)).toEqual([
       "/repo/z.md:1-1",
     ]);
@@ -1004,7 +1138,9 @@ describe("grep walk bounds", () => {
       "b.md": hit(),
       "c.md": hit(),
     });
+
     let clock = 0;
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -1013,6 +1149,7 @@ describe("grep walk bounds", () => {
         now: () => (clock += 1000),
       },
     );
+
     expect(result.results).toHaveLength(2);
     expect(result.complete).toBe(false);
     expect(result.warnings).toEqual([{ kind: "deadline", count: 1 }]);
@@ -1028,15 +1165,19 @@ describe("grep paging", () => {
     expect(first.results).toHaveLength(20);
     expect(first.complete).toBe(false);
     const openedBefore = port.reads.length;
+
     const second = await runMemoryScan([scope], ["hit"], {
       cursor: decode(first.cursor),
     });
+
     expect(second.results).toHaveLength(5);
     expect(second.complete).toBe(true);
     expect(second.cursor).toBeUndefined();
+
     const repeated = first.results.filter((passage) =>
       second.results.some((other) => other.locator === passage.locator),
     );
+
     expect(repeated).toEqual([]);
     // Only the file the cursor names and later files are opened.
     expect(port.reads.slice(openedBefore)).toEqual([
@@ -1053,11 +1194,14 @@ describe("grep paging", () => {
     const text = Array.from({ length: 130 }, (_, index) =>
       (index + 1) % 5 === 1 ? "hit" : "x",
     ).join("\n");
+
     const port = createMemoryPort({ "a.md": file(`${text}\n`), "b.md": hit() });
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { limit: 1 },
     });
+
     expect(first.results).toHaveLength(20);
     expect(first.results[19]).toMatchObject({
       locator: "/repo/a.md:95-97",
@@ -1077,6 +1221,7 @@ describe("grep paging", () => {
     // after the page's cursor, so the next page walks them again: only that
     // page may count them.
     const long = Array.from({ length: 60 }, () => "hit").join("\n");
+
     const port = createMemoryPort({
       ".gitignore": file("bdir/\n"),
       "a.md": file("hit\n"),
@@ -1084,10 +1229,13 @@ describe("grep paging", () => {
       bdir: directory({ "c.md": file("hit\n") }),
       "c.md": file(`${long}\n`),
     });
+
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { pageUnits: reservedRoom("a.md", 100) },
     });
+
     expect(first.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.md:1-1",
     ]);
@@ -1099,6 +1247,7 @@ describe("grep paging", () => {
       cursor: decode(first.cursor),
       progressed: first.progressed,
     });
+
     expect(second.results.map((passage) => passage.locator)).toEqual([
       "/repo/c.md:1-60",
     ]);
@@ -1114,17 +1263,22 @@ describe("grep paging", () => {
     const text = Array.from({ length: 26 }, (_, index) =>
       (index + 1) % 5 === 1 ? "hit" : "x",
     ).join("\n");
+
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { pageUnits: reservedRoom("a.md", 50) },
     });
+
     expect(first.results.length).toBeGreaterThan(0);
     expect(first.results.length).toBeLessThan(6);
     expect(first.complete).toBe(false);
+
     const second = await runMemoryScan([scope], ["hit"], {
       cursor: decode(first.cursor),
     });
+
     expect(second.results).toHaveLength(6 - first.results.length);
     expect(second.complete).toBe(true);
   });
@@ -1133,25 +1287,31 @@ describe("grep paging", () => {
     const text = Array.from({ length: 60 }, (_, index) =>
       (index + 1) % 5 === 1 ? "hit" : "x",
     ).join("\n");
+
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       { budget: { pageUnits: 700, fixedReserve: 300 } },
     );
+
     expect(result.complete).toBe(false);
     expect(result.results.length).toBeGreaterThan(0);
+
     const page = {
       results: result.results,
       complete: false,
       cursor: result.cursor,
     };
+
     expect(measureGrepRendering(page) + 300).toBeLessThanOrEqual(700);
   });
 
   it("cuts a first passage that does not fit at a line boundary", async () => {
     const text = Array.from({ length: 30 }, () => "hit").join("\n");
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -1159,6 +1319,7 @@ describe("grep paging", () => {
         budget: { pageUnits: reservedRoom("a.md", 150) },
       },
     );
+
     expect(result.results).toHaveLength(1);
     // A cut passage is marked as cut, not as its file's capped twentieth.
     expect(result.results[0].cut).toBe(true);
@@ -1176,11 +1337,14 @@ describe("grep paging", () => {
     const text = Array.from({ length: 30 }, () => "hit").join("\n");
     const port = createMemoryPort({ "a.md": file(`${text}\n`) });
     const scope = memoryScope(0, "/repo/", port);
+
     const first = await runMemoryScan([scope], ["hit"], {
       budget: { pageUnits: reservedRoom("a.md", 150) },
     });
+
     const cursor = passageCursor(first.cursor);
     const emittedEnd = cursor.endLine;
+
     if (emittedEnd === undefined) throw new Error("expected a cut line");
     expect(emittedEnd).toBeGreaterThanOrEqual(1);
     expect(emittedEnd).toBeLessThan(30);
@@ -1198,6 +1362,7 @@ describe("grep paging", () => {
   it("emits no rest when only context lines follow the cut", async () => {
     const port = createMemoryPort({ "a.md": file("hit\nctx\n") });
     const scope = memoryScope(0, "/repo/", port);
+
     const second = await runMemoryScan([scope], ["hit"], {
       cursor: {
         kind: "passage",
@@ -1208,6 +1373,7 @@ describe("grep paging", () => {
         inputHash: "test-hash",
       },
     });
+
     expect(second.results).toEqual([]);
     expect(second.complete).toBe(true);
   });
@@ -1217,10 +1383,12 @@ describe("grep paging", () => {
       "bin.md": binary(Uint8Array.of(0x00)),
       "a.md": file("nothing here\n"),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
     expect(result.complete).toBe(true);
     expect(result.warnings).toEqual([{ kind: "binary", count: 1 }]);
@@ -1233,6 +1401,7 @@ describe("grep read admission", () => {
       "a.md": hit(),
       ".env": file("SECRET=hit\n"),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
@@ -1240,6 +1409,7 @@ describe("grep read admission", () => {
         onCandidate: (locator) => Promise.resolve(!locator.endsWith("/.env")),
       },
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.md:1-1",
     ]);
@@ -1249,10 +1419,12 @@ describe("grep read admission", () => {
 
   it("reports consumed files, entries, and bytes", async () => {
     const port = createMemoryPort({ "a.md": hit(), "b.md": file("miss\n") });
+
     const result: GrepScanResult = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.consumed).toEqual({ files: 2, entries: 2, bytes: 9 });
   });
 });
@@ -1265,10 +1437,12 @@ describe("grep streamed files", () => {
 
   it("searches a two-mebibyte file when no file-size bound is set", async () => {
     const port = createMemoryPort({ "big.md": file(largeLog()) });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["needle"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/big.md:2000-2001",
     ]);
@@ -1277,11 +1451,13 @@ describe("grep streamed files", () => {
 
   it("skips a file over the configured file-size bound and counts it", async () => {
     const port = createMemoryPort({ "big.md": file(largeLog()) });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["needle"],
       { budget: { maxFileBytes: 1024 } },
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "oversized", count: 1 }]);
   });
@@ -1290,11 +1466,13 @@ describe("grep streamed files", () => {
     const port = createMemoryPort({
       "exact.md": { kind: "file", content: "needle\n", announcedSize: 7 },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["needle"],
       { budget: { maxFileBytes: 7 } },
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/exact.md:1-1",
     ]);
@@ -1311,11 +1489,13 @@ describe("grep streamed files", () => {
         chunkBytes: 3,
       },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["needle"],
       { budget: { maxFileBytes: 7 } },
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/exact.md:1-1",
     ]);
@@ -1325,11 +1505,13 @@ describe("grep streamed files", () => {
     const port = createMemoryPort({
       "big.md": { kind: "file", content: "needle\n", announcedSize: 99 },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["needle"],
       { budget: { maxFileBytes: 10 } },
     );
+
     expect(result.warnings).toEqual([{ kind: "oversized", count: 1 }]);
     expect(result.consumed.bytes).toBe(0);
     expect(port.closes).toEqual(["big.md"]);
@@ -1343,11 +1525,13 @@ describe("grep streamed files", () => {
         announcedSize: 1024,
       },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["needle"],
       { budget: { maxFileBytes: 1024 * 1024 } },
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "oversized", count: 1 }]);
   });
@@ -1358,11 +1542,13 @@ describe("grep streamed files", () => {
       "b.md": hit(),
       "c.md": hit(),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
       { budget: { files: null, entries: null, bytes: null } },
     );
+
     expect(result.results).toHaveLength(3);
     expect(result.complete).toBe(true);
     expect(result.warnings).toEqual([]);
@@ -1372,10 +1558,12 @@ describe("grep streamed files", () => {
     const port = createMemoryPort({
       "one-line.md": file(`hit\n${"x".repeat(4 * 1024 * 1024 + 1)}\n`),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "oversized", count: 1 }]);
   });
@@ -1386,11 +1574,14 @@ describe("grep streamed files", () => {
       Buffer.from("y".repeat(900_000), "utf8"),
       Buffer.from([0xff, 0x0a]),
     ]);
+
     const port = createMemoryPort({ "late.md": binary(bytes) });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "invalid_utf8", count: 1 }]);
   });
@@ -1401,10 +1592,12 @@ describe("grep streamed files", () => {
         `hit\n${"x\n".repeat(8)}${"x".repeat(4 * 1024 * 1024 + 1)}\n`,
       ),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "oversized", count: 1 }]);
   });
@@ -1418,10 +1611,12 @@ describe("grep streamed files", () => {
       },
       "a.md": hit(),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.md:1-1",
     ]);
@@ -1432,13 +1627,16 @@ describe("grep streamed files", () => {
 
   it("keeps a later match after a gap longer than the held content", async () => {
     const filler = `${"x".repeat(200)}\n`.repeat(2000);
+
     const port = createMemoryPort({
       "gap.md": file(`needle one\n${filler}needle two\n`),
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["needle"],
     );
+
     expect(result.results.map((passage) => passage.locator)).toEqual([
       "/repo/gap.md:1-2",
       "/repo/gap.md:2001-2002",
@@ -1452,13 +1650,16 @@ describe("grep streamed files", () => {
       Buffer.from("y".repeat(200_000), "utf8"),
       Buffer.from([0xff, 0x0a]),
     ]);
+
     const port = createMemoryPort({
       "late.md": { kind: "binary", bytes, chunkBytes: 64 * 1024 },
     });
+
     const result = await runMemoryScan(
       [memoryScope(0, "/repo/", port)],
       ["hit"],
     );
+
     expect(result.results).toEqual([]);
     expect(result.warnings).toEqual([{ kind: "invalid_utf8", count: 1 }]);
   });
@@ -1466,6 +1667,7 @@ describe("grep streamed files", () => {
   it("keeps a match after a complete passage frees the hold limit", async () => {
     const line = (n: number) =>
       `${n <= 28 || n === 35 ? "hit" : "filler"} ${"x".repeat(493)}`;
+
     const content = `${Array.from({ length: 35 }, (_v, index) => line(index + 1)).join("\n")}\n`;
     const port = createMemoryPort({ "a.md": file(content) });
     const scope = memoryScope(0, "/repo/", port);
@@ -1475,9 +1677,11 @@ describe("grep streamed files", () => {
     ]);
     // The page could not hold the second passage, so the call continues.
     expect(first.complete).toBe(false);
+
     const rest = await runMemoryScan([scope], ["hit"], {
       cursor: passageCursor(first.cursor),
     });
+
     expect(rest.results.map((passage) => passage.locator)).toEqual([
       "/repo/a.md:34-35",
     ]);
@@ -1490,26 +1694,34 @@ describe("grep streamed files", () => {
       (_, index) =>
         `hit ${String(index + 1).padStart(2, "0")} ${"x".repeat(600)}`,
     );
+
     const port = createMemoryPort({ "long.md": file(`${lines.join("\n")}\n`) });
     const scope = memoryScope(0, "/repo/", port);
     const seen: Array<number> = [];
     let cursor: GrepPassageCursor | undefined;
     let complete = false;
+
     for (let call = 0; call < 10 && !complete; call += 1) {
       const page = await runMemoryScan([scope], ["hit"], {
         ...(cursor !== undefined && { cursor }),
       });
+
       complete = page.complete;
+
       for (const passage of page.results) {
         const [start, end] = passage.locator
           .split(":")[1]
           .split("-")
           .map((value) => Number(value));
+
         expect(passage.matches.length).toBeGreaterThan(0);
+
         for (let line = start; line <= end; line += 1) seen.push(line);
       }
+
       if (!page.complete) cursor = passageCursor(page.cursor);
     }
+
     expect(seen).toEqual(Array.from({ length: 60 }, (_, index) => index + 1));
     expect(complete).toBe(true);
   });

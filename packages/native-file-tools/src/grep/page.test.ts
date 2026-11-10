@@ -149,16 +149,20 @@ describe("grep page reservation", () => {
       pageUnits: GREP_LIMITS.pageCodeUnits,
       fixedReserve: 0,
     };
+
     const locator = "/repo/a.md:1-1";
+
     const reserve = grepContinuationUnits({
       scopeIndex: 0,
       rel: "a.md",
       startLine: 1,
     });
+
     const bare = renderGrepText({
       results: [{ locator, content: "1: ", matches: [1] }],
       complete: true,
     }).length;
+
     const passageOf = (extra: number): GrepPassage => ({
       locator,
       content: `1: ${"a".repeat(GREP_LIMITS.pageCodeUnits - reserve - bare + extra)}`,

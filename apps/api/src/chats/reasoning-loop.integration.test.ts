@@ -50,6 +50,7 @@ import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 const knowledgeResolver: KnowledgeToolResolver = {
@@ -154,6 +155,7 @@ function reasoningThenText(): FixtureStreamResponse {
       },
     },
   ];
+
   return { stream: simulateReadableStream({ chunks }) };
 }
 
@@ -171,11 +173,13 @@ function reasoningThenErrorMidAnswer(): FixtureStreamResponse {
     { type: 'text-delta', id: 't', delta: 'partial answer' },
     { type: 'error', error: new Error('provider dropped the stream') },
   ];
+
   return { stream: simulateReadableStream({ chunks }) };
 }
 
 async function waitFor(poll: () => Promise<boolean>, timeoutMs = 8000) {
   const start = Date.now();
+
   while (!(await poll())) {
     if (Date.now() - start > timeoutMs) throw new Error('timed out');
     await new Promise((r) => setTimeout(r, 25));
@@ -196,6 +200,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
+
     // The window variant is never exercised by this suite: every seeded
     // context fits the mock model's context window, so a rejection catches a
     // future scenario silently relying on it. The threshold variant resolves
@@ -208,6 +213,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
             )
           : Promise.resolve(null),
     };
+
     const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };
     // No tools configured (BUILT_IN_DEFAULTS.tools.allowed is empty) — this
     // suite is master's answer-only loop, no tool loop involved.
@@ -246,14 +252,17 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
 
   it('reasoning precedes the answer in the event log (cross-flush) and is persisted as a leading part', async () => {
     const chatId = crypto.randomUUID();
+
     const initialParts: Array<TextPart> = [
       { type: 'text', text: 'think then answer' },
     ];
+
     const userMessage = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: userId,
       });
+
       return new MessagesRepository(tx).create({
         chatId,
         role: 'user',
@@ -261,6 +270,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         parts: initialParts,
       });
     });
+
     const run = await tenantDb.runAs(userId, async (tx) => {
       return new RunsRepository(tx).create({
         chatId,
@@ -285,17 +295,20 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       },
       client: createMockModelClient(model),
     });
+
     await result.consumeStream?.();
     await waitFor(async () => {
       const events = await tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(run.id, userId),
       );
+
       return events.some((e) => e.eventType === 'run.completed');
     });
 
     const events = await tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(run.id, userId),
     );
+
     const types = events.map((e) => e.eventType);
 
     // reasoning was captured and persisted as a run-event…
@@ -318,6 +331,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     const assistant = messages.find((m) => m.role === 'assistant');
     const parts = assistant?.parts;
     expect(parts?.[0]).toEqual({
@@ -334,14 +348,17 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
 
   it('keeps both the reasoning and the partial answer when the stream errors mid-turn', async () => {
     const chatId = crypto.randomUUID();
+
     const initialParts: Array<TextPart> = [
       { type: 'text', text: 'think then die' },
     ];
+
     const userMessage = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: userId,
       });
+
       return new MessagesRepository(tx).create({
         chatId,
         role: 'user',
@@ -349,6 +366,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
         parts: initialParts,
       });
     });
+
     const run = await tenantDb.runAs(userId, async (tx) => {
       return new RunsRepository(tx).create({
         chatId,
@@ -373,11 +391,13 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       },
       client: createMockModelClient(model),
     });
+
     await result.consumeStream?.();
     await waitFor(async () => {
       const events = await tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(run.id, userId),
       );
+
       return events.some(
         (e) => e.eventType === 'run.completed' || e.eventType === 'run.failed',
       );
@@ -386,6 +406,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     const assistant = messages.find((m) => m.role === 'assistant');
     const parts = assistant?.parts;
     // Both survive the abort -- reasoning is not silently dropped while the

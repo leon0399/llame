@@ -52,6 +52,7 @@ function chat(
 ): ChatListItemResponse {
   // Updated now, so every chat lands in the Today group.
   const now = new Date().toISOString();
+
   return {
     id,
     ownerUserId: "u1",
@@ -81,6 +82,7 @@ const acme: ProjectResponse = {
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
   const url = new URL(request.url);
+
   return `${request.method} ${url.pathname}${url.search}`;
 }
 
@@ -98,8 +100,11 @@ function routeFetch() {
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
     const respond = responses.get(key);
+
     if (!respond) throw new Error(`unrouted fetch in story: ${key}`);
+
     if (!held.has(key)) return Promise.resolve(respond());
+
     return new Promise<Response>((resolve) => {
       releases.push(() => resolve(respond()));
     });
@@ -124,6 +129,7 @@ const meta = {
     held = new Set();
     releases = [];
     routeFetch();
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -144,6 +150,7 @@ const meta = {
 } satisfies Meta<typeof ChatList>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** Top edges of `elements`, checked to run strictly top to bottom. */
@@ -279,9 +286,11 @@ export const PinnedAboveTimeGroups: Story = {
     const canvas = within(canvasElement);
 
     const pinnedRow = await canvas.findByRole("link", { name: "Pinned chat" });
+
     const unpinnedRow = await canvas.findByRole("link", {
       name: "Unpinned chat",
     });
+
     const pinned = canvas.getByText("Pinned");
     const today = canvas.getByText("Today");
     await expect(pinned).toBeVisible();

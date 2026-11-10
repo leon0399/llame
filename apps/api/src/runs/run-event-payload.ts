@@ -34,12 +34,14 @@ function eventPayloadField(payload: unknown, key: string) {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `eventPayloadField`, whose `isRecord` guard is the validation point.
 function eventPayloadString(payload: unknown, key: string): string | undefined {
   const value = eventPayloadField(payload, key);
+
   return isString(value) ? value : undefined;
 }
 
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- delegates directly to `eventPayloadField`, whose `isRecord` guard is the validation point.
 function eventPayloadNumber(payload: unknown, key: string): number | undefined {
   const value = eventPayloadField(payload, key);
+
   return isNumber(value) ? value : undefined;
 }
 
@@ -51,12 +53,14 @@ function eventPayloadNumber(payload: unknown, key: string): number | undefined {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- decodes the same unparsed `run_events.payload`; the `isRecord` guard below is its validation.
 function eventProviderMetadata(payload: unknown): ProviderMetadata | undefined {
   const value = eventPayloadField(payload, 'providerMetadata');
+
   if (!isRecord(value)) return undefined;
   // SAFETY: the value is the adapter's own provider-metadata object as
   // Postgres jsonb stored and returned it; the check above only rules out a
   // malformed or legacy payload shape, and nothing reads inside it.
   // eslint-disable-next-line typescript/no-unsafe-type-assertion
   const metadata = value as ProviderMetadata;
+
   return metadata;
 }
 
@@ -113,9 +117,13 @@ function permissionClauseFromPayload(
   const groupId = value['groupId'];
   const list = value['list'];
   const clauseIndex = value['clauseIndex'];
+
   if (!isString(groupId)) return null;
+
   if (list !== 'allow' && list !== 'reject') return null;
+
   if (clauseIndex !== null && !isNumber(clauseIndex)) return null;
+
   return { groupId, list, clauseIndex };
 }
 
@@ -128,13 +136,16 @@ function permissionDecisionFrom(
   const policyId = value['policyId'];
   const decision = value['decision'];
   const reason = value['reason'];
+
   if (!isString(policyId)) return undefined;
   const reference = permissionClauseFromPayload(value['reference']);
+
   if (decision === 'allow') {
     return reason === 'matched_allow' || reason === 'permission_mode_bypass'
       ? { policyId, decision: 'allow', reason, reference }
       : undefined;
   }
+
   if (decision !== 'reject' || !isPermissionRejectionReason(reason)) {
     return undefined;
   }
@@ -157,10 +168,13 @@ function derivedDecisionRecordFrom(
 ): DerivedDecisionRecord | undefined {
   if (!isRecord(value)) return undefined;
   const kind = value['kind'];
+
   if (!isDerivedLocatorKind(kind)) return undefined;
   const decision = permissionDecisionFrom(value);
+
   if (decision === undefined) return undefined;
   const count = value['count'];
+
   return isNumber(count) && Number.isInteger(count) && count >= 0
     ? { ...decision, kind, count }
     : { ...decision, kind };
@@ -178,13 +192,16 @@ export function derivedDecisionsFromPayload(
   payload: unknown,
 ): ReadonlyArray<DerivedDecisionRecord> | undefined {
   const value = eventPayloadField(payload, 'derivedDecisions');
+
   if (!Array.isArray(value)) return undefined;
 
   const decisions: Array<DerivedDecisionRecord> = [];
   let addressCount = 0;
   let derivedCount = 0;
+
   for (const entry of value) {
     const decision = derivedDecisionRecordFrom(entry);
+
     if (decision === undefined) continue;
 
     if (decision.kind === 'address') {
@@ -194,6 +211,7 @@ export function derivedDecisionsFromPayload(
       if (derivedCount >= MAX_DERIVED_DECISIONS) continue;
       derivedCount += 1;
     }
+
     decisions.push(decision);
   }
 
@@ -213,12 +231,15 @@ export function toolResultFromPayload(
 ): ToolResult | undefined {
   if (!isRecord(output)) return undefined;
   const status = output['status'];
+
   if (status === 'success') return { ...output, status };
   const type = output['type'];
   const message = output['message'];
+
   if (status !== 'error' || !isString(type) || !isString(message)) {
     return undefined;
   }
+
   const rejectedUrl = output['rejectedUrl'];
   const artifact = output['artifact'];
 
@@ -243,9 +264,12 @@ export function sdkRefusalFromPayload(
   payload: unknown,
 ): SdkRefusal | undefined {
   const value = eventPayloadField(payload, 'sdkRefusal');
+
   if (!isRecord(value)) return undefined;
   const errorText = value['errorText'];
+
   if (!isString(errorText) || !Object.hasOwn(value, 'input')) return undefined;
+
   return { errorText, input: value['input'] };
 }
 

@@ -89,11 +89,15 @@ export function refuseUnsearchableGrepScopes(
   context: ToolContext,
 ): GrepToolError | undefined {
   const scopes = grepScopeStrings(args, context.workspaceRoot?.current());
+
   if (scopes === undefined) return undefined;
+
   for (const scope of scopes) {
     const refused = refuseUnsearchableScope(scope);
+
     if (refused !== undefined) return refused;
   }
+
   return undefined;
 }
 
@@ -101,19 +105,25 @@ export function refuseUnsearchableGrepScopes(
 function refuseUnsearchableScope(scope: string): GrepToolError | undefined {
   if (isFileAlias(scope)) {
     const alias = decodeFileAlias(scope);
+
     if (!alias.ok) return invalidPathResult(alias.message);
     // The decoded path is the text its own scope is split at, and a glob
     // operator it carries is one the engine refuses.
     const split = splitGrepScope(alias.hostPath);
+
     return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
   }
+
   const scheme = parsePathScheme(scope);
+
   if (scheme === undefined) {
     // A scheme-less scope is a host path: grep parses no selector there, but
     // a glob operator it carries is still the engine's to refuse.
     const split = splitGrepScope(scope);
+
     return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
   }
+
   switch (scheme.scheme) {
     case KNOWLEDGE_SCHEME:
       return refuseUnsearchableKnowledgeScope(scheme.rest);
@@ -121,8 +131,10 @@ function refuseUnsearchableScope(scope: string): GrepToolError | undefined {
       return refuseUnsearchableSkillScope(scheme.rest);
     case MACHINE_SCHEME: {
       const parsed = machineScopeOf(scope, 0);
+
       return 'status' in parsed ? parsed : undefined;
     }
+
     default:
       return unsearchableSchemeResult(scheme.scheme);
   }
@@ -154,19 +166,24 @@ export async function resolveScopes(
   // the walk order.
   let ordinal = 0;
   const machines: Array<MachineGrepScope> = [];
+
   for (const [index, scope] of submitted.entries()) {
     const outcome = await resolveScope(context, scope, index, admission);
+
     if ('result' in outcome) return outcome;
+
     if ('machine' in outcome) {
       machines.push({ ...outcome.machine, index: ordinal });
       ordinal += 1;
       continue;
     }
+
     for (const resolved of outcome.scopes) {
       scopes.push({ ...resolved, index: ordinal });
       ordinal += 1;
     }
   }
+
   return { scopes, machines };
 }
 
@@ -178,7 +195,9 @@ async function resolveScope(
 ): Promise<ScopeOutcome> {
   if (isFileAlias(scope)) {
     const alias = decodeFileAlias(scope);
+
     if (!alias.ok) return { result: invalidPathResult(alias.message) };
+
     // A local alias is a host path that the Workspace rule never re-places,
     // exactly as `read` and the grep scope projection treat it. Its decoder
     // already ran, so the literal spellings must not decode a second time.
@@ -188,10 +207,13 @@ async function resolveScope(
       literalStart: normalizeHostScope(alias.hostPath).length,
     });
   }
+
   const scheme = parsePathScheme(scope);
+
   if (scheme === undefined) {
     return resolveHostScope(context, scope, index, admission);
   }
+
   switch (scheme.scheme) {
     case KNOWLEDGE_SCHEME:
       return resolveKnowledgeScope(context, scheme.rest, index, admission);
@@ -209,11 +231,14 @@ function refuseUnsearchableSkillScope(rest: string): GrepToolError | undefined {
   const separator = rest.indexOf('/');
   const name = separator < 0 ? rest : rest.slice(0, separator);
   const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
+
   if (name.includes(':') || rawPath.includes(':'))
     return selectorColonResult('skill');
+
   if (hasGlobOperator(name))
     return invalidPathResult('A skill name cannot hold a glob.');
   const split = splitGrepScope(rawPath);
+
   return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
 }
 
@@ -230,18 +255,22 @@ async function resolveHostScope(
   admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
   const root = context.workspaceRoot?.current();
+
   if (root === undefined && isWorkspaceRelative(scope)) {
     return {
       result: invalidPathResult('A relative scope needs an entered Workspace.'),
     };
   }
+
   const placed =
     root === undefined
       ? scope
       : isWorkspaceRelative(scope)
         ? resolveWorkspacePath(root, scope)
         : mapToWorkspaceHost(root, scope);
+
   const scheme = parsePathScheme(placed);
+
   if (scheme !== undefined) {
     // An absolute path inside a Machine Workspace becomes that Machine's
     // locator, so it goes to the Machine backend like a submitted one.
@@ -249,6 +278,7 @@ async function resolveHostScope(
       ? resolveMachineScope(context, placed, index, admission)
       : { result: invalidPathResult('This path scheme cannot be searched.') };
   }
+
   return buildHostScope(context, placed, {
     index,
     admission,
@@ -263,6 +293,7 @@ function hostScopeRefusal(
 ): GrepToolError | undefined {
   if (context.runId === undefined || context.nativeExecutorId === undefined)
     return executorUnavailableResult();
+
   return !path.isAbsolute(normalized) || normalized.includes('\0')
     ? invalidPathResult('The scope path is invalid.')
     : undefined;
@@ -303,19 +334,24 @@ async function buildHostScope(
 ): Promise<ScopeOutcome> {
   const normalized = normalizeHostScope(hostPath);
   const refused = hostScopeRefusal(context, normalized);
+
   if (refused !== undefined) return { result: refused };
   // A colon is path text here: grep parses no read selector.
   const split = splitGrepScope(normalized);
+
   if ('error' in split)
     return { result: unsupportedGlobResult(split.operator) };
+
   const encodedPrefix =
     split.prefix.endsWith('/') && split.prefix !== '/'
       ? split.prefix.slice(0, -1)
       : split.prefix;
+
   const prefixPath = decodedHostPrefix(
     encodedPrefix,
     request.literalStart ?? 0,
   );
+
   return buildScope({
     index: request.index,
     locatorFor: (rel) =>
@@ -343,16 +379,20 @@ async function resolveSkillScope(
 ): Promise<ScopeOutcome> {
   if (rest.length === 0) return resolveEverySkill(context, index, admission);
   const refused = refuseUnsearchableSkillScope(rest);
+
   if (refused !== undefined) return { result: refused };
   const separator = rest.indexOf('/');
   const name = separator < 0 ? rest : rest.slice(0, separator);
   const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
+
   if (!isValidSkillName(name)) {
     return { result: invalidPathResult('The skill locator is invalid.') };
   }
 
   const entry = readableSkillPackage(context, name);
+
   if ('result' in entry) return entry;
+
   const outcome = await resolveSkillPackage({
     skillDirectory: entry.skillDirectory,
     name: entry.name,
@@ -361,7 +401,9 @@ async function resolveSkillScope(
     admission,
     signal: context.abortSignal,
   });
+
   if ('result' in outcome || 'machine' in outcome) return outcome;
+
   return { scopes: outcome.scopes };
 }
 
@@ -377,15 +419,20 @@ function readableSkillPackage(
   name: string,
 ): ReadableSkillPackage | { readonly result: GrepToolError } {
   const snapshot = readSkillCatalog(context);
+
   if ('result' in snapshot) return snapshot;
   const entry = snapshot.entries.find((candidate) => candidate.name === name);
+
   if (entry === undefined) return { result: skillNotFoundResult() };
+
   if (!entry.available || entry.skillDirectory === null) {
     return { result: skillUnavailableResult() };
   }
+
   if (!entry.proactive && !selectionOf(context).has(entry.name)) {
     return { result: skillRequiresSelectionResult(entry.name) };
   }
+
   return { name: entry.name, skillDirectory: entry.skillDirectory };
 }
 
@@ -396,8 +443,10 @@ async function resolveEverySkill(
 ): Promise<ScopeOutcome> {
   if (context.skillCatalog === undefined) return { scopes: [] };
   const snapshot = readSkillCatalog(context);
+
   if ('result' in snapshot) return snapshot;
   const selection = selectionOf(context);
+
   const packages = snapshot.entries
     .filter((entry) => entry.proactive || selection.has(entry.name))
     .sort((left, right) =>
@@ -408,10 +457,12 @@ async function resolveEverySkill(
     );
 
   const scopes: Array<GrepScope> = [];
+
   for (const entry of packages) {
     if (!entry.available || entry.skillDirectory === null) {
       return { result: skillUnavailableResult() };
     }
+
     const outcome = await resolveSkillPackage({
       skillDirectory: entry.skillDirectory,
       name: entry.name,
@@ -420,9 +471,11 @@ async function resolveEverySkill(
       admission,
       signal: context.abortSignal,
     });
+
     if ('result' in outcome || 'machine' in outcome) return outcome;
     scopes.push(...outcome.scopes);
   }
+
   return { scopes };
 }
 
@@ -434,11 +487,14 @@ function readSkillCatalog(
   context: ToolContext,
 ): SkillCatalogSnapshot | { readonly result: GrepToolError } {
   const catalog = context.skillCatalog;
+
   if (catalog === undefined) return { result: skillCatalogUnavailableResult() };
   const root = context.workspaceRoot?.current();
+
   const snapshot = catalog.getSnapshot(
     root === undefined ? undefined : workspaceSkillSources(root),
   );
+
   return snapshot.available
     ? snapshot
     : { result: skillCatalogUnavailableResult() };
@@ -462,18 +518,23 @@ async function resolveSkillPackage(
   input: SkillPackageScope,
 ): Promise<ScopeOutcome> {
   const parsed = splitScopePath(input.rawPath, isSkillResourcePath);
+
   if ('status' in parsed) return { result: parsed };
+
   if (!path.isAbsolute(input.skillDirectory)) {
     return { result: skillUnavailableResult() };
   }
+
   const root =
     parsed.prefixPath.length === 0
       ? input.skillDirectory
       : path.join(input.skillDirectory, ...parsed.prefixPath.split('/'));
+
   return buildScope({
     index: input.index,
     locatorFor: (rel) => {
       const relativePath = joinedPath(parsed.prefixPath, rel);
+
       return formatSkillLocator(
         relativePath.length === 0
           ? { name: input.name }

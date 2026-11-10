@@ -69,21 +69,28 @@ function worktrees(remove: () => Promise<void>): WorktreeRemovalService {
 // `ownerUserId` is not part of that shape, so the mapping cannot leak an owner.
 function makeController() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   const service = new CheckoutsService(tenantDb, unusedRegistration());
   const register = vi.spyOn(service, 'register').mockResolvedValue(summary);
+
   const listCheckouts = vi
     .spyOn(service, 'listCheckouts')
     .mockResolvedValue([summary]);
+
   const setWorktreeBase = vi
     .spyOn(service, 'setWorktreeBase')
     .mockResolvedValue(summary);
+
   const deleteCheckout = vi
     .spyOn(service, 'deleteCheckout')
     .mockResolvedValue(undefined);
+
   const remove = vi.fn().mockResolvedValue(undefined);
+
   return {
     controller: new CheckoutsController(service, worktrees(remove)),
     register,
@@ -113,6 +120,7 @@ describe('CheckoutsController', () => {
 
   it('lists with the verified user, the query filter, and maps every row', async () => {
     const second = { ...summary, id: '4b6f5499-dde4-43cf-89fe-037998a0fe64' };
+
     // The mapped row is spelled out rather than spread: `CheckoutResponse` is a
     // class, and a spread would drop its prototype.
     const secondResponse: CheckoutResponse = {
@@ -130,6 +138,7 @@ describe('CheckoutsController', () => {
       createdAt: response.createdAt,
       updatedAt: response.updatedAt,
     };
+
     const { controller, listCheckouts } = makeController();
     listCheckouts.mockResolvedValue([summary, second]);
 

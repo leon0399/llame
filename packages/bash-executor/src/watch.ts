@@ -102,6 +102,7 @@ export function watchManagedChild(
   const streams = emptyStreams();
   const finish = once(resolve, () => clearWatch(request, controls));
   const pgid = child.pid;
+
   if (pgid === undefined) {
     child.once("error", () => {});
     finish({
@@ -109,8 +110,10 @@ export function watchManagedChild(
       type: "unavailable",
       message: "Configured tool could not be started.",
     });
+
     return;
   }
+
   const session: WatchSession = {
     child,
     pgid,
@@ -120,6 +123,7 @@ export function watchManagedChild(
     controls,
     finish,
   };
+
   armAbort(session);
   armDeadline(session);
   attachStreams(session);
@@ -131,9 +135,11 @@ function clearWatch(
   controls: WatchSession["controls"],
 ): void {
   if (controls.timer !== undefined) clearTimeout(controls.timer);
+
   if (controls.onAbort) {
     request.options.signal?.removeEventListener("abort", controls.onAbort);
   }
+
   if (controls.onTimeout) {
     request.options.timeoutSignal?.removeEventListener(
       "abort",
@@ -149,10 +155,13 @@ function armAbort(session: WatchSession): void {
     // from caller cancellation regardless of listener ordering.
     if (session.request.options.timeoutSignal?.aborted) {
       void settleDeadline(session);
+
       return;
     }
+
     void settleAbort(session);
   };
+
   session.request.options.signal?.addEventListener(
     "abort",
     session.controls.onAbort,
@@ -164,30 +173,37 @@ async function settleAbort(session: WatchSession): Promise<void> {
   if (session.controls.settling) return;
   session.controls.settling = true;
   const stopped = await stopProcessGroup(session.pgid);
+
   if (stopped) {
     session.finish({
       status: "error",
       type: "cancelled",
       message: "Command was cancelled.",
     });
+
     return;
   }
+
   session.finish(completeAttemptUnknown(session.request.attemptId));
 }
 
 function armDeadline(session: WatchSession): void {
   const timeoutSignal = session.request.options.timeoutSignal;
+
   if (timeoutSignal !== undefined) {
     session.controls.onTimeout = () => {
       void settleDeadline(session);
     };
+
     timeoutSignal.addEventListener("abort", session.controls.onTimeout, {
       once: true,
     });
   }
+
   session.controls.timer = setTimeout(() => {
     void settleDeadline(session);
   }, effectiveDeadlineMs(session));
+
   if (timeoutSignal?.aborted) session.controls.onTimeout?.();
 }
 
@@ -195,10 +211,13 @@ async function settleDeadline(session: WatchSession): Promise<void> {
   if (session.controls.settling) return;
   session.controls.settling = true;
   const stopped = await stopProcessGroup(session.pgid);
+
   if (!stopped) {
     session.finish(completeAttemptUnknown(session.request.attemptId));
+
     return;
   }
+
   await drainOutput(session);
   const output = knownCloseResult(1, session, true);
   session.finish({
@@ -225,6 +244,7 @@ function drainOutput(session: WatchSession): Promise<void> {
   const streams = [session.child.stdout, session.child.stderr].filter(
     (stream): stream is Readable => stream !== null,
   );
+
   return new Promise<void>((resolve) => {
     const state: OutputDrainState = {
       session,
@@ -234,11 +254,15 @@ function drainOutput(session: WatchSession): Promise<void> {
       resolve,
       settled: false,
     };
+
     streams.forEach((stream) => watchOutputStream(state, stream));
+
     if (state.pending.size === 0) {
       finishOutputDrain(state, false);
+
       return;
     }
+
     state.timer = setTimeout(
       () => finishOutputDrain(state, true),
       OUTPUT_DRAIN_BUDGET_MS,
@@ -258,26 +282,32 @@ function watchOutputStream(state: OutputDrainState, stream: Readable): void {
 
 function onOutputStreamClosed(state: OutputDrainState, stream: Readable): void {
   state.pending.delete(stream);
+
   if (state.pending.size === 0) finishOutputDrain(state, false);
 }
 
 function finishOutputDrain(state: OutputDrainState, timedOut: boolean): void {
   if (state.settled) return;
   state.settled = true;
+
   if (state.timer !== undefined) clearTimeout(state.timer);
   flushDecoders(state.session);
+
   for (const stream of state.streams) {
     const listener = state.listeners.get(stream);
+
     if (listener !== undefined) {
       stream.off("close", listener);
       stream.off("end", listener);
       stream.off("error", listener);
     }
+
     if (timedOut && state.pending.has(stream)) {
       markOutputTruncated(state.session, stream);
       stream.destroy();
     }
   }
+
   state.resolve();
 }
 
@@ -330,22 +360,28 @@ async function settleExit(
 
   if (signal !== null && session.request.options.signal?.aborted) {
     const stopped = await waitForProcessGroupQuiescence(session.pgid);
+
     if (stopped) {
       session.finish({
         status: "error",
         type: "cancelled",
         message: "Command was cancelled.",
       });
+
       return;
     }
+
     session.finish(completeAttemptUnknown(session.request.attemptId));
+
     return;
   }
 
   if (!(await waitForProcessGroupQuiescence(session.pgid, 50))) {
     const stopped = await stopProcessGroup(session.pgid);
+
     if (!stopped) {
       session.finish(completeAttemptUnknown(session.request.attemptId));
+
       return;
     }
   }
@@ -358,6 +394,7 @@ function once(
   cleanup: () => void,
 ): (result: BashResult) => void {
   let settled = false;
+
   return (result) => {
     if (settled) return;
     settled = true;
@@ -371,6 +408,7 @@ function attachStreams(session: WatchSession): void {
     streamOutputBound(session.request.context),
     session.request.options.protectedValues ?? [],
   );
+
   session.child.stdout?.on("data", (chunk: Buffer) => {
     onStreamData(session.streams.stdout, chunk, capture);
   });
@@ -387,8 +425,10 @@ function onStreamData(
   // Decoding a chunk a full capture will discard buys nothing.
   if (stream.used >= capture.limit) {
     stream.lost = true;
+
     return;
   }
+
   appendDecoded(stream, stream.decoder.write(chunk), capture);
 }
 
@@ -413,9 +453,11 @@ function withLookahead(
   protectedValues: ReadonlyArray<string>,
 ): StreamBound {
   let longest = 0;
+
   for (const protectedValue of protectedValues) {
     longest = Math.max(longest, boundedLength(protectedValue, bound));
   }
+
   return { kind: bound.kind, limit: bound.limit + longest };
 }
 
@@ -432,23 +474,28 @@ function appendCapture(
   capture: StreamBound,
 ): CapturedChunk {
   const size = boundedLength(text, capture);
+
   if (used + size <= capture.limit) {
     const exact: CapturedChunk = {
       text: current + text,
       used: used + size,
       overflow: false,
     };
+
     return exact;
   }
+
   const remainder: StreamBound = {
     kind: capture.kind,
     limit: capture.limit - used,
   };
+
   const clipped: CapturedChunk = {
     text: current + cutToBound(text, remainder),
     used: capture.limit,
     overflow: true,
   };
+
   return clipped;
 }
 
@@ -460,11 +507,15 @@ function knownCloseResult(
   const context = session.request.context;
   const bound = streamOutputBound(context);
   const streams = session.streams;
+
   const stdoutTruncated =
     streams.stdout.lost || streams.stdout.used > bound.limit;
+
   const stderrTruncated =
     streams.stderr.lost || streams.stderr.used > bound.limit;
+
   const exitCode = code ?? 1;
+
   const raw: BashKnownResult = {
     status: exitCode === 0 ? "success" : "error",
     exitCode,
@@ -473,6 +524,7 @@ function knownCloseResult(
     truncated: stdoutTruncated || stderrTruncated,
     wallTimeMs: Math.round(performance.now() - session.startedAtMs),
   };
+
   return sanitizeKnownResult(
     raw,
     context,

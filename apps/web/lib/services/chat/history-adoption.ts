@@ -32,12 +32,14 @@ export function replacementContext(input: {
   latestRun: ChatLatestRunResponse | null;
 }): ReplacementContext {
   const { latestRun, status } = input;
+
   const pending =
     latestRun !== null &&
     latestRun.followUpAction !== null &&
     !isTerminalRunStatus(latestRun.status)
       ? latestRun.messageId
       : null;
+
   return {
     streaming: status === "streaming" || status === "submitted",
     pendingFollowUpMessageId: pending,
@@ -56,7 +58,9 @@ function replacesReply(
   context: ReplacementContext,
 ): boolean {
   if (message.parts.length > 0) return true;
+
   if (context.streaming) return true;
+
   return turnUserMessageId === context.pendingFollowUpMessageId;
 }
 
@@ -72,12 +76,15 @@ function durableSeqBounds(
 ): { oldest: number; newest: number } | null {
   let oldest: number | null = null;
   let newest: number | null = null;
+
   for (const message of messages) {
     const seq = messageSeqFromMetadata(message.metadata);
+
     if (seq === null) continue;
     oldest ??= seq;
     newest = seq;
   }
+
   return oldest !== null && newest !== null ? { oldest, newest } : null;
 }
 
@@ -95,18 +102,25 @@ export function supersededReplyIndexes(
   context: ReplacementContext,
 ): Set<number> {
   const superseded = new Set<number>();
+
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
+
     if (message?.role !== "assistant") continue;
+
     if (messageSeqFromMetadata(message.metadata) !== null) continue;
     const turnStart = turnStartIndex(messages, index);
     const user = messages[turnStart];
+
     if (user?.role !== "user") continue;
+
     if (!replacesReply(message, user.id, context)) continue;
+
     for (let row = turnStart + 1; row < index; row += 1) {
       if (messages[row]?.role === "assistant") superseded.add(row);
     }
   }
+
   return superseded;
 }
 
@@ -116,7 +130,9 @@ function turnStartIndex(
   index: number,
 ): number {
   let row = index - 1;
+
   while (row >= 0 && messages[row]?.role !== "user") row -= 1;
+
   return row;
 }
 
@@ -126,6 +142,7 @@ function withoutSupersededRows(
   context: ReplacementContext,
 ): ReadonlyArray<UIMessage> {
   const superseded = supersededReplyIndexes(messages, context);
+
   return superseded.size === 0
     ? messages
     : messages.filter((_message, index) => !superseded.has(index));
@@ -137,13 +154,18 @@ function streamedReplyByTurn(
   liveMessages: ReadonlyArray<UIMessage>,
 ): ReadonlyMap<string, UIMessage> {
   const replies = new Map<string, UIMessage>();
+
   for (let index = 0; index < liveMessages.length; index += 1) {
     const message = liveMessages[index];
+
     if (message?.role !== "assistant") continue;
+
     if (messageSeqFromMetadata(message.metadata) !== null) continue;
     const user = liveMessages[index - 1];
+
     if (user?.role === "user") replies.set(user.id, message);
   }
+
   return replies;
 }
 
@@ -164,14 +186,20 @@ function withoutSupersededReplies(
   context: ReplacementContext,
 ): ReadonlyArray<UIMessage> {
   const streamed = streamedReplyByTurn(liveMessages);
+
   if (streamed.size === 0) return serverMessages;
+
   return serverMessages.filter((message, index) => {
     if (message.role !== "assistant") return true;
     const user = serverMessages[index - 1];
+
     if (user?.role !== "user") return true;
     const live = streamed.get(user.id);
+
     if (live === undefined) return true;
+
     if (!replacesReply(live, user.id, context)) return true;
+
     return runIdFromMessageMetadata(message.metadata) === live.id;
   });
 }
@@ -190,16 +218,23 @@ function holdsRevisedReply(
   live: ReadonlyArray<UIMessage>,
 ): boolean {
   const liveRunIds = new Map<number, string | null>();
+
   for (const message of live) {
     const seq = messageSeqFromMetadata(message.metadata);
+
     if (seq === null || message.role !== "assistant") continue;
     liveRunIds.set(seq, runIdFromMessageMetadata(message.metadata));
   }
+
   if (liveRunIds.size === 0) return false;
+
   return server.some((message) => {
     const seq = messageSeqFromMetadata(message.metadata);
+
     if (seq === null || message.role !== "assistant") return false;
+
     if (!liveRunIds.has(seq)) return false;
+
     return liveRunIds.get(seq) !== runIdFromMessageMetadata(message.metadata);
   });
 }
@@ -249,27 +284,35 @@ export function adoptServerHistory(input: {
   if (input.status === "streaming" || input.status === "submitted") {
     return null;
   }
+
   const { replacement } = input;
   const live = withoutSupersededRows(input.liveMessages, replacement);
+
   const server = withoutSupersededReplies(
     input.serverMessages,
     input.liveMessages,
     replacement,
   );
+
   const serverBounds = durableSeqBounds(server);
+
   if (serverBounds === null) return null;
   const liveBounds = durableSeqBounds(live);
 
   const extendsNewer =
     liveBounds === null || serverBounds.newest > liveBounds.newest;
+
   const extendsOlder =
     liveBounds !== null && serverBounds.oldest < liveBounds.oldest;
+
   const revised = holdsRevisedReply(server, live);
+
   if (!extendsNewer && !extendsOlder && !revised) return null;
 
   const head = liveHead(live, serverBounds.oldest);
   const tail = liveTail(live, server);
   const healed = [...head, ...server, ...tail];
+
   // Adoption writes the live log, so it must be idempotent: re-adopting a list
   // the log already holds would set state on every pass and, once the
   // superseded-row rules make a read alternate between two shapes, loop until
@@ -278,6 +321,7 @@ export function adoptServerHistory(input: {
   const alreadyLive =
     healed.length === input.liveMessages.length &&
     healed.every((message, index) => message === input.liveMessages[index]);
+
   return alreadyLive ? null : healed;
 }
 
@@ -288,11 +332,14 @@ function liveHead(
   oldestServerSeq: number,
 ): Array<UIMessage> {
   const head: Array<UIMessage> = [];
+
   for (const message of liveMessages) {
     const seq = messageSeqFromMetadata(message.metadata);
+
     if (seq === null || seq >= oldestServerSeq) break;
     head.push(message);
   }
+
   return head;
 }
 
@@ -316,18 +363,25 @@ function liveTail(
   server: ReadonlyArray<UIMessage>,
 ): Array<UIMessage> {
   const serverIds = new Set(server.map((message) => message.id));
+
   const serverRunIds = new Set(
     server.flatMap((message) => {
       const runId = runIdFromMessageMetadata(message.metadata);
+
       return runId === null ? [] : [runId];
     }),
   );
+
   const tail: Array<UIMessage> = [];
+
   for (let index = liveMessages.length - 1; index >= 0; index--) {
     const message = liveMessages[index];
+
     if (messageSeqFromMetadata(message.metadata) !== null) break;
+
     if (serverIds.has(message.id) || serverRunIds.has(message.id)) continue;
     tail.unshift(message);
   }
+
   return tail;
 }

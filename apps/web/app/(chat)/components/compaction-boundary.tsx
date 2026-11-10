@@ -18,12 +18,15 @@ import {
 // trimmed).
 function formatTokenCount(value: number): string {
   const rounded = Math.round(value);
+
   if (rounded >= 1_000_000) {
     return `${trimTrailingZero((rounded / 1_000_000).toFixed(1))}M`;
   }
+
   if (rounded >= 1000) {
     return `${trimTrailingZero((rounded / 1000).toFixed(1))}k`;
   }
+
   return String(rounded);
 }
 
@@ -48,9 +51,11 @@ function deriveCompactionMeta(
 
   const chipMeta = (() => {
     const messageCount = pluralize(absorbedMessageCount, "message");
+
     if (!hasTokenStats) return messageCount;
     // Non-null assertions guarded by hasTokenStats above.
     const saved = stats.beforeTokens! - stats.afterTokens!;
+
     return `${messageCount} · saved ${formatTokenCount(saved)} tokens`;
   })();
 
@@ -167,10 +172,12 @@ export function CompactionBoundary({
   models?: ReadonlyArray<AvailableModel>;
 }) {
   const [open, setOpen] = useState(false);
+
   const relativeTime = formatDistanceToNowStrict(
     new Date(compaction.createdAt),
     { addSuffix: true },
   );
+
   const { chipMeta, cardMeta } = deriveCompactionMeta(
     compaction,
     relativeTime,

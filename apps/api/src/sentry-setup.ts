@@ -24,6 +24,7 @@ export function setUpSentry(setup: SentrySetup): void {
   // and an operator's own value (from the shell or `.env.local`) stays.
   setup.env.UV_THREADPOOL_SIZE ??= '16';
   const options = sentryOptions(setup.env, setup.entrypoint);
+
   if (options !== undefined) setup.init(options);
 }
 
@@ -33,11 +34,14 @@ export function sentryOptions(
   entrypoint: string | undefined,
 ): NodeOptions | undefined {
   const dsn = env.SENTRY_DSN;
+
   if (!dsn) return undefined;
+
   const process =
     entrypoint !== undefined && parse(entrypoint).name === 'worker'
       ? 'worker'
       : 'api';
+
   return {
     dsn,
     environment: env.SENTRY_ENVIRONMENT || 'local',

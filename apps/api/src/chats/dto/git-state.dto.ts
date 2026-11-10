@@ -236,6 +236,7 @@ function listFields(view: GitStateView) {
  */
 function okFields(view: GitStateView) {
   const { staged, unstaged, untracked, conflicted } = view.counts;
+
   return {
     toplevel: view.toplevel,
     rootRelative: view.rootRelative,

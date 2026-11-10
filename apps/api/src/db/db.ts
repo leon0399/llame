@@ -4,6 +4,7 @@ import postgres from 'postgres';
 const client = postgres(process.env.POSTGRES_URL!, {
   max: 1,
 });
+
 const db = drizzle(client);
 
 export { db };

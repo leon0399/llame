@@ -22,16 +22,20 @@ import {
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
 const modelId = "system:openai:gpt-5.4-mini";
 const sourceMarker = "E2E_EPISODIC_SOURCE_MARKER";
+
 const recallPrompt =
   "Please recall my episodic provenance e2e source and read it exactly.";
+
 const sourceLines = [
   `Owner evidence ${sourceMarker}: the deployment decision is preserved.`,
   "The first bounded read includes this adjacent line.",
   "The continuation begins on this third line.",
   "The continuation preserves this terminal line.",
 ] as const;
+
 const sourceText = sourceLines.join("\n");
 const answer = "I read the canonical episodic source exactly.";
 
@@ -45,6 +49,7 @@ function isApiMessage(value: unknown): value is ApiMessage {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
+
   return (
     "seq" in value &&
     typeof value.seq === "number" &&
@@ -66,6 +71,7 @@ async function readMessages(response: APIResponse): Promise<Array<ApiMessage>> {
   // SAFETY: this is the api's own chat-messages endpoint (under test here),
   // whose { messages: [...] } envelope is fixed by its own OpenAPI contract.
   const body = (await response.json()) as { messages?: unknown };
+
   return Array.isArray(body.messages) ? body.messages.filter(isApiMessage) : [];
 }
 
@@ -81,16 +87,20 @@ async function messageContaining(
       headers: { Authorization: `Bearer ${token}` },
     },
   );
+
   expect(response.ok()).toBe(true);
   const messages = await readMessages(response);
+
   const source = messages.find((message) =>
     message.parts.some(
       (part) => isTextPart(part) && part.text.includes(marker),
     ),
   );
+
   if (!source) throw new Error(`Owner API did not return message: ${marker}`);
   expect(Number.isSafeInteger(source.seq)).toBe(true);
   expect(source.seq).toBeGreaterThan(0);
+
   return source;
 }
 
@@ -121,13 +131,16 @@ test.describe("conversation provenance (browser, full stack)", () => {
     });
 
     const sourceChatId = new URL(page.url()).pathname.split("/").at(-1);
+
     if (!sourceChatId) throw new Error("Source Chat id missing from URL");
+
     const source = await messageContaining(
       request,
       account.token,
       sourceChatId,
       sourceMarker,
     );
+
     expect(source.seq).toBe(1);
 
     // Root creates a fresh destination Chat. The fixture model recognizes only
@@ -136,12 +149,15 @@ test.describe("conversation provenance (browser, full stack)", () => {
     await page.goto("/");
     await send(page, recallPrompt);
     const log = page.getByRole("log");
+
     const searchTool = log
       .getByRole("button")
       .filter({ hasText: "search_conversations" });
+
     const readTools = log
       .getByRole("button")
       .filter({ hasText: "conversation_read" });
+
     await expect(searchTool).toHaveCount(1);
     await expect(readTools).toHaveCount(2);
     await expect(searchTool).toContainText("Completed", { timeout: 30_000 });
@@ -161,14 +177,17 @@ test.describe("conversation provenance (browser, full stack)", () => {
     await expect(page.getByText(/activity timeline|outline/i)).toHaveCount(0);
 
     const destinationChatId = new URL(page.url()).pathname.split("/").at(-1);
+
     if (!destinationChatId)
       throw new Error("Destination Chat id missing from URL");
+
     const destinationPrompt = await messageContaining(
       request,
       account.token,
       destinationChatId,
       recallPrompt,
     );
+
     expect(destinationPrompt.seq).toBe(1);
 
     await readTools.nth(0).click();
@@ -186,9 +205,11 @@ test.describe("conversation provenance (browser, full stack)", () => {
       log.getByRole("button").filter({ hasText: "conversation_read" }),
     ).toHaveCount(2);
     await expect(log.getByText(answer)).toBeVisible({ timeout: 15_000 });
+
     const reloadedReadTools = log
       .getByRole("button")
       .filter({ hasText: "conversation_read" });
+
     await reloadedReadTools.nth(0).click();
     await expect(reloadedReadTools.nth(0).locator("..")).toContainText(
       sourceLines[0],
@@ -205,20 +226,25 @@ test.describe("conversation provenance (browser, full stack)", () => {
         data: {},
       },
     );
+
     expect(forkResponse.status()).toBe(201);
     const forkBody: unknown = await forkResponse.json();
+
     if (!hasStableId(forkBody)) {
       throw new Error("Fork response did not contain a Chat id");
     }
+
     const forkMessagesResponse = await request.get(
       `${apiUrl}/api/v1/chats/${forkBody.id}/messages`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
+
     expect(forkMessagesResponse.ok()).toBe(true);
     const forkMessages = await readMessages(forkMessagesResponse);
     expect(forkMessages.map((message) => message.seq)).toEqual([1, 2]);
 
     const foreignChatId = crypto.randomUUID();
+
     const foreignCreate = await request.post(
       `${apiUrl}/api/v1/chats/${foreignChatId}/messages`,
       {
@@ -232,11 +258,14 @@ test.describe("conversation provenance (browser, full stack)", () => {
         },
       },
     );
+
     expect(foreignCreate.ok()).toBe(true);
+
     const foreignTarget = await request.get(
       `${apiUrl}/api/v1/chats/${foreignChatId}/messages?limit=100&targetSeq=1`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
+
     expect(foreignTarget.status()).toBe(404);
 
     // Paste the owner-issued sequence URL. The target route must load the

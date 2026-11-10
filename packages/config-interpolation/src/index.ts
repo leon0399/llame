@@ -11,4 +11,5 @@ export {
   type WorkspaceInterpolationSubstitution,
   WHOLE_VALUE_TOKEN_PATTERN,
 } from "./interpolation";
+
 export { InstanceConfigError } from "./instance-config-error";

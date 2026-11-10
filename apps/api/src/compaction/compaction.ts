@@ -97,7 +97,9 @@ export function normalizeCompactionSummary(value: unknown): string | null {
   if (!isString(value)) {
     return null;
   }
+
   const summary = value.trim();
+
   return summary.length > 0 ? summary : null;
 }
 
@@ -122,6 +124,7 @@ export function mediaOverflowCompacts(
 ): boolean {
   if (!media.statuses.includes('limit')) return false;
   const earlierRows = media.statuses.length - triggerRefCount - keptRefCount;
+
   return media.statuses
     .slice(0, Math.max(0, earlierRows))
     .some((status) => status === 'attached' || status === 'limit');
@@ -150,6 +153,7 @@ function estimateProjectionTokens(
   skipTailRefs = 0,
 ): number {
   let mediaTokens = 0;
+
   const messages =
     media === undefined
       ? projection.messages
@@ -164,6 +168,7 @@ function estimateProjectionTokens(
           },
           skipTailRefs,
         );
+
   return (
     Math.ceil(
       JSON.stringify({
@@ -197,14 +202,20 @@ function withoutPromptProviderOptions(
         return message;
       case 'user': {
         const content = message.content;
+
         if (!Array.isArray(content)) return message;
+
         return { ...message, content: content.map(withoutPartProviderOptions) };
       }
+
       case 'assistant': {
         const content = message.content;
+
         if (!Array.isArray(content)) return message;
+
         return { ...message, content: content.map(withoutPartProviderOptions) };
       }
+
       case 'tool':
         return {
           ...message,
@@ -239,6 +250,7 @@ export function estimateContinuationTokens(input: {
     systemPrompt: '',
     modelId: input.modelId,
   });
+
   return (
     estimateProjectionTokens(
       { system: '', messages, tools: [] },
@@ -270,6 +282,7 @@ export function countedContextTokens(input: {
   boundarySeq: number;
 }): { readonly replySeq: number; readonly contextTokens: number } | undefined {
   const previous = input.previousCompleted;
+
   if (
     previous === undefined ||
     previous.messageId === null ||
@@ -277,13 +290,17 @@ export function countedContextTokens(input: {
   ) {
     return undefined;
   }
+
   const reply = input.rows.find(
     (row) => row.role === 'assistant' && row.inReplyTo === previous.messageId,
   );
+
   if (reply === undefined) {
     return undefined;
   }
+
   const usage = reply.usage;
+
   const contextTokens =
     isRecord(usage) &&
     isNumber(usage.contextTokens) &&
@@ -291,6 +308,7 @@ export function countedContextTokens(input: {
     usage.contextTokens >= 0
       ? usage.contextTokens
       : undefined;
+
   return contextTokens === undefined
     ? undefined
     : { replySeq: reply.seq, contextTokens };
@@ -389,7 +407,9 @@ export function planCompactionCheckpoint(input: {
         row.seq < input.triggeringUserSeq,
     )
     .sort((a, b) => a.seq - b.seq);
+
   const last = absorb.at(-1);
+
   return last === undefined ? null : { uptoSeq: last.seq, absorb };
 }
 

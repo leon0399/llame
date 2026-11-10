@@ -18,10 +18,12 @@ function admission(allow = true): GrepReadAdmission & {
   admitted: Array<string>;
 } {
   const admitted: Array<string> = [];
+
   return {
     admitted,
     admit(locator) {
       admitted.push(locator);
+
       return allow;
     },
     allows: () => allow,
@@ -65,9 +67,11 @@ function scopesOf(outcome: ScopeOutcome) {
   if ('result' in outcome) {
     throw new Error(`expected scopes, received ${outcome.result.type}`);
   }
+
   if ('machine' in outcome) {
     throw new Error('expected scopes, received one Machine scope');
   }
+
   return outcome;
 }
 
@@ -87,12 +91,14 @@ describe('hasGlobOperator', () => {
 describe('splitScopePath', () => {
   it('splits at the first glob segment and keeps the trailing separator', () => {
     const split = splitScopePath('notes/sub/*.md', () => true);
+
     if ('status' in split) throw new Error('the path splits');
     expect(split.prefixPath).toBe('notes/sub');
     expect(split.glob).toBeDefined();
     expect(split.endsWithSeparator).toBe(false);
 
     const directory = splitScopePath('notes/sub/', () => true);
+
     if ('status' in directory) throw new Error('the path splits');
     expect(directory.prefixPath).toBe('notes/sub');
     expect(directory.glob).toBeUndefined();
@@ -101,6 +107,7 @@ describe('splitScopePath', () => {
 
   it('decodes the literal prefix before the scheme probes it', () => {
     const split = splitScopePath('a%2Ab.md', () => true);
+
     if ('status' in split) throw new Error('the path splits');
     expect(split.prefixPath).toBe('a*b.md');
   });
@@ -126,6 +133,7 @@ describe('splitScopePath', () => {
 describe('buildScope', () => {
   it('returns a glob scope without probing its literal prefix', async () => {
     const probe = vi.fn(() => Promise.resolve({ kind: 'directory' as const }));
+
     const outcome = scopesOf(
       await buildScope(draft({ glob: compileGlob('**/*.md'), probe })),
     );
@@ -166,6 +174,7 @@ describe('buildScope', () => {
     const outcome = await buildScope(
       draft({ probe: () => Promise.resolve({ kind: 'missing' }) }),
     );
+
     expect(outcome).toEqual({
       result: {
         status: 'error',
@@ -181,14 +190,17 @@ describe('buildScope', () => {
       type: 'knowledge_space_unavailable',
       message: 'unavailable',
     };
+
     const outcome = await buildScope(
       draft({ probe: () => Promise.resolve({ result }) }),
     );
+
     expect(outcome).toEqual({ result });
   });
 
   it('probes a prefix first and hides a file the read group refuses', async () => {
     const probe = vi.fn(() => Promise.resolve({ kind: 'file' as const }));
+
     const outcome = await buildScope(
       draft({ admission: admission(false), probe }),
     );
@@ -219,6 +231,7 @@ describe('buildScope', () => {
         endsWithSeparator: true,
       }),
     );
+
     expect(outcome).toMatchObject({
       result: { status: 'error', type: 'not_found' },
     });
@@ -228,6 +241,7 @@ describe('buildScope', () => {
     const outcome = scopesOf(
       await buildScope(draft({ endsWithSeparator: true })),
     );
+
     expect(outcome.scopes[0]).toMatchObject({
       locatorPrefix: 'p/',
       singleFile: false,

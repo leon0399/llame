@@ -57,6 +57,7 @@ const SELECTION_PARAMS: Record<keyof StartLocationSelection, string> = {
 /** A reader-facing parameter, or undefined when absent or blank. */
 function paramValue(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim() ?? "";
+
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
@@ -85,12 +86,16 @@ type DeepLinkParts = {
 /** The selection, its isolation, and the project a deep link names. */
 function deepLinkParts(input: StartLocationDeepLinkInput): DeepLinkParts {
   const selection: StartLocationSelection = {};
+
   for (const key of SELECTION_KEYS) {
     const value = paramValue(input[key]);
+
     if (value !== undefined) selection[key] = value;
   }
+
   const isEmpty = Object.keys(selection).length === 0;
   const isolation = input.worktree === true ? "worktree" : null;
+
   return {
     projectId: paramValue(input.projectId),
     prefill: isEmpty && isolation === null ? null : { selection, isolation },
@@ -100,12 +105,17 @@ function deepLinkParts(input: StartLocationDeepLinkInput): DeepLinkParts {
 /** The query string a pre-fill writes, without the leading `?`. */
 function prefillQuery(prefill: StartLocationPrefill): string {
   const params = new URLSearchParams();
+
   for (const key of SELECTION_KEYS) {
     const value = paramValue(prefill.selection[key]);
+
     if (value !== undefined) params.set(SELECTION_PARAMS[key], value);
   }
+
   if (prefill.isolation === "worktree") params.set("worktree", "1");
+
   if (prefill.isolation === "reuse") params.set("worktree", "0");
+
   return params.toString();
 }
 
@@ -115,9 +125,11 @@ export function startLocationDeepLink(
 ): `/chat/new${string}` {
   const { projectId, prefill } = deepLinkParts(input);
   const params = new URLSearchParams();
+
   if (projectId !== undefined) params.set("project", projectId);
   const query = prefill === null ? "" : prefillQuery(prefill);
   const all = [params.toString(), query].filter((part) => part.length > 0);
+
   return all.length === 0 ? "/chat/new" : `/chat/new?${all.join("&")}`;
 }
 
@@ -132,6 +144,7 @@ export function projectStartPath(
   prefill: StartLocationPrefill | null,
 ): ProjectStartHref {
   const query = prefill === null ? "" : prefillQuery(prefill);
+
   return `/projects/${encodeURIComponent(projectId)}${
     query.length === 0 ? "" : `?${query}`
   }`;
@@ -142,11 +155,15 @@ export function prefillFromSearchParams(params: {
   get(name: string): string | null | undefined;
 }): StartLocationPrefill | null {
   const selection: StartLocationSelection = {};
+
   for (const key of SELECTION_KEYS) {
     const value = paramValue(params.get(SELECTION_PARAMS[key]));
+
     if (value !== undefined) selection[key] = value;
   }
+
   const isolation = isolationFromParam(params.get("worktree"));
+
   return Object.keys(selection).length === 0 && isolation === null
     ? null
     : { selection, isolation };
@@ -161,12 +178,15 @@ export function projectStartRedirect(
 ): ProjectStartHref | null {
   const first = params.project;
   const projectId = paramValue(Array.isArray(first) ? first[0] : first);
+
   if (projectId === undefined) return null;
+
   return projectStartPath(
     projectId,
     prefillFromSearchParams({
       get: (name) => {
         const value = params[name];
+
         return Array.isArray(value) ? value[0] : value;
       },
     }),
@@ -190,15 +210,19 @@ export function startLocationFromRoot(
   checkouts: ReadonlyArray<CheckoutResponse>,
 ): StartLocationFromRoot {
   const root = paramValue(workspaceRoot);
+
   if (root === undefined) return { worktree: false };
   const checkout = checkouts.find((row) => row.path === root);
+
   if (checkout === undefined) return { worktree: true };
+
   // A worktree root copies its source `main` clone, because a create names a
   // main checkout as the worktree's source, never the worktree itself.
   const checkoutId =
     checkout.kind === "worktree"
       ? (checkout.parentCheckoutId ?? undefined)
       : checkout.id;
+
   return {
     repositoryId: checkout.repositoryId,
     executorId: checkout.executorId,

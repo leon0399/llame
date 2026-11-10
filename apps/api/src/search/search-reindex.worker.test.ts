@@ -48,19 +48,27 @@ type ProvisioningRow = {
   chat_id?: string;
   owner_user_id?: string;
 };
+
 type ProvisioningTx = { execute: () => Promise<Array<ProvisioningRow>> };
+
 type PublicRunner = <T>(fn: (tx: ProvisioningTx) => Promise<T>) => Promise<T>;
+
 type CapturedQueue = typeof SEARCH_REINDEX_QUEUE | typeof SEARCH_SWEEP_QUEUE;
+
 type ConsumerOptions = {
   pollingIntervalSeconds?: number;
   concurrency?: number;
 };
+
 type CapturedHandler = (job?: SearchReindexJob) => Promise<void>;
+
 type BacklogRow = { chat_id: string; owner_user_id: string };
+
 type BacklogResult =
   | ReadonlyArray<BacklogRow>
   | ReadonlyArray<Record<string, never>>
   | void;
+
 type BacklogTx = {
   select: () => {
     from: () => { where: () => Promise<ReadonlyArray<Record<string, never>>> };
@@ -76,9 +84,11 @@ const openModules: Array<TestingModule> = [];
  */
 function provisioned(sequence: Array<Array<ProvisioningRow>>): PublicRunner {
   let call = 0;
+
   return <T>(fn: (tx: ProvisioningTx) => Promise<T>) => {
     const rows = sequence[Math.min(call, sequence.length - 1)];
     call += 1;
+
     return fn({ execute: () => Promise.resolve(rows) });
   };
 }
@@ -103,11 +113,14 @@ async function buildWorker(
   const errorSpy = vi
     .spyOn(Logger.prototype, 'error')
     .mockImplementation(() => {});
+
   const warnSpy = vi
     .spyOn(Logger.prototype, 'warn')
     .mockImplementation(() => {});
+
   const logSpy = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
   const ensureQueue = vi.fn().mockResolvedValue(undefined);
+
   const consume = vi.fn(
     (
       _queue: CapturedQueue,
@@ -115,13 +128,16 @@ async function buildWorker(
       _options?: ConsumerOptions,
     ) => Promise.resolve('consumer-id'),
   );
+
   const schedule = vi.fn().mockResolvedValue(undefined);
   const enqueue = vi.fn().mockResolvedValue('job-id');
+
   const indexService =
     overrides.indexService ??
     ({ reindexChat: vi.fn().mockResolvedValue(undefined) } satisfies {
       reindexChat: (chatId: string, ownerUserId: string) => Promise<void>;
     });
+
   const dispatch =
     overrides.dispatch ??
     ({
@@ -132,6 +148,7 @@ async function buildWorker(
         ownerUserId: string,
       ) => Promise<void>;
     });
+
   const embedDispatch =
     overrides.embedDispatch ??
     ({
@@ -139,6 +156,7 @@ async function buildWorker(
     } satisfies {
       enqueueChatEmbed: (chatId: string, ownerUserId: string) => Promise<void>;
     });
+
   const moduleRef = await Test.createTestingModule({
     providers: [
       SearchReindexWorker,
@@ -165,9 +183,11 @@ async function buildWorker(
       },
     ],
   }).compile();
+
   openModules.push(moduleRef);
   const worker = moduleRef.get(SearchReindexWorker);
   const check = () => worker.onApplicationBootstrap();
+
   return {
     check,
     consume,
@@ -189,20 +209,25 @@ async function buildBacklogWorker(options: {
   backlog: ReadonlyArray<BacklogRow>;
 }) {
   const selectWhere = vi.fn().mockResolvedValue(options.binding ? [{}] : []);
+
   const selectQuery = {
     from: vi.fn(() => ({ where: selectWhere })),
   };
+
   const tx: BacklogTx = {
     select: vi.fn(() => selectQuery),
     execute: vi.fn(() => Promise.resolve(options.backlog)),
   };
+
   const runAsPublic = vi.fn(
     (callback: (transaction: BacklogTx) => Promise<BacklogResult>) =>
       callback(tx),
   );
+
   const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
   const config = structuredClone(BUILT_IN_DEFAULTS);
   config.search.chats.embeddingModelId = 'embed-a';
+
   const moduleRef = await Test.createTestingModule({
     providers: [
       SearchReindexWorker,
@@ -218,7 +243,9 @@ async function buildBacklogWorker(options: {
       { provide: InstanceConfigService, useValue: { config } },
     ],
   }).compile();
+
   openModules.push(moduleRef);
+
   return { enqueueChatEmbed, moduleRef, runAsPublic, selectWhere, tx };
 }
 
@@ -234,6 +261,7 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     const { check, errorSpy, warnSpy } = await buildWorker(
       provisioned([[{ bypass: true }]]),
     );
+
     await check();
     expect(errorSpy).not.toHaveBeenCalled();
     expect(warnSpy).not.toHaveBeenCalled();
@@ -243,6 +271,7 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     const { check, errorSpy, warnSpy } = await buildWorker(
       provisioned([[{ bypass: false }]]),
     );
+
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(3);
     expect(errorSpy.mock.calls[0][0]).toContain('BYPASSRLS');
@@ -269,6 +298,7 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
         [{ bypass: true }],
       ]),
     );
+
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0][0]).toContain(
@@ -288,6 +318,7 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
         [{ bypass: false }],
       ]),
     );
+
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0][0]).toContain(
@@ -300,6 +331,7 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     const { check, errorSpy, warnSpy } = await buildWorker(() =>
       Promise.reject(new Error('connection refused')),
     );
+
     await expect(check()).resolves.toBeUndefined();
     expect(errorSpy).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(3);
@@ -336,12 +368,15 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
   it('reindexes a consumed job and then enqueues its embed follow-up', async () => {
     const reindexChat = vi.fn().mockResolvedValue(undefined);
     const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
+
     const harness = await buildWorker(provisioned([[{ bypass: true }]]), {
       indexService: { reindexChat },
       embedDispatch: { enqueueChatEmbed },
     });
+
     await harness.check();
     const handler = harness.consume.mock.calls[0]?.[1];
+
     if (handler === undefined)
       throw new Error('reindex handler was not registered');
 
@@ -354,11 +389,14 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
   it('logs and rethrows a failed reindex job', async () => {
     const failure = new Error('reindex failed');
     const reindexChat = vi.fn().mockRejectedValue(failure);
+
     const harness = await buildWorker(provisioned([[{ bypass: true }]]), {
       indexService: { reindexChat },
     });
+
     await harness.check();
     const handler = harness.consume.mock.calls[0]?.[1];
+
     if (handler === undefined)
       throw new Error('reindex handler was not registered');
 
@@ -376,14 +414,19 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
       chat_id: `chat-${index}`,
       owner_user_id: `owner-${index}`,
     }));
+
     let call = 0;
+
     const runAsPublic: PublicRunner = (fn) => {
       const rows = call++ < 3 ? [{ bypass: true }] : staleRows;
+
       return fn({ execute: () => Promise.resolve(rows) });
     };
+
     let inFlight = 0;
     let maxInFlight = 0;
     const releases: Array<() => void> = [];
+
     const enqueueChatReindex = vi.fn(
       () =>
         new Promise<void>((resolve) => {
@@ -395,11 +438,14 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
           });
         }),
     );
+
     const harness = await buildWorker(runAsPublic, {
       dispatch: { enqueueChatReindex },
     });
+
     await harness.check();
     const sweepHandler = harness.consume.mock.calls[1]?.[1];
+
     if (sweepHandler === undefined)
       throw new Error('sweep handler was not registered');
 
@@ -428,18 +474,23 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
     // answered before the sweep's own stale query reaches the real row. Declared
     // inside, it reset on every invocation and the sweep row was unreachable.
     let call = 0;
+
     const runAsPublic: PublicRunner = (fn) => {
       const rows =
         call++ < 3
           ? [{ bypass: true }]
           : [{ chat_id: 'c', owner_user_id: 'u' }];
+
       return fn({ execute: () => Promise.resolve(rows) });
     };
+
     const harness = await buildWorker(runAsPublic, {
       dispatch: { enqueueChatReindex },
     });
+
     await harness.check();
     const sweepHandler = harness.consume.mock.calls[1]?.[1];
+
     if (sweepHandler === undefined)
       throw new Error('sweep handler was not registered');
 
@@ -454,10 +505,13 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
   it('skips embed backlog discovery when no corpus model is configured', async () => {
     const runner = provisioned([[{ bypass: true }]]);
     let calls = 0;
+
     const runAsPublic: PublicRunner = (fn) => {
       calls += 1;
+
       return runner(fn);
     };
+
     const harness = await buildWorker(runAsPublic);
 
     await harness.worker.runEmbedBacklogSweep();
@@ -481,7 +535,9 @@ describe('SearchReindexWorker.assertDiscoveryProvisioned', () => {
       chat_id: `chat-${index}`,
       owner_user_id: `owner-${index}`,
     }));
+
     const harness = await buildBacklogWorker({ binding: true, backlog });
+
     const logSpy = vi
       .spyOn(Logger.prototype, 'log')
       .mockImplementation(() => {});

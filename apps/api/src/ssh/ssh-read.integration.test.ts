@@ -61,6 +61,7 @@ describe('ssh reads over a real sshd', () => {
 
   function client(options: Parameters<MachineSshd['ssh']>[0] = {}): SshClient {
     const connection = fixture.ssh(options);
+
     const created = createSshClient({
       ssh: {
         knownHostsFile: connection.knownHostsFile,
@@ -68,7 +69,9 @@ describe('ssh reads over a real sshd', () => {
         configFile: connection.includeFile,
       },
     });
+
     clients.push(created);
+
     return created;
   }
 
@@ -102,6 +105,7 @@ describe('ssh reads over a real sshd', () => {
 
   async function hostnameOf(container: StartedTestContainer): Promise<string> {
     const result = await fixture.execIn(container, ['hostname']);
+
     return result.stdout.trim();
   }
 
@@ -190,6 +194,7 @@ describe('ssh reads over a real sshd', () => {
     // otherwise read as a missing path. The unsearchable directory is asked
     // for at whatever depth it sits: the parent alone does not decide.
     const sshClient = client();
+
     const leaf = await read(
       `ssh://box${FIXTURE}/root-only/inside.txt`,
       sshClient,
@@ -207,6 +212,7 @@ describe('ssh reads over a real sshd', () => {
       `ssh://box${FIXTURE}/root-only/deep/inside.txt`,
       sshClient,
     );
+
     expect(nested).toMatchObject({
       status: 'error',
       type: 'executor_unavailable',
@@ -216,6 +222,7 @@ describe('ssh reads over a real sshd', () => {
       `ssh://box${FIXTURE}/root-only/deep/nope.txt`,
       sshClient,
     );
+
     expect(missing).toMatchObject({
       status: 'error',
       type: 'executor_unavailable',
@@ -262,6 +269,7 @@ describe('ssh reads over a real sshd', () => {
     const entries = String(result['content'])
       .split('\n')
       .filter((line) => line.startsWith('  - '));
+
     expect(result['truncated']).toBe(false);
     expect(entries).toHaveLength(12);
     expect(String(result['content'])).toContain('  - line\nbreak.txt');
@@ -335,6 +343,7 @@ describe('ssh reads over a real sshd', () => {
     const path = `ssh://box${FIXTURE}/lines.txt`;
 
     const first = await read(path, sshClient, { userId: 'user-a' });
+
     const second = await read(path, sshClient, {
       userId: 'user-b',
       chatId: 'chat-b',

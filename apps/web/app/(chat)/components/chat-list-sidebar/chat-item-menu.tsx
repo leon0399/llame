@@ -198,9 +198,11 @@ export function ProjectRadioList({
   if (allProjects.length === 0) {
     return <DropdownMenuItem disabled>No projects yet</DropdownMenuItem>;
   }
+
   if (filteredProjects.length === 0) {
     return <DropdownMenuItem disabled>No projects found</DropdownMenuItem>;
   }
+
   return (
     <DropdownMenuRadioGroup
       value={chat.projectId ?? ""}
@@ -285,6 +287,7 @@ function ChatMenuActionItem({
 }: { action: ChatMenuAction } & ChatMenuCtx) {
   const onSelect = resolveChatMenuAction(action.id, ctx);
   const Icon = action.id === "pin" && ctx.isPinned ? PinOffIcon : action.icon;
+
   const label =
     action.id === "pin" && ctx.isPinned
       ? "Unpin"
@@ -326,22 +329,29 @@ function NewChatHereItem({
       <span>New chat here</span>
     </>
   );
+
   const bound = chat.projectId !== null && chat.workspaceRoot !== null;
   const checkouts = useCheckoutsQuery(undefined, bound);
+
   if (chat.projectId === null || chat.workspaceRoot === null) {
     return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
   }
+
   if (!checkouts.isSuccess) {
     return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
   }
+
   const location = startLocationFromRoot(chat.workspaceRoot, checkouts.data);
+
   if (location.checkoutId === undefined) {
     return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
   }
+
   const href = startLocationDeepLink({
     projectId: chat.projectId,
     ...location,
   });
+
   return (
     <DropdownMenuItem render={<Link href={href} prefetch={false} />}>
       {label}

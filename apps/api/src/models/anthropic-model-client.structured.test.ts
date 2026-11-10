@@ -49,6 +49,7 @@ const titleInput: ModelObjectInput<{ title: string }> = {
 };
 
 const TITLE_CHAT: ChatIdentity = { id: 'chat-test', lane: 'title' };
+
 const titleLaneInput: ModelObjectInput<{ title: string }> = {
   ...titleInput,
   chat: TITLE_CHAT,
@@ -92,6 +93,7 @@ function structuredRespond(request: RecordedRequest): Response {
       },
     ]);
   }
+
   return jsonMessage([{ type: 'text', text: '{"title":"Hi"}' }]);
 }
 
@@ -100,9 +102,11 @@ async function generateTitle(
 ): Promise<{ harness: ClientHarness; object: { title: string } }> {
   const harness = buildHarness({ respond: structuredRespond });
   const client = buildClient(harness, overrides);
+
   if (!client.generateObject) {
     throw new Error('the Messages client must expose generateObject');
   }
+
   return { harness, object: await client.generateObject(titleInput) };
 }
 
@@ -173,9 +177,11 @@ describe('createAnthropicModelClient — structured output (3.8)', () => {
 
   it('renders the title lane in a structured request header', async () => {
     const harness = buildHarness({ respond: structuredRespond });
+
     const client = buildClient(harness, {
       requestHeaders: { 'X-Session-Id': ['', ''] },
     });
+
     if (!client.generateObject) {
       throw new Error('the Messages client must expose generateObject');
     }
@@ -242,7 +248,9 @@ describe('createAnthropicModelClient — structured output (3.8)', () => {
           { status: 400 },
         ),
     });
+
     const client = buildClient(harness);
+
     if (!client.generateObject) {
       throw new Error('the Messages client must expose generateObject');
     }
@@ -280,8 +288,10 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
         ...textBlock(1, 'answer'),
       ]),
     });
+
     const client = buildClient(harness);
     const { texts, deliveries, onTextDelta } = captureText();
+
     const { deliveries: reasoningDeliveries, onReasoningDelta } =
       captureReasoning();
 
@@ -318,6 +328,7 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
         ...textBlock(1, 'answer'),
       ]),
     });
+
     const client = buildClient(harness);
     const { deliveries, onReasoningDelta } = captureReasoning();
 
@@ -334,6 +345,7 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
     const harness = buildHarness({
       streamEvents: messageEnvelope(textBlock(0, 'answer')),
     });
+
     const client = buildClient(harness);
     const { deliveries, onReasoningDelta } = captureReasoning();
 
@@ -460,10 +472,12 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const harness = buildHarness({
       failWith: () => unreachableEndpointFailure(MESSAGES_CANARIES.endpoint),
     });
+
     const client = buildClient(harness, {
       baseUrl: `https://${MESSAGES_CANARIES.endpoint}`,
       credential: MESSAGES_CANARIES.credential,
     });
+
     const { errors, onError } = captureErrors();
 
     await expect(
@@ -491,9 +505,11 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
 
   it('bounds a late malformed event that reflects the request back', async () => {
     const harness = buildHarness({ streamEvents: truncatedEchoStream() });
+
     const client = buildClient(harness, {
       credential: MESSAGES_CANARIES.credential,
     });
+
     const { errors, onError } = captureErrors();
     const { texts, onTextDelta } = captureText();
 
@@ -531,6 +547,7 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const harness = buildHarness({
       failWith: () => new Error(`socket hang up: ${MESSAGES_CANARIES.prompt}`),
     });
+
     const client = buildClient(harness);
     const { errors, onError } = captureErrors();
 
@@ -558,6 +575,7 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     // llame authored), so a caller that classifies a rejection as an abort
     // still can — the sanitizer bounds upstream text, not the abort contract.
     expect(rejection).toBeInstanceOf(DOMException);
+
     if (rejection instanceof Error) {
       expect(rejection.name).toBe('AbortError');
     } else {
@@ -569,6 +587,7 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const harness = buildHarness({
       streamEvents: messageEnvelope(textBlock(0, 'hello')),
     });
+
     const client = buildClient(harness);
     const { errors, onError } = captureErrors();
 
@@ -584,9 +603,11 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     // so it is what the run keeps: the refusal names the option argument.
     const optionError = errors[0];
     expect(InvalidArgumentError.isInstance(optionError)).toBe(true);
+
     if (!InvalidArgumentError.isInstance(optionError)) {
       throw new Error('expected an InvalidArgumentError');
     }
+
     expect(optionError.argument).toBe('providerOptions');
     expect(optionError.message).toContain('invalid anthropic provider options');
     expect(harness.requests).toEqual([]);

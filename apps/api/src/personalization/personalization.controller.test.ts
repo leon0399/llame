@@ -23,16 +23,20 @@ function controller(options: { row?: Personalization | undefined } = {}) {
   const row = 'row' in options ? options.row : stored;
   const updates: Array<{ userId: string; update: PersonalizationUpdate }> = [];
   const db: Db = drizzle.mock({ schema });
+
   const service = new PersonalizationService(
     new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     }),
   );
+
   const getForOwner = vi
     .spyOn(service, 'getForOwner')
     .mockImplementation(() => Promise.resolve(row));
+
   vi.spyOn(service, 'updateForOwner').mockImplementation((userId, update) => {
     updates.push({ userId, update });
+
     // The repository always returns a row; a cleared profile is an empty row.
     return Promise.resolve(row ?? stored);
   });

@@ -49,6 +49,7 @@ const meta = {
 } satisfies Meta<typeof EffectiveContextInspector>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -67,6 +68,7 @@ export const Receipt: Story = {
         name: "System prompt receipt",
       }),
     );
+
     await expect(dialog.getByText(RECEIPT.modelId)).toBeVisible();
     await expect(dialog.getByText("Model-specific override")).toBeVisible();
     await expect(
@@ -126,6 +128,7 @@ export const Effort: Story = {
         name: "System prompt receipt",
       }),
     );
+
     await expect(dialog.getByText("Effort")).toBeVisible();
     await expect(dialog.getByText("high")).toBeVisible();
   },
@@ -156,6 +159,7 @@ export const ProjectDefault: Story = {
         name: "System prompt receipt",
       }),
     );
+
     await expect(dialog.getByText("Project default")).toBeVisible();
   },
 };
@@ -182,6 +186,7 @@ export const Error: Story = {
         name: "System prompt receipt",
       }),
     );
+
     await expect(
       dialog.getByText("Could not load the receipt for this run."),
     ).toBeVisible();
@@ -215,6 +220,7 @@ export const Queued: Story = {
         name: "System prompt receipt",
       }),
     );
+
     await expect(
       dialog.getByText(
         "This run is queued; no attempt has prepared a prompt yet.",

@@ -62,37 +62,49 @@ const project: Project = {
 describe('ProjectsController', () => {
   function makeController(overrides: Partial<ProjectServiceMethods> = {}) {
     const db: Db = drizzle.mock({ schema });
+
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     });
+
     const service = new ProjectsService(tenantDb);
+
     const createProject = vi
       .spyOn(service, 'createProject')
       .mockResolvedValue(project);
+
     const listProjects = vi
       .spyOn(service, 'listProjects')
       .mockResolvedValue([project]);
+
     const getProjectById = vi
       .spyOn(service, 'getProjectById')
       .mockResolvedValue(project);
+
     const updateProject = vi
       .spyOn(service, 'updateProject')
       .mockResolvedValue(project);
+
     const deleteProject = vi
       .spyOn(service, 'deleteProject')
       .mockResolvedValue(true);
+
     const listProjectRepositories = vi
       .spyOn(service, 'listProjectRepositories')
       .mockResolvedValue([{ link, defaults: [linkDefault] }]);
+
     const linkRepository = vi
       .spyOn(service, 'linkRepository')
       .mockResolvedValue(link);
+
     const updateProjectRepository = vi
       .spyOn(service, 'updateProjectRepository')
       .mockResolvedValue(link);
+
     const unlinkRepository = vi
       .spyOn(service, 'unlinkRepository')
       .mockResolvedValue(undefined);
+
     const getStartLocation = vi
       .spyOn(service, 'getStartLocation')
       .mockResolvedValue({
@@ -107,34 +119,43 @@ describe('ProjectsController', () => {
     if (overrides.createProject !== undefined) {
       createProject.mockImplementation(overrides.createProject);
     }
+
     if (overrides.listProjects !== undefined) {
       listProjects.mockImplementation(overrides.listProjects);
     }
+
     if (overrides.getProjectById !== undefined) {
       getProjectById.mockImplementation(overrides.getProjectById);
     }
+
     if (overrides.updateProject !== undefined) {
       updateProject.mockImplementation(overrides.updateProject);
     }
+
     if (overrides.deleteProject !== undefined) {
       deleteProject.mockImplementation(overrides.deleteProject);
     }
+
     if (overrides.listProjectRepositories !== undefined) {
       listProjectRepositories.mockImplementation(
         overrides.listProjectRepositories,
       );
     }
+
     if (overrides.linkRepository !== undefined) {
       linkRepository.mockImplementation(overrides.linkRepository);
     }
+
     if (overrides.updateProjectRepository !== undefined) {
       updateProjectRepository.mockImplementation(
         overrides.updateProjectRepository,
       );
     }
+
     if (overrides.unlinkRepository !== undefined) {
       unlinkRepository.mockImplementation(overrides.unlinkRepository);
     }
+
     if (overrides.getStartLocation !== undefined) {
       getStartLocation.mockImplementation(overrides.getStartLocation);
     }
@@ -169,6 +190,7 @@ describe('ProjectsController', () => {
 
   it('lists with the verified user and maps every project', async () => {
     const second = { ...project, id: '1b6f5499-dde4-43cf-89fe-037998a0fe64' };
+
     const { controller, listProjects } = makeController({
       listProjects: () => Promise.resolve([project, second]),
     });

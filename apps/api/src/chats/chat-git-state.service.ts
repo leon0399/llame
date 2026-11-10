@@ -27,9 +27,11 @@ export class ChatGitStateService {
 
   async read(chatId: string, ownerUserId: string): Promise<GitStateResponse> {
     const chat = await this.chats.getChatById(chatId, ownerUserId);
+
     if (chat === undefined)
       throw new NotFoundException(`Chat ${chatId} not found`);
     const root = chat.workspaceRoot;
+
     if (root === null) return { status: 'unbound' };
 
     const observation = await observeWorkspaceRoot(
@@ -43,12 +45,14 @@ export class ChatGitStateService {
           // here is unavailable before any git call.
           locate: (address) => {
             const target = this.executors.locate(address);
+
             if (target.executorId !== chat.workspaceExecutorId) {
               throw new ExecutorGitError(
                 'executor_unavailable',
                 'The Chat is bound to another executor.',
               );
             }
+
             return target;
           },
         },
@@ -58,6 +62,7 @@ export class ChatGitStateService {
         admit: () => true,
       },
     );
+
     return toGitStateResponse(observation);
   }
 }

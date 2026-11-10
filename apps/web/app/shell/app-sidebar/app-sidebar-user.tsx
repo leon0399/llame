@@ -149,6 +149,7 @@ export function AppSidebarUser() {
 
   const displayName =
     user?.name || user?.email?.split("@")[0] || user?.id?.slice(0, 8) || "User";
+
   const displayInitials =
     displayName
       ?.split(/\W+/)

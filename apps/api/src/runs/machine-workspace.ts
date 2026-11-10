@@ -135,6 +135,7 @@ export async function decideMachineWorkspace(
   params: MachineWorkspaceRequest,
 ): Promise<MachineWorkspaceDecision> {
   const { connector, machineName } = params;
+
   if (
     connector === undefined ||
     !connector.enabled() ||
@@ -148,10 +149,13 @@ export async function decideMachineWorkspace(
   }
 
   const checked = await checkBoundMachine({ ...params, connector });
+
   if (checked.kind !== 'bound') {
     params.skillCatalogs.delete(params.root);
+
     return checked;
   }
+
   await prepareMachineSkills(params.skillCatalogs, {
     connector,
     machineName,
@@ -160,6 +164,7 @@ export async function decideMachineWorkspace(
     toolAllowlist: params.toolAllowlist,
     skillDirectories: params.skillDirectories,
   });
+
   return {
     kind: 'available',
     machine: { name: machineName, available: true },
@@ -180,13 +185,16 @@ async function checkBoundMachine(
     params.machineName,
     machineAttemptKey(params.identity.runId, params.identity.deliverySequence),
   );
+
   if (!available) {
     return {
       kind: 'unavailable',
       machine: { name: params.machineName, available: false },
     };
   }
+
   const check = await checkMachineRoot(params);
+
   if (check.verdict === 'unavailable') {
     // The session died between the verdict and the re-check: the binding is
     // still the Machine's, and this attempt tells the unavailability.
@@ -195,8 +203,10 @@ async function checkBoundMachine(
       machine: { name: params.machineName, available: false },
     };
   }
+
   if (check.verdict === 'detach')
     return { kind: 'detach', reason: check.reason };
+
   return { kind: 'bound' };
 }
 
@@ -216,9 +226,11 @@ async function checkMachineRoot(
   params: BoundMachineRequest,
 ): Promise<MachineRootVerdict> {
   const parsed = parseMachineLocator(params.root);
+
   if (parsed.kind !== 'path') {
     return { verdict: 'detach', reason: 'root_missing' };
   }
+
   const probe = await probeMachineRoot({
     connector: params.connector,
     machineName: params.machineName,
@@ -226,14 +238,18 @@ async function checkMachineRoot(
     identity: params.identity,
     warn: params.warn,
   });
+
   if (probe.verdict !== 'probed') return probe;
+
   if (probe.stat === undefined || probe.stat.kind !== 'directory') {
     return { verdict: 'detach', reason: 'root_missing' };
   }
+
   const canonical =
     probe.stat.realPath === undefined
       ? undefined
       : formatMachineLocator(params.machineName, probe.stat.realPath);
+
   // A Machine that reports no real path (or a path this locator grammar cannot
   // spell) is not the bound root either: both detach as a moved root.
   if (canonical !== params.root) {
@@ -243,6 +259,7 @@ async function checkMachineRoot(
   if (!params.toolAllowlist.includes('enter_workspace')) {
     return { verdict: 'detach', reason: 'tool_not_allowed' };
   }
+
   // The bound locator is already the canonical text every Machine rule matches.
   const decision = decidePermission(
     params.permissionPolicy,
@@ -250,6 +267,7 @@ async function checkMachineRoot(
     (evaluate) =>
       evaluate({ toolId: 'enter_workspace', args: { path: params.root } }),
   );
+
   return decision.decision === 'allow'
     ? { verdict: 'keep' }
     : { verdict: 'detach', reason: 'permission_rejected' };
@@ -293,11 +311,13 @@ async function probeMachineRoot(params: {
     if (error instanceof MachineUnavailableError) {
       return { verdict: 'unavailable' };
     }
+
     // A daemon refusal — the path is no longer registered, the budget ran out —
     // leaves nothing this Chat can address, exactly as a root that is gone does.
     params.warn(
       `Machine ${params.machineName} refused the Workspace root check for ${params.path}`,
     );
+
     return { verdict: 'detach', reason: 'root_missing' };
   }
 }
@@ -323,7 +343,9 @@ export async function prepareMachineSkills(
 ): Promise<void> {
   if (!params.toolAllowlist.includes('read')) return;
   const parsed = machineWorkspaceRoot(params.root);
+
   if (parsed === undefined || parsed.name !== params.machineName) return;
+
   const request: MachineSkillRequest = (method, requestParams, options) =>
     params.connector.request(
       params.machineName,
@@ -331,18 +353,22 @@ export async function prepareMachineSkills(
       requestParams,
       options,
     );
+
   const sources = await snapshotMachineSkillSources({
     root: params.root,
     request,
     signal: params.signal,
   });
+
   if (sources === undefined) return;
   catalogs.set(
     params.root,
     new SkillCatalog(params.skillDirectories, sources.fileSystem),
   );
+
   while (catalogs.size > MACHINE_SKILL_CATALOG_LIMIT) {
     const oldest = catalogs.keys().next().value;
+
     if (oldest === undefined) break;
     catalogs.delete(oldest);
   }
@@ -403,6 +429,7 @@ export function machineAvailabilityNarration(params: {
   | { readonly part: AuthoredContextItemPart; readonly available: boolean }
   | undefined {
   const { machine } = params;
+
   if (
     machine === undefined ||
     machine.removed === true ||
@@ -410,6 +437,7 @@ export function machineAvailabilityNarration(params: {
   ) {
     return undefined;
   }
+
   return {
     part: createWorkspaceMachineAvailabilityItem({
       runId: params.runId,
@@ -431,6 +459,7 @@ export function machineInstructionAvailability(params: {
   readonly toolAllowlist: ReadonlyArray<string>;
 }): boolean {
   if (!params.toolAllowlist.includes('read')) return false;
+
   return params.connector?.enabled() === true;
 }
 
@@ -446,6 +475,7 @@ export function machineInstructionWorld(params: {
   readonly identity: MachineAttemptIdentity;
 }): InRunAttempt['machines'] {
   if (!params.enabled || params.connector === undefined) return undefined;
+
   return {
     readPage: params.readPage,
     probe: createMachineInstructionProbe({

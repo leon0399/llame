@@ -5,6 +5,7 @@ import { noArrayFilterMapRule } from "./no-array-filter-map.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "arrayFilterMap" };
 
 tester.run("anti-slop/no-array-filter-map", noArrayFilterMapRule, {

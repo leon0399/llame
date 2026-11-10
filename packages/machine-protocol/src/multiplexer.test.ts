@@ -22,8 +22,10 @@ function build(options?: {
 }) {
   const sent: Array<Sent> = [];
   const unknown: Array<Frame> = [];
+
   const opened: Array<{ channel: MachineChannel; request: JsonRpcRequest }> =
     [];
+
   const multiplexerOptions = {
     send: (frame: Frame) => {
       sent.push({
@@ -35,11 +37,13 @@ function build(options?: {
       opened.push({ channel, request }),
     onUnknownFrame: (frame: Frame) => unknown.push(frame),
   };
+
   const mux = createFrameMultiplexer(
     options?.maxOpenStreams === undefined
       ? multiplexerOptions
       : { ...multiplexerOptions, maxOpenStreams: options.maxOpenStreams },
   );
+
   return { mux, sent, unknown, opened };
 }
 
@@ -58,6 +62,7 @@ function isProtocolError(error: unknown): error is MachineProtocolError {
 
 function success(id: number, result: JsonValue): Frame {
   const message: JsonRpcSuccess = { jsonrpc: "2.0", id, result };
+
   return { s: id, m: message };
 }
 
@@ -75,15 +80,19 @@ describe("stream identity", () => {
   it("drops a late frame instead of answering another stream", async () => {
     const { mux, unknown } = build();
     const closed = mux.open();
+
     const pending = settle(
       closed.request("roots.list", { envelope: { budgetMs: 5 } }),
     );
+
     closed.close();
     expect((await pending).error).toBeInstanceOf(StreamClosedError);
     const live = mux.open();
+
     const livePending = settle(
       live.request("roots.list", { envelope: { budgetMs: 5 } }),
     );
+
     mux.handle(success(closed.id, { roots: ["/late"] }));
     expect(unknown).toEqual([success(closed.id, { roots: ["/late"] })]);
     let settled = false;
@@ -98,14 +107,17 @@ describe("stream identity", () => {
   it("ignores a response whose id does not match the pending request", async () => {
     const { mux, unknown } = build();
     const channel = mux.open();
+
     const pending = settle(
       channel.request("roots.list", { envelope: { budgetMs: 5 } }),
     );
+
     const wrongId: JsonRpcSuccess = {
       jsonrpc: "2.0",
       id: 99,
       result: { roots: ["/wrong"] },
     };
+
     mux.handle({ s: channel.id, m: wrongId });
     let settled = false;
     void pending.then(() => {
@@ -123,13 +135,16 @@ describe("request streams", () => {
     const { mux, sent } = build();
     const first = mux.open();
     const second = mux.open();
+
     const firstPending = first.request("roots.list", {
       envelope: { budgetMs: 5 },
     });
+
     const secondPending = second.request("fs.stat", {
       envelope: { budgetMs: 5 },
       path: "/srv",
     });
+
     expect(sent.map(({ frame }) => frame.s)).toEqual([1, 2]);
     mux.handle(success(2, { kind: "directory", isLink: false }));
     mux.handle(success(1, { roots: ["/srv"] }));
@@ -152,6 +167,7 @@ describe("request streams", () => {
     const { mux, sent } = build();
     const channel = mux.open();
     const controller = new AbortController();
+
     const pending = settle(
       channel.request(
         "proc.bash",
@@ -161,6 +177,7 @@ describe("request streams", () => {
         },
       ),
     );
+
     controller.abort();
     expect(sent.at(-1)?.frame).toEqual({
       s: channel.id,
@@ -207,6 +224,7 @@ describe("errors and control", () => {
   it("lifts the Machine code out of a remote error", async () => {
     const { mux } = build();
     const channel = mux.open();
+
     const pending = settle(
       channel.request("fs.read", {
         envelope: { budgetMs: 5 },
@@ -214,6 +232,7 @@ describe("errors and control", () => {
         options: { displayPrefix: "machine://devl" },
       }),
     );
+
     mux.handle({
       s: channel.id,
       m: {
@@ -228,6 +247,7 @@ describe("errors and control", () => {
     });
     const outcome = await pending;
     expect(outcome.error).toBeInstanceOf(MachineProtocolError);
+
     if (!isProtocolError(outcome.error)) throw new Error("no protocol error");
     expect(outcome.error.code).toBe("path_not_registered");
   });
@@ -235,9 +255,11 @@ describe("errors and control", () => {
   it("reports an error without a known code as internal", async () => {
     const { mux } = build();
     const channel = mux.open();
+
     const pending = settle(
       channel.request("roots.list", { envelope: { budgetMs: 5 } }),
     );
+
     mux.handle({
       s: channel.id,
       m: {
@@ -247,6 +269,7 @@ describe("errors and control", () => {
       },
     });
     const outcome = await pending;
+
     if (!isProtocolError(outcome.error)) throw new Error("no protocol error");
     expect(outcome.error.code).toBe("internal");
   });
@@ -292,9 +315,11 @@ describe("errors and control", () => {
       },
     });
     const { channel } = opened[0];
+
     const closed = new Promise<boolean>((resolve) => {
       channel.onClose(() => resolve(true));
     });
+
     mux.handle({ s: 1, m: { jsonrpc: "2.0", method: "cancel", params: {} } });
     expect(await closed).toBe(true);
     expect(channel.closed).toBe(true);
@@ -306,12 +331,14 @@ describe("errors and control", () => {
   it("refuses a request beyond the stream cap", () => {
     const { mux, sent, unknown } = build({ maxOpenStreams: 1 });
     mux.open();
+
     const request: JsonRpcRequest = {
       jsonrpc: "2.0",
       id: 9,
       method: "roots.list",
       params: { envelope: { budgetMs: 5 } },
     };
+
     mux.handle({ s: 9, m: request });
     expect(sent[0].frame).toEqual({
       s: 9,
@@ -333,12 +360,15 @@ describe("errors and control", () => {
   it("fails every open stream when the session closes", async () => {
     const { mux } = build();
     const channel = mux.open();
+
     const pending = settle(
       channel.request("roots.list", { envelope: { budgetMs: 5 } }),
     );
+
     const controlPending = settle(
       mux.control.request("hello", { protocolVersion: 1, hubVersion: "1" }),
     );
+
     mux.close();
     expect(channel.closed).toBe(true);
     mux.handle(success(channel.id, { roots: [] }));
@@ -381,10 +411,12 @@ describe("errors and control", () => {
 
   it("keeps the control stream open for a request after the handshake settles", async () => {
     const { mux, sent } = build();
+
     const hello = mux.control.request("hello", {
       protocolVersion: 1,
       hubVersion: "1",
     });
+
     mux.handle({
       s: 0,
       m: {
@@ -403,6 +435,7 @@ describe("errors and control", () => {
   it("keeps the control stream open when a control request is cancelled", async () => {
     const { mux, sent } = build();
     const controller = new AbortController();
+
     const hello = settle(
       mux.control.request(
         "hello",
@@ -410,6 +443,7 @@ describe("errors and control", () => {
         { signal: controller.signal },
       ),
     );
+
     controller.abort();
     expect((await hello).error).toBeInstanceOf(StreamClosedError);
     mux.handle({ s: 0, m: { jsonrpc: "2.0", method: "cancel", params: {} } });
@@ -426,6 +460,7 @@ describe("errors and control", () => {
   it("does not settle a control request with the late answer to a cancelled one", async () => {
     const { mux } = build();
     const controller = new AbortController();
+
     const hello = settle(
       mux.control.request(
         "hello",
@@ -433,11 +468,14 @@ describe("errors and control", () => {
         { signal: controller.signal },
       ),
     );
+
     controller.abort();
     await hello;
+
     const roots = mux.control.request("roots.list", {
       envelope: { budgetMs: 5 },
     });
+
     mux.handle({ s: 0, m: { jsonrpc: "2.0", id: 0, result: { stale: true } } });
     mux.handle({ s: 0, m: { jsonrpc: "2.0", id: 1, result: { roots: [] } } });
     await expect(roots).resolves.toEqual({ roots: [] });

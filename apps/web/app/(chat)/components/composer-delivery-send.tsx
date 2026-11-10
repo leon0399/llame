@@ -54,6 +54,7 @@ function SteerButton({ disabled }: { disabled: boolean }) {
 /** The menu's Queue row, naming its shortcut the way the `+` menu names ⌘U. */
 function QueueItem({ onClick }: { onClick: () => void }) {
   const modifierKey = usePrimaryModifierKey();
+
   return (
     <DropdownMenuItem
       onClick={onClick}

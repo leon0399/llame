@@ -35,6 +35,7 @@ describe('Knowledge search cursor', () => {
         message: 'The Knowledge search cursor is invalid.',
       });
     }
+
     expect(() =>
       encodeKnowledgeSearchCursor({ ...cursor, offset: -1 }),
     ).toThrow('The Knowledge search cursor is invalid.');
@@ -93,6 +94,7 @@ describe('Knowledge search cursor', () => {
       ...cursor,
       spaceCreatedAt: cursor.spaceCreatedAt.toISOString(),
     };
+
     const { offset, ...payloadWithoutOffset } = payload;
     expect(offset).toBe(42);
     const malformedPayload = { ...payloadWithoutOffset, extra: 42 };
@@ -110,16 +112,22 @@ describe('Knowledge search cursor', () => {
       path: 'a.md',
       offset: 4,
     });
+
     const alphabet =
       'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
     const last = encoded.at(-1);
+
     if (last === undefined) throw new Error('Expected an encoded cursor');
     const index = alphabet.indexOf(last);
+
     if (index < 0 || encoded.length % 4 !== 3) {
       throw new Error('Expected a three-character base64url tail');
     }
+
     const alternate =
       alphabet[(index & 0b11_1100) | (index & 0b00_0011 ? 0 : 1)];
+
     const nonCanonical = `${encoded.slice(0, -1)}${alternate}`;
 
     expect(() => decodeKnowledgeSearchCursor(nonCanonical)).toThrow(
@@ -156,15 +164,19 @@ describe('Knowledge search cursor', () => {
 
     let exact: { cursor: KnowledgeSearchCursor; encoded: string } | undefined;
     let oversized: string | undefined;
+
     for (let length = 1; length < 5000; length += 1) {
       const candidate = { ...cursor, path: `${'a'.repeat(length)}.md` };
       const encoded = encodeKnowledgeSearchCursor(candidate);
+
       if (encoded.length === 4096) exact = { cursor: candidate, encoded };
+
       if (encoded.length > 4096) {
         oversized = encoded;
         break;
       }
     }
+
     expect(exact).toBeDefined();
     expect(oversized).toBeDefined();
     expect(decodeKnowledgeSearchCursor(exact!.encoded)).toEqual(exact!.cursor);
@@ -175,6 +187,7 @@ describe('Knowledge search cursor', () => {
 
   it('round-trips a valid query whose case fold expands past 200 code points', () => {
     const query = 'İ'.repeat(101);
+
     const expandingCursor: KnowledgeSearchCursor = {
       ...cursor,
       query: query.toLowerCase(),

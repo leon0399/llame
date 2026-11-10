@@ -25,6 +25,7 @@ const meta = {
 } satisfies Meta<typeof Slider>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

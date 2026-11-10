@@ -59,6 +59,7 @@ function failure(
   result: Exclude<GitProcessResult, { readonly status: "ok" }>,
 ): GitFailure {
   const failed = processFailure(result);
+
   return failed.status === "error" && failed.type === "not_a_repository"
     ? { ...failed, type: "git_failed" }
     : failed;
@@ -70,8 +71,11 @@ async function configValues(
   args: ReadonlyArray<string>,
 ): Promise<Step<string>> {
   const result = await git(["config", "--null", ...args]);
+
   if (result.status === "ok") return result.stdout;
+
   if (result.status === "failed" && result.exitCode === 1) return "";
+
   return failure(result);
 }
 
@@ -84,8 +88,11 @@ async function submodulePaths(
   // commits.
   const modules = `${head}:.gitmodules`;
   const present = await git(["cat-file", "-e", modules]);
+
   if (present.status === "timed_out") return failure(present);
+
   if (present.status === "failed") return [];
+
   const paths = await configValues(git, [
     "--blob",
     modules,
@@ -93,6 +100,7 @@ async function submodulePaths(
     "--get-regexp",
     String.raw`^submodule\..*\.path$`,
   ]);
+
   return isFailure(paths) ? paths : parseSubmodulePaths(paths);
 }
 
@@ -103,6 +111,7 @@ async function upstreamTime(
   name: string,
 ): Promise<Step<string | null>> {
   if (name.startsWith("-")) return null;
+
   const result = await git([
     "reflog",
     "show",
@@ -112,6 +121,7 @@ async function upstreamTime(
     name,
     "--",
   ]);
+
   return result.status === "ok" ? reflogTime(result.stdout) : failure(result);
 }
 
@@ -120,6 +130,7 @@ async function upstreamState(
   parsed: ParsedStatus,
 ): Promise<Step<GitStateSuccess["upstream"]>> {
   if (parsed.upstream === null) return null;
+
   if (parsed.ab === null) {
     return {
       name: parsed.upstream,
@@ -129,8 +140,11 @@ async function upstreamState(
       updatedAt: null,
     };
   }
+
   const updatedAt = await upstreamTime(git, parsed.upstream);
+
   if (isFailure(updatedAt)) return updatedAt;
+
   return {
     name: parsed.upstream,
     gone: false,
@@ -145,6 +159,7 @@ async function recentCommits(
   head: string | null,
 ): Promise<Step<GitStateSuccess["commits"]>> {
   if (head === null) return [];
+
   const log = await git([
     "log",
     "-5",
@@ -153,6 +168,7 @@ async function recentCommits(
     head,
     "--",
   ]);
+
   return log.status === "ok" ? parseCommits(log.stdout) : failure(log);
 }
 
@@ -164,8 +180,10 @@ async function operationInProgress(
     "--path-format=absolute",
     ...OPERATION_PATHS.flatMap((name) => ["--git-path", name]),
   ]);
+
   if (located.status !== "ok") return failure(located);
   const lines = located.stdout.split("\n");
+
   return detectOperation((name) => lines[OPERATION_PATHS.indexOf(name)] ?? "");
 }
 
@@ -187,18 +205,25 @@ async function gatherFacts(
   parsed: ParsedStatus,
 ): Promise<Step<Facts>> {
   const commits = await recentCommits(git, parsed.head);
+
   if (isFailure(commits)) return commits;
+
   const remotes = await configValues(git, [
     "--get-regexp",
     String.raw`^remote\..*\.url$`,
   ]);
+
   if (isFailure(remotes)) return remotes;
   const modules = await submodulePaths(git, parsed.head);
+
   if (isFailure(modules)) return modules;
   const upstream = await upstreamState(git, parsed);
+
   if (isFailure(upstream)) return upstream;
   const operation = await operationInProgress(git);
+
   if (isFailure(operation)) return operation;
+
   return { commits, remotes, modules, upstream, operation };
 }
 
@@ -216,15 +241,20 @@ async function observe(
     "--untracked-files=normal",
     `--ignore-submodules=${input.submodules === "check" ? "none" : "all"}`,
   ]);
+
   if (status.status !== "ok") return failure(status);
+
   if (status.truncated) {
     return gitFailure("output_bound");
   }
+
   const parsed = parseStatus(status.stdout);
   const facts = await gatherFacts(git, parsed);
+
   if (isFailure(facts)) return facts;
 
   const limit = Math.max(0, Math.trunc(input.limit));
+
   return {
     status: "ok",
     toplevel,
@@ -253,12 +283,15 @@ async function confinementFailure(
     located.kind,
     budget,
   );
+
   if ("failure" in found) {
     if (found.failure === "timed_out") return gitFailure("timed_out");
+
     return found.failure === "no_git_directory"
       ? gitFailure("git_failed", "The .git file does not name a git directory.")
       : gitFailure("outside_registered_root");
   }
+
   return found.directories.every(confine)
     ? undefined
     : gitFailure("outside_registered_root");
@@ -269,9 +302,11 @@ async function confinementFailure(
  *  discovery walk past the entry. */
 async function pinnableDirectory(toplevel: string): Promise<Step<string>> {
   const real = await realPath(toplevel);
+
   if (real === undefined) {
     return gitFailure("git_failed", "The repository directory is gone.");
   }
+
   return dirname(real).includes(":")
     ? gitFailure(
         "git_failed",
@@ -285,32 +320,42 @@ export async function stateRepository(
   options: GitCallOptions = {},
 ): Promise<GitStateResult> {
   const checked = absoluteLocateInput(input);
+
   if ("status" in checked) return checked;
   const entry = absoluteGitPath(input.gitEntry);
+
   if ("status" in entry) return entry;
+
   const budget: Budget = {
     endsAt: Date.now() + (options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS),
     signal: options.signal,
   };
 
   const located = await locateNearest(checked, budget);
+
   if (located.status === "error") return located;
+
   if (located.gitEntry !== entry.path) {
     return gitFailure("git_entry_changed");
   }
 
   if (input.confine !== undefined) {
     const refused = await confinementFailure(located, input.confine, budget);
+
     if (refused !== undefined) return refused;
   }
 
   const toplevel = dirname(located.gitEntry);
   const entryDirectory = await pinnableDirectory(toplevel);
+
   if (isFailure(entryDirectory)) return entryDirectory;
   const realInput = await realPath(checked.path);
+
   if (realInput === undefined) return gitFailure("root_missing");
+
   if (spent(budget)) return gitFailure("timed_out");
   const rootRelative = posix.relative(entryDirectory, realInput);
+
   return withGit(
     entryDirectory,
     {

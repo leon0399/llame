@@ -52,6 +52,7 @@ function asMulti(result: ReadOutcome): MultiReadSuccess {
     !("requestedRanges" in result)
   )
     throw new Error("Expected multi-range file success result");
+
   return result;
 }
 
@@ -77,6 +78,7 @@ describe("in-memory multi-range selection", () => {
   ): Promise<MultiReadSuccess> {
     await writeFile(path, source);
     const fromFile = asMulti(await readFile({ path: `${path}:${selector}` }));
+
     const fromMemory = selectMultiRangeLines(
       source,
       // A source already in hand knows its count, so it places the
@@ -86,9 +88,11 @@ describe("in-memory multi-range selection", () => {
         splitSourceLines(source).length,
       ),
     );
+
     // Only the line source differs: the file stores the count its scan
     // produced, and the walk over text in hand counts the lines it holds.
     expect(fromMemory).toEqual(fromFile);
+
     return fromMemory;
   }
 
@@ -249,6 +253,7 @@ describe("in-memory multi-range selection", () => {
     const source = wide(30);
     const selector = "1-5,20-24";
     await writeFile(path, source);
+
     const reserved = asMulti(
       await readResolvedFile(path, {
         displayPath: path,
@@ -256,6 +261,7 @@ describe("in-memory multi-range selection", () => {
         reserveCodeUnits: 12_000,
       }),
     );
+
     expect(
       selectMultiRangeLines(source, {
         ...applySelectorSuffix(path, selector),
@@ -292,6 +298,7 @@ describe("markdown ancestor range selection", () => {
     lines[31] = "## Level two";
     lines[53] = "### Level three";
     lines[58] = "context";
+
     return `${lines.join("\n")}\n`;
   }
 
@@ -337,11 +344,13 @@ describe("markdown ancestor range selection", () => {
 
   it("uses the requested line instead of a previous-section context line", () => {
     const source = "# Root\nbody\n## A\n## B\nselected\n";
+
     const result = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "5-5"),
       "text/markdown",
     );
+
     expect(result.content).toBe("1: # Root\n4: ## B\n5: selected\n");
   });
   it("does not repeat a heading window start and merges an ancestor at N-2", () => {
@@ -349,11 +358,13 @@ describe("markdown ancestor range selection", () => {
       ["preface", "preamble", "# Root", "context", "## Child", "after"].join(
         "\n",
       ) + "\n";
+
     const result = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "5-5"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -370,11 +381,13 @@ describe("markdown ancestor range selection", () => {
 
   it("keeps every line of a setext ancestor", () => {
     const source = "# Root\n\nTitle\nsubtitle\n===\nbody\nnext\n";
+
     const result = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "6-6"),
       "text/markdown",
     );
+
     expect(result.content).toBe(
       "3: Title\n4: subtitle\n5: ===\n6: body\n7: next\n",
     );
@@ -389,6 +402,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "4-4"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -408,11 +422,13 @@ describe("markdown ancestor range selection", () => {
     const truncatedSource = "Title\nsubtitle\nextra\n";
     const target = applySelectorSuffix("/doc.md", "2-2");
     const result = selectSourceLines(source, target, "text/markdown");
+
     const truncated = selectSourceLines(
       truncatedSource,
       target,
       "text/markdown",
     );
+
     // The stored total is the source's own, so only the window is shared
     // with the source that ends sooner.
     const { lineCount: _sourceTotal, ...window } = result;
@@ -438,6 +454,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "4-4"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -457,14 +474,18 @@ describe("markdown ancestor range selection", () => {
       Array.from({ length: 2502 }, (_, index) =>
         index === 0 ? "# Root" : "",
       ).join("\n") + "\n";
+
     const first = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "3-2502"),
       "text/markdown",
     );
+
     expect(first).toMatchObject({ truncated: true, nextOffset: 2000 });
+
     if (first.status !== "success" || first.nextOffset === undefined)
       throw new Error("Expected a continuation offset");
+
     const continuation = selectSourceLines(
       source,
       applySelectorSuffix(
@@ -473,6 +494,7 @@ describe("markdown ancestor range selection", () => {
       ),
       "text/markdown",
     );
+
     expect(continuation).toEqual({
       status: "success",
       kind: "file",
@@ -499,6 +521,7 @@ describe("markdown ancestor range selection", () => {
       },
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -518,6 +541,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "3-3"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -548,11 +572,13 @@ describe("markdown ancestor range selection", () => {
         "second body",
         "second tail",
       ].join("\n") + "\n";
+
     const result = selectMultiRangeLines(
       source,
       applySelectorSuffix("/doc.md", "4-4,11-11"),
       "text/markdown",
     );
+
     expect(result.content).toBe(
       "1: # Root\n3: ## First\n4: first body\n5: first tail\n" +
         "10: ## Second\n11: second body\n12: second tail\n",
@@ -567,6 +593,7 @@ describe("markdown ancestor range selection", () => {
   it("matches file-backed and in-memory Markdown selection", async () => {
     const source = markdownSource();
     const directory = await mkdtemp(join(tmpdir(), "native-markdown-"));
+
     try {
       const markdownPath = join(directory, "source.md");
       await writeFile(markdownPath, source);
@@ -589,6 +616,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "2-2"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -609,6 +637,7 @@ describe("markdown ancestor range selection", () => {
       { ...applySelectorSuffix("/doc.md", "raw:2-2") },
       "text/markdown",
     );
+
     expect(result).toMatchObject({
       representation: "raw",
       content: "body\n",
@@ -619,11 +648,13 @@ describe("markdown ancestor range selection", () => {
 
   it("drops outer heading units under a tight result budget", () => {
     const source = "# Title\n## Setup\n### Linux\ncontext\nselected\n";
+
     const result = selectSourceLines(
       source,
       { ...applySelectorSuffix("/doc.md", "5-5"), reserveCodeUnits: 15_890 },
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -641,11 +672,13 @@ describe("markdown ancestor range selection", () => {
     const lines = Array.from({ length: 40 }, (_, index) => `body ${index + 1}`);
     lines[0] = "# Title";
     lines[7] = "## Section";
+
     const result = selectMultiRangeLines(
       `${lines.join("\n")}\n`,
       applySelectorSuffix("/doc.md", "10-12,30-31"),
       "text/markdown",
     );
+
     expect(result.content).toBe(
       "1: # Title\n8: ## Section\n9: body 9\n10: body 10\n" +
         "11: body 11\n12: body 12\n13: body 13\n" +
@@ -663,6 +696,7 @@ describe("markdown ancestor range selection", () => {
       "body 6",
       "body 7",
     ].join("\n");
+
     const second = [
       "# Top",
       "",
@@ -674,6 +708,7 @@ describe("markdown ancestor range selection", () => {
       "===",
       "after",
     ].join("\n");
+
     const oversized = [
       "# H",
       "intro",
@@ -686,6 +721,7 @@ describe("markdown ancestor range selection", () => {
       "nine",
       "ten",
     ].join("\n");
+
     expect(
       selectMultiRangeLines(
         `${first}\n`,
@@ -744,11 +780,13 @@ describe("markdown ancestor range selection", () => {
   it("matches text retention and rollback for large comma ranges", async () => {
     const blank = "\n".repeat(5000);
     const directory = await mkdtemp(join(tmpdir(), "native-retention-"));
+
     try {
       // Same-length names keep the serialized budgets identical.
       await writeFile(join(directory, "notes.md"), blank);
       await writeFile(join(directory, "note.txt"), blank);
       await writeFile(join(directory, "head.md"), `# H\n${blank.slice(1)}`);
+
       const cases = [
         ["notes.md", "1-1499,3000-4500", 1500, 2998],
         ["note.txt", "1-1499,3000-4500", 1500, 2998],
@@ -758,10 +796,12 @@ describe("markdown ancestor range selection", () => {
         ["note.txt", "1-2500,4000-4010", 2000, 2000],
         ["head.md", "3-2500,4000-4010", 2000, 2000],
       ] as const;
+
       for (const [name, selector, endLine, nextOffset] of cases) {
         const result = asMulti(
           await readFile({ path: `${join(directory, name)}:${selector}` }),
         );
+
         expect(result).toMatchObject({
           shownRanges: [{ startLine: 1, endLine }],
           nextOffset,
@@ -777,14 +817,19 @@ describe("markdown ancestor range selection", () => {
     const source = `${Array.from({ length: 500 }, () => "x".repeat(200)).join(
       "\n",
     )}\n`;
+
     const directory = await mkdtemp(join(tmpdir(), "native-byte-budget-"));
+
     try {
       const paths = [join(directory, "same.md"), join(directory, "sam.txt")];
+
       for (const path of paths) await writeFile(path, source);
+
       for (const path of paths) {
         const result = asMulti(
           await readFile({ path: `${path}:1-300,400-410` }),
         );
+
         expect(result.shownRanges).toEqual([{ startLine: 1, endLine: 77 }]);
         expect(result.nextOffset).toBe(77);
         expect(result.truncated).toBe(true);
@@ -796,11 +841,13 @@ describe("markdown ancestor range selection", () => {
 
   it("does not truncate a comma read with exactly 2,000 selected lines", () => {
     const source = "\n".repeat(2000);
+
     const result = selectMultiRangeLines(
       source,
       applySelectorSuffix("/doc.md", "1-999,1001-1999"),
       "text/markdown",
     );
+
     expect(result.truncated).toBe(false);
     expect(result).not.toHaveProperty("nextOffset");
     expect(result.shownRanges).toEqual([{ startLine: 1, endLine: 2000 }]);
@@ -813,11 +860,13 @@ describe("markdown ancestor range selection", () => {
         ...Array.from({ length: 8 }, () => "body"),
         "selected",
       ].join("\n") + "\n";
+
     const result = selectSourceLines(
       source,
       { ...applySelectorSuffix("/doc.md", "10-10"), reserveCodeUnits: 15_800 },
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -841,13 +890,16 @@ describe("markdown ancestor range selection", () => {
         "c".repeat(7730),
         ...Array.from({ length: 1005 }, () => ""),
       ].join("\n") + "\n";
+
     const first = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "5-1004"),
       "text/markdown",
     );
+
     if (first.status !== "success" || first.nextOffset === undefined)
       throw new Error("Expected a continuation offset");
+
     const continuation = selectSourceLines(
       source,
       applySelectorSuffix(
@@ -856,6 +908,7 @@ describe("markdown ancestor range selection", () => {
       ),
       "text/markdown",
     );
+
     expect(first.nextOffset).toBeGreaterThan(4);
     expect(continuation.content).not.toBe(first.content);
   });
@@ -870,16 +923,19 @@ describe("markdown ancestor range selection", () => {
         "c".repeat(3000),
         "d",
       ].join("\n") + "\n";
+
     const single = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "3-100"),
       "text/markdown",
     );
+
     const multi = selectMultiRangeLines(
       source,
       applySelectorSuffix("/doc.md", "3-5,7-9"),
       "text/markdown",
     );
+
     for (const result of [single, multi]) {
       expect(result.truncated).toBe(true);
       // The width includes the continuation line the result ends with.
@@ -899,16 +955,20 @@ describe("markdown ancestor range selection", () => {
         "body 7",
         "body 8",
       ].join("\n") + "\n";
+
     const directory = await mkdtemp(join(tmpdir(), "native-oversized-"));
+
     try {
       const path = join(directory, "source.md");
       await writeFile(path, source);
       const fromFile = await readFile({ path: `${path}:7-7` });
+
       const fromMemory = selectSourceLines(
         source,
         applySelectorSuffix(path, "7-7"),
         "text/markdown",
       );
+
       expect(fromFile).toEqual(fromMemory);
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -926,11 +986,13 @@ describe("markdown ancestor range selection", () => {
         "body 6",
         "body 7",
       ].join("\n") + "\n";
+
     const target = applySelectorSuffix("/doc.md", "6-6");
     const result = selectSourceLines(source, target, "text/markdown");
     expect(result.content).toBe(
       "3: ## Inner\n5: body 5\n6: body 6\n7: body 7\n",
     );
+
     if (!("shownRanges" in result)) throw new Error("Expected plural result");
     expect(result.shownRanges).toEqual([
       { startLine: 3, endLine: 3 },
@@ -945,12 +1007,15 @@ describe("markdown ancestor range selection", () => {
       { length: 140 },
       (_, index) => `body ${index + 1}`,
     );
+
     lines[5] = "# Iterative Review Refinement";
     lines[123] = "## Common Rationalizations";
     lines[125] = "| Rationalization | Correction |";
     lines[126] = "| --- | --- |";
+
     for (let index = 127; index < lines.length; index += 1)
       lines[index] = `| row ${index + 1} | cell ${index + 1} |`;
+
     return `${lines.join("\n")}\n`;
   }
 
@@ -960,6 +1025,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "129-130"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -992,6 +1058,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "128-128"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -1022,6 +1089,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "139-140"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -1053,6 +1121,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "140-140"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",
@@ -1079,6 +1148,7 @@ describe("markdown ancestor range selection", () => {
 
   it("finds the header pair at the tail of a table larger than the read chunk", async () => {
     const directory = await mkdtemp(join(tmpdir(), "native-table-tail-"));
+
     const source =
       [
         "# Root",
@@ -1089,6 +1159,7 @@ describe("markdown ancestor range selection", () => {
           (_, index) => `| row ${index + 1} ${"x".repeat(60)} | b |`,
         ),
       ].join("\n") + "\n";
+
     const path = join(directory, "guide.md");
     await writeFile(path, source);
 
@@ -1143,12 +1214,14 @@ describe("markdown ancestor range selection", () => {
         "127: | --- | --- |\n" +
         "128: | row 128 | cell 128 |\n",
     };
+
     for (const [requested, content] of Object.entries(expected)) {
       const result = selectSourceLines(
         tableDocument(),
         applySelectorSuffix("/doc.md", requested),
         "text/markdown",
       );
+
       expect({ requested, content: result.content }).toEqual({
         requested,
         content,
@@ -1161,20 +1234,24 @@ describe("markdown ancestor range selection", () => {
       { length: 40 },
       (_, index) => `| row ${index + 1} ${"r".repeat(2985)} | b |`,
     );
+
     rows[0] = `# ${"t".repeat(4000)}`;
     rows[1] = `## ${"s".repeat(4000)}`;
     rows[2] = `| ${"h".repeat(3390)} | b |`;
     rows[3] = `| --- | ${"-".repeat(3390)} |`;
+
     const result = selectSourceLines(
       `${rows.join("\n")}\n`,
       applySelectorSuffix("/doc.md", "8-9"),
       "text/markdown",
     );
+
     // Both ancestors drop; the pair is the last unit standing.
     expect(result.content).toBe(
       `3: ${rows[2]}\n4: ${rows[3]}\n7: ${rows[6]}\n8: ${rows[7]}\n9: ${rows[8]}\n`,
     );
     expect(result.truncated).toBe(true);
+
     if (!("shownRanges" in result)) throw new Error("Expected plural result");
     expect(result.shownRanges).toEqual([
       { startLine: 3, endLine: 4 },
@@ -1188,6 +1265,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "129-129,131-131"),
       "text/markdown",
     );
+
     expect(result.content).toBe(
       "6: # Iterative Review Refinement\n" +
         "124: ## Common Rationalizations\n" +
@@ -1216,6 +1294,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "124-125,129-129"),
       "text/markdown",
     );
+
     // The first passage's window reaches the header row, so the later passage's
     // pair contributes the delimiter row 127 alone.
     expect(result.content).toBe(
@@ -1250,11 +1329,13 @@ describe("markdown ancestor range selection", () => {
         "| 5 | 6 |",
         "| 7 | 8 |",
       ].join("\n") + "\n";
+
     const result = selectMultiRangeLines(
       source,
       applySelectorSuffix("/doc.md", "4-4,10-10"),
       "text/markdown",
     );
+
     expect(result.content).toBe(
       "1: # Root\n" +
         "2: | a | b |\n" +
@@ -1284,14 +1365,18 @@ describe("markdown ancestor range selection", () => {
           (_, index) => `| row ${index + 1} ${"x".repeat(700)} | b |`,
         ),
       ].join("\n") + "\n";
+
     const first = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "4-30"),
       "text/markdown",
     );
+
     expect(first.truncated).toBe(true);
+
     if (first.nextOffset === undefined)
       throw new Error("Expected a continuation offset");
+
     const retry = selectSourceLines(
       source,
       applySelectorSuffix(
@@ -1300,6 +1385,7 @@ describe("markdown ancestor range selection", () => {
       ),
       "text/markdown",
     );
+
     expect(retry.content).toContain("2: | a | b |\n3: | --- | --- |\n");
   });
 
@@ -1316,11 +1402,13 @@ describe("markdown ancestor range selection", () => {
         "| 5 | 6 |",
         "| 7 | 8 |",
       ].join("\n") + "\n";
+
     const result = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "4-6"),
       "text/markdown",
     );
+
     expect(result.content).toBe(
       "1: # Root\n" +
         "2: | a | b |\n" +
@@ -1334,6 +1422,7 @@ describe("markdown ancestor range selection", () => {
 
   it("resolves a setext underline only inside the window", () => {
     const source = "# Root\n\na | b\n-|-\n1|2\n3|4\n===\n";
+
     // The window ends before the underline, so the table's lines stay rows and
     // the pair's header row is emitted.
     const short = selectSourceLines(
@@ -1341,7 +1430,9 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "5-5"),
       "text/markdown",
     );
+
     expect(short.content).toBe("1: # Root\n3: a | b\n4: -|-\n5: 1|2\n6: 3|4\n");
+
     // The longer window reaches the underline, which turns those lines into
     // heading text, and line 5 is inside that heading: no pair, no ancestor.
     const long = selectSourceLines(
@@ -1349,6 +1440,7 @@ describe("markdown ancestor range selection", () => {
       applySelectorSuffix("/doc.md", "5-6"),
       "text/markdown",
     );
+
     expect(long).toMatchObject({
       content: "4: -|-\n5: 1|2\n6: 3|4\n7: ===\n",
       requestedRange: { startLine: 5, endLine: 6 },
@@ -1358,11 +1450,13 @@ describe("markdown ancestor range selection", () => {
 
   it("keeps the plural shape for a headingless table body row", () => {
     const source = "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n";
+
     const result = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "4-4"),
       "text/markdown",
     );
+
     // The pair alone promotes the result: there is no heading to promote it.
     expect(result).toEqual({
       status: "success",
@@ -1382,11 +1476,13 @@ describe("markdown ancestor range selection", () => {
     // lines after it are a setext heading, so a range below them gets the
     // heading's own text line and no header pair, in source order.
     const source = "# R\n[a]: /u '\n| h |\n| - |\n'\n| b |\n===\nx\ny\nz\n";
+
     const result = selectSourceLines(
       source,
       applySelectorSuffix("/doc.md", "8-8"),
       "text/markdown",
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "file",

@@ -33,6 +33,7 @@ function successResults(result: ToolResult): ReadonlyArray<unknown> {
   if (result.status !== 'success' || !Array.isArray(result.results)) {
     throw new Error('Expected a successful result with an array `results`.');
   }
+
   return result.results;
 }
 
@@ -72,9 +73,11 @@ function fakeContext(
 ): ToolContext {
   const db: Db = drizzle.mock({ schema });
   vi.spyOn(ChatsRepository.prototype, 'searchByOwner').mockResolvedValue(rows);
+
   if (executeRows.length > 0) {
     const pending = [...executeRows];
     const executeSpy = vi.spyOn(db, 'execute');
+
     for (const rowSet of pending) {
       executeSpy.mockResolvedValueOnce(
         Object.assign([...rowSet], {
@@ -87,12 +90,15 @@ function fakeContext(
       );
     }
   }
+
   const tenantDb: TenantRunner = {
     runAs: <T>(userId: string, fn: (tx: Db) => Promise<T>) => {
       if (spy) spy.userId = userId;
+
       return fn(db);
     },
   };
+
   return {
     userId: 'user-A',
     chatId: 'chat-1',
@@ -175,9 +181,11 @@ describe('search_conversations', () => {
       /bestDocumentId|hash|partId|projection|version/u,
     );
     const schema = searchConversationsTool.inputSchema;
+
     if (!isZodSchema(schema)) {
       throw new Error('Expected a Zod input schema');
     }
+
     expect(schema.parse({ mode: 'content', query: 'hi' })).toEqual({
       mode: 'content',
       query: 'hi',
@@ -189,6 +197,7 @@ describe('search_conversations', () => {
 
   it('scopes canonical metadata results to the context userId without an activation flag', async () => {
     const spy: CallerIdSpy = {};
+
     const context = fakeContext(
       [
         {
@@ -210,8 +219,10 @@ describe('search_conversations', () => {
 
     expect(spy.userId).toBe('user-A'); // scope came from context
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(isString(result.notice)).toBe(true);
+
     if (!isString(result.notice)) return;
     expect(result.notice).toMatch(/untrusted|stale/iu);
     expect(result.results).toEqual([
@@ -230,9 +241,12 @@ describe('search_conversations', () => {
       query: 'nothing',
       limit: 5,
     });
+
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(isString(result.notice)).toBe(true);
+
     if (!isString(result.notice)) return;
     expect(result.notice).toMatch(/untrusted|stale/iu);
     expect(result.results).toEqual([]);
@@ -240,6 +254,7 @@ describe('search_conversations', () => {
 
   it('caps canonical excerpts around an exact raw anchor without splitting Unicode', () => {
     const raw = `${'x'.repeat(280)}😀NEEDLE${'y'.repeat(400)}`;
+
     const result = buildCanonicalSearchExcerpt(
       passage(raw, {
         line: 0,
@@ -258,9 +273,11 @@ describe('search_conversations', () => {
   it('uses the matcher fixed fallback anchor at the first raw code point of the qualifying line', async () => {
     const raw = `${'before\r\n'.repeat(20)}😀fallback${'z'.repeat(600)}`;
     const sourceLines = scanCanonicalLogicalLines(raw);
+
     const qualifyingLine = sourceLines.find((line) =>
       line.text.startsWith('😀fallback'),
     );
+
     if (qualifyingLine === undefined) {
       throw new Error('Expected a qualifying fallback line.');
     }
@@ -284,11 +301,13 @@ describe('search_conversations', () => {
         const candidate = candidates.find(({ normalizedText }) =>
           normalizedText.startsWith('😀fallback'),
         );
+
         return Promise.resolve(
           new Set(candidate === undefined ? [] : [candidate.id]),
         );
       },
     );
+
     if (selected === null) {
       throw new Error('Expected the fuzzy line to be selected.');
     }
@@ -313,6 +332,7 @@ describe('search_conversations', () => {
 
   it('returns strict metadata/content results when canonical shaping is trusted', async () => {
     const text = 'We decided something: https://example.test/item';
+
     const result = await searchConversationsTool.execute(
       fakeContext(
         [
@@ -360,19 +380,25 @@ describe('search_conversations', () => {
         },
       ],
     });
+
     if (result.status !== 'success') return;
+
     if (!isString(result.notice)) return;
     expect(result.notice).toMatch(/untrusted|stale/iu);
+
     if (!Array.isArray(result.results)) return;
     const content: unknown = result.results[0];
     const metadata: unknown = result.results[1];
+
     if (!isRecord(content) || !isRecord(metadata)) return;
+
     const coordinates = {
       chatId: content['chatId'],
       messageSeq: content['messageSeq'],
       offset: content['offset'],
       limit: content['limit'],
     };
+
     expect(parseConversationSourceCoordinates(coordinates)).toEqual(
       coordinates,
     );
@@ -387,6 +413,7 @@ describe('search_conversations', () => {
 
   it('omits canonical candidates that cannot hydrate or match instead of falling back to projection text', async () => {
     const text = 'current canonical source';
+
     const omittedByHydration: Row = {
       id: '00000000-0000-4000-8000-000000000005',
       title: 'Deleted source',
@@ -394,6 +421,7 @@ describe('search_conversations', () => {
       updatedAt: new Date('2026-08-27T13:00:00.000Z'),
       bestDocumentId: '00000000-0000-4000-8000-000000000006',
     };
+
     const omittedByMatcher: Row = {
       id: '00000000-0000-4000-8000-000000000007',
       title: 'Cross-line only source',
@@ -428,6 +456,7 @@ describe('search_conversations', () => {
     );
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     // Hydration-failed candidate omitted; matcher-failed candidate now
     // returned as a vector-only first-message-anchored result (#197 D5).
@@ -450,14 +479,18 @@ describe('search_conversations', () => {
       'line1 more first chunk\n' +
       'line2 second chunk starts here\n' +
       'line3 second chunk continues';
+
     const chunkStart = text.indexOf('line2');
     const allLines = scanCanonicalLogicalLines(text);
+
     const expectedOffset = allLines.findIndex(
       (line) => line.startOffset === chunkStart,
     );
+
     if (expectedOffset === -1) {
       throw new Error('Fixture text must place the chunk on a line boundary.');
     }
+
     const expectedLimit = allLines.length - expectedOffset;
 
     const row: Row = {
@@ -482,12 +515,15 @@ describe('search_conversations', () => {
     );
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(result.results).toHaveLength(1);
     const [content] = successResults(result);
+
     if (!isContentResult(content)) {
       throw new Error('Expected a content result.');
     }
+
     expect(content.offset).toBe(expectedOffset);
     expect(content.limit).toBe(expectedLimit);
     expect(content.excerpt.startsWith('line2')).toBe(true);
@@ -496,6 +532,7 @@ describe('search_conversations', () => {
 
   it('omits a vector-only winner whose anchor is outside a required range, and returns it with no range or a satisfied one (task 2.3, task 2.10)', async () => {
     const text = 'vector-only fallback content';
+
     const row: Row = {
       id: CHAT_ID,
       title: 'Vector-only source',
@@ -503,6 +540,7 @@ describe('search_conversations', () => {
       updatedAt: new Date('2026-08-27T15:00:00.000Z'),
       bestDocumentId: DOCUMENT_ID,
     };
+
     // hydrationRow's fixed message_created_at is 2026-08-27T10:00:00.000Z.
     const executeRows: Array<
       Array<CanonicalHydrationRow | { line_id: number }>
@@ -518,6 +556,7 @@ describe('search_conversations', () => {
         after: '2026-08-28T00:00:00.000Z',
       },
     );
+
     expect(outsideRange.status).toBe('success');
     expect(successResults(outsideRange)).toHaveLength(0);
 
@@ -531,6 +570,7 @@ describe('search_conversations', () => {
         before: '2026-08-28T00:00:00.000Z',
       },
     );
+
     expect(insideRange.status).toBe('success');
     expect(successResults(insideRange)).toHaveLength(1);
     expect(successResults(insideRange)[0]).toMatchObject({
@@ -542,12 +582,14 @@ describe('search_conversations', () => {
       fakeContext([row], undefined, executeRows),
       { mode: 'content', query: 'unmatched lexically', limit: 5 },
     );
+
     expect(noRange.status).toBe('success');
     expect(successResults(noRange)).toHaveLength(1);
   });
 
   it('keeps search_conversations input and declaration surface strict and vector-free', () => {
     const schema = searchConversationsTool.inputSchema;
+
     if (!isZodSchema(schema)) {
       throw new Error('Expected a Zod input schema');
     }
@@ -567,6 +609,7 @@ describe('search_conversations', () => {
         schema.parse({ mode: 'content', query: 'x', [field]: 'future' }),
       ).toThrow(ZodError);
     }
+
     expect(schema.parse({ mode: 'content', query: 'x', limit: 3 })).toEqual({
       mode: 'content',
       query: 'x',
@@ -578,6 +621,7 @@ describe('search_conversations', () => {
     const jsonSchema = await resolveJsonSchema(
       searchConversationsTool.inputSchema,
     );
+
     expect(jsonSchema['type']).toBe('object');
     expect(jsonSchema['additionalProperties']).toBe(false);
     expect(jsonSchema).not.toHaveProperty('anyOf');
@@ -592,17 +636,21 @@ describe('search_conversations', () => {
     const jsonSchema = await resolveJsonSchema(
       searchConversationsTool.inputSchema,
     );
+
     const properties = jsonSchema['properties'];
+
     if (!isRecord(properties)) throw new Error('Expected a properties object');
 
     for (const bound of ['after', 'before']) {
       const field = properties[bound];
+
       if (!isRecord(field)) throw new Error(`Expected a ${bound} schema`);
       expect(field['format']).toBe('date-time');
       expect(field).not.toHaveProperty('pattern');
     }
 
     const schema = searchConversationsTool.inputSchema;
+
     if (!isZodSchema(schema)) throw new Error('Expected Zod');
     expect(
       schema.safeParse({ mode: 'timeline', after: '2026-01-01T00:00Z' })
@@ -612,12 +660,14 @@ describe('search_conversations', () => {
 
   it('few-shot calls in the tool description parse successfully (task 2.2)', () => {
     const schema = searchConversationsTool.inputSchema;
+
     if (!isZodSchema(schema)) throw new Error('Expected Zod');
     const desc = searchConversationsTool.description;
     // The packaged description is now a Handlebars template, so only parse
     // JSON examples that begin with a quoted object key.
     const examples = [...desc.matchAll(/\{"[^}]+\}/g)].map((m) => m[0]);
     expect(examples.length).toBeGreaterThanOrEqual(2);
+
     for (const example of examples) {
       const parsed = schema.safeParse(JSON.parse(example));
       expect(parsed.success, `Failed to parse: ${example}`).toBe(true);
@@ -627,6 +677,7 @@ describe('search_conversations', () => {
   it('invalid mode and field combinations are rejected before retrieval (task 2.1)', async () => {
     const spy = vi.spyOn(ChatsRepository.prototype, 'searchByOwner');
     const ctx = fakeContext([]);
+
     const cases = [
       { mode: 'timeline', query: 'x' },
       { mode: 'timeline' },
@@ -648,6 +699,7 @@ describe('search_conversations', () => {
       },
       { mode: 'content', query: 'x', limit: 50 },
     ];
+
     for (const input of cases) {
       const result = await searchConversationsTool.execute(
         ctx,
@@ -655,17 +707,20 @@ describe('search_conversations', () => {
         // eslint-disable-next-line typescript/no-unsafe-type-assertion
         input as never,
       );
+
       expect(
         result.status,
         `Expected rejection for ${JSON.stringify(input)}`,
       ).toBe('error');
     }
+
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it('blames one named field per mode rule, and admits the boundary cases', () => {
     const schema = searchConversationsTool.inputSchema;
+
     if (!isZodSchema(schema)) throw new Error('Expected Zod');
     const early = '2026-01-01T00:00:00Z';
     const late = '2026-02-01T00:00:00Z';
@@ -770,8 +825,10 @@ describe('search_conversations', () => {
       ]),
       { mode: 'content', query: 'test', limit: 5 },
     );
+
     expect(result.status).toBe('success');
     const serialized = JSON.stringify(result);
+
     for (const key of ['matchedBy', 'score', 'rank', 'omissionReason']) {
       expect(serialized).not.toContain(`"${key}"`);
     }

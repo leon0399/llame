@@ -53,7 +53,9 @@ import {
 
 const enabled =
   process.env.RUN_MODEL_EVALS === '1' && !!process.env.POSTGRES_URL;
+
 const d = enabled ? describe : describe.skip;
+
 const evalModelId =
   process.env.DEFAULT_MODEL_ID?.trim() || 'system:openai:gpt-5.4-mini';
 
@@ -84,6 +86,7 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
         password: 'password123',
         name: 'Eval User',
       });
+
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const body: unknown = res.body;
@@ -111,6 +114,7 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     // A non-200 here usually means model configuration or provider reachability is
     // wrong — configure DEFAULT_MODEL_ID plus OPENAI_API_KEY/OPENAI_BASE_URL as needed.
     expect(res.status).toBe(200);
+
     return streamedText(res.text);
   }
 
@@ -167,12 +171,14 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     const padding = 'inert reference text for sizing purposes only. '.repeat(
       17,
     );
+
     const fillers = [
       'Name three oceans, briefly.',
       'Give me two short tips for writing readable code.',
       'What are two famous bridges and where are they? Keep it brief.',
       'List three programming languages, briefly.',
     ];
+
     for (const filler of fillers) {
       await ask(
         chatId,
@@ -183,11 +189,13 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     // The checkpoint is written before the model's first request of the turn
     // whose trigger fired, so it is already there once the filler turns return.
     const checkpoint = await latestCheckpoint(chatId);
+
     if (checkpoint === undefined) {
       throw new Error(
         'Expected a checkpoint message (did the threshold trigger?)',
       );
     }
+
     expect(checkpoint.role).toBe('checkpoint');
     expect(checkpoint.absorbedThroughSeq).toBeGreaterThan(0);
     expect(readCheckpointText(checkpoint).trim().length).toBeGreaterThan(0);
@@ -198,6 +206,7 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
       chatId,
       'What is my secret project codename? Answer with just the codename.',
     );
+
     expect(recalled).toContain('ZEPHYR-77');
   });
 });

@@ -65,6 +65,7 @@ describe('buildCanonicalSearchExcerpt', () => {
         endOffsetExclusive: 13,
       },
     ];
+
     expect(
       buildCanonicalSearchExcerpt(
         passage(
@@ -83,6 +84,7 @@ describe('buildCanonicalSearchExcerpt', () => {
   it('crops a fallback anchor from the anchor to the end without a suffix when it fits', () => {
     const source = `${'a'.repeat(100)}😀needle${'b'.repeat(480)}`;
     const start = source.indexOf('😀');
+
     const result = buildCanonicalSearchExcerpt(
       passage(source, {
         startOffset: start,
@@ -99,6 +101,7 @@ describe('buildCanonicalSearchExcerpt', () => {
   it('crops a fallback anchor in a long passage with a bounded suffix', () => {
     const source = `${'a'.repeat(100)}needle${'b'.repeat(800)}`;
     const start = source.indexOf('needle');
+
     const result = buildCanonicalSearchExcerpt(
       passage(source, {
         startOffset: start,
@@ -117,6 +120,7 @@ describe('buildCanonicalSearchExcerpt', () => {
   it('repositions an exact-anchor window when its end would be clipped', () => {
     const source = `${'a'.repeat(900)}needle${'b'.repeat(500)}`;
     const start = source.indexOf('needle');
+
     const result = buildCanonicalSearchExcerpt(
       passage(source, {
         startOffset: start,
@@ -162,6 +166,7 @@ describe('buildCanonicalSearchExcerpt', () => {
   it('pads an end-anchored exact window left so the excerpt fills the budget', () => {
     const source = `${'a'.repeat(590)}NEEDLE${'b'.repeat(4)}`;
     const start = source.indexOf('NEEDLE');
+
     const result = buildCanonicalSearchExcerpt(
       passage(source, {
         startOffset: start,
@@ -184,6 +189,7 @@ describe('buildCanonicalSearchExcerpt', () => {
 
   it('omits the leading ellipsis when the exact window starts at the passage head', () => {
     const source = `NEEDLE${'a'.repeat(594)}`;
+
     const result = buildCanonicalSearchExcerpt(
       passage(source, {
         startOffset: 0,
@@ -203,6 +209,7 @@ describe('buildCanonicalSearchExcerpt', () => {
 
   it('clamps out-of-range exact coordinates and never emits a broken surrogate', () => {
     const source = `${'a'.repeat(498)}😀${'b'.repeat(302)}`;
+
     const result = buildCanonicalSearchExcerpt(
       passage(source, {
         startOffset: -100,

@@ -53,24 +53,30 @@ function routeFetch(overrides: RouteOverrides = {}) {
     // fetch's own first parameter, so no cast is needed here.
     const request = input instanceof Request ? input : new Request(input);
     const path = new URL(request.url).pathname;
+
     if (path === "/api/v1/me/personalization" && request.method === "GET") {
       return overrides.getPersonalization?.() ?? jsonResponse(profile);
     }
+
     if (path === "/api/v1/me/personalization" && request.method === "PATCH") {
       return overrides.patchPersonalization?.() ?? jsonResponse(profile);
     }
+
     if (path === "/auth/v1/me") {
       return overrides.getMe?.() ?? jsonResponse(account);
     }
+
     throw new Error(`unstubbed fetch: ${request.method} ${path}`);
   });
 }
 
 function renderDraft() {
   const queryClient = newTestQueryClient();
+
   const view = renderHook(() => usePersonalizationDraft(), {
     wrapper: wrapperWithClient(queryClient),
   });
+
   return { ...view, queryClient };
 }
 
@@ -141,6 +147,7 @@ describe("usePersonalizationDraft", () => {
     const patchIndex = fetchMock.mock.calls.findIndex(
       ([reqArg]) => reqArg instanceof Request && reqArg.method === "PATCH",
     );
+
     expect(patchIndex).toBeGreaterThanOrEqual(0);
     const body = await requestFromCall(fetchMock, patchIndex).clone().json();
     // Blank-after-trim clears to null; surrounding whitespace is trimmed;
@@ -154,9 +161,11 @@ describe("usePersonalizationDraft", () => {
 
   it("flags isSaving only for a text-field save, not an unrelated toggle mutation", async () => {
     let resolvePatch!: (response: Response) => void;
+
     const pendingPatch = new Promise<Response>((resolve) => {
       resolvePatch = resolve;
     });
+
     routeFetch({ patchPersonalization: () => pendingPatch });
     const { result } = renderDraft();
 
@@ -178,9 +187,11 @@ describe("usePersonalizationDraft", () => {
 
   it("flags isSaving true while a text-field save is pending", async () => {
     let resolvePatch!: (response: Response) => void;
+
     const pendingPatch = new Promise<Response>((resolve) => {
       resolvePatch = resolve;
     });
+
     routeFetch({ patchPersonalization: () => pendingPatch });
     const { result } = renderDraft();
 
@@ -216,9 +227,11 @@ describe("usePersonalizationDraft", () => {
 
   it("holds the preview undefined while account identity is shared but unresolved, then renders it once the account loads", async () => {
     let resolveMe!: (response: Response) => void;
+
     const pendingMe = new Promise<Response>((resolve) => {
       resolveMe = resolve;
     });
+
     routeFetch({
       getPersonalization: () =>
         jsonResponse({ ...profile, shareAccountIdentity: true }),

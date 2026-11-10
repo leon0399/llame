@@ -35,13 +35,17 @@ function isHoldStatus(value: unknown): value is HoldStatus {
 
 async function holdState(token: string): Promise<HoldStatus> {
   const response = await fetch(holdUrl(token));
+
   if (!response.ok) {
     throw new Error(`hold status HTTP ${response.status}`);
   }
+
   const body: unknown = await response.json();
+
   if (!isHoldStatus(body)) {
     throw new Error(`hold status malformed: ${JSON.stringify(body)}`);
   }
+
   return body;
 }
 
@@ -54,6 +58,7 @@ test.describe("Esc during a Run", () => {
     if (activeHoldToken === undefined) {
       return;
     }
+
     const token = activeHoldToken;
     activeHoldToken = undefined;
     await fetch(holdUrl(token, "/release"), { method: "POST" });

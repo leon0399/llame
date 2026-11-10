@@ -69,8 +69,10 @@ async function bootRunsWorker(
       concurrencyFor: (group: string) => (group === 'runs' ? 1 : null),
     })
     .compile();
+
   await moduleRef.init();
   const db = moduleRef.get<DrizzleWithClient>('DB_DEV', { strict: false });
+
   return {
     async close() {
       await moduleRef.close();
@@ -107,14 +109,17 @@ d('an accepted Run no worker consumes', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password: 'password123', name });
+
     expect(res.status).toBe(201);
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
   beforeAll(async () => {
     models = new FakeModelsService();
+
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
@@ -149,12 +154,14 @@ d('an accepted Run no worker consumes', () => {
     for (const stream of openStreams.splice(0)) {
       stream.close();
     }
+
     // Every Run here is deliberately left unclaimed, and its job stays on the
     // queue: terminalize the leftovers so the one worker boot in this file
     // only ever attempts the Run its own test cancelled.
     for (const chatId of chatIds.splice(0)) {
       await tenantDb.runAs(userAId, async (tx) => {
         const repo = new RunsRepository(tx);
+
         for (const run of await repo.findByChatId(chatId, userAId)) {
           if (!TERMINAL_STATUSES.includes(run.status)) {
             await repo.markFinished(run.id, userAId, 'cancelled', {
@@ -180,6 +187,7 @@ d('an accepted Run no worker consumes', () => {
     const events = await tenantDb.runAs(userAId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, userAId),
     );
+
     return events.map((event) => event.eventType);
   };
 
@@ -194,6 +202,7 @@ d('an accepted Run no worker consumes', () => {
     text: string,
   ): Promise<IncrementalSseResponse> {
     chatIds.push(chatId);
+
     const stream = await openSseStream({
       server: http,
       method: 'POST',
@@ -207,7 +216,9 @@ d('an accepted Run no worker consumes', () => {
         },
       },
     });
+
     openStreams.push(stream);
+
     return stream;
   }
 
@@ -239,6 +250,7 @@ d('an accepted Run no worker consumes', () => {
       .patch(`/api/v1/runs/${runId}`)
       .set('Cookie', cookieA)
       .send({ status: 'cancelled' });
+
     expect(cancelled.status).toBe(200);
 
     // Recorded, not yet settled: no worker has seen this Run at all.
@@ -248,15 +260,18 @@ d('an accepted Run no worker consumes', () => {
 
     const workerModels = new FakeModelsService();
     const worker = await bootRunsWorker(workerModels);
+
     try {
       const settled = await waitFor(
         async () => {
           const run = await runById(runId);
+
           return run?.status === 'cancelled' ? run : undefined;
         },
         20_000,
         'the queued Run to settle cancelled at pickup',
       );
+
       expect(settled.finishedAt).not.toBeNull();
 
       // Settled without ever asking for a model client, let alone a turn.
@@ -292,12 +307,15 @@ d('an accepted Run no worker consumes', () => {
       path: `/api/v1/chats/${chatId}/stream`,
       cookie: cookieA,
     });
+
     openStreams.push(resumed);
 
     expect(resumed.status).toBe(200);
+
     const resumedFirst = await resumed.nextFrame(
       'the resumed stream start frame',
     );
+
     expect(resumedFirst).toEqual(first);
   });
 
@@ -310,6 +328,7 @@ d('an accepted Run no worker consumes', () => {
     const resumed = await request(http)
       .get(`/api/v1/chats/${chatId}/stream`)
       .set('Cookie', cookieB);
+
     expect(resumed.status).toBe(204);
     expect(resumed.text).toBe('');
 
@@ -317,6 +336,7 @@ d('an accepted Run no worker consumes', () => {
       .patch(`/api/v1/runs/${runId}`)
       .set('Cookie', cookieB)
       .send({ status: 'cancelled' });
+
     expect(denied.status).toBe(404);
 
     const untouched = await runById(runId);

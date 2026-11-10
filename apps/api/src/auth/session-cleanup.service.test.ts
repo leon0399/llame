@@ -26,6 +26,7 @@ describe('SessionCleanupService', () => {
 
   function makeService(concurrency: number | null) {
     let cleanup: (() => Promise<void>) | undefined;
+
     const queue: Queue = {
       ensureQueue: () => Promise.resolve(),
       enqueue: () => Promise.resolve(null),
@@ -34,6 +35,7 @@ describe('SessionCleanupService', () => {
         // the wrapper supplies the unused values only to invoke it in tests.
         // eslint-disable-next-line typescript/no-unsafe-type-assertion
         cleanup = () => handler(undefined as never, undefined as never);
+
         return Promise.resolve('consumer');
       },
       schedule: () => Promise.resolve(),
@@ -41,17 +43,21 @@ describe('SessionCleanupService', () => {
       cancel: () => Promise.resolve(),
       jobState: () => Promise.resolve('absent'),
     };
+
     const ensureQueue = vi.spyOn(queue, 'ensureQueue');
     const consume = vi.spyOn(queue, 'consume');
     const schedule = vi.spyOn(queue, 'schedule');
     const db: Db = drizzle.mock({ schema });
     const sessionsRepository = new SessionsRepository(db);
+
     const deleteExpired = vi
       .spyOn(sessionsRepository, 'deleteExpired')
       .mockResolvedValue(0);
+
     const profileName = concurrency === null ? 'web' : 'all';
     const configuredConcurrency = concurrency ?? 1;
     process.env.LLAME_WORKER_PROFILE = profileName;
+
     const workerProfile = new WorkerProfileService({
       config: {
         ...BUILT_IN_DEFAULTS,
@@ -67,7 +73,9 @@ describe('SessionCleanupService', () => {
         },
       },
     });
+
     const concurrencyFor = vi.spyOn(workerProfile, 'concurrencyFor');
+
     return {
       service: new SessionCleanupService(
         queue,
@@ -85,6 +93,7 @@ describe('SessionCleanupService', () => {
       cleanup: () => {
         if (cleanup === undefined)
           throw new Error('cleanup was not registered');
+
         return cleanup();
       },
     };

@@ -20,9 +20,11 @@ export function createRewriteAdapter(
   config: RewriteWebAdapterConfig,
 ): WebAdapter {
   const target = parseRewriteTarget(config.target);
+
   if ('error' in target) {
     throw new Error(`Invalid rewrite target for adapter "${config.id}".`);
   }
+
   const pathMatcher =
     config.pathPattern === undefined
       ? undefined
@@ -36,6 +38,7 @@ export function createRewriteAdapter(
     route: 'rewrite',
     match(source) {
       if (!config.hosts.includes(source.hostname)) return false;
+
       return (
         pathMatcher === undefined || pathMatcher.matchesExact(source.pathname)
       );
@@ -52,21 +55,26 @@ async function readRewriteAdapter(
   target: RewriteTarget,
 ): Promise<WebAdapterOutcome> {
   const expanded = expandRewriteTarget(target, source);
+
   if (expanded === undefined) {
     return { kind: 'failed', failure: 'permission' };
   }
 
   const fetched = await io.fetch(expanded);
+
   if ('type' in fetched) return failureOutcome(fetched);
+
   if (fetched.body.trim().length === 0) {
     return { kind: 'failed', failure: 'empty' };
   }
 
   try {
     const rendered = renderWebDocument(fetched, { raw: false });
+
     if (rendered.method === 'raw') {
       return { kind: 'failed', failure: 'parse' };
     }
+
     return {
       kind: 'rendered',
       content: rendered.content,
@@ -86,8 +94,10 @@ function failureOutcome(failure: WebFetchFailure): WebAdapterOutcome {
     kind: 'failed',
     failure: classifyFetchFailure(failure),
   };
+
   if (isFatalAdapterFailure(failure)) {
     return { ...outcome, fatal: failure };
   }
+
   return outcome;
 }

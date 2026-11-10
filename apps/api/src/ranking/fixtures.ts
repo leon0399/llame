@@ -34,6 +34,7 @@ export const RANKING_FIXTURES_DIR = path.resolve(
   __dirname,
   '../../fixtures/ranking',
 );
+
 export const RANKING_ANSWERS_DIR = path.join(RANKING_FIXTURES_DIR, 'answers');
 
 function readJson<T>(file: string, schema: z.ZodType<T>): T {
@@ -59,6 +60,7 @@ export function loadRecordedAnswers(
     fs.readdirSync(target),
 ): Array<RecordedAnswer> {
   if (!fs.existsSync(dir)) return [];
+
   return listDir(dir)
     .filter((file) => file.startsWith(`${caseName}.`) && file.endsWith('.json'))
     .sort()

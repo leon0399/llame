@@ -31,6 +31,7 @@ const meta: Meta<typeof Reasoning> = {
 };
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -103,6 +104,7 @@ export const Collapsed: Story = {
     const trigger = canvas.getByRole("button", {
       name: /thought for 4 seconds/i,
     });
+
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
       canvas.queryByText(/capital of France/i),

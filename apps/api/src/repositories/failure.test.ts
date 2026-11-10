@@ -24,6 +24,7 @@ const platformStatusCodes: Record<number, string | undefined> = vi.hoisted(
 vi.mock('node:http', async (importOriginal) => {
   const actual = await importOriginal<typeof NodeHttp>();
   Object.assign(platformStatusCodes, actual.STATUS_CODES);
+
   return { ...actual, STATUS_CODES: platformStatusCodes };
 });
 
@@ -97,6 +98,7 @@ describe('repositoryFailure', () => {
     // `undefined`.
     const conflictText = STATUS_CODES[409];
     delete platformStatusCodes[409];
+
     try {
       expect(
         repositoryFailure('remote_taken', 'a message').getResponse(),

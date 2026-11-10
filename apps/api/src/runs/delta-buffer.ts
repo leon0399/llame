@@ -40,22 +40,27 @@ export function createDeltaBuffer(
     const out = buffer;
     buffer = '';
     firstPushMs = null;
+
     return out;
   };
 
   return {
     push(text: string, nowMs?: number): string | null {
       buffer += text;
+
       if (firstPushMs === null && nowMs !== undefined) {
         firstPushMs = nowMs;
       }
+
       const aged =
         nowMs !== undefined &&
         firstPushMs !== null &&
         nowMs - firstPushMs >= flushAfterMs;
+
       if (buffer.length < flushAtChars && !aged) {
         return null;
       }
+
       return drain();
     },
 
@@ -63,6 +68,7 @@ export function createDeltaBuffer(
       if (buffer.length === 0) {
         return null;
       }
+
       return drain();
     },
   };

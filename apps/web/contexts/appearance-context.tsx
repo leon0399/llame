@@ -21,10 +21,12 @@ import {
 import useCookie from "@/hooks/use-cookie";
 
 export type Theme = "light" | "dark" | "system" | string;
+
 export type FontSize = "small" | "medium" | "large";
 
 // Re-export types and options for convenience
 export type { FontStyle, MonoFontStyle } from "@/lib/appearance/font/consts";
+
 export {
   fontStyleOptions,
   monoFontStyleOptions,
@@ -64,6 +66,7 @@ function useApplyFontCssVar(
 ) {
   useEffect(() => {
     const option = options.find((o) => o.value === selected);
+
     if (option) {
       document.documentElement.style.setProperty(cssVarName, option.cssVar);
     }
@@ -73,10 +76,12 @@ function useApplyFontCssVar(
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { theme, setTheme } = useTheme();
   const [fontSize, setFontSize] = useState<FontSize>("medium");
+
   const [fontStyle, setFontStyle] = useCookie<FontStyle>(
     FONT_STYLE_COOKIE,
     DEFAULT_FONT_STYLE,
   );
+
   const [monoFontStyle, setMonoFontStyle] = useCookie<MonoFontStyle>(
     MONO_FONT_STYLE_COOKIE,
     DEFAULT_MONO_FONT_STYLE,

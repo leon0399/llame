@@ -56,6 +56,7 @@ const post: JsonObject = {
 async function read(routes: ReadonlyArray<[string, Reply]>, source = POST_URL) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
@@ -173,9 +174,11 @@ describe('Substack adapter read', () => {
       canonical_url: POST_URL,
       body_html: '<p>Text</p>',
     };
+
     const content = ['# Bare', '', `URL: ${POST_URL}`, '', 'Text'].join('\n');
 
     const absent = await read([[API_URL, response(bare)]]);
+
     const empty = await read([
       [
         API_URL,
@@ -199,6 +202,7 @@ describe('Substack adapter read', () => {
       message: 'HTTP 404',
       httpStatus: 404,
     };
+
     const throttled: WebFetchFailure = {
       type: 'http_status',
       message: 'HTTP 429',

@@ -287,6 +287,7 @@ function resolveClickTarget(
   }
 
   const rawValue = element.getAttribute(REGEX_TOKEN_ATTRIBUTE);
+
   const candidate = isRegexTokenValue(rawValue)
     ? parseWholeRegexLiteral(rawValue)
     : null;

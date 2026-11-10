@@ -42,6 +42,7 @@ function span(
 function scan(source: string): ScanResult {
   const lines: Array<MarkdownLine> = [];
   const spans: Array<MarkdownSpan> = [];
+
   const scanner = createMarkdownScanner({
     onLine: (value) => {
       lines.push(value);
@@ -54,7 +55,9 @@ function scan(source: string): ScanResult {
   for (const nativeLine of splitSourceLines(source)) {
     if (!scanner.push(nativeLine)) break;
   }
+
   scanner.end();
+
   return { lines, spans };
 }
 
@@ -72,6 +75,7 @@ describe("markdown structure scanner", () => {
       "## title ##\n",
       "#\n",
     ].join("");
+
     const result = scan(source);
 
     expect(result.lines).toEqual([
@@ -125,11 +129,16 @@ describe("markdown structure scanner", () => {
   it("closes nested sections at the next heading of equal or lesser depth", () => {
     const source = Array.from({ length: 25 }, (_, index) => {
       const lineNumber = index + 1;
+
       if (lineNumber === 5) return "## outer\n";
+
       if (lineNumber === 9) return "### inner\n";
+
       if (lineNumber === 20) return "## next\n";
+
       return `body ${lineNumber}\n`;
     }).join("");
+
     const result = scan(source);
 
     expect(result.spans).toEqual([
@@ -191,6 +200,7 @@ describe("markdown structure scanner", () => {
       "-->\n",
       "# visible after comment\n",
     ].join("");
+
     const result = scan(source);
 
     expect(result.spans).toEqual([
@@ -433,12 +443,14 @@ describe("markdown structure scanner", () => {
   it("stops after an onSpan callback returns false", () => {
     const lines: Array<MarkdownLine> = [];
     const spans: Array<MarkdownSpan> = [];
+
     const scanner = createMarkdownScanner({
       onLine: (value) => {
         lines.push(value);
       },
       onSpan: (value) => {
         spans.push(value);
+
         return false;
       },
     });
@@ -448,6 +460,7 @@ describe("markdown structure scanner", () => {
       scanner.push("# two\n"),
       scanner.push("# three\n"),
     ];
+
     scanner.end();
 
     expect(pushes).toEqual([true, false, false]);
@@ -461,9 +474,11 @@ describe("markdown structure scanner", () => {
   it("stops after an onLine callback returns false", () => {
     const lines: Array<MarkdownLine> = [];
     const spans: Array<MarkdownSpan> = [];
+
     const scanner = createMarkdownScanner({
       onLine: (value) => {
         lines.push(value);
+
         return value.line === 1 ? undefined : false;
       },
       onSpan: (value) => {
@@ -476,6 +491,7 @@ describe("markdown structure scanner", () => {
       scanner.push("# two\n"),
       scanner.push("# three\n"),
     ];
+
     scanner.end();
 
     expect(pushes).toEqual([true, false, false]);
@@ -489,9 +505,11 @@ describe("markdown structure scanner", () => {
   it("stops inside frontmatter when onLine returns false", () => {
     const lines: Array<MarkdownLine> = [];
     const spans: Array<MarkdownSpan> = [];
+
     const scanner = createMarkdownScanner({
       onLine: (value) => {
         lines.push(value);
+
         return value.line < 2;
       },
       onSpan: (value) => {
@@ -502,6 +520,7 @@ describe("markdown structure scanner", () => {
     for (const nativeLine of ["---\n", "a: 1\n", "---\n", "# H\n"]) {
       scanner.push(nativeLine);
     }
+
     scanner.end();
 
     expect(lines.map(({ line: lineNumber }) => lineNumber)).toEqual([1, 2]);
@@ -510,6 +529,7 @@ describe("markdown structure scanner", () => {
 
   it("stops pulling input once a span callback returns false", () => {
     const pulled: Array<number> = [];
+
     function* source(): Generator<string> {
       for (let index = 1; index <= 5; index += 1) {
         pulled.push(index);

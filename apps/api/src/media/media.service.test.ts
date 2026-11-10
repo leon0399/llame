@@ -18,6 +18,7 @@ const OWNER = 'owner';
 function service() {
   const runAs = vi.fn();
   runAs.mockRejectedValue(new Error('unexpected database access'));
+
   return { media: new MediaService({ runAs }), runAs };
 }
 
@@ -35,21 +36,26 @@ function scriptedTenantDb(answers: Array<Array<ReadonlyArray<unknown>>>) {
     unsafe(sql: string, params: ReadonlyArray<unknown>) {
       statements.push({ sql, params });
       const rows = Promise.resolve(answers.shift() ?? []);
+
       return Object.assign(rows, { values: () => rows });
     },
   });
   const owners: Array<string> = [];
+
   const tenantDb: TenantRunner = {
     runAs: (ownerUserId, work) => {
       owners.push(ownerUserId);
+
       return work(db);
     },
   };
+
   return { media: new MediaService(tenantDb), statements, owners };
 }
 
 function objectRow(media: MediaObject): ReadonlyArray<unknown> {
   const values = new Map<string, unknown>(Object.entries(media));
+
   return Object.keys(getTableColumns(schema.mediaObjects)).map((key) =>
     values.get(key),
   );
@@ -126,6 +132,7 @@ describe('MediaService authorization', () => {
   it('reads a canonical id as the owner', async () => {
     const row = stored('a'.repeat(64));
     const bytes = Buffer.from('model-bytes');
+
     const { media, owners } = scriptedTenantDb([
       [objectRow(row)],
       [[bytes]],
@@ -146,6 +153,7 @@ describe('MediaService ingest', () => {
     const input = await upload();
     const prepared = await prepareMedia(input.bytes);
     const row = stored(createHash('sha256').update(input.bytes).digest('hex'));
+
     const { media, statements, owners } = scriptedTenantDb([
       [objectRow(row)],
       [],
@@ -169,9 +177,11 @@ describe('MediaService ingest', () => {
 
   it("reuses the owner's object with the same digest and stores no blob", async () => {
     const input = await upload();
+
     const existing = stored(
       createHash('sha256').update(input.bytes).digest('hex'),
     );
+
     const { media, statements } = scriptedTenantDb([[], [objectRow(existing)]]);
 
     await expect(media.ingest(OWNER, input)).resolves.toEqual({
@@ -199,6 +209,7 @@ describe('MediaService ingest', () => {
     const bytes = await readFile(join(__dirname, 'testing/pdf/one-page.pdf'));
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const row = storedPdfRow({ sha256, byteSize: bytes.length });
+
     const { media, statements, owners } = scriptedTenantDb([
       [objectRow(row)],
       [],

@@ -157,6 +157,7 @@ const created: Array<string> = [];
 function tempDirectory(prefix = 'chat-creation-'): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   created.push(directory);
+
   return directory;
 }
 
@@ -180,6 +181,7 @@ function clone(remote = 'git@github.com:leon0399/llame.git'): string {
   runGit(directory, ['add', 'README.md']);
   runGit(directory, ['commit', '--quiet', '--message', 'first']);
   runGit(directory, ['remote', 'add', 'origin', remote]);
+
   return realpathSync(directory);
 }
 
@@ -221,6 +223,7 @@ async function boot(
   { workers = true } = {},
 ): Promise<Harness> {
   const models = new FakeModelsService();
+
   const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
     .useValue({ assertReady: () => Promise.resolve() })
@@ -228,6 +231,7 @@ async function boot(
     .useValue({ config })
     .overrideProvider(ModelsService)
     .useValue(models);
+
   const moduleRef = await (
     workers
       ? builder
@@ -235,13 +239,16 @@ async function boot(
           .overrideProvider(WorkerProfileService)
           .useValue({ concurrencyFor: () => null })
   ).compile();
+
   const app = moduleRef.createNestApplication();
   configureApp(app);
   await app.listen(0);
   const server: unknown = app.getHttpServer();
+
   if (!isHttpServer(server)) {
     throw new Error('Expected Nest to expose a Node HTTP server');
   }
+
   return { app, http: server, models };
 }
 
@@ -275,6 +282,7 @@ describe('chat creation over HTTP', () => {
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     }) as Promise<T>;
 
@@ -287,8 +295,10 @@ describe('chat creation over HTTP', () => {
         name: `Chat creation ${label}`,
       })
       .expect(201);
+
     const body: unknown = registered.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(registered), userId: body.user.id };
   }
 
@@ -327,6 +337,7 @@ describe('chat creation over HTTP', () => {
         tx`INSERT INTO checkouts (id, owner_user_id, repository_id, executor_id, path, kind, parent_checkout_id, branch, origin)
            VALUES (${id}, ${owner.userId}, ${input.repositoryId}, ${input.executorId ?? 'creation-host'}, ${input.path}, ${input.kind ?? 'main'}, ${input.parentCheckoutId ?? null}, 'main', 'registered')`,
     );
+
     return id;
   }
 
@@ -347,6 +358,7 @@ describe('chat creation over HTTP', () => {
             Array<{ count: number }>
           >`SELECT count(*)::int AS count FROM ${tx(table)} WHERE chat_id = ${where.chatId}`,
     );
+
     return rows[0]?.count ?? -1;
   }
 
@@ -359,6 +371,7 @@ describe('chat creation over HTTP', () => {
         >`SELECT project_id, workspace_root, workspace_executor_id, workspace_generation, archived_at
            FROM chats WHERE id = ${chatId}`,
     );
+
     return row;
   }
 
@@ -370,6 +383,7 @@ describe('chat creation over HTTP', () => {
           Array<{ permission_mode: string }>
         >`SELECT permission_mode FROM runs WHERE chat_id = ${chatId} ORDER BY created_at`,
     );
+
     return rows.map((row) => row.permission_mode);
   }
 
@@ -384,6 +398,7 @@ describe('chat creation over HTTP', () => {
             .expect(200)
         ).body,
       );
+
     return (
       links.find((link) => link.repositoryId === repository)?.defaults ?? []
     );
@@ -406,6 +421,7 @@ describe('chat creation over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ name: 'llame development' })
       .expect(201);
+
     projectId = z.looseObject({ id: z.guid() }).parse(project.body).id;
 
     const second = await request(harness.http)
@@ -413,6 +429,7 @@ describe('chat creation over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ name: 'another project' })
       .expect(201);
+
     otherProjectId = z.looseObject({ id: z.guid() }).parse(second.body).id;
 
     const archived = await request(harness.http)
@@ -420,6 +437,7 @@ describe('chat creation over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ name: 'archived project' })
       .expect(201);
+
     archivedProjectId = z.looseObject({ id: z.guid() }).parse(archived.body).id;
     await request(harness.http)
       .patch(`/api/v1/projects/${archivedProjectId}`)
@@ -435,6 +453,7 @@ describe('chat creation over HTTP', () => {
         remote: 'git@github.com:leon0399/llame.git',
       })
       .expect(201);
+
     repositoryId = z.looseObject({ id: z.guid() }).parse(repository.body).id;
 
     const secondRepository = await request(harness.http)
@@ -445,6 +464,7 @@ describe('chat creation over HTTP', () => {
         remote: 'git@github.com:leon0399/notes.git',
       })
       .expect(201);
+
     secondRepositoryId = z
       .looseObject({ id: z.guid() })
       .parse(secondRepository.body).id;
@@ -454,6 +474,7 @@ describe('chat creation over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ displayName: 'denied' })
       .expect(201);
+
     deniedRepositoryId = z.looseObject({ id: z.guid() }).parse(denied.body).id;
 
     const unlinked = await request(harness.http)
@@ -461,6 +482,7 @@ describe('chat creation over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ displayName: 'unlinked' })
       .expect(201);
+
     unlinkedRepositoryId = z
       .looseObject({ id: z.guid() })
       .parse(unlinked.body).id;
@@ -490,6 +512,7 @@ describe('chat creation over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ path: source, repositoryId })
       .expect(201);
+
     mainCheckoutId = z.looseObject({ id: z.guid() }).parse(main.body).id;
 
     const secondMain = await request(harness.http)
@@ -497,6 +520,7 @@ describe('chat creation over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ path: secondSource, repositoryId: secondRepositoryId })
       .expect(201);
+
     secondCheckoutId = z
       .looseObject({ id: z.guid() })
       .parse(secondMain.body).id;
@@ -532,8 +556,10 @@ describe('chat creation over HTTP', () => {
         await tx`DELETE FROM repositories WHERE owner_user_id = ${userId}`;
       }).catch(() => undefined);
     }
+
     await harness?.app.close();
     await sql?.end();
+
     for (const directory of created.splice(0)) {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -555,10 +581,12 @@ describe('chat creation over HTTP', () => {
       });
       expect(await countRows('messages', { chatId })).toBe(0);
       expect(await countRows('runs', { chatId })).toBe(0);
+
       // No path decision ran, so the record holds no attempt.
       const record = creationRecordSchema.parse(
         (await recordOf(chatId).expect(200)).body,
       );
+
       expect(record.attempts).toEqual([]);
     });
 
@@ -574,6 +602,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'Start nowhere in particular.' }],
         },
       }).expect(201);
+
       expect(createResponseSchema.parse(response.body).workspace).toEqual({
         status: 'unbound',
       });
@@ -588,9 +617,11 @@ describe('chat creation over HTTP', () => {
       // Only absence means "not given": an explicit null is malformed, never
       // a field the create then reads as present.
       const chatId = newChatId();
+
       for (const field of ['worktree', 'message', 'checkoutId', 'executorId']) {
         await create({ id: chatId, [field]: null }).expect(400);
       }
+
       await chatOf(chatId).expect(404);
     });
 
@@ -617,7 +648,9 @@ describe('chat creation over HTTP', () => {
         },
         { workers: false },
       );
+
       const chatId = newChatId();
+
       try {
         const response = await request(restricted.http)
           .post('/api/v1/chats')
@@ -666,6 +699,7 @@ describe('chat creation over HTTP', () => {
         projectId,
         repositoryId,
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.chat).toMatchObject({ id: chatId, projectId });
@@ -697,6 +731,7 @@ describe('chat creation over HTTP', () => {
       const record = creationRecordSchema.parse(
         (await recordOf(chatId).expect(200)).body,
       );
+
       expect(record.attempts).toHaveLength(1);
       expect(record.attempts[0]?.decisions).toMatchObject([
         { path: source, decision: 'allow', reason: 'matched_allow' },
@@ -719,6 +754,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'Start bound, read-only.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.workspace).toEqual({
@@ -757,6 +793,7 @@ describe('chat creation over HTTP', () => {
         projectId,
         repositoryId: secondRepositoryId,
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.workspace).toEqual({
@@ -787,6 +824,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'Where does this start?' }],
         },
       }).expect(201);
+
       expect(createResponseSchema.parse(response.body).workspace.status).toBe(
         'bound',
       );
@@ -820,6 +858,7 @@ describe('chat creation over HTTP', () => {
         path: `/api/v1/chats/${chatId}/stream`,
         cookie: owner.cookie,
       });
+
       try {
         expect(stream.status).toBe(200);
         await expect(
@@ -848,7 +887,9 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'Start in a worktree.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
+
       const directory = join(
         source,
         '..',
@@ -882,18 +923,21 @@ describe('chat creation over HTTP', () => {
           tx`SELECT id, kind, parent_checkout_id, branch, origin FROM checkouts
              WHERE owner_user_id = ${owner.userId} AND path = ${directory}`,
       );
+
       expect(worktree).toMatchObject({
         kind: 'worktree',
         parent_checkout_id: mainCheckoutId,
         branch: 'llame/creation-one',
         origin: 'created',
       });
+
       const [lease] = await asOwner(
         owner.userId,
         (tx) =>
           tx`SELECT chat_id, checkout_id, base_ref, base_commit FROM worktree_leases
              WHERE owner_user_id = ${owner.userId} AND chat_id = ${chatId}`,
       );
+
       expect(lease).toMatchObject({
         chat_id: chatId,
         checkout_id: worktree.id,
@@ -923,6 +967,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'Start read-only in a worktree.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.workspace).toMatchObject({
@@ -939,13 +984,16 @@ describe('chat creation over HTTP', () => {
 
     it('reuses its lease and root on a resend that adds the message', async () => {
       const chatId = newChatId();
+
       const first = await create({
         id: chatId,
         projectId,
         repositoryId,
         worktree: { name: 'creation-two' },
       }).expect(201);
+
       const root = createResponseSchema.parse(first.body).workspace.root;
+
       const checkoutsBefore = await asOwner(
         owner.userId,
         (tx) =>
@@ -963,6 +1011,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'Now send it.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(resent.body);
 
       expect(body.workspace).toMatchObject({
@@ -972,11 +1021,13 @@ describe('chat creation over HTTP', () => {
       });
       expect(await countRows('messages', { chatId })).toBe(1);
       expect(await countRows('runs', { chatId })).toBe(1);
+
       const checkoutsAfter = await asOwner(
         owner.userId,
         (tx) =>
           tx`SELECT count(*)::int AS count FROM checkouts WHERE owner_user_id = ${owner.userId}`,
       );
+
       expect(checkoutsAfter[0]?.count).toBe(checkoutsBefore[0]?.count);
       expect(await countRows('worktree_leases', { chatId })).toBe(1);
     });
@@ -1021,6 +1072,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'This path is refused.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.workspace).toMatchObject({
@@ -1036,10 +1088,12 @@ describe('chat creation over HTTP', () => {
       expect(await countRows('runs', { chatId })).toBe(0);
       // A failed start records no default.
       expect(await defaultsOf(projectId, repositoryId)).toEqual(defaultsBefore);
+
       // The rejection is still recorded as the attempt that earned it.
       const record = creationRecordSchema.parse(
         (await recordOf(chatId).expect(200)).body,
       );
+
       expect(record.attempts).toHaveLength(1);
       expect(record.attempts[0]?.decisions).toMatchObject([
         { path: deniedPath, decision: 'reject', reason: 'explicit_reject' },
@@ -1060,15 +1114,18 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'Bypass this path.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.workspace).toMatchObject({
         status: 'bound',
         root: deniedPath,
       });
+
       const record = creationRecordSchema.parse(
         (await recordOf(chatId).expect(200)).body,
       );
+
       expect(record.attempts[0]?.decisions).toMatchObject([
         {
           path: deniedPath,
@@ -1104,6 +1161,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'This worktree is taken.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.workspace).toMatchObject({
@@ -1133,6 +1191,7 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'That Machine is offline.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(response.body);
 
       expect(body.workspace).toMatchObject({
@@ -1167,15 +1226,18 @@ describe('chat creation over HTTP', () => {
           parts: [{ type: 'text', text: 'The corrected location.' }],
         },
       }).expect(201);
+
       const body = createResponseSchema.parse(resent.body);
 
       expect(body.workspace).toMatchObject({ status: 'bound', root: source });
       expect(await countRows('messages', { chatId })).toBe(1);
       expect(await countRows('runs', { chatId })).toBe(1);
+
       // Two attempts: the refusal and the corrected start.
       const record = creationRecordSchema.parse(
         (await recordOf(chatId).expect(200)).body,
       );
+
       expect(record.attempts).toHaveLength(2);
     });
 
@@ -1213,6 +1275,7 @@ describe('chat creation over HTTP', () => {
         { id: chatId, message: undefined },
         other,
       ).expect(404);
+
       expect(response.body).not.toHaveProperty('chat');
       expect((await chatRow(chatId)).project_id).toBe(projectId);
     });
@@ -1272,6 +1335,7 @@ describe('chat creation over HTTP', () => {
       // A project and a working directory are separate settings: a named
       // repository outside the project's links still starts in the project.
       const chatId = newChatId();
+
       const response = await create({
         id: chatId,
         projectId,
@@ -1303,6 +1367,7 @@ describe('chat creation over HTTP', () => {
       const reserved = await locker.reserve();
       const key = `chat-creation:${chatId}`;
       await reserved`SELECT pg_advisory_lock(hashtextextended(${key}, 0))`;
+
       try {
         return await run();
       } finally {
@@ -1363,6 +1428,7 @@ describe('chat creation over HTTP', () => {
 
     it('creates one worktree for one id across a refused and a successful request', async () => {
       const chatId = newChatId();
+
       const refused = await withCreationLock(chatId, () =>
         create({
           id: chatId,
@@ -1371,6 +1437,7 @@ describe('chat creation over HTTP', () => {
           worktree: { name: 'creation-three' },
         }),
       );
+
       expect(refused.status).toBe(409);
 
       const accepted = await create({
@@ -1379,6 +1446,7 @@ describe('chat creation over HTTP', () => {
         repositoryId,
         worktree: { name: 'creation-three' },
       }).expect(201);
+
       expect(createResponseSchema.parse(accepted.body).workspace).toMatchObject(
         { status: 'bound' },
       );
@@ -1417,6 +1485,7 @@ describe('chat creation on a one-connection tenant pool', () => {
         name: 'Chat creation single pool',
       })
       .expect(201);
+
     const body: unknown = registered.body;
     expectRegisteredUserId(body);
 

@@ -102,6 +102,7 @@ describe('run segment queries', () => {
 
   it('reads the earlier segment through the reply usage that names the Run', async () => {
     const queries: Array<string> = [];
+
     const logged: Db = drizzle.mock({
       schema,
       logger: { logQuery: (sql) => queries.push(sql) },
@@ -122,6 +123,7 @@ describe('run segment queries', () => {
 describe('latestDeliverySequence', () => {
   it('reads the newest run.delivered event of the Run', async () => {
     const queries: Array<string> = [];
+
     const db: Db = drizzle.mock({
       schema,
       logger: { logQuery: (sql) => queries.push(sql) },

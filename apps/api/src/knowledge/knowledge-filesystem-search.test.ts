@@ -21,6 +21,7 @@ describe('Knowledge filesystem search helpers', () => {
       limit: 1,
       excerpt: '',
     });
+
     expect(compareSearchMatches(match('a.md', 1), match('a.md', 1))).toBe(0);
     expect(
       compareSearchMatches(match('a.md', 1), match('a.md', 2)),
@@ -149,6 +150,7 @@ describe('Knowledge filesystem search helpers', () => {
       { length: KNOWLEDGE_MAX_READ_LINES + 2 },
       (_value, index) => (index % 2 === 0 ? 'needle' : 'gap'),
     );
+
     const matches = await collectKnowledgePassages(
       'long.md',
       `${lines.join('\n')}\n`,

@@ -38,11 +38,14 @@ const REMOTE_AUTHORITY_MESSAGE =
  */
 export function decodeFileAlias(value: string): FileAliasResult {
   const raw = extractRawPath(value.slice(5));
+
   if ('ok' in raw) return raw;
 
   const refused = refuseLiteralChars(raw.path);
+
   if (refused !== undefined) return refused;
   const decoded = decodePercent(raw.path);
+
   if (decoded === undefined)
     return invalid('Malformed or non-UTF-8 percent escape in file URL.');
 
@@ -56,19 +59,24 @@ function extractRawPath(
   if (afterScheme.startsWith('//')) {
     const rest = afterScheme.slice(2);
     const slashIdx = rest.indexOf('/');
+
     if (slashIdx < 0)
       return invalid(
         'A file:// URL must include an absolute path after the authority.',
       );
     const authority = rest.slice(0, slashIdx);
+
     if (authority !== '' && authority.toLowerCase() !== 'localhost')
       return { ok: false, message: REMOTE_AUTHORITY_MESSAGE };
+
     return { path: rest.slice(slashIdx) };
   }
+
   if (!afterScheme.startsWith('/'))
     return invalid(
       'A file: URL without an authority must start with /; write the absolute path instead.',
     );
+
   return { path: afterScheme };
 }
 
@@ -76,12 +84,17 @@ function extractRawPath(
 function refuseLiteralChars(rawPath: string): FileAliasResult | undefined {
   for (let i = 0; i < rawPath.length; i++) {
     const ch = rawPath.charCodeAt(i);
+
     if (ch === 0x3f) return invalid('A file URL must not contain a query.');
+
     if (ch === 0x23) return invalid('A file URL must not contain a fragment.');
+
     if (ch === 0x5c) return invalid('A file URL must not contain a backslash.');
+
     if (ch <= 0x1f || ch === 0x7f)
       return invalid('A file URL must not contain control characters.');
   }
+
   return undefined;
 }
 
@@ -92,7 +105,9 @@ function refuseLiteralChars(rawPath: string): FileAliasResult | undefined {
  */
 function decodePercent(raw: string): string | undefined {
   if (!raw.includes('%')) return raw;
+
   if (/%(?:2[fF]|00)/u.test(raw)) return undefined;
+
   try {
     return decodeURIComponent(raw);
   } catch {

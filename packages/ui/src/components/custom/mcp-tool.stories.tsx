@@ -39,6 +39,7 @@ const meta = {
 } satisfies Meta<typeof McpTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

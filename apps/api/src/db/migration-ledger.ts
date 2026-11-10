@@ -32,6 +32,7 @@ export function assertLedgerStampIsUsable(
   if (newest === undefined) {
     return;
   }
+
   if (
     newest.created_at !== null &&
     Number(newest.created_at) > now + LEDGER_STAMP_TOLERANCE_MS

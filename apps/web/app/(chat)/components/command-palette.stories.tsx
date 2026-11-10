@@ -56,12 +56,15 @@ function routeFetch({
       const request = input instanceof Request ? input : new Request(input);
       const { pathname, searchParams } = new URL(request.url);
       const key = `${request.method} ${pathname}`;
+
       if (key === "GET /api/v1/chats/search") {
         return jsonResponse({ results: search(searchParams.get("q") ?? "") });
       }
+
       if (key === "GET /api/v1/chats") return jsonResponse(chats);
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -76,6 +79,7 @@ const routerPush = fn().mockName("router.push");
 /** The sidebar's Search button stands in for any `useCommandPalette` caller. */
 function Trigger() {
   const palette = useCommandPalette();
+
   return (
     <button type="button" onClick={() => palette.open()}>
       Search
@@ -92,6 +96,7 @@ async function openPalette(canvasElement: HTMLElement) {
   // The dialog portals into document.body, outside the story canvas.
   const dialog = await screen.findByRole("dialog", { name: "Command palette" });
   await waitFor(() => expect(dialog).toBeVisible());
+
   return within(dialog).getByPlaceholderText<HTMLInputElement>(PLACEHOLDER);
 }
 
@@ -118,6 +123,7 @@ const meta = {
 } satisfies Meta<typeof CommandPaletteProvider>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -135,6 +141,7 @@ export const KeyboardShortcut: Story = {
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
     );
+
     await expect(screen.queryByPlaceholderText(PLACEHOLDER)).toBeNull();
 
     // A repeat keydown alone, as the browser sends while the chord is held.
@@ -364,6 +371,7 @@ export const ServerMatchesShown: Story = {
   }),
   play: async ({ canvasElement }) => {
     const input = await openPalette(canvasElement);
+
     for (const { query, title } of serverMatches) {
       await userEvent.clear(input);
       await userEvent.type(input, query);
@@ -393,9 +401,11 @@ export const ServerOrderKept: Story = {
 
     await screen.findByText("Database AB Migration");
     const chats = screen.getByRole("group", { name: "Chats" });
+
     const titles = within(chats)
       .getAllByRole("option")
       .map((option) => option.textContent);
+
     await expect(titles).toEqual([
       "Database AB MigrationChat",
       "Ab Testing PlanChat",

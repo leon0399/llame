@@ -242,6 +242,7 @@ The rendered docs look good.`);
         notLoaded: 0,
       },
     });
+
     const partial = renderGithubDocument({
       ...pullDocument,
       checks: {
@@ -252,6 +253,7 @@ The rendered docs look good.`);
         notLoaded: 40,
       },
     });
+
     const unavailable = renderGithubDocument({
       ...pullDocument,
       checks: { kind: 'unavailable' },

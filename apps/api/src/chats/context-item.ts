@@ -135,7 +135,9 @@ export function isContextItemPart(value: unknown): value is ContextItemPart {
   ) {
     return false;
   }
+
   const data = value['data'];
+
   if (
     !isExactRecord(data, [
       'form',
@@ -151,6 +153,7 @@ export function isContextItemPart(value: unknown): value is ContextItemPart {
   ) {
     return false;
   }
+
   if (
     data['v'] !== 1 ||
     !isString(data['producer']) ||
@@ -162,6 +165,7 @@ export function isContextItemPart(value: unknown): value is ContextItemPart {
   ) {
     return false;
   }
+
   return data['form'] === undefined || isString(data['form']);
 }
 
@@ -183,6 +187,7 @@ export function createContextItemPart(input: {
   if (input.text.length === 0) {
     throw new TypeError('Invalid server-authored context item text');
   }
+
   const part: AuthoredContextItemPart = {
     type: 'data-context',
     data: {
@@ -194,10 +199,12 @@ export function createContextItemPart(input: {
       text: input.text,
     },
   };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the literal's type is asserted, not verified: this re-check enforces the exact key set the declared type cannot, so a future edit that widens `data` fails here rather than at replay.
   if (!isContextItemPart(part)) {
     throw new TypeError('Invalid server-authored context item');
   }
+
   return part;
 }
 
@@ -230,12 +237,15 @@ export function sanitizeClientMessageParts(
 ): Array<ClientMessagePart> {
   return parts.flatMap((part): Array<ClientMessagePart> => {
     if (!isRecord(part)) return [];
+
     if (part.type === 'text' && isString(part.text)) {
       return [{ type: 'text', text: sanitizeAuthoredText(part.text) }];
     }
+
     if (part.type === 'file' && isString(part.url)) {
       return [{ type: 'file', url: part.url }];
     }
+
     return [];
   });
 }
@@ -287,12 +297,14 @@ export function renderContextItem(input: {
   // the model, so an older worker reading a newer API's producer must be unable
   // to emit it even if a future caller forgets the check.
   if (!isRecognizedProducer(input.producer)) return null;
+
   const attributes = [
     `producer="${escapeXmlAttribute(input.producer)}"`,
     ...(input.form === undefined
       ? []
       : [`form="${escapeXmlAttribute(input.form)}"`]),
   ].join(' ');
+
   return [
     `<${CONTEXT_ITEM_TAG} ${attributes}>`,
     CONTEXT_ITEM_PROVENANCE,

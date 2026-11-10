@@ -157,15 +157,21 @@ export async function resolveMachineScope(
   admission: GrepReadAdmission,
 ): Promise<MachineScopeResolution> {
   const parsed = machineScopeOf(scope, index);
+
   if ('status' in parsed) return { result: parsed };
   const connector = machineConnector(context);
+
   if (connector === undefined) return { result: machineUnsupportedResult() };
+
   if (!connector.isConfigured(parsed.name))
     return { result: machineNotFoundResult(parsed.name) };
   const verdict = await exactPathVerdict(context, connector, parsed, admission);
+
   if ('result' in verdict) return { result: verdict.result };
+
   if (verdict.kind === 'refused')
     return { result: machinePathNotFoundResult() };
+
   return {
     machine: verdict.singleFile ? { ...parsed, singleFile: true } : parsed,
   };
@@ -198,7 +204,9 @@ async function exactPathVerdict(
   if (scope.globSuffix !== undefined)
     return { kind: 'walk', singleFile: false };
   const locator = formatMachineLocator(scope.name, scope.path);
+
   if (locator === undefined) return { kind: 'walk', singleFile: false };
+
   try {
     const answer = readFsStatResult(
       await connector.request(
@@ -214,8 +222,10 @@ async function exactPathVerdict(
         { signal: context.abortSignal },
       ),
     );
+
     if (answer === undefined || answer.kind !== 'file' || answer.isLink)
       return { kind: 'walk', singleFile: false };
+
     return admission.admit(locator)
       ? { kind: 'walk', singleFile: true }
       : { kind: 'refused' };
@@ -227,9 +237,12 @@ async function exactPathVerdict(
 /** The one refusal message for a Machine scope with no path to search. */
 const NO_PATH_MESSAGE =
   'A machine:// scope must name a Machine and an absolute path.';
+
 const BAD_NAME_MESSAGE =
   'A machine:// scope must name a Machine as [a-z0-9-], up to 63 characters.';
+
 const BAD_PATH_MESSAGE = 'The Machine scope path is invalid.';
+
 /** What the daemon answers for a path that does not exist. */
 const NOT_FOUND_MESSAGE = 'The target does not exist.';
 
@@ -241,23 +254,30 @@ export function machineScopeOf(
   // `machine://` is fixed width whatever the case of the scheme.
   const rest = scope.slice('machine://'.length);
   const separator = rest.indexOf('/');
+
   if (separator < 0) return invalidPathResult(NO_PATH_MESSAGE);
   const name = rest.slice(0, separator).toLowerCase();
+
   if (!MACHINE_NAME_PATTERN.test(name))
     return invalidPathResult(BAD_NAME_MESSAGE);
   const split = splitGrepScope(rest.slice(separator));
+
   if ('error' in split) return unsupportedGlobResult(split.operator);
+
   const prefix =
     split.prefix !== '/' && split.prefix.endsWith('/')
       ? split.prefix.slice(0, -1)
       : split.prefix;
+
   const decoded = decodeRelativePath(prefix);
+
   if (
     decoded === undefined ||
     !decoded.startsWith('/') ||
     decoded.includes('\u0000')
   )
     return invalidPathResult(BAD_PATH_MESSAGE);
+
   return {
     index,
     name,
@@ -275,10 +295,13 @@ export async function executeMachineScope(
 ): Promise<MachineGrepSegment> {
   const { context, scope } = search;
   const connector = machineConnector(context);
+
   if (connector === undefined)
     return { status: 'error', result: machineUnsupportedResult() };
+
   if (!connector.isConfigured(scope.name))
     return { status: 'error', result: machineNotFoundResult(scope.name) };
+
   try {
     return await runDaemonPages(
       search,
@@ -329,17 +352,22 @@ async function runDaemonPages(
     last: undefined,
     unfinished: undefined,
   };
+
   while (canAskPage(run.budget, search.scope.singleFile === true)) {
     const asked = await requestPage(search, connector, {
       budget: run.budget,
       cursor: run.cursor,
       progressed: run.progressed,
     });
+
     if ('result' in asked) return { status: 'error', result: asked.result };
     const step = takePage(search, run, asked.page);
+
     if ('result' in step) return { status: 'error', result: step.result };
+
     if (step.ended) break;
   }
+
   return segmentOfPages(search, run);
 }
 
@@ -373,21 +401,28 @@ function takePage(
   run.progressed = run.progressed || page.progressed;
   const kept: Array<GrepPassage> = [];
   const refused = renderPage(search, page, kept);
+
   if (refused !== undefined) return { result: refused };
+
   // The artifact bound can cut a daemon page, so the walk stops asking here.
   if (!search.keepPassages(kept)) return { ended: true };
+
   if (page.unfinished !== undefined) {
     // A second stop inside a file ends the scope at the first one: one call
     // names one file, and the next call opens the second with a full budget.
     if (run.unfinished !== undefined) return { ended: true };
     run.unfinished = page.unfinished;
+
     // A one-file walk ignores a cursor, so a stop in it can only end the scope.
     if (search.scope.singleFile === true) return { ended: true };
   }
+
   const next = nextCursor(page, run.cursor);
+
   if (next === undefined) return { ended: true };
   run.cursor = next;
   run.budget = budgetAfter(run.budget, page.consumed, run.deadlineAt);
+
   return { ended: false };
 }
 
@@ -397,10 +432,12 @@ function segmentOfPages(
   pages: MachineSegmentPage,
 ): MachineGrepSegment {
   const singleFile = search.scope.singleFile === true;
+
   // A skipped file leaves the walk incomplete even when a later page ended
   // the scope: the call knows a file it could not finish.
   const complete =
     pages.last?.complete === true && pages.unfinished === undefined;
+
   if (complete) {
     // The daemon's own nine-tenths time budget belongs to one response: a walk
     // that finished after it did not stop at the call deadline.
@@ -413,8 +450,10 @@ function segmentOfPages(
     const stopped = canAskPage(pages.budget, singleFile)
       ? undefined
       : (spentBound(pages.budget, singleFile) ?? 'deadline');
+
     if (stopped !== undefined) pages.warnings.set(stopped, 1);
   }
+
   return {
     status: 'success',
     page: {
@@ -453,8 +492,11 @@ function spentBound(
   singleFile: boolean,
 ): FsGrepWarningKind | undefined {
   if (!singleFile && budget.entries === 0) return 'entry_bound';
+
   if (budget.files === 0) return 'file_bound';
+
   if (budget.bytes === 0) return 'byte_bound';
+
   return undefined;
 }
 
@@ -468,8 +510,10 @@ function nextCursor(
   cursor: string | undefined,
 ): string | undefined {
   if (page.complete) return undefined;
+
   if (page.consumed.files + page.consumed.entries + page.consumed.bytes === 0)
     return undefined;
+
   return page.cursor === undefined || page.cursor === cursor
     ? undefined
     : page.cursor;
@@ -496,6 +540,7 @@ async function requestPage(
   ask: DaemonAsk,
 ): Promise<DaemonPage> {
   const { context, scope } = search;
+
   const raw = await connector.request(
     scope.name,
     FS_GREP_METHOD,
@@ -509,9 +554,12 @@ async function requestPage(
     ),
     { signal: context.abortSignal },
   );
+
   const result = readFsGrepResult(raw);
+
   if (result === undefined || !('ok' in result))
     return { result: result ?? machineUnusableResult(scope.name) };
+
   return { page: result };
 }
 
@@ -522,6 +570,7 @@ function machineGrepFailure(
 ): MachineFailureResult {
   if (error instanceof MachineUnavailableError)
     return machineUnavailableResult(name, error.reason);
+
   if (error instanceof MachineProtocolError) {
     // A daemon older than this hub refuses an unknown method as `internal`.
     // `invalid_params` on `fs.grep` means a build that reads another request
@@ -531,6 +580,7 @@ function machineGrepFailure(
       ? machineUnusableResult(name)
       : machineProtocolFailureResult(name, error);
   }
+
   throw error;
 }
 
@@ -540,11 +590,14 @@ function locatorsOf(
   result: FsGrepSuccess,
 ): ReadonlyArray<string> | undefined {
   const locators: Array<string> = [];
+
   for (const passage of result.results) {
     const locator = machineScopeLocator(search.scope, passage.path);
+
     if (locator === undefined) return undefined;
     locators.push(locator);
   }
+
   return locators;
 }
 
@@ -556,9 +609,11 @@ function admitsFile(
   locator: string,
 ): boolean {
   const known = decided.get(rel);
+
   if (known !== undefined) return known;
   const allowed = admission.admit(locator);
   decided.set(rel, allowed);
+
   return allowed;
 }
 
@@ -584,12 +639,16 @@ function renderPage(
   into: Array<GrepPassage>,
 ): GrepToolError | undefined {
   const locators = locatorsOf(search, result);
+
   if (locators === undefined) return machineUnusableResult(search.scope.name);
   const decided = new Map<string, boolean>();
+
   for (const [index, passage] of result.results.entries()) {
     const locator = locators[index];
+
     if (!admitsFile(search.admission, decided, passage.path, locator)) continue;
     into.push(keptPassage(passage, locator));
   }
+
   return undefined;
 }

@@ -6,7 +6,9 @@ export async function inspectPdfDocument(bytes: Uint8Array) {
   const document = await getDocumentProxy(new Uint8Array(bytes), {
     verbosity: 0,
   });
+
   // getMetadata() inflates the whole XMP stream; permissions detect encryption.
   const permissions = await document.getPermissions();
+
   return { pages: document.numPages, encrypted: permissions !== null };
 }

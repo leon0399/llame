@@ -38,11 +38,15 @@ async function entryIn(
   directory: string,
 ): Promise<GitLocateSuccess | undefined> {
   const gitEntry = join(directory, ".git");
+
   try {
     const found = await stat(gitEntry);
+
     if (found.isDirectory())
       return { status: "ok", gitEntry, kind: "directory" };
+
     if (found.isFile()) return { status: "ok", gitEntry, kind: "file" };
+
     return undefined;
   } catch (error) {
     if (isMissing(error)) return undefined;
@@ -65,14 +69,18 @@ export async function locateNearest(
 ): Promise<GitLocateResult> {
   if (!(await isDirectory(input.path))) return gitFailure("root_missing");
   let directory = input.path;
+
   try {
     for (;;) {
       if (options.signal?.aborted || Date.now() > options.endsAt) {
         return gitFailure("timed_out");
       }
+
       const found = await entryIn(directory);
+
       if (found !== undefined) return found;
       const parent = dirname(directory);
+
       if (parent === directory || directory === input.ceiling) break;
       directory = parent;
     }
@@ -82,6 +90,7 @@ export async function locateNearest(
       error instanceof Error ? error.message : "",
     );
   }
+
   return gitFailure(
     input.ceiling === undefined ? "not_a_repository" : "no_repository_in_root",
   );
@@ -93,10 +102,14 @@ export function absoluteLocateInput(
   input: LocateInput,
 ): LocateInput | Extract<GitFailure, { readonly type: "invalid_input" }> {
   const path = absoluteGitPath(input.path);
+
   if ("status" in path) return path;
+
   if (input.ceiling === undefined) return { path: resolve(path.path) };
   const ceiling = absoluteGitPath(input.ceiling);
+
   if ("status" in ceiling) return ceiling;
+
   return { path: resolve(path.path), ceiling: resolve(ceiling.path) };
 }
 
@@ -105,7 +118,9 @@ export async function locateRepository(
   options: GitCallOptions = {},
 ): Promise<GitLocateResult> {
   const checked = absoluteLocateInput(input);
+
   if ("status" in checked) return checked;
+
   return locateNearest(checked, {
     endsAt: Date.now() + (options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS),
     signal: options.signal,

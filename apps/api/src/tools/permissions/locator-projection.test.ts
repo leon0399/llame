@@ -195,6 +195,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'file:///etc/%70asswd' }),
     ).toMatchObject({
@@ -207,6 +208,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
     };
+
     expect(
       decideNative(
         map,
@@ -221,6 +223,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/srv/docs(?:/|$)' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
     ).toMatchObject({ decision: 'allow' });
@@ -230,6 +233,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^file:///srv/docs/' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -242,6 +246,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', regex: '^file://' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
     ).toMatchObject({ decision: 'allow' });
@@ -255,6 +260,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/srv/docs/' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md?' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -269,6 +275,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/srv/docs/guide\\.md$' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md:10-20' }),
     ).toMatchObject({ decision: 'allow' });
@@ -281,6 +288,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       mcp__docs__fetch: { allow: [{ field: 'url', regex: '^/srv/' }] },
     };
+
     expect(
       decideNative(map, 'mcp__docs__fetch', {
         url: 'file:///srv/docs/guide.md',
@@ -293,6 +301,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^file://' }] },
     };
+
     expect(
       decideNative(map, 'read', {
         path: 'file://other.example/srv/docs/guide.md',
@@ -305,6 +314,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/work/project/' }] },
     };
+
     expect(
       decideNative(
         map,
@@ -326,6 +336,7 @@ describe('native file permission projection', () => {
         ],
       },
     };
+
     expect(
       decideNative(
         map,
@@ -342,6 +353,7 @@ describe('native file permission projection', () => {
         reject: [{ field: 'path', regex: '^/work/project/src/secret$' }],
       },
     };
+
     expect(
       decideNative(map, 'read', { path: 'src/secret:raw' }, '/work/project'),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
@@ -352,6 +364,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/tmp/file$' }] },
     };
+
     expect(decideNative(map, 'read', { path: '/tmp/file:1-2' })).toMatchObject({
       decision: 'allow',
     });
@@ -373,6 +386,7 @@ describe('native file permission projection', () => {
         reject: [{ field: 'path', regex: '^/home/u/\\.ssh/id_rsa$' }],
       },
     };
+
     for (const path of [
       '/home/u/.ssh/id_rsa:1-5',
       '/home/u/.ssh/id_rsa:raw',
@@ -395,6 +409,7 @@ describe('native file permission projection', () => {
         reject: [{ field: 'path', regex: '(^|[/\\\\])\\.ssh([/\\\\]|$|:)' }],
       },
     };
+
     expect(
       decideNative(map, 'read', { path: '/home/u/.ssh:old' }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
@@ -409,6 +424,7 @@ describe('native file permission projection', () => {
         allow: [{ field: 'path', regex: '^https://example\\.test/guide$' }],
       },
     };
+
     expect(
       decideNative(map, 'read', { path: 'https://example.test/guide:raw' }),
     ).toMatchObject({ decision: 'allow' });
@@ -422,10 +438,12 @@ describe('native file permission projection', () => {
 
   it('matches no read against a clause written with a selector spelling', () => {
     const clause = { field: 'path', literal: ':raw' } as const;
+
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [clause] },
       write: { allow: true, reject: [clause] },
     };
+
     for (const path of [
       '/srv/app/config.json:raw',
       'file:///srv/app/config.json:raw',
@@ -437,6 +455,7 @@ describe('native file permission projection', () => {
         decision: 'allow',
       });
     }
+
     expect(
       decideNative(map, 'write', { path: '/srv/app/config.json:raw' }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
@@ -452,11 +471,13 @@ describe('native file permission projection', () => {
         base: 'skill://pkg/secret',
       },
     ] as const;
+
     for (const { path, base } of cases) {
       for (const toolId of ['edit', 'write'] as const) {
         const exactBase: ToolPermissionMap = {
           [toolId]: { allow: [{ field: 'path', regex: `^${base}$` }] },
         };
+
         expect(decideNative(exactBase, toolId, { path })).toMatchObject({
           decision: 'reject',
           reason: 'no_allow',
@@ -468,6 +489,7 @@ describe('native file permission projection', () => {
             reject: [{ allFields: true, literal: path }],
           },
         };
+
         expect(decideNative(suffixReject, toolId, { path })).toMatchObject({
           decision: 'reject',
           reason: 'explicit_reject',
@@ -480,6 +502,7 @@ describe('native file permission projection', () => {
     const rejectWith = (literal: string): ToolPermissionMap => ({
       read: { allow: true, reject: [{ allFields: true, literal }] },
     });
+
     expect(
       decideNative(rejectWith('/srv/private/notes.md:1-5'), 'read', {
         path: '/srv/private/notes.md:1-5',
@@ -500,6 +523,7 @@ describe('native file permission projection', () => {
         allow: [{ field: 'path', literal: 'skill://pdf/references/a%20b.md' }],
       },
     };
+
     expect(
       decideNative(map, 'read', {
         path: 'skill://pdf/references/a%20b.md:raw',
@@ -520,6 +544,7 @@ describe('native file permission projection', () => {
         reject: [{ field: 'path', regex: '^skill://[^/]+/(?:\\.|%2[eE])' }],
       },
     };
+
     expect(
       decideNative(map, 'read', { path: 'skill://pdf/.env' }),
     ).toMatchObject({ decision: 'reject' });
@@ -535,6 +560,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', literal: 'kb://Space/notes/a' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'kb://Space/notes/%61' }),
     ).toMatchObject({ decision: 'allow' });
@@ -547,6 +573,7 @@ describe('native file permission projection', () => {
         reject: [{ allFields: true, literal: 'kb://Space/notes/a' }],
       },
     };
+
     expect(
       decideNative(map, 'write', { path: 'kb://Space/notes/%61', other: 'x' }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
@@ -558,6 +585,7 @@ describe('native file permission projection', () => {
         allow: [{ field: 'url', literal: 'kb://Space/notes/a' }],
       },
     };
+
     expect(
       decideNative(map, 'mcp__docs__fetch', { url: 'kb://Space/notes/%61' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -570,6 +598,7 @@ describe('native file permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '/docs/' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'https://evil.test/x#/docs/' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -587,6 +616,7 @@ describe('native file permission projection', () => {
         reject: [{ field: 'path', regex: '^https://example\\.test:88/' }],
       },
     };
+
     expect(
       decideNative(map, 'read', { path: 'https://example.test:88' }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
@@ -602,6 +632,7 @@ describe('native file permission projection', () => {
         reject: [{ field: 'path', regex: '^https://example\\.test/private' }],
       },
     };
+
     expect(
       decideNative(map, 'read', {
         path: 'https://example.test/%70rivate',
@@ -686,6 +717,7 @@ describe('native file permission projection', () => {
         withoutReadSelector(`https://en.wikipedia.org/wiki/Talk:Foo${suffix}`),
       ).toBe('https://en.wikipedia.org/wiki/Talk:Foo');
     }
+
     expect(withoutReadSelector('https://example.test/a:5:6')).toBe(
       'https://example.test/a:5',
     );
@@ -798,6 +830,7 @@ describe('machine locator permission projection', () => {
         ],
       },
     };
+
     expect(
       decideNative(map, 'read', {
         path: 'machine://devl/home/me/%2Essh/id_ed25519',
@@ -814,6 +847,7 @@ describe('machine locator permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/home/me/' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'machine://devl/home/me/notes.md' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -823,6 +857,7 @@ describe('machine locator permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/home/me/' }] },
     };
+
     expect(
       decideNative(
         map,
@@ -845,6 +880,7 @@ describe('machine locator permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^machine://devl/home/me/' }] },
     };
+
     expect(
       decideNative(map, 'read', { path: 'machine://gpu/home/me/notes.md' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -854,6 +890,7 @@ describe('machine locator permission projection', () => {
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
     };
+
     expect(
       decideNative(
         map,
@@ -875,6 +912,7 @@ describe('media locator permission projection', () => {
         reject: [{ field: 'path', regex: `^media://${ID}$` }],
       },
     };
+
     expect(nativeFileProjection('read')('path', `media://${ID}:raw`)).toBe(
       `media://${ID}`,
     );
@@ -902,6 +940,7 @@ describe('media locator permission projection', () => {
         ],
       },
     };
+
     expect(
       decideNative(restricted, 'read', { path: `media://${ID}` }),
     ).toMatchObject({ decision: 'allow' });
@@ -918,6 +957,7 @@ describe('media locator permission projection', () => {
         ],
       },
     };
+
     expect(
       decideNative(domainOnly, 'read', { path: `media://${ID}` }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });

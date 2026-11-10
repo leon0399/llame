@@ -50,6 +50,7 @@ export class RepositoriesRepository {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -67,6 +68,7 @@ export class RepositoriesRepository {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -91,6 +93,7 @@ export class RepositoriesRepository {
         ),
       )
       .limit(1);
+
     return rows[0]?.repository;
   }
 
@@ -133,6 +136,7 @@ export class RepositoriesRepository {
         target: [repositories.ownerUserId, repositories.canonicalRemote],
       })
       .returning();
+
     return created;
   }
 
@@ -147,6 +151,7 @@ export class RepositoriesRepository {
     if (Object.keys(patch).length === 0) {
       return this.findRepository(ownerUserId, repositoryId);
     }
+
     const [updated] = await this.db
       .update(repositories)
       .set({ ...patch, updatedAt: new Date() })
@@ -157,6 +162,7 @@ export class RepositoriesRepository {
         ),
       )
       .returning();
+
     return updated;
   }
 
@@ -173,6 +179,7 @@ export class RepositoriesRepository {
         ),
       )
       .returning({ id: repositories.id });
+
     return deleted.length > 0;
   }
 
@@ -192,6 +199,7 @@ export class RepositoriesRepository {
         ],
       })
       .returning();
+
     return created;
   }
 
@@ -216,9 +224,11 @@ export class RepositoriesRepository {
     repositoryId?: string,
   ): Promise<Array<Checkout>> {
     const conditions = [eq(checkouts.ownerUserId, ownerUserId)];
+
     if (repositoryId !== undefined) {
       conditions.push(eq(checkouts.repositoryId, repositoryId));
     }
+
     return this.db
       .select()
       .from(checkouts)
@@ -240,6 +250,7 @@ export class RepositoriesRepository {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -259,6 +270,7 @@ export class RepositoriesRepository {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -280,6 +292,7 @@ export class RepositoriesRepository {
         target: [checkouts.ownerUserId, checkouts.executorId, checkouts.path],
       })
       .returning();
+
     return created;
   }
 
@@ -298,6 +311,7 @@ export class RepositoriesRepository {
         ),
       )
       .returning();
+
     return updated;
   }
 
@@ -318,16 +332,20 @@ export class RepositoriesRepository {
       eq(checkouts.ownerUserId, ownerUserId),
       eq(checkouts.kind, 'worktree'),
     ];
+
     if (scope.repositoryId !== undefined) {
       conditions.push(eq(checkouts.repositoryId, scope.repositoryId));
     }
+
     if (scope.parentCheckoutId !== undefined) {
       conditions.push(eq(checkouts.parentCheckoutId, scope.parentCheckoutId));
     }
+
     const [row] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(checkouts)
       .where(and(...conditions));
+
     return row?.count ?? 0;
   }
 
@@ -344,6 +362,7 @@ export class RepositoriesRepository {
         ),
       )
       .returning({ id: checkouts.id });
+
     return deleted.length > 0;
   }
 
@@ -359,8 +378,10 @@ export class RepositoriesRepository {
       .insert(worktreeLeases)
       .values(input)
       .returning();
+
     if (created === undefined)
       throw new Error('A lease insert returned no row.');
+
     return created;
   }
 
@@ -380,6 +401,7 @@ export class RepositoriesRepository {
       )
       .orderBy(asc(worktreeLeases.createdAt), asc(worktreeLeases.id))
       .limit(1);
+
     return rows[0];
   }
 
@@ -410,6 +432,7 @@ export class RepositoriesRepository {
       )
       .orderBy(asc(worktreeLeases.createdAt), asc(worktreeLeases.id))
       .limit(1);
+
     return rows[0];
   }
 
@@ -423,6 +446,7 @@ export class RepositoriesRepository {
     paths: ReadonlyArray<string>,
   ): Promise<Map<string, Array<string>>> {
     if (paths.length === 0) return new Map();
+
     const rows = await this.db
       .select({ id: chats.id, root: chats.workspaceRoot })
       .from(chats)
@@ -433,13 +457,16 @@ export class RepositoriesRepository {
         ),
       )
       .orderBy(asc(chats.createdAt), asc(chats.id));
+
     const bound = new Map<string, Array<string>>();
+
     for (const row of rows) {
       if (row.root === null) continue;
       const ids = bound.get(row.root) ?? [];
       ids.push(row.id);
       bound.set(row.root, ids);
     }
+
     return bound;
   }
 
@@ -449,6 +476,7 @@ export class RepositoriesRepository {
     checkoutIds: ReadonlyArray<string>,
   ): Promise<Map<string, string>> {
     if (checkoutIds.length === 0) return new Map();
+
     const rows = await this.db
       .select({
         checkoutId: worktreeLeases.checkoutId,
@@ -462,11 +490,14 @@ export class RepositoriesRepository {
         ),
       )
       .orderBy(asc(worktreeLeases.createdAt), asc(worktreeLeases.id));
+
     const leaseChat = new Map<string, string>();
+
     for (const row of rows) {
       if (!leaseChat.has(row.checkoutId))
         leaseChat.set(row.checkoutId, row.chatId);
     }
+
     return leaseChat;
   }
 }

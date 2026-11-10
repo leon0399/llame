@@ -93,6 +93,7 @@ type ProducerState = {
 export function startGrepWalk(input: GrepWalkInput): GrepWalkRun {
   const queue = createWalkQueue(GREP_LIMITS.readAhead);
   const controller = new AbortController();
+
   const state: ProducerState = {
     input,
     queue,
@@ -111,6 +112,7 @@ export function startGrepWalk(input: GrepWalkInput): GrepWalkRun {
       ignoredAtLeast: false,
     },
   };
+
   const done = produceWalk(state)
     .catch((error: unknown) => {
       queue.fail(error);
@@ -119,6 +121,7 @@ export function startGrepWalk(input: GrepWalkInput): GrepWalkRun {
       queue.close();
       await queue.drain();
     });
+
   return {
     take: () => queue.take(),
     awaitTask: (event) => awaitTask(state, event),
@@ -136,6 +139,7 @@ function awaitTask(
   void event.read.outcome.then(() => {
     if (state.head === event.read.head) state.head = -1;
   });
+
   return event.read.outcome;
 }
 
@@ -143,6 +147,7 @@ function awaitTask(
 function stopProducer(state: ProducerState, controller: AbortController): void {
   state.queue.close();
   controller.abort();
+
   // A read the call will never take releases its file now, not when its next
   // chunk happens to arrive.
   for (const stream of state.streams) void stream.close();
@@ -156,14 +161,18 @@ async function produceWalk(state: ProducerState): Promise<void> {
   const scopes = [...state.input.scopes].sort(
     (left, right) => left.index - right.index,
   );
+
   for (const scope of scopes) {
     if (state.queue.closed) return;
     const cursor = state.input.cursor;
+
     if (cursor !== undefined && scope.index < cursor.scopeIndex) continue;
+
     const scopeCursor =
       cursor !== undefined && cursor.scopeIndex === scope.index
         ? cursor
         : undefined;
+
     if (
       !(await state.queue.push({
         kind: "scope",
@@ -171,6 +180,7 @@ async function produceWalk(state: ProducerState): Promise<void> {
       }))
     )
       return;
+
     if (await walkScope(state, scope, scopeCursor)) return;
   }
 }
@@ -182,6 +192,7 @@ async function walkScope(
   scopeCursor: DecodedGrepCursor | undefined,
 ): Promise<boolean> {
   const resume = scopeCursor?.kind === "passage" ? scopeCursor : undefined;
+
   try {
     for await (const rel of walkGrepScope({
       scope,
@@ -197,8 +208,10 @@ async function walkScope(
       onIgnored: (rel) => recordIgnored(state, scope, rel),
     })) {
       if (state.queue.closed) return true;
+
       // The cursor's file is exhausted: its twentieth passage hides the rest.
       if (isExhausted(resume, rel)) continue;
+
       if (!(await queueCandidate(state, scope, rel, resume))) return true;
     }
   } catch (error) {
@@ -206,11 +219,14 @@ async function walkScope(
     // throw; the stop is one queued event after the entries it counted.
     if (!(error instanceof EntryBoundStop)) throw error;
     await emit(state, { kind: "stop", reason: "entry_bound" });
+
     return true;
   }
+
   // A scope's last directory has no candidate left to flush its bookkeeping:
   // the skip counts and the reach the cursor resumes at belong to this scope.
   await flushRecord(state);
+
   return false;
 }
 
@@ -225,8 +241,10 @@ function recordIgnored(
 ): void {
   if (state.ignored >= GREP_LIMITS.ignoredReported) {
     state.record.ignoredAtLeast = true;
+
     return;
   }
+
   state.ignored += 1;
   state.record.ignored.push(scope.locatorFor(rel));
 }
@@ -234,9 +252,11 @@ function recordIgnored(
 /** Count one listed entry, or end the walk at the entry bound. */
 function countEntry(state: ProducerState): boolean {
   const bound = state.input.budget.entries;
+
   if (bound !== null && state.entries >= bound) throw new EntryBoundStop();
   state.entries += 1;
   state.record.entries += 1;
+
   return true;
 }
 
@@ -246,6 +266,7 @@ function isExhausted(
   rel: string,
 ): boolean {
   if (resume === undefined || resume.rel !== rel) return false;
+
   return resume.truncated === true && resume.endLine === undefined;
 }
 
@@ -261,6 +282,7 @@ async function queueCandidate(
 ): Promise<boolean> {
   if (await stopBeforeCandidate(state)) return false;
   const fileLocator = scope.locatorFor(rel);
+
   const candidate = {
     kind: "candidate" as const,
     scopeIndex: scope.index,
@@ -268,17 +290,21 @@ async function queueCandidate(
     fileLocator,
     resume: resume !== undefined && resume.rel === rel ? resume : undefined,
   };
+
   // The admission runs here, so a read never opens a file `read` refuses; the
   // refusal is counted by the consumer, when it takes the candidate.
   if (!(await state.input.onCandidate(fileLocator)))
     return emit(state, { ...candidate, read: undefined });
+
   if (!(await state.queue.room())) return false;
   state.started += 1;
   const head = state.nextHead;
   state.nextHead += 1;
+
   const outcome = state.queue.start(() =>
     readCandidate(state, scope, candidate, head),
   );
+
   return emit(state, { ...candidate, read: { outcome, head } });
 }
 
@@ -289,14 +315,17 @@ async function queueCandidate(
  */
 async function stopBeforeCandidate(state: ProducerState): Promise<boolean> {
   const { budget } = state.input;
+
   const reason =
     budget.files !== null && state.started >= budget.files
       ? "file_bound"
       : budget.bytes !== null && state.input.consumedBytes() >= budget.bytes
         ? "byte_bound"
         : undefined;
+
   if (reason === undefined) return false;
   await emit(state, { kind: "stop", reason });
+
   return true;
 }
 
@@ -313,22 +342,30 @@ async function readCandidate(
 ): Promise<GrepFileOutcome> {
   const { input, signal } = state;
   const { rel, fileLocator, resume } = candidate;
+
   if (signal.aborted) return { kind: "aborted", bytes: 0 };
   const opened = await scope.port.open(rel);
+
   // The call may have stopped while the open waited; a stream nobody reads
   // owes its handle to this close.
   if (signal.aborted) {
     if ("chunks" in opened) await opened.close();
+
     return { kind: "aborted", bytes: 0 };
   }
+
   if (!("chunks" in opened)) return { kind: "skip", warning: opened.kind };
   const maxFileBytes = input.budget.maxFileBytes;
+
   if (maxFileBytes !== null && opened.size > maxFileBytes) {
     // A stream nobody started owes its handle to this refusal.
     await opened.close();
+
     return { kind: "skip", warning: "oversized" };
   }
+
   state.streams.add(opened);
+
   try {
     return await scanGrepFile({
       fileLocator,
@@ -357,8 +394,10 @@ function headBound(
 ): GrepFileStopReason | undefined {
   if (state.head !== head) return undefined;
   const { input } = state;
+
   if (input.now() > input.deadlineAt) return "deadline";
   const bytes = input.budget.bytes;
+
   return bytes !== null && input.consumedBytes() + bytesRead >= bytes
     ? "byte_bound"
     : undefined;
@@ -382,12 +421,14 @@ async function emit(
   event: GrepWalkEvent,
 ): Promise<boolean> {
   if (!(await flushRecord(state))) return false;
+
   return state.queue.push(event);
 }
 
 /** Queue the counted entries, skips, and reaches of the walk so far. */
 async function flushRecord(state: ProducerState): Promise<boolean> {
   const record = state.record;
+
   if (
     record.entries === 0 &&
     record.links === 0 &&
@@ -396,6 +437,7 @@ async function flushRecord(state: ProducerState): Promise<boolean> {
     !record.ignoredAtLeast
   )
     return !state.queue.closed;
+
   const event: GrepWalkEvent = {
     kind: "record",
     entries: record.entries,
@@ -404,10 +446,12 @@ async function flushRecord(state: ProducerState): Promise<boolean> {
     ignored: [...record.ignored],
     ignoredAtLeast: record.ignoredAtLeast,
   };
+
   record.entries = 0;
   record.links = 0;
   record.reached = undefined;
   record.ignored.length = 0;
   record.ignoredAtLeast = false;
+
   return state.queue.push(event);
 }

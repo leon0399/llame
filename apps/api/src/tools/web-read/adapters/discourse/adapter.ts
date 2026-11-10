@@ -13,16 +13,20 @@ import {
 } from '../contract';
 
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
+
 /** The most posts one read renders; a longer topic is cut with a note. */
 const MAX_POSTS = 200;
+
 /** Post ids per `posts.json` request. Discourse does not cap `post_ids`
  *  (meta.discourse.org answered 300 in one request); a chunk keeps the
  *  request line far below what a proxy accepts. */
 const CHUNK_SIZE = 100;
+
 /** An anchor with no content. Discourse opens each heading with one,
  *  `<h3><a name="p-1-usage-1" class="anchor" href="#p-1-usage-1"></a>Usage</h3>`,
  *  which would render as `### [](#p-1-usage-1)Usage`. */
 const EMPTY_ANCHOR = /<a\s[^<>]*><\/a>/giu;
+
 /** An anchor or image tag, whose root-relative attributes are resolved
  *  against the forum; code sample text spells its tags escaped, so it never
  *  matches. */
@@ -56,6 +60,7 @@ const POST = z.object({
    *  carry no text. */
   action_code: z.string().nullable().default(null),
 });
+
 type Post = z.infer<typeof POST>;
 
 const TOPIC = z.object({
@@ -74,6 +79,7 @@ const TOPIC = z.object({
     stream: z.array(z.number().int()).optional(),
   }),
 });
+
 type Topic = z.infer<typeof TOPIC>;
 
 const POST_PAGE = z.object({ post_stream: z.object({ posts: z.array(POST) }) });
@@ -87,7 +93,9 @@ export function parseDiscourseUrl(
   if (source.protocol !== 'https:' || !hosts.includes(source.host)) {
     return undefined;
   }
+
   const topicId = TOPIC_PATH.exec(source.pathname)?.[1];
+
   return topicId === undefined ? undefined : { origin: source.origin, topicId };
 }
 
@@ -115,18 +123,24 @@ async function readTopic(
     `${target.origin}/t/${target.topicId}.json`,
     JSON_INIT,
   );
+
   if ('type' in fetched) return primaryFailure(fetched);
   const topic = parseJsonBody(fetched.body, TOPIC);
+
   if (topic === undefined) return { kind: 'failed', failure: 'parse' };
 
   const notes: Array<string> = [];
   const loaded = await loadPosts(target, topic, io, notes);
+
   if ('fatal' in loaded) return primaryFailure(loaded.fatal);
+
   if (loaded.posts.length === 0) return { kind: 'failed', failure: 'empty' };
   const total = topic.post_stream.stream?.length ?? topic.posts_count;
+
   if (total > loaded.posts.length) {
     notes.push(`posts truncated: the first ${loaded.posts.length} of ${total}`);
   }
+
   return {
     kind: 'rendered',
     content: renderThread(topic, target, loaded.posts),
@@ -153,13 +167,18 @@ async function loadPosts(
   const wanted = stream.slice(0, MAX_POSTS);
   const byId = new Map(opening.map((post): [number, Post] => [post.id, post]));
   const missing = wanted.filter((id) => !byId.has(id));
+
   for (let start = 0; start < missing.length; start += CHUNK_SIZE) {
     const ids = missing.slice(start, start + CHUNK_SIZE);
     const page = await loadChunk(target, ids, io, notes);
+
     if ('fatal' in page) return page;
+
     if (page.posts === undefined) break;
+
     for (const post of page.posts) byId.set(post.id, post);
   }
+
   return { posts: wanted.flatMap((id) => byId.get(id) ?? []) };
 }
 
@@ -172,6 +191,7 @@ async function loadChunk(
   { readonly posts?: ReadonlyArray<Post> } | { readonly fatal: WebFetchFailure }
 > {
   const query = ids.map((id) => `post_ids[]=${id}`).join('&');
+
   const section = await loadSection(
     'posts',
     io.fetch(
@@ -180,10 +200,14 @@ async function loadChunk(
     ),
     notes,
   );
+
   if ('fatal' in section) return section;
+
   if (section.body === undefined) return {};
   const page = parseJsonBody(section.body, POST_PAGE);
+
   if (page === undefined) notes.push('posts omitted: parse');
+
   return { posts: page?.post_stream.posts };
 }
 
@@ -214,6 +238,7 @@ function renderThread(
       ]),
     ),
   };
+
   return posts
     .map((post, index) => entryLines(post, index, posts.length, thread))
     .join('\n\n---\n\n');
@@ -228,14 +253,18 @@ function entryLines(
   const label = index === 0 ? 'Post' : 'Reply';
   const lines = [`## ${label} · ${index + 1}/${total} — ${authorOf(post)}`, ''];
   const replyTo = replyTarget(post, thread.authors);
+
   if (replyTo !== undefined) lines.push(`Replying to ${replyTo}`, '');
+
   if (index === 0) lines.push(`**${thread.title}**`, '');
   const text = bodyMarkdown(post, thread.origin);
+
   if (text) lines.push(text, '');
   lines.push(
     `Source: ${thread.url}/${post.post_number}`,
     `Date: ${post.created_at}`,
   );
+
   return lines.join('\n');
 }
 
@@ -244,6 +273,7 @@ function entryLines(
 function authorOf(post: Post): string {
   if (post.username === null) return '[deleted]';
   const name = post.name?.trim();
+
   return name && name.toLowerCase() !== post.username.toLowerCase()
     ? `${name} (@${post.username})`
     : `@${post.username}`;
@@ -256,8 +286,10 @@ function replyTarget(
   authors: ReadonlyMap<number, string | null>,
 ): string | undefined {
   const number = post.reply_to_post_number;
+
   if (number === null || number === 1) return undefined;
   const username = authors.get(number);
+
   return username ? `@${username}` : `post #${number}`;
 }
 
@@ -273,7 +305,10 @@ function bodyMarkdown(post: Post, origin: string): string {
         (_match, attribute: string) => `${attribute}="${origin}/`,
       ),
     );
+
   const text = convertToMarkdown(html).trim();
+
   if (text) return text;
+
   return post.action_code === null ? '' : `\`${post.action_code}\``;
 }

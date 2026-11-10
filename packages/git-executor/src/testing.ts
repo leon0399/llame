@@ -32,6 +32,7 @@ export const GIT_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
 export function tempDirectory(prefix = "git-executor-"): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   created.push(directory);
+
   return directory;
 }
 
@@ -48,6 +49,7 @@ export function gitStderr(cwd: string, args: ReadonlyArray<string>): string {
     ...GIT_OPTIONS,
     cwd,
   });
+
   return result.stderr;
 }
 
@@ -57,6 +59,7 @@ export function initRepository(directory: string): string {
   runGit(directory, ["config", "user.name", "llame tests"]);
   runGit(directory, ["config", "user.email", "llame@test.invalid"]);
   runGit(directory, ["config", "core.autocrlf", "false"]);
+
   return directory;
 }
 
@@ -69,6 +72,7 @@ export function commitFile(directory: string, name: string): void {
 export function repositoryWithCommit(): string {
   const directory = initRepository(tempDirectory());
   commitFile(directory, "README.md");
+
   return directory;
 }
 
@@ -86,6 +90,7 @@ export async function withGitShim<T>(
   const realGit = execFileSync("sh", ["-c", "command -v git"], {
     encoding: "utf8",
   }).trim();
+
   const shim = tempDirectory("git-shim-");
   writeFileSync(
     join(shim, "git"),
@@ -94,6 +99,7 @@ export async function withGitShim<T>(
   );
   const previousPath = process.env["PATH"];
   process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
+
   try {
     return await work();
   } finally {

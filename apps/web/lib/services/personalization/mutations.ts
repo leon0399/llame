@@ -46,15 +46,18 @@ export function useUpdatePersonalizationMutation() {
       await queryClient.cancelQueries({
         queryKey: personalizationQueryKeys.mine(),
       });
+
       const previous = queryClient.getQueryData<PersonalizationResponse>(
         personalizationQueryKeys.mine(),
       );
+
       if (previous) {
         queryClient.setQueryData<PersonalizationResponse>(
           personalizationQueryKeys.mine(),
           { ...previous, ...input },
         );
       }
+
       return { previous };
     },
     onError: (_error, _input, context) => {

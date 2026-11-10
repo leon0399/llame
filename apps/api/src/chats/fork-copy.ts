@@ -69,6 +69,7 @@ function remapRebakeMarker(
   activeCheckpointId: string | null,
 ): string | null {
   if (marker === null) return null;
+
   return copiedCheckpointIds.get(marker) ?? activeCheckpointId;
 }
 
@@ -84,12 +85,15 @@ export function inheritForkedChatState(
   const messageIds = new Map<string, string>(
     toCopy.map((message) => [message.id, crypto.randomUUID()]),
   );
+
   const copiedCheckpointIds = new Map<string, string>();
+
   for (const message of toCopy) {
     if (message.role === 'checkpoint') {
       copiedCheckpointIds.set(message.id, messageIds.get(message.id)!);
     }
   }
+
   const activeCheckpointId = [...copiedCheckpointIds.values()].at(-1) ?? null;
 
   return {
@@ -139,18 +143,22 @@ function checkpointBoundaryForCopy(
   newSeqBySourceSeq: ReadonlyMap<number, number>,
 ): number | null {
   if (message.role !== 'checkpoint') return null;
+
   if (
     message.absorbedThroughSeq === undefined ||
     message.absorbedThroughSeq === null
   ) {
     throw new Error(`Checkpoint ${message.id} is missing absorbedThroughSeq`);
   }
+
   const copiedBoundary = newSeqBySourceSeq.get(message.absorbedThroughSeq);
+
   if (copiedBoundary === undefined) {
     throw new Error(
       `Checkpoint ${message.id} names a row outside the copied prefix`,
     );
   }
+
   return copiedBoundary;
 }
 
@@ -169,6 +177,7 @@ export function copiedMessageRows(
   const newSeqBySourceSeq = new Map(
     toCopy.map((message, index) => [message.seq ?? index + 1, index + 1]),
   );
+
   return toCopy.map((message, index) => ({
     id: messageIds.get(message.id)!,
     chatId,

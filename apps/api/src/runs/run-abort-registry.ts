@@ -45,6 +45,7 @@ export class RunAbortRegistry {
   register(runId: string, userId: string): AbortController {
     const controller = new AbortController();
     this.entries.set(runId, { controller, userId });
+
     return controller;
   }
 
@@ -75,15 +76,18 @@ export class RunAbortRegistry {
    */
   beginSegment(runId: string, attemptId: string): AbortController | undefined {
     const entry = this.entries.get(runId);
+
     if (!entry) return undefined;
     const controller = new AbortController();
     entry.segment = { controller, attemptId };
+
     return controller;
   }
 
   /** Closes the call's controller, unless a later call already replaced it. */
   endSegment(runId: string, controller: AbortController): void {
     const entry = this.entries.get(runId);
+
     if (entry?.segment?.controller === controller) entry.segment = undefined;
   }
 
@@ -98,6 +102,7 @@ export class RunAbortRegistry {
    */
   interrupt(runId: string, attemptId: string): boolean {
     const segment = this.entries.get(runId)?.segment;
+
     if (
       !segment ||
       segment.attemptId !== attemptId ||
@@ -105,7 +110,9 @@ export class RunAbortRegistry {
     ) {
       return false;
     }
+
     segment.controller.abort(INTERRUPT_ABORT_REASON);
+
     return true;
   }
 }

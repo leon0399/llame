@@ -67,6 +67,7 @@ const resolveHost: ResolveHost = async (hostname) => {
     all: true,
     order: 'verbatim',
   });
+
   return addresses.map(({ address, family }) => ({
     address,
     family: family === 4 ? 4 : 6,
@@ -102,11 +103,15 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
         message: 'A web locator is read-only; edit and write cannot target it.',
       };
     }
+
     const locator = deps.parseWebLocator(call.input.path);
+
     if ('type' in locator) {
       return { status: 'error', type: locator.type, message: locator.message };
     }
+
     const userAgent = context.productUserAgent;
+
     if (userAgent === undefined) {
       return {
         status: 'error',
@@ -115,8 +120,10 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
           'A web read needs the instance identity this process sends as its User-Agent, which instance configuration did not resolve.',
       };
     }
+
     const admit = createDerivedAdmission(context);
     const session = createSession(context, userAgent, deps, admit);
+
     try {
       const pageRead = {
         locator,
@@ -124,6 +131,7 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
         session,
         admit,
       };
+
       return await fetchAndRender(context, pageRead, deps);
     } finally {
       session.dispose();
@@ -150,10 +158,13 @@ async function fetchAndRender(
   const { locator, media, session, admit } = pageRead;
   const raw = isRawSelector(locator.selector);
   let notes: ReadonlyArray<string> = [];
+
   if (!raw) {
     const adapters = await dispatchFor(context, locator.url, session, admit);
+
     if (adapters.kind === 'fatal')
       return { status: 'error', ...adapters.failure };
+
     if (adapters.kind === 'rendered')
       return await deps.buildWebReadResult(
         locator,
@@ -162,16 +173,22 @@ async function fetchAndRender(
       );
     notes = adapters.notes;
   }
+
   const response = await fetchPage(context, session, locator.url, media);
+
   if ('type' in response) return { status: 'error', ...response };
+
   if ('bytes' in response)
     return await readMedia(pageRead, response, notes, session);
+
   const render = await deps.renderWebContent(
     response,
     { raw },
     { fetch: session.fetch, admit },
   );
+
   if ('type' in render) return { status: 'error', ...render };
+
   return await deps.buildWebReadResult(locator, response.finalUrl, {
     ...render,
     notes: [...notes, ...(render.notes ?? [])],
@@ -190,7 +207,9 @@ async function fetchPage(
     media === undefined
       ? await session.fetch(url)
       : await session.fetchPage(url);
+
   if ('type' in response) return response;
+
   return context.abortSignal?.aborted === true ? ABORTED_FAILURE : response;
 }
 
@@ -209,7 +228,9 @@ async function readMedia(
         message: MEDIA_SELECTOR_MESSAGE,
       };
     }
+
     const { bytes } = page;
+
     if (page.kind === 'pdf' && !isPdfSignature(bytes)) {
       return {
         status: 'error',
@@ -217,6 +238,7 @@ async function readMedia(
         message: MEDIA_REFUSAL.unopenablePdf.message,
       };
     }
+
     // Only a page fetched with this hook can return media bytes.
     const decoded = await media!({
       kind: page.kind,
@@ -227,11 +249,15 @@ async function readMedia(
           Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
         ),
     });
+
     if (decoded.status === 'error') return decoded;
+
     if (decoded.kind !== page.kind)
       throw new Error('Expected matching media preparation.');
+
     return buildWebMediaResult(locator, page.finalUrl, decoded, notes);
   });
+
   return 'status' in result ? result : { status: 'error', ...result };
 }
 
@@ -272,12 +298,15 @@ async function dispatchFor(
           message: 'The adapter target was refused by operator permissions.',
         };
       }
+
       const result = await session.fetch(url, init);
+
       // A caller abort can land after an adapter response resolves; do not
       // let a synchronous adapter render start in that case.
       return context.abortSignal?.aborted ? ABORTED_FAILURE : result;
     },
   };
+
   return dispatchWebAdapters(
     new URL(sourceUrl),
     createWebAdapters(context.webAdapters ?? []),
@@ -289,5 +318,6 @@ async function dispatchFor(
  *  leading colon, as it does for the `kb://` and `skill://` locators. */
 function isRawSelector(selector: string | undefined): boolean {
   if (selector === undefined) return false;
+
   return selector === 'raw' || selector.startsWith('raw:');
 }

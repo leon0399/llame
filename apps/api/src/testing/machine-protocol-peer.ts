@@ -195,6 +195,7 @@ class PeerSessionImpl implements PeerSession {
     if (this.requests.length >= count) return Promise.resolve();
     const { promise, resolve } = Promise.withResolvers<void>();
     this.requestWaiters.push({ count, resolve });
+
     return promise;
   }
 
@@ -205,15 +206,18 @@ class PeerSessionImpl implements PeerSession {
   release(method: string, value: JsonValue, keepOpen = false): void {
     const index = this.held.findIndex((entry) => entry.method === method);
     const entry = this.held[index];
+
     if (entry === undefined)
       throw new Error(`The peer holds no ${method} request.`);
     this.held.splice(index, 1);
     entry.channel.result(value);
+
     if (!keepOpen) entry.channel.close();
   }
 
   notify(method: string, notification: string, params?: JsonValue): void {
     const channel = this.streamByMethod.get(method);
+
     if (channel === undefined)
       throw new Error(`The peer saw no ${method} stream.`);
     channel.notify(notification, params);
@@ -268,6 +272,7 @@ class PeerSessionImpl implements PeerSession {
   private notifyRequests(): void {
     for (let index = this.requestWaiters.length - 1; index >= 0; index -= 1) {
       const waiter = this.requestWaiters[index];
+
       if (waiter === undefined || this.requests.length < waiter.count) continue;
       this.requestWaiters.splice(index, 1);
       waiter.resolve();
@@ -276,9 +281,11 @@ class PeerSessionImpl implements PeerSession {
 
   private receive(chunk: Buffer): void {
     this.heartbeat.record();
+
     for (const event of this.framer.push(chunk)) {
       if (event.kind !== 'line') continue;
       const decoded = decodeFrame(event.line);
+
       if (decoded.ok) this.multiplexer.handle(decoded.frame);
     }
   }
@@ -289,12 +296,15 @@ class PeerSessionImpl implements PeerSession {
   ): void {
     if (channel.id === CONTROL_STREAM_ID) {
       this.handleHello(channel);
+
       return;
     }
+
     const answer =
       this.options.answer?.(request) ??
       this.options.answers?.[request.method] ??
       DEFAULT_ANSWER;
+
     this.requests.push(request.method);
     this.calls.push({ method: request.method, params: request.params });
     // Registered on the method's own stream, before the hub can send anything
@@ -305,6 +315,7 @@ class PeerSessionImpl implements PeerSession {
     this.notifyRequests();
     this.streamByMethod.set(request.method, channel);
     this.highWater = Math.max(this.highWater, this.multiplexer.openStreams);
+
     if (answer instanceof Promise) {
       // The answer is a round trip; the stream stays open meanwhile, exactly
       // as it does while a real daemon works.
@@ -312,8 +323,10 @@ class PeerSessionImpl implements PeerSession {
         (resolved) => this.respond(channel, request.method, resolved),
         () => this.respond(channel, request.method, { error: 'internal' }),
       );
+
       return;
     }
+
     this.respond(channel, request.method, answer);
   }
 
@@ -324,33 +337,41 @@ class PeerSessionImpl implements PeerSession {
     answer: PeerAnswer,
   ): void {
     if (this.halted) return;
+
     if ('hold' in answer) {
       this.held.push({ method, channel });
+
       return;
     }
+
     if ('error' in answer) {
       channel.error(answer.error, `the peer refused ${method}`);
     } else {
       channel.result(answer.value);
     }
+
     channel.close();
   }
 
   private handleHello(channel: MachineChannel): void {
     if (this.options.silentHello === true) return;
     const version = this.options.helloProtocolVersion ?? PROTOCOL_VERSION;
+
     if (version !== PROTOCOL_VERSION) {
       channel.error('incompatible_version', 'version mismatch', {
         hubProtocolVersion: PROTOCOL_VERSION,
         daemonProtocolVersion: version,
       });
+
       return;
     }
+
     const hello = {
       protocolVersion: version,
       daemonVersion: this.options.daemonVersion ?? '0.0.1',
       roots: [...(this.options.roots ?? [])],
     };
+
     const methods = this.options.methods;
     channel.result(
       methods === undefined ? hello : { ...hello, methods: [...methods] },
@@ -367,15 +388,19 @@ export function createProtocolPeer(
 ): ProtocolPeer {
   const sessions: Array<PeerSession> = [];
   const waiters: Array<() => void> = [];
+
   const peer: ProtocolPeer = {
     sessions,
     factory: {
       open: () => {
         const failure = options.openFailure?.();
+
         if (failure !== undefined) return createFailedTransport(failure);
         const session = new PeerSessionImpl(options);
         sessions.push(session);
+
         for (const resolve of waiters.splice(0)) resolve();
+
         return session.transport;
       },
     },
@@ -385,12 +410,16 @@ export function createProtocolPeer(
         waiters.push(resolve);
         await promise;
       }
+
       const session = sessions[index];
+
       if (session === undefined)
         throw new Error('the peer has no such session');
+
       return session;
     },
   };
+
   return peer;
 }
 
@@ -401,6 +430,7 @@ function createFailedTransport(diagnostic: string): MachineTransport {
   // The session attaches its listeners before the link can announce its end,
   // so the refused connection is observed exactly as a real ssh failure is.
   setTimeout(() => input.destroy(), 0);
+
   return {
     input,
     output,

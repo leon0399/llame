@@ -14,6 +14,7 @@ const adapter = createHackernewsAdapter(
   { id: 'hn', use: 'hackernews' },
   { apiOrigin: API_ORIGIN },
 );
+
 const ITEM_URL = `${API_ORIGIN}/api/v1/items/1`;
 const FRONT_URL = `${API_ORIGIN}/api/v1/search?tags=front_page&hitsPerPage=30`;
 const NEWEST_URL = `${API_ORIGIN}/api/v1/search_by_date?tags=story&hitsPerPage=30`;
@@ -52,6 +53,7 @@ function story(objectId: string, extra: JsonObject = {}): JsonObject {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map(({ url }) => url) };
 }
 
@@ -165,6 +167,7 @@ describe('Hacker News adapter read', () => {
     ]);
 
     expect(outcome.kind).toBe('rendered');
+
     if (outcome.kind !== 'rendered') throw new Error('expected render');
     expect(outcome.content).not.toContain('Link:');
     expect(outcome.content).toContain('Apply');
@@ -259,6 +262,7 @@ describe('Hacker News adapter read', () => {
     ]);
 
     expect(outcome.kind).toBe('rendered');
+
     if (outcome.kind !== 'rendered') throw new Error('expected render');
     expect(outcome.content).toBe('# Hacker News: front page\n\nNo stories.');
   });

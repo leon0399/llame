@@ -47,6 +47,7 @@ export async function getFontCssVariables() {
   const monoFontStyle = await getMonoFontStyleFromCookies();
 
   const fontOption = fontStyleOptions.find((f) => f.value === fontStyle);
+
   const monoFontOption = monoFontStyleOptions.find(
     (f) => f.value === monoFontStyle,
   );

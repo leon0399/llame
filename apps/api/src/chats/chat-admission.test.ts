@@ -45,12 +45,15 @@ function makeApi(state: JobState) {
   // Every repository call is prototype-spied; the transaction handle only has
   // to exist for `new RunsRepository(tx)` / `new RunEventsRepository(tx)`.
   const tx = asDouble<Db>({});
+
   const jobState = vi.fn<RunDispatcher['jobState']>(() =>
     Promise.resolve(state),
   );
+
   const findActiveByChatId = vi
     .spyOn(RunsRepository.prototype, 'findActiveByChatId')
     .mockResolvedValue(blockingRun);
+
   const markFinished = vi.spyOn(RunsRepository.prototype, 'markFinished');
   const append = vi.spyOn(RunEventsRepository.prototype, 'append');
   const instanceConfig: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
@@ -104,6 +107,7 @@ describe('notifyLiveRunInterrupt', () => {
   it('sends the interrupt pointer for the live Run of the Chat', async () => {
     const execute = vi.fn(() => Promise.resolve([]));
     const tx = asDouble<Db>({ execute });
+
     const find = vi
       .spyOn(RunsRepository.prototype, 'findActiveByChatId')
       .mockResolvedValue(blockingRun);

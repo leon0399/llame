@@ -86,6 +86,7 @@ describe("inspectRepository", () => {
     const directory = initRepository(
       join(tempDirectory(), "space at the end "),
     );
+
     commitFile(directory, "README.md");
 
     // The trailing space belongs to the directory name, so trimming the
@@ -181,6 +182,7 @@ describe("inspectRepository", () => {
     // A git hook leaves GIT_DIR exported; the call builds its own environment,
     // so the field never redirects the inspection at another repository.
     process.env["GIT_DIR"] = join(elsewhere, ".git");
+
     try {
       await expect(inspectRepository({ path: target })).resolves.toMatchObject({
         status: "ok",

@@ -142,6 +142,7 @@ export function hasValidTrustedTimeout(
   if (!isRepresentableAbortTimeout(callTimeoutSeconds)) {
     return false;
   }
+
   return (
     timeoutSeconds === undefined ||
     (isRepresentableAbortTimeout(timeoutSeconds) &&
@@ -153,6 +154,7 @@ const MAX_ABORT_TIMEOUT_MS = 2_147_483_647;
 
 function isRepresentableAbortTimeout(timeoutSeconds: number): boolean {
   const timeoutMilliseconds = timeoutSeconds * 1000;
+
   return (
     Number.isInteger(timeoutMilliseconds) &&
     timeoutMilliseconds >= 1 &&
@@ -165,6 +167,7 @@ const hasExactKeys = (
   expected: ReadonlyArray<string>,
 ): boolean => {
   const actual = Object.keys(value).sort(compareCodePoints);
+
   return (
     actual.length === expected.length &&
     actual.every((key, index) => key === expected[index])
@@ -204,7 +207,9 @@ export function parseToolAvailabilityManifest(
   if (!isRecord(value)) {
     throw new Error('Invalid tool availability manifest: expected an object.');
   }
+
   const manifest: UnknownRecord = value;
+
   if (manifest['version'] === 0) {
     if (
       !hasExactKeys(manifest, ['state', 'version']) ||
@@ -212,20 +217,25 @@ export function parseToolAvailabilityManifest(
     ) {
       throw invalidManifest('version 0 must be the exact unobserved sentinel');
     }
+
     return TOOL_AVAILABILITY_UNOBSERVED;
   }
+
   if (
     manifest['version'] !== 1 ||
     !hasExactKeys(manifest, ['entries', 'version'])
   ) {
     throw invalidManifest('expected exact version 0 or version 1 shape');
   }
+
   const rawEntries = manifest['entries'];
+
   if (!Array.isArray(rawEntries)) {
     throw new Error(
       'Invalid tool availability manifest: version 1 entries must be an array.',
     );
   }
+
   // SAFETY: Array.isArray narrows an unknown value to any[]; asserting
   // unknown[] forces each entry to be validated below rather than silently
   // inheriting any.
@@ -233,6 +243,7 @@ export function parseToolAvailabilityManifest(
 
   const entries: Array<ToolAvailabilityEntry> = [];
   let previousId: string | undefined;
+
   for (const rawEntry of rawEntryValues) {
     const entry = parseToolAvailabilityEntry(rawEntry, previousId);
     entries.push(entry);
@@ -249,17 +260,22 @@ function parseToolAvailabilityEntry(
   if (!isRecord(rawEntry)) {
     throw invalidManifest('entry must contain a string id');
   }
+
   const rawId = rawEntry['id'];
+
   if (!isToolId(rawId)) {
     throw invalidManifest('entry must contain a string id');
   }
+
   const id = rawId;
+
   if (previousId !== undefined && compareCodePoints(previousId, id) >= 0) {
     throw invalidManifest('entry ids must be non-empty, unique, and sorted');
   }
 
   const state = rawEntry['state'];
   const declarationHash = rawEntry['declarationHash'];
+
   if (
     state === 'available' &&
     hasExactKeys(rawEntry, ['declarationHash', 'id', 'state']) &&
@@ -268,7 +284,9 @@ function parseToolAvailabilityEntry(
   ) {
     return { id, state: 'available', declarationHash };
   }
+
   const reason = rawEntry['reason'];
+
   if (
     state === 'unavailable' &&
     hasExactKeys(rawEntry, ['id', 'reason', 'state']) &&
@@ -276,6 +294,7 @@ function parseToolAvailabilityEntry(
   ) {
     return { id, state: 'unavailable', reason };
   }
+
   throw invalidManifest('entry has an invalid state payload');
 }
 
@@ -321,6 +340,7 @@ function collidingToolEntries(
   const collidingIds = [...new Set(group.map(candidateId))].sort(
     compareCodePoints,
   );
+
   return collidingIds.map((id) => ({
     id,
     state: 'unavailable' as const,
@@ -339,9 +359,11 @@ async function admitTurnToolCandidate(
   callTimeoutSeconds: number,
 ): Promise<{ admitted?: AdmittedTurnTool; entry: ToolAvailabilityEntry }> {
   const id = candidateId(candidate);
+
   if (candidate.state === 'unavailable') {
     return unavailableEntry(id, candidate.reason);
   }
+
   if (
     !hasValidTrustedTimeout(candidate.tool.timeoutSeconds, callTimeoutSeconds)
   ) {
@@ -349,10 +371,12 @@ async function admitTurnToolCandidate(
   }
 
   const admission = await admitToolInputSchema(candidate.tool.inputSchema);
+
   if (!admission.success) {
     logger.warn(
       `Refusing tool "${id}": ${admission.reason.replace('_', ' ')} for dialect "${admission.dialect}": ${admission.message}.`,
     );
+
     return unavailableEntry(id, 'declaration_refused');
   }
 
@@ -361,9 +385,11 @@ async function admitTurnToolCandidate(
     description: candidate.tool.description,
     inputSchema: admission.inputSchema,
   });
+
   assertModelToolDeclaration(canonicalized);
   const declaration = canonicalized;
   const declarationHash = hashToolDeclaration(declaration);
+
   return {
     admitted: {
       source: candidate.source,
@@ -384,11 +410,14 @@ function groupEligibleTurnToolCandidates(
   allowedToolRules: ReadonlyArray<string>,
 ): Map<string, Array<TurnToolCandidate>> {
   const byFoldedId = new Map<string, Array<TurnToolCandidate>>();
+
   for (const candidate of candidates) {
     const id = candidateId(candidate);
+
     const codeOwnedEligible =
       candidateClassification(candidate) === 'read_only' ||
       (candidate.state === 'available' && isHostCapabilityTool(candidate.tool));
+
     if (
       !isToolId(id) ||
       !candidateIsAllowlisted(candidate, id, allowedToolRules) ||
@@ -396,11 +425,13 @@ function groupEligibleTurnToolCandidates(
     ) {
       continue;
     }
+
     const foldedId = asciiCaseFoldToolId(id);
     const group = byFoldedId.get(foldedId) ?? [];
     group.push(candidate);
     byFoldedId.set(foldedId, group);
   }
+
   return byFoldedId;
 }
 
@@ -416,6 +447,7 @@ function renderAdmittedToolDescriptions(
 ): RenderedToolDescriptions {
   const admittedToolIds = admitted.map(({ declaration }) => declaration.id);
   const renderedHashes = new Map<string, string>();
+
   const renderedAdmitted = admitted.map((tool) => {
     const description = renderer({
       id: tool.declaration.id,
@@ -423,6 +455,7 @@ function renderAdmittedToolDescriptions(
       source: tool.source,
       admittedToolIds,
     });
+
     // Only a templated (code-owned) description is this check's subject. An
     // MCP server may legitimately declare no description, and its opaque text
     // passes through the renderer unchanged, so an empty value there is
@@ -430,18 +463,23 @@ function renderAdmittedToolDescriptions(
     if (tool.source.type === 'code_owned' && description.trim().length === 0) {
       throw new ToolDescriptionRenderError(tool.declaration.id);
     }
+
     const declaration = {
       ...tool.declaration,
       description,
     } satisfies ModelToolDeclaration;
+
     const declarationHash = hashToolDeclaration(declaration);
     renderedHashes.set(declaration.id, declarationHash);
+
     return { ...tool, declaration, declarationHash };
   });
+
   return {
     admitted: renderedAdmitted,
     entries: entries.map((entry) => {
       const declarationHash = renderedHashes.get(entry.id);
+
       return declarationHash === undefined
         ? entry
         : { ...entry, declarationHash };
@@ -461,18 +499,24 @@ async function admitEligibleToolCandidates(
   const admitted: Array<AdmittedTurnTool> = [];
   const entries: Array<ToolAvailabilityEntry> = [];
   const sortedFoldedIds = [...byFoldedId.keys()].sort(compareCodePoints);
+
   for (const foldedId of sortedFoldedIds) {
     const group = byFoldedId.get(foldedId) ?? [];
+
     if (group.length !== 1) {
       entries.push(...collidingToolEntries(group));
       continue;
     }
+
     const outcome = await admitTurnToolCandidate(group[0], callTimeoutSeconds);
     entries.push(outcome.entry);
+
     if (outcome.admitted) admitted.push(outcome.admitted);
   }
+
   return { admitted, entries };
 }
+
 export async function composeTurnToolCatalog(input: {
   readonly allowedToolRules: ReadonlyArray<string>;
   readonly callTimeoutSeconds: number;
@@ -489,13 +533,16 @@ export async function composeTurnToolCatalog(input: {
     [...input.candidates],
     input.allowedToolRules,
   );
+
   const admittedResult = await admitEligibleToolCandidates(
     byFoldedId,
     input.callTimeoutSeconds,
   );
+
   admittedResult.admitted.sort((left, right) =>
     compareCodePoints(left.declaration.id, right.declaration.id),
   );
+
   const rendered =
     input.descriptionRenderer === undefined
       ? admittedResult
@@ -504,7 +551,9 @@ export async function composeTurnToolCatalog(input: {
           admittedResult.entries,
           input.descriptionRenderer,
         );
+
   rendered.entries.sort((left, right) => compareCodePoints(left.id, right.id));
+
   return {
     admitted: rendered.admitted,
     manifest: { version: 1, entries: rendered.entries },

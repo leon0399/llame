@@ -133,27 +133,36 @@ function projectTarget(input: {
 }): PromptImportTrigger | undefined {
   if (!isRecord(input.args)) return undefined;
   const path = input.args['path'];
+
   if (!isString(path) || path.length === 0) return undefined;
+
   if (isMachineLocator(path)) return machineTarget(path);
+
   if (isFileAlias(path)) {
     const alias = decodeFileAlias(path);
+
     return alias.ok ? hostTarget(alias.hostPath) : undefined;
   }
+
   const scheme = parsePathScheme(path);
+
   if (scheme !== undefined) {
     return scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME
       ? spaceTarget(scheme.rest)
       : undefined;
   }
+
   if (isWorkspaceRelative(path)) {
     if (input.root === undefined) return undefined;
     // The root in effect decides the world: a Machine Workspace resolves a
     // relative path on its Machine, a host Workspace on this worker.
     const resolved = resolveWorkspacePath(input.root, path);
+
     return isMachineLocator(resolved)
       ? machineTarget(resolved)
       : hostTarget(resolved);
   }
+
   return hostTarget(path);
 }
 
@@ -178,8 +187,10 @@ export function machineTarget(
   locator: string,
 ): PromptImportTrigger | undefined {
   const parsed = parseMachineLocator(locator);
+
   if (parsed.kind !== 'path') return undefined;
   const path = posix.resolve(parsed.path);
+
   return { machine: { name: parsed.name }, key: path };
 }
 
@@ -209,11 +220,15 @@ function worldTrigger(target: PromptImportTrigger): PromptImportTrigger {
  */
 export function spaceTarget(rest: string): PromptImportTrigger | undefined {
   const parsed = parseKnowledgeLocator(rest);
+
   if ('type' in parsed) return undefined;
+
   if (!isKnowledgeSpaceId(parsed.knowledgeSpaceId)) return undefined;
+
   if (parsed.knowledgeSpaceId !== parsed.knowledgeSpaceId.toLowerCase()) {
     return undefined;
   }
+
   return {
     space: { id: parsed.knowledgeSpaceId },
     key: parsed.relativePath ?? '',
@@ -224,8 +239,10 @@ export function spaceTarget(rest: string): PromptImportTrigger | undefined {
 function enteredRoot(result: ToolResult | undefined): string | undefined {
   if (result === undefined || result.status !== 'success') return undefined;
   const state = result['state'];
+
   if (state !== 'bound' && state !== 'switched') return undefined;
   const root = result['root'];
+
   return isString(root) ? root : undefined;
 }
 
@@ -235,16 +252,20 @@ function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
     // A file tool marks at admission; its settled observation repeats the very
     // same call and input, so it adds nothing.
     if (call.result !== undefined) return undefined;
+
     const target = projectTarget({
       args: call.input,
       root: call.workspaceRoot,
     });
+
     return target === undefined
       ? undefined
       : { ...target, excludeCandidate: call.toolName === nativeReadTool.id };
   }
+
   if (call.toolName !== enterWorkspaceTool.id) return undefined;
   const root = enteredRoot(call.result);
+
   // A Machine entry binds a Machine locator, so the bound root's own directory
   // load happens on that Machine, exactly as an entry at a host root does here.
   return root === undefined ? undefined : worldTrigger({ key: root });
@@ -271,13 +292,16 @@ async function touchTriggers(
 ): Promise<{ touches: Array<TriggerTouch>; walkedThrough: Set<string> }> {
   const touches: Array<TriggerTouch> = [];
   const walkedThrough = new Set<string>();
+
   for (const trigger of triggers) {
     const touched = await touchedPath(scope, trigger.key);
     touches.push({ trigger, touched });
+
     for (const directory of walkFrom(scope.root, touched.directory)) {
       if (directory !== touched.directory) walkedThrough.add(directory);
     }
   }
+
   return { touches, walkedThrough };
 }
 
@@ -290,6 +314,7 @@ function sharesDirectory(
   index: number,
 ): boolean {
   const own = touches[index].touched;
+
   return touches.some(
     ({ touched }) =>
       touched !== own &&
@@ -315,30 +340,38 @@ async function resolveDirectories(
 ): Promise<Map<string, ReadonlySet<string>>> {
   const { touches, walkedThrough } = await touchTriggers(triggers, scope);
   const pending = new Map<string, PendingDirectory>();
+
   for (const [index, { trigger, touched }] of touches.entries()) {
     const entry = pending.get(touched.directory) ?? {
       plainTouch: false,
       disclosedCanonicalPaths: new Set<string>(),
     };
+
     pending.set(touched.directory, entry);
     const walked = walkedThrough.has(touched.directory);
+
     const yields =
       trigger.yieldsToWalk === true &&
       (walked || sharesDirectory(touches, index));
+
     const disclosed =
       trigger.excludeCandidate &&
       touched.canonicalPath !== undefined &&
       !yields;
+
     if (disclosed) {
       entry.disclosedCanonicalPaths.add(touched.canonicalPath);
     }
+
     const plainTouch = !disclosed && (!yields || walked);
+
     if (plainTouch) {
       // A prompt import yielding only to a same-directory trigger drops its own
       // exclusion and keeps exclusions native reads set in that directory.
       entry.plainTouch = true;
     }
   }
+
   return new Map(
     Array.from(pending, ([directory, entry]): [string, ReadonlySet<string>] => [
       directory,
@@ -376,6 +409,7 @@ function addTrigger(
   trigger: PendingTrigger,
 ): void {
   const world = groups.get(id);
+
   if (world === undefined) {
     groups.set(id, { triggers: [trigger] });
   } else {
@@ -394,9 +428,11 @@ function partitionTriggers(
   const bySpace = new Map<string, WorldTriggers>();
   const byMachine = new Map<string, WorldTriggers>();
   const onHost: Array<PendingTrigger> = [];
+
   for (const trigger of triggers) {
     const machine = trigger.machine;
     const space = trigger.space;
+
     if (machine !== undefined) {
       addTrigger(byMachine, machine.name, trigger);
     } else if (space !== undefined) {
@@ -405,6 +441,7 @@ function partitionTriggers(
       onHost.push(trigger);
     }
   }
+
   return { onHost, bySpace, byMachine };
 }
 
@@ -422,6 +459,7 @@ async function resolveGroups(input: {
   const { onHost, bySpace, byMachine } = partitionTriggers(input.triggers);
   const groups: Array<InstructionImportGroup> = [];
   const hostPage = input.worlds.readPage;
+
   if (hostPage !== undefined) {
     const scope = hostInstructionScope();
     groups.push({
@@ -432,7 +470,9 @@ async function resolveGroups(input: {
       knowledge: false,
     });
   }
+
   const knowledge = input.worlds.knowledge;
+
   if (knowledge !== undefined) {
     groups.push(
       ...(await spaceGroups({
@@ -442,7 +482,9 @@ async function resolveGroups(input: {
       })),
     );
   }
+
   const machines = input.worlds.machines;
+
   if (machines !== undefined) {
     groups.push(
       ...(await machineGroups({
@@ -452,6 +494,7 @@ async function resolveGroups(input: {
       })),
     );
   }
+
   return groups;
 }
 
@@ -465,8 +508,10 @@ async function spaceGroups(input: {
   readonly admitsRead: (path: string) => boolean;
 }): Promise<Array<InstructionImportGroup>> {
   const groups: Array<InstructionImportGroup> = [];
+
   for (const [spaceId, owned] of input.bySpace) {
     const space = await input.knowledge.probe(spaceId);
+
     if (space === undefined) continue;
     const scope = spaceInstructionScope({ knowledgeSpaceId: spaceId, space });
     groups.push({
@@ -477,6 +522,7 @@ async function spaceGroups(input: {
       knowledge: true,
     });
   }
+
   return groups;
 }
 
@@ -497,12 +543,15 @@ async function machineGroups(input: {
     string,
     { scope: InstructionScope; triggers: Array<PendingTrigger> }
   >();
+
   for (const [name, machine] of input.byMachine) {
     for (const trigger of machine.triggers) {
       const scope = await input.machines.probe({ name, path: trigger.key });
+
       if (scope === undefined) continue;
       const key = `${name}\u0000${scope.root}`;
       const found = owned.get(key);
+
       if (found === undefined) {
         owned.set(key, { scope, triggers: [trigger] });
       } else {
@@ -510,7 +559,9 @@ async function machineGroups(input: {
       }
     }
   }
+
   const groups: Array<InstructionImportGroup> = [];
+
   for (const found of owned.values()) {
     groups.push({
       scope: found.scope,
@@ -520,6 +571,7 @@ async function machineGroups(input: {
       knowledge: false,
     });
   }
+
   return groups;
 }
 
@@ -535,11 +587,13 @@ async function machineGroups(input: {
  */
 function walkOrder(group: InstructionImportGroup): Array<string> {
   const walked = new Set<string>();
+
   for (const directory of group.directories.keys()) {
     for (const entry of walkFrom(group.scope.root, directory)) {
       walked.add(entry);
     }
   }
+
   return [...walked].sort(
     (left, right) =>
       left.split('/').length - right.split('/').length ||
@@ -562,6 +616,7 @@ async function loadBundle(input: {
     files: [],
     denied: [],
   };
+
   for (const group of await resolveGroups({
     triggers: input.triggers,
     worlds: input.worlds,
@@ -572,9 +627,12 @@ async function loadBundle(input: {
       disclosed: group.directories,
       abortSignal: input.abortSignal,
     };
+
     await loadGroup(state);
   }
+
   if (collector.files.length === 0) return undefined;
+
   return createInstructionsItem({
     runId: input.runId,
     files: collector.files,
@@ -585,11 +643,13 @@ async function loadBundle(input: {
 /** Loads one world's chain into the shared collector, broadest directory first. */
 async function loadGroup(state: InstructionImportState): Promise<void> {
   const { group } = state;
+
   for (const directory of walkOrder(group)) {
     // The exclusions of one directory, never those of another: a sibling
     // directory whose candidate is the same canonical file still loads it.
     const disclosed = group.directories.get(directory) ?? new Set<string>();
     const candidates = await selectCandidates(group.scope, directory);
+
     for (const candidate of candidates) {
       // An aborted Run stops loading at the next candidate instead of walking
       // a whole chain to the filesystem root.
@@ -605,9 +665,11 @@ async function loadGroup(state: InstructionImportState): Promise<void> {
 function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
   const keys = new Set(attempt.seenKeys);
   let pending: Array<PendingTrigger> = [];
+
   return {
     observeToolCall(call): void {
       const trigger = observedTrigger(call);
+
       if (trigger !== undefined) pending.push(trigger);
     },
 
@@ -615,6 +677,7 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
       if (pending.length === 0) return;
       const triggers = pending;
       pending = [];
+
       const part = await loadBundle({
         runId: attempt.runId,
         triggers,
@@ -622,6 +685,7 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
         keys,
         abortSignal: attempt.abortSignal,
       });
+
       if (part === undefined) return;
       step.stage(part);
     },
@@ -637,8 +701,10 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
  */
 function turnTriggers(context: InRunTurnContext): Array<PendingTrigger> {
   const root = context.workspaceRoot;
+
   const triggers: Array<PendingTrigger> =
     root === undefined ? [] : [worldTrigger({ key: root })];
+
   for (const imported of context.promptImportTriggers ?? []) {
     triggers.push({
       ...worldTrigger(imported),
@@ -646,6 +712,7 @@ function turnTriggers(context: InRunTurnContext): Array<PendingTrigger> {
       yieldsToWalk: true,
     });
   }
+
   return triggers;
 }
 
@@ -656,6 +723,7 @@ export function createInstructionsProducer(): InRunContextProducer {
       context: InRunTurnContext,
     ): Promise<AuthoredContextItemPart | undefined> {
       const triggers = turnTriggers(context);
+
       return loadBundle({
         runId: context.runId,
         triggers,

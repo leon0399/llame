@@ -72,6 +72,7 @@ export async function tryCreationTransactionLock(
   const rows = await tx.execute<{ locked: boolean }>(
     sql`select pg_try_advisory_xact_lock_shared(hashtextextended(${chatCreationLockKey(chatId)}, 0)) as locked`,
   );
+
   return [...rows][0]?.locked === true;
 }
 
@@ -98,11 +99,14 @@ export class ChatCreationLock {
   async runExclusively<T>(chatId: string, run: () => Promise<T>): Promise<T> {
     const key = chatCreationLockKey(chatId);
     const reserved = await this.db.$client.reserve();
+
     try {
       const [row] = await reserved<Array<{ locked: boolean }>>`
         select pg_try_advisory_lock(hashtextextended(${key}, 0)) as locked
       `;
+
       if (row?.locked !== true) throw creationInProgress();
+
       try {
         return await run();
       } finally {

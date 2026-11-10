@@ -19,8 +19,10 @@ import type {
 import type { StoredMessage } from '../../src/chats/context-builder';
 
 const REQUIRED_HANDOFF_HEADINGS: Array<string> = [];
+
 for (const match of COMPACTION_INSTRUCTION.matchAll(/^## (.+)$/gmu)) {
   const heading = match[1]?.trim();
+
   if (heading !== undefined && heading.length > 0) {
     REQUIRED_HANDOFF_HEADINGS.push(heading);
   }
@@ -104,6 +106,7 @@ function redactFixtureSecret(detail: string, fixture: Fixture): string {
   if (fixture.expectation.kind !== 'secret') {
     return detail;
   }
+
   return detail.replaceAll(fixture.expectation.secret, '[REDACTED]');
 }
 
@@ -146,8 +149,10 @@ function synthesizeMessages(fixture: Fixture): Array<StoredMessage> {
 
 function loadFixture(fileName: string): Fixture {
   const filePath = path.resolve(__dirname, 'fixtures', fileName);
+
   try {
     const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
+
     return fixtureSchema.parse(parsed);
   } catch (error: unknown) {
     throw new CompactionEvalSetupError(
@@ -159,20 +164,24 @@ function loadFixture(fileName: string): Fixture {
 
 function loadFixtures(): Array<Fixture> {
   const fixtures: Array<Fixture> = [];
+
   for (const fileName of FIXTURE_FILES) {
     fixtures.push(loadFixture(fileName));
   }
+
   return fixtures;
 }
 
 function createEvalModelClient(): ModelClient {
   const configPath = path.resolve(__dirname, 'eval.config.json');
+
   const environment = {
     ...process.env,
     LLAME_CONFIG_PATH: configPath,
   };
 
   let config: LlameConfig;
+
   try {
     config = loadInstanceConfig(environment);
   } catch (error: unknown) {
@@ -180,6 +189,7 @@ function createEvalModelClient(): ModelClient {
   }
 
   const modelId = config.defaults.modelId;
+
   if (modelId === null) {
     throw new CompactionEvalSetupError(
       'model',
@@ -188,6 +198,7 @@ function createEvalModelClient(): ModelClient {
   }
 
   let productUserAgent: string;
+
   try {
     productUserAgent = loadProductUserAgent();
   } catch (error: unknown) {
@@ -195,6 +206,7 @@ function createEvalModelClient(): ModelClient {
   }
 
   const modelsService = new ModelsService({ config, productUserAgent });
+
   try {
     return modelsService.createClient(modelId);
   } catch (error: unknown) {
@@ -212,6 +224,7 @@ function sectionBodies(summary: string): Map<string, string> {
       if (sections.has(heading)) {
         throw new Error(`duplicate ${heading} section`);
       }
+
       sections.set(heading, body.join('\n').trim());
     }
   };
@@ -225,7 +238,9 @@ function sectionBodies(summary: string): Map<string, string> {
       body.push(line);
     }
   }
+
   saveSection();
+
   return sections;
 }
 
@@ -239,22 +254,27 @@ function containsLanguageMarker(value: string, marker: string): boolean {
 
 function checkSecret(summary: string, secret: string): Array<string> {
   const failures: Array<string> = [];
+
   if (summary.includes(secret)) {
     failures.push('pasted secret was returned');
   }
+
   if (!summary.includes('[REDACTED]')) {
     failures.push('summary does not contain [REDACTED]');
   }
+
   return failures;
 }
 
 function checkRequiredHeadings(sections: Map<string, string>): Array<string> {
   const failures: Array<string> = [];
+
   for (const heading of REQUIRED_HANDOFF_HEADINGS) {
     if (!sections.has(heading)) {
       failures.push(`missing ${heading} section`);
     }
   }
+
   return failures;
 }
 
@@ -265,9 +285,11 @@ function checkSectionContains(
   failure: string,
 ): Array<string> {
   const body = sections.get(heading);
+
   if (body === undefined) {
     return [`missing ${heading} section`];
   }
+
   return body.includes(expected) ? [] : [failure];
 }
 
@@ -282,22 +304,26 @@ function checkCorrection(
     expected,
     'correction is missing from Errors and Corrections',
   );
+
   // A whole-token match: the corrected value (15432) contains the superseded
   // one (5432) as a substring.
   const supersededToken = new RegExp(
     `(?<![\\w.])${superseded.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`)}(?![\\w])`,
     'u',
   );
+
   for (const heading of [
     'Active',
     'Blocked',
     'Open Questions and Next Steps',
   ]) {
     const body = sections.get(heading);
+
     if (body !== undefined && supersededToken.test(body)) {
       failures.push(`superseded value remains under ${heading}`);
     }
   }
+
   return failures;
 }
 
@@ -306,14 +332,17 @@ function checkCancelledTask(
   task: string,
 ): Array<string> {
   const failures: Array<string> = [];
+
   for (const heading of ['Active', 'Open Questions and Next Steps']) {
     const body = sections.get(heading);
+
     if (body === undefined) {
       failures.push(`missing ${heading} section`);
     } else if (body.includes(task)) {
       failures.push(`cancelled task remains under ${heading}`);
     }
   }
+
   return failures;
 }
 
@@ -324,26 +353,32 @@ function checkNonEnglish(
 ): Array<string> {
   const failures: Array<string> = [];
   const body = withoutCodeSpans([...sections.values()].join('\n'));
+
   if (!body.toLowerCase().includes(languageMarker.toLowerCase())) {
     failures.push('summary does not contain the fixture language content');
   }
+
   if (!body.toLowerCase().includes(fact.toLowerCase())) {
     failures.push('summary does not preserve the fixture fact');
   }
+
   for (const marker of ENGLISH_LANGUAGE_MARKERS) {
     if (containsLanguageMarker(body, marker)) {
       failures.push(`English marker '${marker}' appears in section text`);
     }
   }
+
   return failures;
 }
 
 function evaluateSummary(fixture: Fixture, summary: string): Array<string> {
   const sections = sectionBodies(summary);
   const headingFailures = checkRequiredHeadings(sections);
+
   if (headingFailures.length > 0) {
     return headingFailures;
   }
+
   switch (fixture.expectation.kind) {
     case 'secret':
       return checkSecret(summary, fixture.expectation.secret);
@@ -380,7 +415,9 @@ async function readTextOnlySummary(result: ModelStreamResult): Promise<{
     Promise.resolve(result.toolCalls).catch(() => []),
     Promise.resolve(result.finishReason).catch(() => null),
   ]);
+
   const hasToolCall = toolCalls.length > 0 || finishReason === 'tool-calls';
+
   if (!hasToolCall && finishReason !== 'stop') {
     // A stream that ends in `error` or `length` resolves with partial text;
     // grading it would blame the prompt for a transport failure.
@@ -388,6 +425,7 @@ async function readTextOnlySummary(result: ModelStreamResult): Promise<{
       `summary stream finished with ${String(finishReason)}, not stop`,
     );
   }
+
   return {
     summary: hasToolCall ? null : normalizeCompactionSummary(text),
     hasToolCall,
@@ -407,12 +445,14 @@ async function streamFixtureSummary(
     previous: undefined,
     absorb: synthesizeMessages(fixture),
   });
+
   const result = client.streamText({
     system: request.system,
     messages: request.messages,
     chat: { id: fixture.id, lane: 'main' },
     toolChoice: 'none',
   });
+
   return readTextOnlySummary(result);
 }
 
@@ -425,6 +465,7 @@ async function runFixture(
       client,
       fixture,
     );
+
     if (hasToolCall) {
       return {
         fixture: fixture.id,
@@ -432,6 +473,7 @@ async function runFixture(
         detail: 'model returned a tool call instead of a text-only summary',
       };
     }
+
     if (summary === null) {
       return {
         fixture: fixture.id,
@@ -441,6 +483,7 @@ async function runFixture(
     }
 
     const failures = evaluateSummary(fixture, summary);
+
     return {
       fixture: fixture.id,
       result: failures.length === 0 ? 'PASS' : 'FAIL',
@@ -460,6 +503,7 @@ function printOutcomes(outcomes: Array<Outcome>): void {
   console.log('');
   console.log('Fixture | Result | Details');
   console.log('--- | --- | ---');
+
   for (const outcome of outcomes) {
     console.log(
       `${outcome.fixture} | ${outcome.result} | ${outcome.detail.replaceAll('|', '/')}`,
@@ -470,19 +514,24 @@ function printOutcomes(outcomes: Array<Outcome>): void {
 async function main(): Promise<number> {
   let client: ModelClient;
   let fixtures: Array<Fixture>;
+
   try {
     client = createEvalModelClient();
     fixtures = loadFixtures();
   } catch (error: unknown) {
     console.error(`FAIL ${errorMessage(error)}`);
+
     return 1;
   }
 
   const outcomes: Array<Outcome> = [];
+
   for (const fixture of fixtures) {
     outcomes.push(await runFixture(client, fixture));
   }
+
   printOutcomes(outcomes);
+
   return outcomes.some((outcome) => outcome.result === 'FAIL') ? 1 : 0;
 }
 

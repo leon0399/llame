@@ -47,6 +47,7 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import type { Message } from '../db/schema';
 
 let seqCounter = 0;
+
 function msg(
   text: string,
   role: 'user' | 'assistant' | 'system' | 'tool' = 'user',
@@ -96,7 +97,9 @@ beforeEach(() => {
 /** User content is a block array now; flatten it for text assertions. */
 function contentText(content: unknown): string {
   if (isString(content)) return content;
+
   if (!Array.isArray(content)) return JSON.stringify(content);
+
   return content
     .map((part) =>
       isRecord(part) && isString(part['text']) ? part['text'] : '',
@@ -111,6 +114,7 @@ describe('target request preflight', () => {
       messages: [{ role: 'user', content: 'M'.repeat(400) }],
       toolDeclarations: [],
     });
+
     const withTools = estimateModelRequestTokens({
       system: 'S'.repeat(400),
       messages: [{ role: 'user', content: 'M'.repeat(400) }],
@@ -136,6 +140,7 @@ describe('target request preflight', () => {
       messages: [{ role: 'user' as const, content: 'M'.repeat(200) }],
       toolDeclarations: [],
     };
+
     const estimated = estimateModelRequestTokens(request);
 
     expect(
@@ -156,15 +161,18 @@ describe('target request preflight', () => {
 
   it('ignores replayed opaque provider metadata when admitting a request (D15)', () => {
     const reasoning = { type: 'reasoning' as const, text: 'thinking' };
+
     const metadata = {
       openai: { reasoningEncryptedContent: 'E'.repeat(40_000) },
     };
+
     const messages = [
       {
         role: 'assistant' as const,
         content: [reasoning, { type: 'text' as const, text: 'answer' }],
       },
     ];
+
     const withMetadata = [
       {
         role: 'assistant' as const,
@@ -174,6 +182,7 @@ describe('target request preflight', () => {
         ],
       },
     ];
+
     const request = { system: 'S'.repeat(400), toolDeclarations: [] };
     const estimated = estimateModelRequestTokens({ ...request, messages });
 
@@ -261,10 +270,12 @@ describe('planCompactionCheckpoint', () => {
 
   it('ignores rows at or below the active checkpoint boundary', () => {
     const absorbed = { ...msg('already summarized'), seq: 1 };
+
     const onBoundary = {
       ...msg('answer at the boundary', 'assistant'),
       seq: 2,
     };
+
     const answer = { ...msg('answer after the boundary', 'assistant'), seq: 3 };
     const triggering = { ...msg('unseen trigger'), seq: 4 };
 
@@ -504,6 +515,7 @@ describe('estimateContinuationTokens', () => {
       rows: [msg('a question')],
       railText: '',
     });
+
     const three = estimateContinuationTokens({
       modelId: 'test-model',
       rows: [
@@ -563,6 +575,7 @@ describe('estimateContinuationTokens', () => {
     const question = msg('question');
     const answer = msg('answer', 'assistant');
     answer.usage = { status: 'completed', modelId: 'test-model' };
+
     const estimateWith = (parts: StoredMessage['parts']): number =>
       estimateContinuationTokens({
         modelId: 'test-model',
@@ -574,6 +587,7 @@ describe('estimateContinuationTokens', () => {
       { type: 'reasoning', text: 'thinking' },
       { type: 'text', text: 'answer' },
     ]);
+
     const withMetadata = estimateWith([
       {
         type: 'reasoning',
@@ -584,6 +598,7 @@ describe('estimateContinuationTokens', () => {
       },
       { type: 'text', text: 'answer' },
     ]);
+
     const withMoreReasoning = estimateWith([
       { type: 'reasoning', text: 'thinking '.repeat(1000) },
       { type: 'text', text: 'answer' },
@@ -599,6 +614,7 @@ describe('estimateContinuationTokens', () => {
     const question = msg('question');
     const answer = msg('answer', 'assistant');
     answer.usage = { status: 'completed', modelId: 'test-model' };
+
     const estimateWith = (
       providerMetadata?: Record<string, Record<string, string>>,
     ): number =>
@@ -637,16 +653,20 @@ describe('estimateContinuationTokens', () => {
 describe('media sizing (vision-media D6, pdf-media D6)', () => {
   const A = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
   const B = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
+
   const VISION: MediaAdmissionContext = {
     input: ['text', 'image'],
     contextWindowTokens: 200_000,
     reservedOutputTokens: null,
   };
+
   const TEXT_ONLY: MediaAdmissionContext = { ...VISION, input: ['text'] };
+
   const VISION_PDF: MediaAdmissionContext = {
     ...VISION,
     input: ['text', 'image', 'pdf'],
   };
+
   const screenshot = (modelByteSize: number) =>
     descriptor(A, {
       name: 'shot.png',
@@ -666,6 +686,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       ],
     },
   ];
+
   /** The same request as the composer projects it, minus the image part. */
   const labelOnly = (after: Array<string>): Array<ModelMessage> => [
     {
@@ -677,6 +698,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
       ],
     },
   ];
+
   const request = (messages: Array<ModelMessage>) => ({
     system: 'system',
     messages,
@@ -757,6 +779,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         { type: 'text', text: 'what is this?' },
       ],
     };
+
     const descriptors = new Map([[A, screenshot(1000)]]);
 
     // The earlier reference (outside these rows) was attached; this one is not.
@@ -815,6 +838,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         },
       ],
     });
+
     const estimateWith = (variant: {
       modelWidth: number;
       modelHeight: number;
@@ -857,6 +881,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
 
   describe('an unstored image read in the current attempt', () => {
     const SHOT = { locator: '/work/shot.png', width: 4000, height: 2250 };
+
     const readRow = (): StoredMessage => ({
       ...msg('', 'assistant'),
       parts: [
@@ -884,12 +909,14 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         },
       ],
     });
+
     const estimateWith = (model: {
       width: number;
       height: number;
       bytes: number;
     }) => {
       const row = readRow();
+
       return estimateContinuationTokens({
         modelId: 'test-model',
         rows: [msg('look'), row],
@@ -922,6 +949,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         height: 1125,
         bytes: 200 * 1024,
       });
+
       expect(
         large - estimateWith({ width: 1000, height: 750, bytes: 200 * 1024 }),
       ).toBe(3000 - 1000);
@@ -945,6 +973,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         },
       ],
     };
+
     const result = (output: ToolResultOutput): ModelMessage => ({
       role: 'tool',
       content: [
@@ -993,6 +1022,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
   describe('attached PDFs', () => {
     const paper = (pages: number, byteSize = 200 * 1024) =>
       pdfDescriptor(A, { name: 'paper.pdf', pages, byteSize });
+
     const withPdf: Array<ModelMessage> = [
       {
         role: 'user',
@@ -1002,6 +1032,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         ],
       },
     ];
+
     const pdfLabelOnly = (after: Array<string>): Array<ModelMessage> => [
       {
         role: 'user',
@@ -1012,6 +1043,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         ],
       },
     ];
+
     const estimateFor = (pages: number, byteSize?: number) =>
       estimateModelRequestTokens({
         ...request(withPdf),
@@ -1061,10 +1093,12 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
     const composeAndEstimate = async (pages: number) => {
       const { resolver } = fakeResolver([paper(pages)]);
       const sizing = await loadMediaSizing(withPdf, resolver, VISION_PDF);
+
       const composed = await composeStepMessages(withPdf, {
         resolver,
         context: VISION_PDF,
       });
+
       return {
         statuses: sizing.statuses,
         sent: JSON.stringify(composed).includes('"type":"file"'),
@@ -1178,6 +1212,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
           { type: 'text' as const, text: 'look' },
         ],
       }));
+
     const pdf = 'application/pdf';
 
     it('compacts on PDF overflow when a stored PDF sits before the trigger', async () => {
@@ -1185,6 +1220,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         pdfDescriptor(A, { pages: 80 }),
         pdfDescriptor(B, { pages: 30 }),
       ]);
+
       const media = await loadMediaSizing(
         twoRows([{ id: A, mediaType: pdf }], [{ id: B, mediaType: pdf }]),
         resolver,
@@ -1197,6 +1233,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
 
     it('compacts when the earlier stored PDF itself took the limit placeholder', async () => {
       const { resolver } = fakeResolver([pdfDescriptor(A, { pages: 64 })]);
+
       const media = await loadMediaSizing(
         twoRows([{ id: A, mediaType: pdf }], []),
         resolver,
@@ -1213,12 +1250,14 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
         (_, n) =>
           `0192f3a4-5b6c-7d8e-9f01-0000000001${n.toString().padStart(2, '0')}`,
       );
+
       const { resolver } = fakeResolver([
         pdfDescriptor(A),
         ...images.map((id) =>
           descriptor(id, { modelByteSize: (5 * 1024 * 1024 * 3) / 4 }),
         ),
       ]);
+
       const media = await loadMediaSizing(
         twoRows(
           [{ id: A, mediaType: pdf }],
@@ -1278,9 +1317,11 @@ describe('buildCompactionRequest', () => {
     const question = msg('plan a trip to Japan');
     const answer = msg('sure — when?', 'assistant');
     answer.usage = { status: 'completed', modelId: 'test-model' };
+
     const providerMetadata = {
       openai: { reasoningEncryptedContent: 'ENCRYPTED_REASONING' },
     };
+
     answer.parts = [
       { type: 'reasoning', text: 'SECRET_REASONING', providerMetadata },
       { type: 'text', text: 'VISIBLE_ANSWER' },
@@ -1318,6 +1359,7 @@ describe('buildCompactionRequest', () => {
       msg('in spring', 'user'),
       msg('noted', 'assistant'),
     ];
+
     rows[1].usage = { status: 'completed', modelId: 'test-model' };
     rows[1].parts = [
       { type: 'reasoning', text: 'FIRST_THOUGHT' },
@@ -1333,6 +1375,7 @@ describe('buildCompactionRequest', () => {
       systemPrompt: CHAT_SYSTEM,
       modelId: 'test-model',
     });
+
     const compaction = buildCompactionRequest({
       modelId: 'test-model',
       system: CHAT_SYSTEM,
@@ -1382,6 +1425,7 @@ describe('buildCompactionRequest', () => {
       previous: undefined,
       absorb: [question, answer],
     });
+
     const serialized = JSON.stringify(request.messages);
 
     // The result replays as the live loop sent it; the separate artifact line
@@ -1406,6 +1450,7 @@ describe('buildCompactionRequest', () => {
       'Open Questions and Next Steps',
       'Critical References',
     ];
+
     expect(COMPACTION_INSTRUCTION).toContain(
       EXPECTED_HEADINGS.map((heading) => `## ${heading}`).join('\n'),
     );
@@ -1474,6 +1519,7 @@ describe('buildCompactionRequest', () => {
       previous: undefined,
       absorb: [affectedTurn],
     });
+
     const rendered = request.messages
       .map(({ content }) => contentText(content))
       .join('\n');
@@ -1497,6 +1543,7 @@ describe('buildCompactionRequest', () => {
   it('replays the previous stored checkpoint exactly before absorbed turns', () => {
     const persistedCheckpoint =
       '<system-reminder producer="compaction" form="checkpoint">stored checkpoint</system-reminder>';
+
     const request = buildCompactionRequest({
       modelId: 'test-model',
       system: CHAT_SYSTEM,
@@ -1511,9 +1558,11 @@ describe('buildCompactionRequest', () => {
       role: 'user',
       content: [{ type: 'text', text: persistedCheckpoint }],
     });
+
     const rendered = request.messages
       .map((m) => contentText(m.content))
       .join('\n');
+
     expect(rendered.indexOf('stored checkpoint')).toBeLessThan(
       rendered.indexOf('$4000'),
     );
@@ -1558,6 +1607,7 @@ describe('buildCompactionRequest', () => {
 
 describe('a stored retained read across the builds of one attempt', () => {
   const SHOT = '/work/shot.png';
+
   /** The model variant a settled image read keeps beside its result. */
   const VARIANT = {
     mediaType: 'image/png',
@@ -1565,6 +1615,7 @@ describe('a stored retained read across the builds of one attempt', () => {
     height: 1125,
     data: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64'),
   } as const;
+
   const CONTEXT: MediaAdmissionContext = {
     input: ['text', 'image'],
     contextWindowTokens: 200_000,
@@ -1601,25 +1652,32 @@ describe('a stored retained read across the builds of one attempt', () => {
     messages: ReadonlyArray<ModelMessage>,
   ): Array<string> {
     const images: Array<string> = [];
+
     // Tool-result media sits inside the result's content value; a user
     // message's image is its own content part.
     const visit = (part: unknown): void => {
       if (!isRecord(part)) return;
       const image = part['image'];
+
       if (part['type'] === 'image' && image instanceof Uint8Array) {
         images.push(Buffer.from(image).toString('base64'));
       }
+
       // A tool result's attached media is the SDK's `image-data` content part.
       const data = part['data'];
+
       if (part['type'] === 'image-data' && isString(data)) images.push(data);
       const output = part['output'];
+
       if (isRecord(output) && Array.isArray(output['value'])) {
         output['value'].forEach(visit);
       }
     };
+
     for (const message of messages) {
       if (Array.isArray(message.content)) message.content.forEach(visit);
     }
+
     return images;
   }
 
@@ -1635,6 +1693,7 @@ describe('a stored retained read across the builds of one attempt', () => {
       systemPrompt: '',
       modelId: 'test-model',
     });
+
     expect([...main.retainedMedia.keys()]).toEqual([
       storedToolPartMediaKey(row.id, 0),
     ]);
@@ -1656,16 +1715,20 @@ describe('a stored retained read across the builds of one attempt', () => {
     const limitedRow = readRow({ exceeded: true });
     const limitedRows = [msg('look'), limitedRow];
     const { resolver: limitedResolver } = fakeResolver([]);
+
     const limited = buildContext(limitedRows, {
       systemPrompt: '',
       modelId: 'test-model',
     });
+
     mergeRetainedMedia(limitedResolver.retainedMedia, limited.retainedMedia);
+
     const limitedSizing = await loadMediaSizing(
       limited.messages,
       limitedResolver,
       CONTEXT,
     );
+
     expect(limitedSizing.statuses).toEqual(['limit']);
     expect(
       estimateContinuationTokens({
@@ -1690,15 +1753,18 @@ describe('a stored retained read across the builds of one attempt', () => {
       previous: undefined,
       absorb: rows,
     });
+
     expect([...request.retainedMedia.keys()]).toEqual([
       storedToolPartMediaKey(row.id, 0),
     ]);
     mergeRetainedMedia(resolver.retainedMedia, request.retainedMedia);
+
     const compactionSizing = await loadMediaSizing(
       request.messages,
       resolver,
       CONTEXT,
     );
+
     expect(compactionSizing.statuses).toEqual(['attached']);
     expect(
       attachedBase64(
@@ -1768,6 +1834,7 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
   it('leaves the cached prefix untouched — the exclusion rides in the trailing message only', () => {
     const system =
       'SYSTEM PROMPT <user_personalization>Leo</user_personalization>';
+
     const request = buildCompactionRequest({
       modelId: 'test-model',
       system,

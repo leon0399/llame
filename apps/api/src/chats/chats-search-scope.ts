@@ -22,14 +22,18 @@ export type SearchByOwnerOptions = {
  *  drift apart. */
 function documentSpanOverlapClauses(range: TimeRange): Array<SQL> {
   const clauses: Array<SQL> = [];
+
   if (range.before)
     clauses.push(sql`d.first_message_at < ${tstz(range.before)}`);
+
   if (range.after) clauses.push(sql`d.last_message_at >= ${tstz(range.after)}`);
+
   return clauses;
 }
 
 function withRequiredDocumentRange(ownerScope: SQL, range: TimeRange): SQL {
   const clauses = [ownerScope, ...documentSpanOverlapClauses(range)];
+
   return sql`(${sql.join(clauses, sql` AND `)})`;
 }
 
@@ -39,10 +43,13 @@ function withRequiredParentRange(
   range: TimeRange,
 ): SQL {
   const rangeClauses: Array<SQL> = [];
+
   if (range.after)
     rangeClauses.push(sql`em.created_at >= ${tstz(range.after)}`);
+
   if (range.before)
     rangeClauses.push(sql`em.created_at < ${tstz(range.before)}`);
+
   if (rangeClauses.length === 0) return ownerScope;
 
   const existsPredicate = sql`EXISTS (
@@ -52,11 +59,13 @@ function withRequiredParentRange(
       AND ${eligibleMessagePredicate('em')}
       AND ${sql.join(rangeClauses, sql` AND `)}
   )`;
+
   return sql`(${ownerScope} AND ${existsPredicate})`;
 }
 
 function rangeOverlapPredicate(range: TimeRange): SQL {
   const clauses = documentSpanOverlapClauses(range);
+
   return clauses.length > 0
     ? sql`(${sql.join(clauses, sql` AND `)})`
     : sql`true`;
@@ -69,6 +78,7 @@ export function resolveSearchScopes(
   const ownerDoc = sql`d.owner_user_id = ${ownerUserId}`;
   const ownerParent = sql`c.owner_user_id = ${ownerUserId}`;
   const isRequired = timeRange?.constraint === 'required';
+
   return {
     scope: {
       document: isRequired

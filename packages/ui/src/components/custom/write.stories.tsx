@@ -32,6 +32,7 @@ const meta = {
 } satisfies Meta<typeof WriteTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

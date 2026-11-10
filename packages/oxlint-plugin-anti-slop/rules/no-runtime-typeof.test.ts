@@ -5,6 +5,7 @@ import { noRuntimeTypeofRule } from "./no-runtime-typeof.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "runtimeTypeof" };
 const allowInTypeGuards = [{ allowInTypeGuards: true }];
 

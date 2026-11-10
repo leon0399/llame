@@ -15,9 +15,11 @@ describe('SessionAuthGuard', () => {
     isPublic = false,
   ) {
     const authService = { validateToken };
+
     const reflector: SessionAuthReflector = {
       getAllAndOverride: vi.fn().mockReturnValue(isPublic),
     };
+
     return {
       guard: new SessionAuthGuard(authService, reflector),
       authService,
@@ -28,6 +30,7 @@ describe('SessionAuthGuard', () => {
     const { guard, authService } = makeGuard(
       vi.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
     );
+
     const request = {
       headers: {
         authorization: 'Bearer bearer-token',
@@ -54,6 +57,7 @@ describe('SessionAuthGuard', () => {
     const { guard, authService } = makeGuard(
       vi.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
     );
+
     const request = {
       headers: { authorization: 'bearer    spaced-token' },
     };
@@ -68,6 +72,7 @@ describe('SessionAuthGuard', () => {
     const { guard, authService } = makeGuard(
       vi.fn().mockResolvedValue({ userId: 'user-1', sessionId: 'session-1' }),
     );
+
     const request = {
       headers: {
         cookie: 'theme=dark; llame_session=cookie-token',

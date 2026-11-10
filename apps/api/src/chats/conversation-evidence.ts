@@ -40,6 +40,7 @@ export function isImmutableEvidenceMessage(message: {
   revisedAt?: unknown;
 }): boolean {
   if (message.role === 'user') return true;
+
   return (
     message.role === 'assistant' &&
     (message.revisedAt === null || message.revisedAt === undefined) &&

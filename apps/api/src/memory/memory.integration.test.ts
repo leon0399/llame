@@ -29,8 +29,10 @@ describe('/api/v1/me/memory (HTTP)', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password, name });
+
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
@@ -69,9 +71,11 @@ describe('/api/v1/me/memory (HTTP)', () => {
 
     expect(res.body).toEqual({ shareRecentChats: false });
     const body: unknown = res.body;
+
     if (!isRecord(body)) {
       throw new Error('Expected object response body');
     }
+
     expect(Object.keys(body)).toEqual(['shareRecentChats']);
   });
 
@@ -99,12 +103,14 @@ describe('/api/v1/me/memory (HTTP)', () => {
     const getResponse = await request(http)
       .get('/api/v1/me/memory')
       .expect(401);
+
     expect(getResponse.body).not.toHaveProperty('shareRecentChats');
 
     const patchResponse = await request(http)
       .patch('/api/v1/me/memory')
       .send({ shareRecentChats: true })
       .expect(401);
+
     expect(patchResponse.body).not.toHaveProperty('shareRecentChats');
   });
 
@@ -117,6 +123,7 @@ describe('/api/v1/me/memory (HTTP)', () => {
     expect(path?.patch?.responses['200']).toBeDefined();
     expect(schema).toBeDefined();
     expect(schema).not.toHaveProperty('$ref');
+
     if (!schema || '$ref' in schema) return;
     expect(schema.required).toEqual(['shareRecentChats']);
     expect(schema.properties?.['shareRecentChats']).toMatchObject({

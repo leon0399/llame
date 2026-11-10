@@ -462,6 +462,7 @@ export const runs = pgTable(
 ).enableRLS();
 
 export type Run = InferSelectModel<typeof runs>;
+
 export type RunStatus = (typeof runStatus.enumValues)[number];
 
 // Append-only run event log (#48, SPEC §9.4) — the durable, replayable source

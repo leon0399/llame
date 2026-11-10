@@ -48,12 +48,16 @@ async function waitFor<T>(
   what: string,
 ): Promise<T> {
   const started = Date.now();
+
   for (;;) {
     const value = await poll();
+
     if (value !== undefined) return value;
+
     if (Date.now() - started > timeoutMs) {
       throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}`);
     }
+
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
@@ -152,6 +156,7 @@ d('queue-executed runs behind the stream bridge', () => {
     // tasks 7.0/7.7's composite worker harness.)
 
     models = new FakeModelsService();
+
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
@@ -174,6 +179,7 @@ d('queue-executed runs behind the stream bridge', () => {
         password: 'password123',
         name: 'Worker User',
       });
+
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const body: unknown = res.body;
@@ -189,6 +195,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const runs = await tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findByChatId(chatId, userId),
     );
+
     return runs.at(-1);
   }
 
@@ -215,6 +222,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const chunks = z
       .array(z.object({ type: z.string(), delta: z.string().optional() }))
       .parse(parseSseEvents(res.text));
+
     expect(chunks.map((c) => c.type)).toEqual([
       'start',
       'text-start',
@@ -233,15 +241,18 @@ d('queue-executed runs behind the stream bridge', () => {
 
     // The turn persisted end-to-end through the queue.
     const run = await latestRun(chatId);
+
     if (run === undefined) expect.unreachable('expected a persisted run');
     expect(run.status).toBe('completed');
     expect(run.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(models.createClientCalls).toContainEqual(
       expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),
     );
+
     const events = await tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(run.id, userId),
     );
+
     const dispatchedAttemptId: unknown = expect.any(String);
     expect(
       events.find((event) => event.eventType === 'model.requested')?.payload,
@@ -249,9 +260,11 @@ d('queue-executed runs behind the stream bridge', () => {
       modelId: 'system:openai:gpt-5.4-mini',
       attemptId: dispatchedAttemptId,
     });
+
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     expect(messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ role: 'assistant' })]),
     );
@@ -273,6 +286,7 @@ d('queue-executed runs behind the stream bridge', () => {
           parts: [{ type: 'text', text: 'Cancel me' }],
         },
       });
+
     const settled = pending.then(
       (res) => res,
       () => undefined,
@@ -284,26 +298,31 @@ d('queue-executed runs behind the stream bridge', () => {
       10_000,
       'the run to be created',
     );
+
     const cancelRes = await request(http)
       .patch(`/api/v1/runs/${run.id}`)
       .set('Cookie', cookie)
       .send({ status: 'cancelled' });
+
     expect(cancelRes.status).toBe(200);
 
     const terminal = await waitFor(
       async () => {
         const current = await latestRun(chatId);
+
         return current?.status === 'cancelled' ? current : undefined;
       },
       15_000,
       'the run to reach cancelled',
     );
+
     expect(terminal.status).toBe('cancelled');
 
     // No completed assistant answer was produced for the cancelled turn.
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     const assistant = messages.find((m) => m.role === 'assistant');
     expect(assistant?.parts ?? []).toEqual([]);
 
@@ -324,10 +343,13 @@ d('queue-executed runs behind the stream bridge', () => {
           parts: [{ type: 'text', text: 'Finish first' }],
         },
       });
+
     expect(res.status).toBe(200);
+
     const run = await waitFor(
       async () => {
         const current = await latestRun(chatId);
+
         return current?.status === 'completed' ? current : undefined;
       },
       10_000,
@@ -338,6 +360,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .patch(`/api/v1/runs/${run.id}`)
       .set('Cookie', cookie)
       .send({ status: 'cancelled' });
+
     expect(conflict.status).toBe(409);
 
     // Cross-tenant: another user sees 404, not 409 (no existence leak).
@@ -348,10 +371,12 @@ d('queue-executed runs behind the stream bridge', () => {
         password: 'password123',
         name: 'Worker User B',
       });
+
     const denied = await request(http)
       .patch(`/api/v1/runs/${run.id}`)
       .set('Cookie', cookieOf(other))
       .send({ status: 'cancelled' });
+
     expect(denied.status).toBe(404);
   });
 
@@ -376,10 +401,13 @@ d('queue-executed runs behind the stream bridge', () => {
           parts: [{ type: 'text', text: 'Seed for single-flight' }],
         },
       });
+
     expect(seed.status).toBe(200);
+
     const seededRun = await waitFor(
       async () => {
         const current = await latestRun(chatId);
+
         return current?.status === 'completed' ? current : undefined;
       },
       10_000,
@@ -388,18 +416,23 @@ d('queue-executed runs behind the stream bridge', () => {
 
     // Hand-craft a non-terminal run occupying the single-flight slot.
     const { messageId: seededMessageId } = seededRun;
+
     if (seededMessageId === null) {
       throw new Error('Expected the seeded run to carry a message id');
     }
+
     const blocker = await tenantDb.runAs(userId, async (tx) => {
       const repo = new RunsRepository(tx);
+
       const run = await repo.create({
         chatId,
         messageId: seededMessageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
       });
+
       await repo.markStarted(run.id, userId);
+
       return run;
     });
 
@@ -414,12 +447,14 @@ d('queue-executed runs behind the stream bridge', () => {
           parts: [{ type: 'text', text: 'Blocked by the in-flight run' }],
         },
       });
+
     expect(conflict.status).toBe(409);
 
     // The blocker is untouched — this endpoint never expires it.
     const stillBlocking = await tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findById(blocker.id, userId),
     );
+
     expect(stillBlocking?.status).toBe('running_model');
   });
 
@@ -456,6 +491,7 @@ d('queue-executed runs behind the stream bridge', () => {
         },
       },
     });
+
     expect(pending.status).toBe(200);
     const start = await pending.nextFrame('acceptance start');
     expect(start.type).toBe('start');
@@ -467,11 +503,14 @@ d('queue-executed runs behind the stream bridge', () => {
     const resumed = await request(http)
       .get(`/api/v1/chats/${chatId}/stream`)
       .set('Cookie', cookie);
+
     expect(resumed.status).toBe(200);
     expect(resumed.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
+
     const chunks = z
       .array(z.object({ type: z.string(), delta: z.string().optional() }))
       .parse(parseSseEvents(resumed.text));
+
     expect(chunks.map((c) => c.type)).toEqual([
       'start',
       'text-start',
@@ -491,6 +530,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const idle = await request(http)
       .get(`/api/v1/chats/${chatId}/stream`)
       .set('Cookie', cookie);
+
     expect(idle.status).toBe(204);
 
     // Cross-tenant: another user resuming this chat gets the same 204 as a
@@ -502,10 +542,13 @@ d('queue-executed runs behind the stream bridge', () => {
         password: 'password123',
         name: 'Resume Other',
       });
+
     expect(other.status).toBe(201);
+
     const denied = await request(http)
       .get(`/api/v1/chats/${chatId}/stream`)
       .set('Cookie', cookieOf(other));
+
     expect(denied.status).toBe(204);
 
     models.client.delayMs = 0;
@@ -529,6 +572,7 @@ d('queue-executed runs behind the stream bridge', () => {
         },
       },
     });
+
     expect(pending.status).toBe(200);
     await pending.nextFrame('acceptance start');
     pending.close();
@@ -537,6 +581,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const run = await waitFor(
       async () => {
         const current = await latestRun(chatId);
+
         return current?.status === 'completed' ? current : undefined;
       },
       15_000,
@@ -546,6 +591,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const events = await tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(run.id, userId),
     );
+
     expect(events.map((e) => e.eventType)).toEqual([
       'run.created',
       'run.started',
@@ -558,6 +604,7 @@ d('queue-executed runs behind the stream bridge', () => {
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     const assistant = messages.find((m) => m.role === 'assistant');
     expect(assistant).toBeDefined();
     expect(assistant?.parts).toEqual([

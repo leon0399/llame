@@ -115,6 +115,7 @@ function leaseRow(overrides: Partial<WorktreeLease> = {}): WorktreeLease {
 /** The git surface the step consumes, with every call recorded. */
 function fakeGit(overrides: { readonly canonical?: string } = {}) {
   const canonicalPath = overrides.canonical ?? ROOT;
+
   const executors = {
     address: vi.fn((_target: ExecutorTarget, path: string) => path),
     canonical: vi.fn(() => Promise.resolve(canonicalPath)),
@@ -145,6 +146,7 @@ function fakeGit(overrides: { readonly canonical?: string } = {}) {
       }),
     ),
   };
+
   return { git: asDouble<ExecutorGit>(executors), calls: executors };
 }
 
@@ -158,33 +160,41 @@ function makeWorkspace(options: {
   readonly config?: LlameConfig;
 }) {
   const tx = asDouble<Db>(drizzle.mock({ schema }));
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
       callback(tx),
   );
+
   const appendAttempt = vi
     .spyOn(ChatCreationRecordRepository.prototype, 'appendAttempt')
     .mockResolvedValue(undefined);
+
   const bindAtCreation = vi
     .spyOn(WorkspaceBindingRepository.prototype, 'bindAtCreation')
     .mockResolvedValue({ status: 'bound', generation: 1 });
+
   const createCheckout = vi
     .spyOn(RepositoriesRepository.prototype, 'createCheckout')
     .mockImplementation((input) =>
       Promise.resolve(checkoutRow({ ...input, kind: 'worktree' })),
     );
+
   const createLease = vi
     .spyOn(RepositoriesRepository.prototype, 'createLease')
     .mockResolvedValue(leaseRow());
+
   const workspace = new ChatCreationWorkspace(
     tenantDb,
     { config: options.config ?? configWith() },
     options.git,
     options.policy ?? policy(),
   );
+
   return {
     workspace,
     appendAttempt,
@@ -225,6 +235,7 @@ afterEach(() => {
 describe('ChatCreationWorkspace gates', () => {
   it('refuses a process that does not allowlist enter_workspace, before any decision', async () => {
     const { git, calls } = fakeGit();
+
     const { workspace, appendAttempt } = makeWorkspace({
       git,
       config: configWith({ allowed: [] }),
@@ -241,6 +252,7 @@ describe('ChatCreationWorkspace gates', () => {
 
   it('refuses a local root on a process whose native executor is another id', async () => {
     const { git, calls } = fakeGit();
+
     const { workspace, appendAttempt } = makeWorkspace({
       git,
       config: configWith({ nativeExecutorId: 'other-host' }),
@@ -292,6 +304,7 @@ describe('ChatCreationWorkspace gates', () => {
 describe('ChatCreationWorkspace ordered decisions', () => {
   it('decides the submitted path first and stops before any probe', async () => {
     const { git, calls } = fakeGit();
+
     const { workspace, appendAttempt, bindAtCreation } = makeWorkspace({
       git,
       policy: policy({ allow: [{ field: 'path', literal: '/srv/elsewhere' }] }),
@@ -319,6 +332,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
 
   it('decides the canonical source clone before inspect', async () => {
     const { git, calls } = fakeGit({ canonical: '/srv/real/llame' });
+
     const { workspace, appendAttempt } = makeWorkspace({
       git,
       policy: policy({ allow: [{ field: 'path', literal: ROOT }] }),
@@ -348,6 +362,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
       branch: 'main',
       head: HEAD,
     });
+
     const { workspace, appendAttempt } = makeWorkspace({
       git,
       policy: policy({ allow: [{ field: 'path', literal: ROOT }] }),
@@ -370,6 +385,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
 
   it('decides the canonical worktree directory before the add', async () => {
     const { git, calls } = fakeGit();
+
     const { workspace, appendAttempt, createCheckout } = makeWorkspace({
       git,
       policy: policy({ allow: [{ field: 'path', literal: ROOT }] }),
@@ -397,6 +413,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
 
   it('records every decision as an allow in bypass mode', async () => {
     const { git } = fakeGit();
+
     const { workspace, appendAttempt } = makeWorkspace({
       git,
       policy: policy({ allow: [{ field: 'path', literal: '/never' }] }),
@@ -410,6 +427,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
 
     const decisions = appendAttempt.mock.calls[0]?.[0]?.decisions ?? [];
     expect(decisions).toHaveLength(3);
+
     for (const entry of decisions) {
       expect(entry.decision).toMatchObject({
         decision: 'allow',
@@ -527,6 +545,7 @@ describe('ChatCreationWorkspace failures name their cause', () => {
       type: 'git_failed',
       stderr: 'fatal: could not create work tree dir',
     });
+
     const { workspace, createCheckout, createLease, bindAtCreation } =
       makeWorkspace({ git });
 
@@ -582,6 +601,7 @@ describe('ChatCreationWorkspace binding', () => {
 
   it('records the attempt before the worktree add, then commits the creation rows', async () => {
     const { git, calls } = fakeGit();
+
     const {
       workspace,
       appendAttempt,
@@ -649,6 +669,7 @@ describe('ChatCreationWorkspace binding', () => {
     const { workspace, bindAtCreation } = makeWorkspace({ git });
 
     const result = await workspace.enter(input({ worktree: {} }));
+
     if (result.status !== 'bound' || result.worktree === undefined) {
       throw new Error('expected a generated worktree');
     }

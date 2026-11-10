@@ -8,6 +8,7 @@ export function detectPrimaryModifier(): "⌘" | "Ctrl" {
   }
 
   const platform = navigator.platform || navigator.userAgent;
+
   return /Mac|iPhone|iPod|iPad/i.test(platform) ? "⌘" : "Ctrl";
 }
 

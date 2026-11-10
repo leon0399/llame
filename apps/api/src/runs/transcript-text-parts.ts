@@ -57,21 +57,26 @@ export class TextPartTrack {
     delivery: TextDelivery = {},
   ): ProviderMetadata | undefined {
     const { partId, providerMetadata } = delivery;
+
     if (text.length > 0) {
       return this.recordText(collected, text, delivery);
     }
+
     // The part's start (or a repeat of its end): bind to the part its id
     // names, or hold the metadata until that id produces text.
     const index =
       partId === undefined
         ? this.openPartIndex(collected)
         : this.partIndexes.get(partId);
+
     if (index !== undefined) {
       return this.bind(collected, partId, providerMetadata, index);
     }
+
     if (partId !== undefined && providerMetadata !== undefined) {
       this.pendingMetadata.set(partId, providerMetadata);
     }
+
     return undefined;
   }
 
@@ -83,6 +88,7 @@ export class TextPartTrack {
   ): ProviderMetadata | undefined {
     const { partId, providerMetadata } = delivery;
     const last = collected.at(-1);
+
     if (
       last?.type === 'text' &&
       isString(last.text) &&
@@ -102,6 +108,7 @@ export class TextPartTrack {
         ...(delivery.step !== undefined && { step: delivery.step }),
       });
     }
+
     return this.bind(collected, partId, providerMetadata, collected.length - 1);
   }
 
@@ -119,21 +126,28 @@ export class TextPartTrack {
   ): ProviderMetadata | undefined {
     const pending =
       partId === undefined ? undefined : this.pendingMetadata.get(partId);
+
     const metadata = providerMetadata ?? pending;
+
     if (partId !== undefined) {
       this.partIndexes.set(partId, index);
+
       if (pending !== undefined) this.pendingMetadata.delete(partId);
     }
+
     if (metadata === undefined) return undefined;
     const part = collected[index];
+
     if (part?.type !== 'text' || !isString(part.text)) return undefined;
     part.providerMetadata = metadata;
+
     return metadata;
   }
 
   /** Index of the open text part, when the last collected part is one. */
   private openPartIndex(collected: Transcript): number | undefined {
     const last = collected.at(-1);
+
     return last?.type === 'text' && isString(last.text)
       ? collected.length - 1
       : undefined;

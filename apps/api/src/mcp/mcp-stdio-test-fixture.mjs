@@ -31,6 +31,7 @@ const config = JSON.parse(process.env.MCP_FIXTURE ?? '{}');
 if (config.envDumpPath) {
   writeFileSync(config.envDumpPath, JSON.stringify(process.env), 'utf8');
 }
+
 if (config.argvDumpPath) {
   writeFileSync(
     config.argvDumpPath,
@@ -38,14 +39,17 @@ if (config.argvDumpPath) {
     'utf8',
   );
 }
+
 if (config.cwdDumpPath) {
   writeFileSync(config.cwdDumpPath, process.cwd(), 'utf8');
 }
+
 if (config.stdoutFloodBytes) {
   await new Promise((resolve) => {
     process.stdout.write('X'.repeat(config.stdoutFloodBytes), resolve);
   });
 }
+
 const STDERR_LINE_WIDTH = 100;
 
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n');
@@ -62,8 +66,10 @@ async function writeStderrChunks() {
         ),
       ]
     : (config.stderr ?? []);
+
   for (const chunk of chunks) {
     process.stderr.write(chunk);
+
     if (config.stderrDelayMs) {
       await new Promise((resolve) => setTimeout(resolve, config.stderrDelayMs));
     }
@@ -79,6 +85,7 @@ function toolsListResult(cursor) {
   const index = cursor === undefined ? 0 : Number(cursor);
   const tools = pages[index] ?? [];
   const nextCursor = index + 1 < pages.length ? String(index + 1) : undefined;
+
   return nextCursor === undefined ? { tools } : { tools, nextCursor };
 }
 
@@ -99,6 +106,7 @@ const methodHandlers = {
   },
   async 'notifications/initialized'(_message) {
     if (!config.stderrPreInit) await writeStderrChunks();
+
     if (config.exitAfterInit) process.exit(4);
   },
   'tools/list'(message) {
@@ -122,10 +130,13 @@ const methodHandlers = {
 
 async function handleMessage(message) {
   const handler = methodHandlers[message.method];
+
   if (handler) {
     await handler(message);
+
     return;
   }
+
   if (message.id !== undefined) {
     send({
       jsonrpc: '2.0',
@@ -136,15 +147,19 @@ async function handleMessage(message) {
 }
 
 let buffer = '';
+
 process.stdin.on('data', async (data) => {
   buffer += data.toString('utf8');
   let newline;
+
   while ((newline = buffer.indexOf('\n')) !== -1) {
     const line = buffer.slice(0, newline);
     buffer = buffer.slice(newline + 1);
+
     if (line.trim() === '') continue;
 
     let message;
+
     try {
       message = JSON.parse(line);
     } catch {

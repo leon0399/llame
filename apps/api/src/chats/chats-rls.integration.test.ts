@@ -90,11 +90,14 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   const asUser = <T>(userId: string, fn: (tx: TransactionSql) => Promise<T>) =>
     sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
+
   const runAsPublic = <T>(fn: (tx: TransactionSql) => Promise<T>) =>
     sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', '', true)`;
+
       return fn(tx);
     });
 
@@ -131,6 +134,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, runs, run_events, and chat_deliveries', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     // A superuser or BYPASSRLS role would make every assertion below vacuous.
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
@@ -140,7 +144,9 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       FROM pg_class
       WHERE relname IN ('chats', 'messages', 'runs', 'run_events', 'chat_deliveries')
       ORDER BY relname`;
+
     expect(rows.length).toBe(5);
+
     for (const r of rows) {
       expect(r.relrowsecurity).toBe(true); // ENABLE
       expect(r.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit
@@ -176,6 +182,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         ownerUserId: userAId,
         title: 'First',
       });
+
       expect(created?.id).toBe(chatId);
       expect(created?.ownerUserId).toBe(userAId);
 
@@ -219,11 +226,13 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       (tx) =>
         tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Private A')`,
     );
+
     try {
       const rows = await asUser(
         userBId,
         (tx) => tx`SELECT id FROM chats WHERE id = ${chatId}`,
       );
+
       expect(rows.length).toBe(0);
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
@@ -243,6 +252,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         (tx) =>
           tx`SELECT workspace_root, workspace_executor_id, workspace_generation, workspace_told_from FROM chats WHERE id = ${chatId}`,
       );
+
       expect(hidden).toHaveLength(0);
 
       const attempted = await asUser(
@@ -250,6 +260,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         (tx) =>
           tx`UPDATE chats SET workspace_root = '/work/b', workspace_executor_id = 'worker-b', workspace_generation = 99, workspace_told_from = '22222222-2222-4222-8222-222222222222' WHERE id = ${chatId}`,
       );
+
       expect(attempted.count).toBe(0);
 
       const ownerRead = await asUser(
@@ -257,6 +268,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         (tx) =>
           tx`SELECT workspace_root, workspace_executor_id, workspace_generation, workspace_told_from FROM chats WHERE id = ${chatId}`,
       );
+
       expect(ownerRead).toHaveLength(1);
       expect(ownerRead[0]).toMatchObject({
         workspace_root: '/work/a',
@@ -289,12 +301,14 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         ownerUserId: userAId,
         title: 'RT',
       });
+
       const created = await messagesRepo.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: userAId,
         parts,
       });
+
       expect(created.parts).toEqual(parts);
 
       const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
@@ -329,6 +343,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         ownerUserId: userAId,
         title: 'Order',
       });
+
       await messagesRepo.create({
         chatId: chat.id,
         role: 'assistant',
@@ -338,6 +353,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
       expect(readBack.parts).toEqual(parts);
       const [part] = readBack.parts;
+
       if (
         !isRecord(part) ||
         !isRecord(part['input']) ||
@@ -345,6 +361,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       ) {
         throw new TypeError('Expected the stored tool part with its input');
       }
+
       expect(Object.keys(part['input'])).toEqual([
         'path',
         'oldText',
@@ -383,6 +400,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         ownerUserId: userAId,
         title: 'Legacy',
       });
+
       // A pre-migration write: jsonb sorts the input's members before the
       // column's cast to json keeps that text.
       await tx.execute(
@@ -392,9 +410,11 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
       expect(readBack.parts).toEqual(parts);
       const [part] = readBack.parts;
+
       if (!isRecord(part) || !isRecord(part['input'])) {
         throw new TypeError('Expected the stored tool part with its input');
       }
+
       expect(Object.keys(part['input'])).toEqual([
         'path',
         'newText',
@@ -415,11 +435,13 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         INSERT INTO messages (id, chat_id, seq, role, parts)
         VALUES (${msgId}, ${chatId}, 1, 'assistant', ${JSON.stringify([{ type: 'text', text: 'secret' }])})`;
     });
+
     try {
       const rows = await asUser(
         userBId,
         (tx) => tx`SELECT id FROM messages WHERE id = ${msgId}`,
       );
+
       expect(rows.length).toBe(0);
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
@@ -435,21 +457,25 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await tx`
         INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
         VALUES (${checkpointId}, ${chatId}, 11, 'checkpoint', ${checkpointParts}::jsonb, 10)`;
+
       const owned = await tx<
         Array<{ parts: unknown; absorbed_through_seq: string }>
       >`
         SELECT parts, absorbed_through_seq
         FROM messages
         WHERE id = ${checkpointId}`;
+
       // postgres.js returns bigint columns as strings.
       expect(Number(owned[0]?.absorbed_through_seq)).toBe(10);
       expect(owned[0]?.parts).toEqual(JSON.parse(checkpointParts));
     });
+
     try {
       const rows = await asUser(
         userBId,
         (tx) => tx`SELECT id, parts FROM messages WHERE id = ${checkpointId}`,
       );
+
       expect(rows.length).toBe(0);
 
       await expect(
@@ -477,6 +503,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
         VALUES (${checkpointId}, ${chatId}, 2, 'checkpoint', ${checkpointParts}::jsonb, 1)`;
     });
+
     try {
       const rows = await runAsPublic(
         (tx) =>
@@ -484,6 +511,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
             Array<{ id: string; role: string }>
           >`SELECT id, role FROM messages WHERE chat_id = ${chatId} ORDER BY seq`,
       );
+
       expect(rows.map((row) => row.role)).toEqual(['user']);
       expect(rows.some((row) => row.id === checkpointId)).toBe(false);
     } finally {
@@ -500,6 +528,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
    */
   it('skill baseline cross-tenant: B can neither read nor write A chat baseline', async () => {
     const chatId = crypto.randomUUID();
+
     const baseline = JSON.stringify({
       entries: [
         { name: 'secret-skill', description: 'A private catalog entry' },
@@ -514,8 +543,10 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         SET skill_catalog_baseline = ${baseline}::jsonb,
             skill_catalog_rebaked_from = NULL
         WHERE id = ${chatId}`;
+
       const owned = await tx`
         SELECT skill_catalog_baseline FROM chats WHERE id = ${chatId}`;
+
       expect(owned[0]?.skill_catalog_baseline).toEqual(JSON.parse(baseline));
     });
 
@@ -526,6 +557,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         (tx) =>
           tx`SELECT id, skill_catalog_baseline FROM chats WHERE id = ${chatId}`,
       );
+
       expect(rows).toHaveLength(0);
 
       // Write denial: a caller cannot rewrite another owner's frozen baseline
@@ -534,6 +566,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       // zero rows and reports no error, which is why the value assertion below
       // is the meaningful half rather than a thrown rejection.
       const forged = JSON.stringify({ entries: [], omitted: 0 });
+
       const updated = await asUser(
         userBId,
         async (tx) =>
@@ -541,6 +574,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
             await tx`UPDATE chats SET skill_catalog_baseline = ${forged}::jsonb WHERE id = ${chatId} RETURNING id`
           ).length,
       );
+
       expect(updated).toBe(0);
 
       // The owner's baseline is byte-identical after B's attempt.
@@ -549,6 +583,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         (tx) =>
           tx`SELECT skill_catalog_baseline FROM chats WHERE id = ${chatId}`,
       );
+
       expect(after[0]?.skill_catalog_baseline).toEqual(JSON.parse(baseline));
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
@@ -561,16 +596,23 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     const foreignRunId = await asUser(userBId, async (tx) => {
       const [chat] =
         await tx`INSERT INTO chats (owner_user_id, updated_at) VALUES (${userBId}, now()) RETURNING id`;
+
       assertRowId(chat);
+
       const [run] =
         await tx`INSERT INTO runs (chat_id, user_id, model_id) VALUES (${chat.id}, ${userBId}, 'system:test') RETURNING id`;
+
       assertRowId(run);
+
       return run.id;
     });
+
     const ownChatId = await asUser(userAId, async (tx) => {
       const [chat] =
         await tx`INSERT INTO chats (owner_user_id, updated_at) VALUES (${userAId}, now()) RETURNING id`;
+
       assertRowId(chat);
+
       return chat.id;
     });
 
@@ -598,6 +640,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         userAId,
         (tx) => tx`SELECT id FROM runs WHERE chat_id = ${ownChatId}`,
       );
+
       expect(rows).toHaveLength(0);
     } finally {
       await asUser(
@@ -626,12 +669,14 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         ownerUserId: userAId,
         title: 'Compacted',
       });
+
       const first = await messagesRepo.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: userAId,
         parts: [{ type: 'text', text: 'below the boundary' }],
       });
+
       await messagesRepo.create({
         chatId: chat.id,
         role: 'assistant',
@@ -649,6 +694,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       const messagesLeft = await tx.execute(
         dsql`SELECT id FROM messages WHERE chat_id = ${chat.id}`,
       );
+
       return {
         removed,
         messages: messagesLeft.length,
@@ -670,6 +716,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       tokenHash: `live-${crypto.randomUUID()}`,
       expires: new Date(Date.now() + 60_000),
     });
+
     const expired = await repo.create({
       userId: userAId,
       tokenHash: `expired-${crypto.randomUUID()}`,
@@ -684,13 +731,16 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       // expired rows anyway, so it would pass even if the delete no-opped.
       const rawRows = await sql`
         SELECT id FROM sessions WHERE id IN (${live.id}, ${expired.id})`;
+
       const rawIds = rawRows.map(
         // eslint-disable-next-line anti-slop/no-unknown-parameters -- row shape from a raw `sql` template tag (postgres.js), validated inline via the `assertRowId` type-guard call below; an `assert`-named call, a shape the structural exemption's `is[A-Z]`-prefixed pattern doesn't recognize.
         (r: unknown) => {
           assertRowId(r);
+
           return r.id;
         },
       );
+
       expect(rawIds).toContain(live.id);
       expect(rawIds).not.toContain(expired.id);
     } finally {
@@ -762,17 +812,20 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
       await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'run.created', '{"private": true}')`;
     });
+
     try {
       const runRows = await asUser(
         userBId,
         (tx) => tx`SELECT id FROM runs WHERE id = ${runId}`,
       );
+
       expect(runRows.length).toBe(0);
 
       const eventRows = await asUser(
         userBId,
         (tx) => tx`SELECT sequence FROM run_events WHERE run_id = ${runId}`,
       );
+
       expect(eventRows.length).toBe(0);
 
       // Write denial: B cannot forge events onto A's run (fail closed).
@@ -795,11 +848,14 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
           WHERE id = ${runId}
           RETURNING id`,
       );
+
       expect(cancelled.length).toBe(0);
+
       const [run] = await asUser(
         userAId,
         (tx) => tx`SELECT cancel_requested_at FROM runs WHERE id = ${runId}`,
       );
+
       expect(run.cancel_requested_at).toBeNull();
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to runs → run_events
@@ -808,6 +864,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
   describe('prompt-imports items and prompt-import audit events', () => {
     const IMPORT_RUN_ID = '44444444-4444-4444-8444-444444444444';
+
     const promptImportParts = JSON.stringify([
       {
         type: 'data-context',
@@ -831,12 +888,14 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       },
       { type: 'text', text: 'owner question' },
     ]);
+
     const importEventPayload = {
       toolCallId: `prompt-import-${IMPORT_RUN_ID}-attempt-0`,
       toolName: 'read',
       input: { path: '/srv/PRIVATE_IMPORT_RESOLVED/notes.md' },
       origin: 'prompt-import',
     };
+
     let chatId = '';
     let messageId = '';
     let runId = '';
@@ -862,6 +921,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
     it("B cannot read A's prompt-imports item or its metadata, through SQL or the repositories", async () => {
       const tenant = new TenantDbService(db);
+
       const owned = await tenant.runAs(userAId, async (tx) => ({
         history: await new MessagesRepository(tx).findByChatId(chatId, userAId),
         stored: await new PromptImportPartsRepository(tx).find({
@@ -870,6 +930,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
           runId: IMPORT_RUN_ID,
         }),
       }));
+
       // The owner reads it, so the denials below are not vacuous.
       expect(JSON.stringify(owned.history)).toContain(
         'PRIVATE_IMPORT_LOCATOR.md',
@@ -882,7 +943,9 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         userBId,
         (tx) => tx`SELECT id, parts FROM messages WHERE id = ${messageId}`,
       );
+
       expect(rows).toHaveLength(0);
+
       const denied = await tenant.runAs(userBId, async (tx) => ({
         history: await new MessagesRepository(tx).findByChatId(chatId, userBId),
         stored: await new PromptImportPartsRepository(tx).find({
@@ -891,15 +954,18 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
           runId: IMPORT_RUN_ID,
         }),
       }));
+
       expect(denied.history).toEqual([]);
       expect(denied.stored).toBeUndefined();
     });
 
     it("B cannot read, replay, or forge A's prompt-import-origin run events", async () => {
       const tenant = new TenantDbService(db);
+
       const owned = await tenant.runAs(userAId, (tx) =>
         new RunEventsRepository(tx).listByRunId(runId, userAId),
       );
+
       expect(owned.map((event) => event.eventType)).toEqual([
         'tool.requested',
         'tool.completed',
@@ -910,6 +976,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         (tx) =>
           tx`SELECT sequence FROM run_events WHERE run_id = ${runId} AND payload->>'origin' = 'prompt-import'`,
       );
+
       expect(rows).toHaveLength(0);
       expect(
         await tenant.runAs(userBId, (tx) =>
@@ -1031,8 +1098,10 @@ describeIfDb(
         await tx.execute(
           dsql`select set_config('app.current_user_id', ${userBId}, true)`,
         );
+
         return new MessagesRepository(tx).findLatestPerOwnedChat(userBId);
       });
+
       expect(bLatest.find((m) => m.chatId === chat.id)).toBeUndefined();
     });
 
@@ -1073,6 +1142,7 @@ describeIfDb(
           limit: 100,
         })
       )?.messages;
+
       expect(aMessages).toHaveLength(2);
       expect(aMessages?.[0]).toEqual(
         expect.objectContaining({
@@ -1103,6 +1173,7 @@ describeIfDb(
       const bResult = await svc.getChatMessages(chat.id, userBId, {
         limit: 100,
       });
+
       expect(bResult).toBeUndefined();
     });
   },

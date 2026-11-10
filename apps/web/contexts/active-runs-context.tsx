@@ -42,10 +42,14 @@ import { useOptionalLiveUpdates } from "@/contexts/live-updates-context";
 const POLL_MS = 4000;
 
 type TrackedRun = { chatId: string; title: string };
+
 /** How a run the owner did not watch ended: a reply to read, or a failure. */
 export type UnseenRunOutcome = "completed" | "failed";
+
 type UnseenRuns = Map<string, UnseenRunOutcome>;
+
 type ActiveEntry = readonly [string, TrackedRun];
+
 type ToastOptions = NonNullable<Parameters<typeof toast>[1]>;
 
 type ActiveRunsContextValue = {
@@ -90,6 +94,7 @@ function desktopNotify(title: string, body: string, onClick: () => void) {
   ) {
     return;
   }
+
   try {
     const n = new Notification(title, { body });
     n.onclick = () => {
@@ -110,9 +115,11 @@ function showRunNotification(
   // Offer to enable desktop alerts (user gesture) only when unset.
   const canEnable =
     hasNotificationApi() && Notification.permission === "default";
+
   const opts: ToastOptions = {
     action: { label: "View", onClick: handlers.onView },
   };
+
   if (canEnable) {
     opts.cancel = {
       label: "Enable alerts",
@@ -124,11 +131,13 @@ function showRunNotification(
         }),
     };
   }
+
   if (kind === "failed") {
     toast.error(`Run failed — ${title}`, opts);
   } else {
     toast(`Reply ready — ${title}`, opts);
   }
+
   desktopNotify(
     kind === "failed" ? "Run failed" : "Reply ready",
     title,
@@ -143,6 +152,7 @@ function dropRun(
   if (!prev.has(runId)) return prev;
   const next = new Map(prev);
   next.delete(runId);
+
   return next;
 }
 
@@ -156,6 +166,7 @@ export function addTrackedRun(
   title: string,
 ): Map<string, TrackedRun> {
   const existing = prev.get(runId);
+
   // Idempotent, except that a real title replaces the placeholder a live
   // message may have tracked the run under before the sender's own call.
   if (
@@ -163,6 +174,7 @@ export function addTrackedRun(
     (existing.title === title || title === PLACEHOLDER_TITLE)
   )
     return prev;
+
   return new Map(prev).set(runId, { chatId, title });
 }
 
@@ -172,12 +184,14 @@ function removeChatRuns(
 ): Map<string, TrackedRun> {
   let changed = false;
   const next = new Map(prev);
+
   for (const [runId, meta] of prev) {
     if (meta.chatId === chatId) {
       next.delete(runId);
       changed = true;
     }
   }
+
   return changed ? next : prev;
 }
 
@@ -185,6 +199,7 @@ function clearSeenChat(prev: UnseenRuns, chatId: string): UnseenRuns {
   if (!prev.has(chatId)) return prev;
   const next = new Map(prev);
   next.delete(chatId);
+
   return next;
 }
 
@@ -197,6 +212,7 @@ function useTrackedRuns() {
 
   const registerViewedChat = useCallback((chatId: string) => {
     viewedChatIdRef.current = chatId;
+
     return () => {
       if (viewedChatIdRef.current === chatId) viewedChatIdRef.current = null;
     };
@@ -206,15 +222,18 @@ function useTrackedRuns() {
     (runId: string) => setActive((prev) => dropRun(prev, runId)),
     [],
   );
+
   const trackRun = useCallback(
     (runId: string, chatId: string, title: string) =>
       setActive((prev) => addTrackedRun(prev, runId, chatId, title)),
     [],
   );
+
   const untrackChat = useCallback(
     (chatId: string) => setActive((prev) => removeChatRuns(prev, chatId)),
     [],
   );
+
   const markChatSeen = useCallback(
     (chatId: string) => setOutcomes((prev) => clearSeenChat(prev, chatId)),
     [],
@@ -259,8 +278,10 @@ function useRehydrateActiveRuns(
     staleTime: 0,
     refetchOnMount: "always",
   });
+
   useEffect(() => {
     if (!isFetchedAfterMount || !rehydratedRuns) return;
+
     for (const [runId, chatId, title] of activeRunsToTrackArgs(
       rehydratedRuns,
     )) {
@@ -278,6 +299,7 @@ function useRehydrateActiveRuns(
 // refetchInterval does by default.
 function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
   const liveConnected = useOptionalLiveUpdates()?.connected ?? false;
+
   return useQueries({
     queries: activeEntries.map(([runId]) => ({
       queryKey: activeRunsQueryKeys.run(runId),
@@ -285,10 +307,14 @@ function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
       staleTime: 0,
       refetchInterval: (query: { state: { data?: Run | null } }) => {
         const data = query.state.data;
+
         if (data === undefined) return POLL_MS; // no result yet — keep polling
+
         if (data === null) return false; // 404: gone, nothing left to poll
+
         // The live socket pushes status changes; poll only without it.
         if (liveConnected) return false;
+
         return isTerminalRunStatus(data.status) ? false : POLL_MS;
       },
       refetchIntervalInBackground: true,
@@ -319,19 +345,26 @@ function handleTerminalRun(
     viewedChatIdRef,
     routerRef,
   } = deps;
+
   if (handledRunIds.current.has(runId)) return drop(runId); // re-tracked late
+
   if (run === undefined) return; // still loading / errored — keep waiting
+
   if (run === null) {
     handledRunIds.current.add(runId);
     drop(runId); // 404: gone (e.g. chat deleted)
+
     return;
   }
+
   if (!isTerminalRunStatus(run.status)) return;
   handledRunIds.current.add(runId);
+
   const outcome = resolveTerminalRun(run.status, {
     viewingThisChat: viewedChatIdRef.current === meta.chatId,
     tabHidden: "document" in globalThis ? document.hidden : false,
   });
+
   drop(runId);
   // Unconditional: a run can reach terminal without the client ever seeing
   // it live (#132 review), so this keeps the chat's list, detail, and
@@ -357,6 +390,7 @@ function notifyTerminalRun(
   if (!outcome) {
     return;
   }
+
   setOutcomes((prev) =>
     prev.get(meta.chatId) === outcome
       ? prev
@@ -385,6 +419,7 @@ function useRunCompletionEffects(params: {
     routerRef,
     setOutcomes,
   } = params;
+
   const runQueries = useActiveRunQueries(activeEntries);
 
   // Guards against firing a completion notification more than once for the
@@ -426,16 +461,19 @@ function useRouterRef(): MutableRefObject<ReturnType<typeof useRouter>> {
   useLayoutEffect(() => {
     routerRef.current = router;
   }, [router]);
+
   return routerRef;
 }
 
 /** The active-run entries plus the derived set of chats with an active run. */
 function useActiveEntries(active: Map<string, TrackedRun>) {
   const activeEntries = useMemo(() => [...active.entries()], [active]);
+
   const activeChatIds = useMemo(
     () => new Set(activeEntries.map(([, meta]) => meta.chatId)),
     [activeEntries],
   );
+
   return { activeEntries, activeChatIds };
 }
 
@@ -457,6 +495,7 @@ function useContextValue(params: {
     activeChatIds,
     runPhaseByChatId,
   } = params;
+
   return useMemo(
     () => ({
       trackRun,
@@ -485,6 +524,7 @@ function cachedChatTitle(queryClient: QueryClient, chatId: string): string {
   const detail = queryClient.getQueryData<{ title?: string | null }>(
     chatQueryKeys.detail(chatId),
   );
+
   return detail?.title ?? PLACEHOLDER_TITLE;
 }
 
@@ -496,12 +536,16 @@ export function nextRunPhases(
 ): ReadonlyMap<string, RunPhase> {
   if (message.type === "run.progress") {
     if (prev.get(message.chatId) === message.phase) return prev;
+
     return new Map(prev).set(message.chatId, message.phase);
   }
+
   const { chatId, status } = message.run;
+
   if (!isTerminalRunStatus(status) || !prev.has(chatId)) return prev;
   const next = new Map(prev);
   next.delete(chatId);
+
   return next;
 }
 
@@ -518,15 +562,19 @@ function useLiveRunProgress(
   queryClient: QueryClient,
 ): ReadonlyMap<string, RunPhase> {
   const live = useOptionalLiveUpdates();
+
   const [phases, setPhases] = useState<ReadonlyMap<string, RunPhase>>(
     () => new Map(),
   );
+
   const subscribe = live?.subscribeRunMessages;
 
   useEffect(() => {
     if (!subscribe) return undefined;
+
     return subscribe((message) => {
       setPhases((prev) => nextRunPhases(prev, message));
+
       if (message.type !== "run.updated") return;
       const { run } = message;
       // Terminal too: coalescing can deliver a Run's first message already
@@ -544,10 +592,13 @@ function useLiveRunProgress(
   // reconnect.
   const connected = live?.connected ?? false;
   const [phasesConnected, setPhasesConnected] = useState(connected);
+
   if (phasesConnected !== connected) {
     setPhasesConnected(connected);
+
     if (!connected) setPhases(EMPTY_PHASES);
   }
+
   return connected ? phases : EMPTY_PHASES;
 }
 
@@ -604,9 +655,11 @@ export function ActiveRunsProvider({ children }: ActiveRunsProviderProps) {
 
 export function useActiveRuns(): ActiveRunsContextValue {
   const ctx = useContext(ActiveRunsContext);
+
   if (!ctx) {
     throw new Error("useActiveRuns must be used within ActiveRunsProvider");
   }
+
   return ctx;
 }
 

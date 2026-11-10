@@ -6,6 +6,7 @@ import { isAbsolute, normalize } from "node:path";
  *  resolver's `lstat` checks cannot be raced by a link swapped in after. */
 export function openFlags(followSymlinks: boolean): number {
   const base = constants.O_RDONLY | constants.O_NONBLOCK;
+
   return followSymlinks ? base : base | constants.O_NOFOLLOW;
 }
 
@@ -134,7 +135,9 @@ export function parsePathScheme(
   input: string,
 ): { scheme: string; rest: string } | undefined {
   const match = SCHEME_PREFIX.exec(input);
+
   if (!match) return undefined;
+
   return {
     scheme: match[1].toLowerCase(),
     rest: input.slice(match[0].length),
@@ -147,8 +150,10 @@ const MAX_SELECTOR_RANGES = 64;
 function mergeIntervals(intervals: Array<Interval>): Array<Interval> {
   const sorted = [...intervals].sort((a, b) => a.offset - b.offset);
   const merged: Array<Interval> = [];
+
   for (const current of sorted) {
     const last = merged.at(-1);
+
     if (last !== undefined && current.offset <= last.offset + last.limit) {
       last.limit =
         Math.max(last.offset + last.limit, current.offset + current.limit) -
@@ -157,14 +162,17 @@ function mergeIntervals(intervals: Array<Interval>): Array<Interval> {
       merged.push({ ...current });
     }
   }
+
   return merged;
 }
 
 /** Every bound is a one-based positive safe integer, in every member form. */
 function bound(text: string): number {
   const value = Number(text);
+
   if (!Number.isSafeInteger(value) || value < 1)
     throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+
   return value;
 }
 
@@ -175,13 +183,16 @@ function bound(text: string): number {
  */
 function parseRange(value: string): Interval {
   const match = /^(\d+)(?:([-+])(\d+))?$/u.exec(value);
+
   if (!match)
     throw new NativeFileError("invalid_selector", invalidSelectorMessage());
   const start = bound(match[1]);
   const operand = match[3] === undefined ? start : bound(match[3]);
   const end = match[2] === "+" ? start + (operand - 1) : operand;
+
   if (!Number.isSafeInteger(end) || end < start)
     throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+
   return { offset: start - 1, limit: end - start + 1 };
 }
 
@@ -197,15 +208,21 @@ const LAST_LINES = /^-(\d+)$/u;
  */
 function parseMember(value: string, count: number): Interval {
   const throughEnd = THROUGH_END.exec(value);
+
   if (throughEnd) {
     const start = bound(throughEnd[1]);
+
     return { offset: start - 1, limit: Math.max(0, count - start + 1) };
   }
+
   const lastLines = LAST_LINES.exec(value);
+
   if (lastLines) {
     const start = Math.max(1, count - bound(lastLines[1]) + 1);
+
     return { offset: start - 1, limit: count - start + 1 };
   }
+
   return parseRange(value);
 }
 
@@ -215,8 +232,10 @@ function parseMember(value: string, count: number): Interval {
  */
 function splitMembers(value: string): Array<string> {
   const members = value.split(",");
+
   if (members.length > MAX_SELECTOR_RANGES)
     throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+
   return members;
 }
 
@@ -230,7 +249,9 @@ function placeMembers(
   raw: boolean,
 ): PlacedWindow {
   const ranges = mergeIntervals(members);
+
   if (!comma) return ranges[0];
+
   return {
     offset: ranges[0].offset,
     ranges,
@@ -256,10 +277,12 @@ export function resolvePendingSelector(
   const comma = pending.includes(",");
   const placed = pending.split(",").map((member) => parseMember(member, count));
   const first = Math.min(...placed.map((member) => member.offset));
+
   if (placed.some((member) => member.limit === 0 && member.offset === first))
     return comma
       ? { offset: first, ranges: [], expandedRanges: [] }
       : { offset: first };
+
   return placeMembers(
     placed.filter((member) => member.limit > 0),
     comma,
@@ -279,6 +302,7 @@ export function resolveEndRelativeSelector(
 ): ReadTarget {
   if (target.pending === undefined) return target;
   const { pending, ...resolved } = target;
+
   return {
     ...resolved,
     ...resolvePendingSelector(pending, count, target.raw),
@@ -301,11 +325,15 @@ function expandRanges(ranges: Array<Interval>): Array<Interval> {
 
 async function isDirectoryTarget(path: string): Promise<boolean> {
   const lstats = await lstat(path);
+
   if (lstats.isDirectory()) return true;
+
   if (lstats.isSymbolicLink()) {
     const target = await stat(path);
+
     return target.isDirectory();
   }
+
   return false;
 }
 
@@ -318,6 +346,7 @@ async function isDirectoryTarget(path: string): Promise<boolean> {
 async function realPathField(path: string): Promise<{ realPath?: string }> {
   try {
     const canonical = await realpath(path);
+
     return canonical === normalize(path) ? {} : { realPath: canonical };
   } catch {
     return {};
@@ -335,7 +364,9 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
     if (await isDirectoryTarget(cleanPath)) {
       return { path: cleanPath, offset: 0, raw: false, directory: true };
     }
+
     if (hasTrailingSep) throw new NativeFileError("not_found");
+
     return {
       path: cleanPath,
       offset: 0,
@@ -344,16 +375,21 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
     };
   } catch (error) {
     if (error instanceof NativeFileError) throw error;
+
     if (!isNodeError(error)) throw error;
     const code = error.code;
+
     if (code === "ENOTDIR") throw new NativeFileError("not_found");
+
     // An overlong name cannot exist as a literal path, so it falls through
     // to selector parsing instead of surfacing a filesystem error.
     if (code !== "ENOENT" && code !== "ENAMETOOLONG") throw error;
   }
+
   if (hasTrailingSep) throw new NativeFileError("not_found");
 
   const parsed = parseSelector(input);
+
   return classifyParsedTarget(parsed);
 }
 
@@ -373,6 +409,7 @@ const SELECTOR_SUFFIX = new RegExp(
   `^(?:raw(?::${MEMBER_LIST_SOURCE})?|outline(?::${MEMBER})?|${MEMBER_LIST_SOURCE}:raw|${MEMBER_LIST_SOURCE})$`,
   "u",
 );
+
 /** A `<list>:raw` split claims the segment before `:raw` only in this shape. */
 const MEMBER_LIST = new RegExp(`^${MEMBER_LIST_SOURCE}$`, "u");
 
@@ -386,19 +423,26 @@ export function applySelectorSuffix(
   selector: string | undefined,
 ): ReadTarget {
   if (selector === undefined) return { path, offset: 0, raw: false };
+
   if (selector === "raw") return { path, offset: 0, raw: true };
+
   if (selector === "outline")
     return { path, offset: 0, raw: false, outline: true };
+
   if (!isSelectorSuffix(selector))
     throw new NativeFileError("invalid_selector", invalidSelectorMessage());
   const trailingRaw = /^(.*):raw$/u.exec(selector);
+
   if (trailingRaw !== null && MEMBER_LIST.test(trailingRaw[1]))
     return applyMembers(path, trailingRaw[1], true);
   const outline = /^outline:(.*)$/u.exec(selector);
+
   if (outline)
     return { ...applyMembers(path, outline[1], false), outline: true };
   const raw = /^raw:(.*)$/u.exec(selector);
+
   if (raw) return applyMembers(path, raw[1], true);
+
   return applyMembers(path, selector, false);
 }
 
@@ -415,8 +459,10 @@ function applyMembers(path: string, value: string, raw: boolean): ReadTarget {
   // end-relative one to nothing, so a member the count must place is exactly
   // the one that comes back empty.
   const intervals = members.map((member) => parseMember(member, 0));
+
   if (intervals.some((member) => member.limit === 0))
     return { path, offset: 0, raw, pending: value };
+
   return {
     path,
     raw,
@@ -443,20 +489,27 @@ export interface SelectorSplit {
  */
 export function splitSelectorSuffix(input: string): SelectorSplit {
   const raw = /:raw(?::([^:/]*))?$/.exec(input);
+
   if (raw) {
     const before = input.slice(0, raw.index);
+
     if (raw[1] !== undefined)
       return { path: before, selector: `raw:${raw[1]}` };
+
     return rawSplit(before);
   }
+
   const outline = /:outline(?::([^:/]*))?$/.exec(input);
+
   if (outline) {
     return {
       path: input.slice(0, outline.index),
       selector: input.slice(outline.index + 1),
     };
   }
+
   const colon = input.lastIndexOf(":");
+
   return colon > input.lastIndexOf("/")
     ? { path: input.slice(0, colon), selector: input.slice(colon + 1) }
     : { path: input };
@@ -469,9 +522,11 @@ export function splitSelectorSuffix(input: string): SelectorSplit {
  */
 function rawSplit(before: string): SelectorSplit {
   const colon = before.lastIndexOf(":");
+
   if (colon <= before.lastIndexOf("/"))
     return { path: before, selector: "raw" };
   const list = before.slice(colon + 1);
+
   return MEMBER_LIST.test(list)
     ? { path: before.slice(0, colon), selector: `raw:${list}` }
     : { path: before, selector: "raw" };
@@ -480,6 +535,7 @@ function rawSplit(before: string): SelectorSplit {
 /** Split a combined `path:selector` string, then apply the shared grammar. */
 function parseSelector(input: string): ReadTarget {
   const { path, selector } = splitSelectorSuffix(input);
+
   return applySelectorSuffix(path, selector);
 }
 
@@ -491,5 +547,6 @@ async function classifyParsedTarget(target: ReadTarget): Promise<ReadTarget> {
   } catch {
     // Let downstream handle missing paths.
   }
+
   return { ...target, ...(await realPathField(target.path)) };
 }

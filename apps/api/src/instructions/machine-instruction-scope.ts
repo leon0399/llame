@@ -83,6 +83,7 @@ export function createMachineInstructionProbe(input: {
     input.envelope.runId ?? '',
     input.envelope.deliverySeq,
   );
+
   const roots = new Map<string, Promise<ReadonlyArray<string> | undefined>>();
 
   /**
@@ -94,19 +95,24 @@ export function createMachineInstructionProbe(input: {
     name: string,
   ): Promise<ReadonlyArray<string> | undefined> => {
     const cached = roots.get(name);
+
     if (cached !== undefined) return cached;
     const pending = loadRoots({ ...input, attemptKey, name });
     roots.set(name, pending);
+
     return pending;
   };
 
   return async ({ name, path }) => {
     const registered = await rootsOf(name);
+
     if (registered === undefined) return undefined;
     // The path grammar is absolute; anything else contains no root.
     const target = path.startsWith('/') ? posix.resolve(path) : path;
     const root = containingRoot(registered, target);
+
     if (root === undefined) return undefined;
+
     return machineInstructionScope({
       name,
       root,
@@ -140,17 +146,20 @@ async function loadRoots(
     ) {
       return undefined;
     }
+
     // Reachability is one verdict per attempt: an unreachable Machine must not
     // make every instruction trigger wait out a connect timeout.
     if (!(await input.connector.reachable(input.name, input.attemptKey))) {
       return undefined;
     }
+
     const answer = await input.connector.request(
       input.name,
       ROOTS_LIST_METHOD,
       { envelope: input.envelope },
       { signal: input.signal },
     );
+
     return readRootsListResult(answer)?.roots;
   } catch {
     return undefined;
@@ -192,6 +201,7 @@ function machineInstructionScope(input: {
   ) => Promise<JsonValue | undefined>;
 }): InstructionScope {
   const { name, root } = input;
+
   return {
     root,
     label: (key) => machineLabel(name, root, key),
@@ -199,6 +209,7 @@ function machineInstructionScope(input: {
       const absolute = absoluteKey(root, key);
       const answer = await input.ask(FS_STAT_METHOD, absolute);
       const stat = answer === undefined ? undefined : readFsStatResult(answer);
+
       if (
         stat === undefined ||
         (stat.kind !== 'file' && stat.kind !== 'directory')
@@ -208,6 +219,7 @@ function machineInstructionScope(input: {
         // there is no candidate and no directory here.
         return { kind: 'missing' };
       }
+
       return {
         kind: stat.kind,
         size: stat.size ?? 0,
@@ -218,9 +230,12 @@ function machineInstructionScope(input: {
       // `fs.list` answers a refusal as a result, and the call itself may fail;
       // either way the directory holds nothing this chain can select.
       const answer = await input.ask(FS_LIST_METHOD, absoluteKey(root, key));
+
       const listed =
         answer === undefined ? undefined : readFsListResult(answer);
+
       if (listed === undefined || isNativeFailure(listed)) return [];
+
       return listed.entries.map((entry) => entry.name);
     },
   };
@@ -234,6 +249,7 @@ function machineInstructionScope(input: {
  */
 function machineLabel(name: string, root: string, key: string): string {
   const absolute = absoluteKey(root, key);
+
   return formatMachineLocator(name, absolute) ?? absolute;
 }
 
@@ -251,6 +267,7 @@ function absoluteKey(root: string, key: string): string {
     : root.endsWith('/')
       ? `${root}${key}`
       : `${root}/${key}`;
+
   return absolute.length > 1 && absolute.endsWith('/')
     ? absolute.slice(0, -1)
     : absolute;
@@ -267,16 +284,21 @@ function containingRoot(
   target: string,
 ): string | undefined {
   let best: string | undefined;
+
   for (const root of registered) {
     // A registered root is a canonical realpath; a trailing separator names
     // the same directory and would only break the prefix test below.
     const canonical =
       root.length > 1 && root.endsWith('/') ? root.slice(0, -1) : root;
+
     const contained =
       target === canonical ||
       target.startsWith(canonical.endsWith('/') ? canonical : `${canonical}/`);
+
     if (!canonical.startsWith('/') || !contained) continue;
+
     if (best === undefined || canonical.length > best.length) best = canonical;
   }
+
   return best;
 }

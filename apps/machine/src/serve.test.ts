@@ -22,9 +22,12 @@ import {
 
 const NO_HANDSHAKE_MESSAGE =
   "The Machine session has not completed its handshake.";
+
 const OVERSIZE_FRAME_MESSAGE =
   "The frame's message exceeds the byte bound of this protocol.";
+
 const MALFORMED_FRAME_MESSAGE = "The frame is not a JSON-RPC message.";
+
 const OVERSIZE_ANSWER_MESSAGE =
   "The Machine's answer exceeds the frame byte bound of this protocol.";
 
@@ -55,6 +58,7 @@ async function startedPid(
   pidFile: string,
 ): Promise<number> {
   await waitFor(() => existsSync(pidFile), 5000);
+
   return Number(await readFile(pidFile, "utf8"));
 }
 
@@ -99,6 +103,7 @@ describe("handshake", () => {
     const outcome = await daemon.attempt("roots.list", {
       envelope: envelope(),
     });
+
     expect(outcome.error).toMatchObject({
       name: "MachineProtocolError",
       code: "internal",
@@ -122,6 +127,7 @@ describe("framing", () => {
   /** A stream the daemon is still serving, so it is open on both sides. */
   async function runningChannel(pidFile: string) {
     const { channel } = daemon.open();
+
     const running = channel
       .request("proc.bash", {
         envelope: envelope(),
@@ -132,15 +138,19 @@ describe("framing", () => {
         () => undefined,
         (error: unknown) => error,
       );
+
     const pid = await startedPid(daemon, pidFile);
+
     return { channel, running, pid };
   }
 
   it("refuses an oversize message on a running stream and closes it", async () => {
     await daemon.hello();
+
     const { channel, running, pid } = await runningChannel(
       join(fixture.root, "oversize.pid"),
     );
+
     daemon.write(
       rawFrame(
         channel.id,
@@ -174,9 +184,11 @@ describe("framing", () => {
 
   it("refuses a malformed message on a running stream", async () => {
     await daemon.hello();
+
     const { channel, running } = await runningChannel(
       join(fixture.root, "malformed.pid"),
     );
+
     daemon.write(rawFrame(channel.id, '{"jsonrpc":"2.0","id":1,"method":123}'));
     expect(await running).toMatchObject({
       name: "MachineProtocolError",
@@ -206,6 +218,7 @@ describe("framing", () => {
       { length: 60_000 },
       (_unused, index) => `/srv/root-${index}`,
     );
+
     const wordy = startDaemon({ roots: many });
     await wordy.hello();
     const outcome = await wordy.attempt("roots.list", { envelope: envelope() });
@@ -222,11 +235,13 @@ describe("budgets", () => {
   it("refuses an exhausted budget without starting anything", async () => {
     await daemon.hello();
     const marker = join(fixture.root, "marker.txt");
+
     const outcome = await daemon.attempt("proc.bash", {
       envelope: envelope(0),
       command: `touch ${JSON.stringify(marker)}`,
       cwd: fixture.root,
     });
+
     expect(outcome.error).toMatchObject({
       name: "MachineProtocolError",
       code: "budget_exhausted",
@@ -258,11 +273,13 @@ describe("budgets", () => {
   it("refuses a budget that runs out mid-command and kills its process group", async () => {
     await daemon.hello();
     const pidFile = join(fixture.root, "budget.pid");
+
     const running = daemon.attempt("proc.bash", {
       envelope: envelope(400),
       command: longCommand(pidFile),
       cwd: fixture.root,
     });
+
     const pid = await startedPid(daemon, pidFile);
     expect(isGone(pid)).toBe(false);
     const outcome = await running;
@@ -277,6 +294,7 @@ describe("session end", () => {
     const pidFile = join(fixture.root, "cancel.pid");
     const controller = new AbortController();
     const { channel } = daemon.open();
+
     const running = channel
       .request(
         "proc.bash",
@@ -291,6 +309,7 @@ describe("session end", () => {
         () => undefined,
         (error: unknown) => error,
       );
+
     const pid = await startedPid(daemon, pidFile);
     controller.abort();
     expect(await running).toBeInstanceOf(StreamClosedError);
@@ -326,6 +345,7 @@ describe("session end", () => {
       heartbeatIntervalMs: 20,
       heartbeatMisses: 3,
     });
+
     await quiet.hello();
     await waitFor(() =>
       quiet.frames.some(
@@ -341,6 +361,7 @@ describe("session end", () => {
       heartbeatIntervalMs: 20,
       heartbeatMisses: 3,
     });
+
     await quiet.hello();
     const pidFile = join(fixture.root, "heartbeat.pid");
     const { channel } = quiet.open();

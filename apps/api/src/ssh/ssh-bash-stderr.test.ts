@@ -26,14 +26,17 @@ type FakeProcess = SshProcess & {
 
 function fakeClient() {
   const processes: Array<FakeProcess> = [];
+
   const spawn: SshSpawn = () => {
     const stdout = new PassThrough();
     const stderr = new PassThrough();
     const stdin = new PassThrough();
     const errorHandlers: Array<(error: Error) => void> = [];
+
     const closeHandlers: Array<
       (code: number | null, signal: string | null) => void
     > = [];
+
     const process: FakeProcess = {
       stdout,
       stderr,
@@ -45,9 +48,12 @@ function fakeClient() {
       close: (code, signal = null) =>
         closeHandlers.forEach((handler) => handler(code, signal)),
     };
+
     processes.push(process);
+
     return process;
   };
+
   const client = createSshClient({
     ssh: { knownHostsFile: '/etc/llame/known_hosts' },
     spawn,
@@ -58,6 +64,7 @@ function fakeClient() {
     },
     resolutionDeadlineMs: 5000,
   });
+
   return { client, processes };
 }
 
@@ -102,6 +109,7 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     // Two chunks: the first fills part of the head, so the second one is
     // measured against what is left of the bound and not against the bound.
@@ -110,6 +118,7 @@ describe('remote bash stderr tail', () => {
     process.close(1);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     const headBytes = SSH_DIAGNOSTIC_BYTES - 100;
     // The head and the tail are adjacent in the stream, so they join with no
@@ -126,12 +135,14 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stderr.write(`${'a'.repeat(SSH_DIAGNOSTIC_BYTES - 1)}é`);
     process.stderr.write('b'.repeat(100));
     process.close(1);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stderrOverflow).toBe(true);
     // The head ends inside the two-byte `é`; the gap sits before the
@@ -143,6 +154,7 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     const headFiller = 'h'.repeat(SSH_DIAGNOSTIC_BYTES - 4);
     process.stderr.write(`${headFiller}aaa`);
@@ -155,6 +167,7 @@ describe('remote bash stderr tail', () => {
     process.close(0);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     // Neither part invents a replacement character at the gap.
     expect(outcome.diagnostic).toBe(`${headFiller}aaa${tail}`);
@@ -166,16 +179,20 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
+
     // The head starts with the UTF-8 byte order mark: the transport's bytes,
     // not a decoder guess, decide whether it stays.
     const head = Buffer.concat([
       Buffer.from('\uFEFF'),
       Buffer.from('a'.repeat(SSH_DIAGNOSTIC_BYTES - 3)),
     ]);
+
     writeSplitStream(process, head, Buffer.alloc(0));
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe(
       `\uFEFF${'a'.repeat(SSH_DIAGNOSTIC_BYTES - 3)}z${'b'.repeat(63)}`,
@@ -187,6 +204,7 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     // Four continuation bytes cannot all belong to one cut character, so the
     // fourth decodes on its own instead of disappearing with the skipped run.
@@ -197,6 +215,7 @@ describe('remote bash stderr tail', () => {
     );
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe(
       `${'a'.repeat(SSH_DIAGNOSTIC_BYTES)}\uFFFDz${'b'.repeat(59)}`,
@@ -208,12 +227,14 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     // 0xbf is the last continuation byte: it still belongs to the window and
     // leaves no replacement character behind.
     writeSplitStream(process, HEAD_AT_BOUND, Buffer.from([0xbf, 0xa9]));
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe(
       `${'a'.repeat(SSH_DIAGNOSTIC_BYTES)}z${'b'.repeat(61)}`,
@@ -224,12 +245,14 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     // A lead byte starts a character rather than continuing one, so the tail
     // keeps its `é` whole.
     writeSplitStream(process, HEAD_AT_BOUND, Buffer.from([0xc3, 0xa9]));
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe(
       `${'a'.repeat(SSH_DIAGNOSTIC_BYTES)}éz${'b'.repeat(61)}`,
@@ -241,6 +264,7 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     // A view would pin the whole chunk for the call's lifetime; a later write
     // into the chunk shows whether the head kept a view or a copy.
@@ -251,6 +275,7 @@ describe('remote bash stderr tail', () => {
     process.close(1);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe('a'.repeat(100));
   });
@@ -259,6 +284,7 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     // The boundary falls inside the trailer: the head holds `:en` and the
     // tail begins with `d:0`.
@@ -268,6 +294,7 @@ describe('remote bash stderr tail', () => {
     process.close(0);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe(`${head}d:0\n`);
     expect(outcome.stderrOverflow).toBe(false);
@@ -277,11 +304,13 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stderr.write('warn: something\n');
     process.close(0);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic).toBe('warn: something\n');
     expect(outcome.stderrOverflow).toBe(false);
@@ -291,12 +320,14 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stderr.write('login noise\n'.repeat(1000));
     process.stderr.write('command err\nnonce:end:7\n');
     process.close(0);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.diagnostic.endsWith('nonce:end:7\n')).toBe(true);
     // 12,000 noise bytes plus the command's own line: the tail dropped only
@@ -308,12 +339,14 @@ describe('remote bash stderr tail', () => {
     const { client, processes } = fakeClient();
     const pending = runWithTail(client);
     const process = processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stderr.emit('error', new Error('read EPIPE'));
     process.stdout.write('command out\n');
     process.close(0);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stdout.toString()).toBe('command out\n');
     expect(outcome.diagnostic).toBe('');

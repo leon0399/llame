@@ -21,15 +21,19 @@ process.stderr.write(
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
 
 let buffer = "";
+
 process.stdin.on("data", (chunk) => {
   buffer += chunk.toString("utf8");
   let newline;
+
   while ((newline = buffer.indexOf("\n")) !== -1) {
     const line = buffer.slice(0, newline);
     buffer = buffer.slice(newline + 1);
+
     if (line.trim() === "") continue;
 
     let message;
+
     try {
       message = JSON.parse(line);
     } catch {

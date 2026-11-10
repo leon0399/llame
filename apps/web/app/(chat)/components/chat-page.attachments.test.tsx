@@ -37,11 +37,13 @@ import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 
 const routerMock = { push: vi.fn(), replace: vi.fn() };
+
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
 }));
 
 const sendMessage = vi.fn();
+
 vi.mock("@ai-sdk/react", () => ({
   useChat: () => ({
     messages: [],
@@ -65,9 +67,11 @@ import { installStubChatMarkdownRenderers } from "@/lib/test-support/chat-markdo
 
 beforeAll(() => {
   installStubChatMarkdownRenderers();
+
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
+
   if (!("ResizeObserver" in globalThis)) {
     vi.stubGlobal(
       "ResizeObserver",
@@ -79,6 +83,7 @@ beforeAll(() => {
       },
     );
   }
+
   // jsdom has no object URLs; composer thumbnails only need a string src.
   if (!("createObjectURL" in URL)) {
     Object.assign(URL, {
@@ -95,15 +100,19 @@ afterAll(() => {
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 
 let fetchMock: Mock<typeof fetch>;
+
 // Left unresolved by default — GET /api/v1/models stays pending until a test
 // overrides this, mirroring useModelsQuery's real isPending state.
 let modelsHandler: () => Promise<Response>;
+
 // Per-test-overridable handler for GET /api/v1/chats/:id/messages — empty by
 // default, so a persisted chat's history probe resolves with no messages.
 let messagesHandler: () => Promise<Response>;
+
 // Per-test-overridable handler for GET /api/v1/permission-modes — default-only
 // by default, so the last-turn restore never offers `bypass` unless a test says so.
 let permissionModesHandler: () => Promise<Response>;
+
 // Per-test-overridable handler for POST /api/v1/media — unrouted by default,
 // so only the attachment tests upload.
 let mediaUploadHandler: () => Promise<Response>;
@@ -126,12 +135,17 @@ beforeEach(() => {
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname } = new URL(request.url);
+
     if (pathname === "/api/v1/me/runs") return jsonResponse([]);
+
     if (pathname === "/api/v1/models") return modelsHandler();
+
     if (pathname === "/api/v1/permission-modes")
       return permissionModesHandler();
+
     if (pathname === `/api/v1/chats/${CHAT_ID}/messages`)
       return messagesHandler();
+
     if (pathname === "/api/v1/media" && request.method === "POST")
       return mediaUploadHandler();
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
@@ -181,6 +195,7 @@ describe("ChatPage image attachments", () => {
       },
     ],
   };
+
   /** Answers uploads in request order under sequential `media://` ids: the
    *  first is `a.png`, the second `b.png`, later ones `image-n.png`. */
   function answerUploads(): void {
@@ -189,6 +204,7 @@ describe("ChatPage image attachments", () => {
       count += 1;
       const locator = `media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a${String(count).padStart(2, "0")}`;
       const name = ["a.png", "b.png"][count - 1] ?? `image-${count}.png`;
+
       return Promise.resolve(
         jsonResponse(
           {
@@ -229,9 +245,11 @@ describe("ChatPage image attachments", () => {
     modelsHandler = () => Promise.resolve(jsonResponse(VISION_MODELS));
     answerUploads();
     renderChat(false, "fresh");
+
     const input = screen.getByPlaceholderText(
       "Describe a task or ask a question",
     );
+
     const send = screen.getByRole("button", { name: "Send message" });
     // SAFETY: `send` is the composer's send button, queried by its own role.
     await waitFor(() =>
@@ -245,18 +263,21 @@ describe("ChatPage image attachments", () => {
     );
     // SAFETY: as above.
     expect((send as HTMLButtonElement).disabled).toBe(false);
+
     return { input, send };
   }
 
   /** Holds the next send pending until the returned `fail` rejects it. */
   function holdSend() {
     let reject: (error: Error) => void = () => {};
+
     sendMessage.mockImplementation(
       () =>
         new Promise<void>((_resolve, rejectSend) => {
           reject = rejectSend;
         }),
     );
+
     return { fail: () => reject(new Error("send failed")) };
   }
 
@@ -291,13 +312,16 @@ describe("ChatPage image attachments", () => {
       .mockImplementation(
         (file) => `blob:${file instanceof File ? file.name : "unnamed"}`,
       );
+
     const revokeObjectURL = vi
       .spyOn(URL, "revokeObjectURL")
       .mockImplementation(() => {});
+
     try {
       const user = userEvent.setup();
       const { input, send } = await pasteTwoImages();
       const { fail } = holdSend();
+
       const pendingNames = Array.from(
         { length: 9 },
         (_, index) => `pending-${index + 1}.png`,

@@ -31,14 +31,18 @@ export const CLOSE_SESSION_ENDED = 4401;
  *  this client ignores). */
 export function parseLiveMessage(data: unknown): LiveMessage | undefined {
   const text = z.string().safeParse(data);
+
   if (!text.success) return undefined;
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(text.data);
   } catch {
     return undefined;
   }
+
   const result = liveMessageSchema.safeParse(parsed);
+
   return result.success ? result.data : undefined;
 }
 
@@ -46,5 +50,6 @@ export function parseLiveMessage(data: unknown): LiveMessage | undefined {
 export function liveUpdatesUrl(apiUrl: string = getApiUrl()): string {
   const url = new URL(LIVE_CHANNEL_ADDRESS, apiUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+
   return url.toString();
 }

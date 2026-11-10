@@ -158,8 +158,10 @@ class Scanner implements MarkdownScanner {
   push(nativeLine: string): boolean {
     if (this.stopped) return false;
     this.lineCount += 1;
+
     if (this.frontmatter) {
       this.frontmatter.push(nativeLine);
+
       if (isDelimiter(nativeLine, true)) this.closeFrontmatter();
     } else if (
       this.lineCount === 1 &&
@@ -169,6 +171,7 @@ class Scanner implements MarkdownScanner {
     } else {
       this.scanLine(this.lineCount, nativeLine);
     }
+
     return !this.stopped;
   }
 
@@ -181,8 +184,10 @@ class Scanner implements MarkdownScanner {
     });
     this.closeLeaf();
     this.flush();
+
     while (!this.stopped && this.headings.length > 0) {
       const heading = this.headings.pop();
+
       if (heading) this.emitHeadingSpan(heading, this.lineCount);
     }
   }
@@ -190,12 +195,14 @@ class Scanner implements MarkdownScanner {
   private closeFrontmatter(): void {
     const lines = this.frontmatter ?? [];
     this.frontmatter = undefined;
+
     for (const [index, text] of lines.entries()) {
       if (this.stopped) return;
       this.stop(
         this.handlers.onLine?.({ line: index + 1, text, role: "frontmatter" }),
       );
     }
+
     if (this.stopped) return;
     const closer = lines.length;
     this.stop(
@@ -219,10 +226,12 @@ class Scanner implements MarkdownScanner {
     this.queue.push(entry);
     // Decoding keeps a leading BOM in the text; CommonMark ignores it.
     const body = line === 1 ? text.replace(BYTE_ORDER_MARK, "") : text;
+
     for (const physical of stripTerminator(body).split("\r")) {
       if (this.stopped) return;
       this.scanPhysical(entry, expandTabs(physical));
     }
+
     this.flush();
   }
 
@@ -234,23 +243,29 @@ class Scanner implements MarkdownScanner {
   ): void {
     if (entry.role === "heading") return;
     entry.role = role;
+
     if (heading) entry.heading = heading;
   }
 
   private flush(): void {
     while (!this.stopped) {
       const head = this.queue[this.queueHead];
+
       if (!head || head.pending > 0) break;
       this.queueHead += 1;
+
       const event: MarkdownLine = {
         line: head.line,
         text: head.text,
         role: head.role,
       };
+
       if (head.heading) event.heading = head.heading;
+
       if (head.rootParagraph) event.rootParagraph = true;
       this.stop(this.handlers.onLine?.(event));
     }
+
     if (this.queueHead === this.queue.length) {
       this.queue = [];
       this.queueHead = 0;
@@ -264,17 +279,21 @@ class Scanner implements MarkdownScanner {
   private openHeading(heading: MarkdownHeading): void {
     while (!this.stopped) {
       const last = this.headings.at(-1);
+
       if (!last || last.depth < heading.depth) break;
       this.headings.pop();
       this.emitHeadingSpan(last, Math.max(heading.line - 1, last.headEnd));
     }
+
     this.headings.push(heading);
   }
 
   private closeLeaf(): void {
     const leaf = this.leaf;
     this.leaf = undefined;
+
     if (leaf?.type !== "paragraph") return;
+
     for (const entry of leaf.lines) {
       this.mark(entry, "content");
       entry.pending -= 1;
@@ -287,17 +306,22 @@ class Scanner implements MarkdownScanner {
     this.closeUnmatched(state);
     this.closeLeaf();
     const parent = this.containers.at(-1);
+
     if (parent?.type === "item") parent.hasChild = true;
   }
 
   private addParagraphLine(entry: Entry, text: string): void {
     const paragraph = this.leaf;
+
     if (paragraph?.type !== "paragraph") return;
     paragraph.definitionText?.push(text);
+
     if (!paragraph.root) {
       this.mark(entry, "content");
+
       return;
     }
+
     entry.rootParagraph = true;
     paragraph.lines.push(entry);
     entry.pending += 1;
@@ -307,32 +331,41 @@ class Scanner implements MarkdownScanner {
    *  reference definitions consume all of it. */
   private setext(entry: Entry, depth: number): boolean {
     const paragraph = this.leaf;
+
     if (paragraph?.type !== "paragraph") return false;
     const texts = paragraph.definitionText;
     const consumed = texts ? definitionLineCount(texts) : 0;
+
     if (texts && consumed >= texts.length) return false;
     this.leaf = undefined;
+
     if (!paragraph.root) {
       this.mark(entry, "content");
+
       return true;
     }
+
     const first = paragraph.lines[consumed] ?? entry;
+
     const heading: MarkdownHeading = {
       depth,
       line: first.line,
       headEnd: entry.line,
       label: stripTerminator(first.text),
     };
+
     paragraph.lines.forEach((line, index) => {
       if (index < consumed) this.mark(line, "content");
       else {
         this.mark(line, "heading", heading);
         line.rootParagraph = undefined;
       }
+
       line.pending -= 1;
     });
     this.mark(entry, "heading", heading);
     this.openHeading(heading);
+
     return true;
   }
 
@@ -348,13 +381,17 @@ class Scanner implements MarkdownScanner {
       allClosed: false,
       paragraphContainer: false,
     };
+
     this.matchContainers(state);
+
     if (this.matchLeaf(state)) return;
+
     const acceptsLines =
       state.containersMatched &&
       state.leafMatched &&
       this.leaf !== undefined &&
       this.leaf.type !== "paragraph";
+
     if (!acceptsLines && this.openBlocks(state)) return;
     this.addContent(state);
   }
@@ -362,35 +399,44 @@ class Scanner implements MarkdownScanner {
   private matchContainers(state: LineState): void {
     for (const container of this.containers) {
       advance(state.cursor);
+
       if (!continues(container, state.cursor)) break;
       state.matched += 1;
     }
+
     state.containersMatched = state.matched === this.containers.length;
   }
 
   /** Returns true when the line closed a fenced code block. */
   private matchLeaf(state: LineState): boolean {
     const leaf = this.leaf;
+
     if (state.containersMatched && leaf) {
       advance(state.cursor);
+
       if (leaf.type === "fence" && closesFence(leaf, state.cursor)) {
         this.leaf = undefined;
         this.mark(state.entry, "content");
+
         return true;
       }
+
       state.leafMatched = leafContinues(leaf, state.cursor);
     }
+
     state.allClosed =
       state.containersMatched && (leaf === undefined || state.leafMatched);
     state.paragraphContainer =
       state.containersMatched &&
       state.leafMatched &&
       leaf?.type === "paragraph";
+
     return false;
   }
 
   private closeUnmatched(state: LineState): void {
     if (state.allClosed) return;
+
     if (!(state.containersMatched && state.leafMatched)) this.closeLeaf();
     this.containers.length = state.matched;
     state.allClosed = true;
@@ -407,12 +453,17 @@ class Scanner implements MarkdownScanner {
   private openBlocks(state: LineState): boolean {
     for (;;) {
       const outcome = this.openBlock(state);
+
       if (outcome === "done") return true;
+
       if (outcome === "leaf") return false;
+
       if (outcome === "none") {
         state.cursor.offset = state.cursor.next;
+
         return false;
       }
+
       state.paragraphContainer = false;
     }
   }
@@ -420,17 +471,23 @@ class Scanner implements MarkdownScanner {
   private openBlock(state: LineState): "container" | "leaf" | "done" | "none" {
     const cursor = state.cursor;
     advance(cursor);
+
     if (cursor.indent >= 4) return this.openIndentedCode(state);
     const rest = cursor.line.slice(cursor.next);
     const depth = state.allClosed ? this.containers.length : state.matched;
     const nestable = depth < MAX_CONTAINER_DEPTH;
+
     if (nestable && rest[0] === ">") {
       consumeQuoteMarker(cursor);
       this.addContainer(state, { type: "quote" });
+
       return "container";
     }
+
     const leaf = this.openLeafBlock(state, rest);
+
     if (leaf !== "none") return leaf;
+
     const item = nestable
       ? listItemStart(
           cursor.line,
@@ -439,6 +496,7 @@ class Scanner implements MarkdownScanner {
           state.paragraphContainer,
         )
       : undefined;
+
     if (!item) return "none";
     cursor.offset = item.offset;
     this.addContainer(state, {
@@ -446,6 +504,7 @@ class Scanner implements MarkdownScanner {
       required: item.required,
       hasChild: false,
     });
+
     return "container";
   }
 
@@ -454,36 +513,50 @@ class Scanner implements MarkdownScanner {
     rest: string,
   ): "leaf" | "done" | "none" {
     const atx = ATX.exec(rest);
+
     if (atx) {
       this.addAtxHeading(state, atx[1]?.length ?? 1);
+
       return "done";
     }
+
     const fence = fenceOpen(rest);
+
     if (fence) {
       this.addLeaf(state, { type: "fence", ...fence });
+
       return "leaf";
     }
+
     const interrupts = state.paragraphContainer || this.lazyParagraph(state);
     const html = htmlStartKind(rest, !interrupts);
+
     if (html > 0) {
       this.addLeaf(state, { type: "html", kind: html });
+
       return "leaf";
     }
+
     if (state.paragraphContainer && SETEXT.test(rest)) {
       this.closeUnmatched(state);
+
       if (this.setext(state.entry, rest[0] === "=" ? 1 : 2)) return "done";
     }
+
     if (THEMATIC.test(rest)) {
       this.addBlock(state);
       this.mark(state.entry, "content");
+
       return "done";
     }
+
     return "none";
   }
 
   private openIndentedCode(state: LineState): "leaf" | "none" {
     if (this.leaf?.type === "paragraph" || state.cursor.blank) return "none";
     this.addLeaf(state, { type: "indented" });
+
     return "leaf";
   }
 
@@ -501,16 +574,20 @@ class Scanner implements MarkdownScanner {
   private addAtxHeading(state: LineState, depth: number): void {
     this.addBlock(state);
     const entry = state.entry;
+
     if (this.containers.length > 0) {
       this.mark(entry, "content");
+
       return;
     }
+
     const heading: MarkdownHeading = {
       depth,
       line: entry.line,
       headEnd: entry.line,
       label: stripTerminator(entry.text),
     };
+
     this.mark(entry, "heading", heading);
     this.openHeading(heading);
   }
@@ -518,16 +595,22 @@ class Scanner implements MarkdownScanner {
   private addContent(state: LineState): void {
     const { cursor, entry } = state;
     const text = cursor.line.slice(cursor.offset);
+
     if (this.lazyParagraph(state)) {
       this.addParagraphLine(entry, text);
+
       return;
     }
+
     this.closeUnmatched(state);
     const leaf = this.leaf;
+
     if (leaf?.type === "paragraph") {
       this.addParagraphLine(entry, text);
+
       return;
     }
+
     if (!leaf && !cursor.blank) {
       this.addBlock(state);
       this.leaf = {
@@ -537,9 +620,12 @@ class Scanner implements MarkdownScanner {
         definitionText: mayOpenDefinition(text) ? [] : undefined,
       };
       this.addParagraphLine(entry, text);
+
       return;
     }
+
     if (/[^ ]/.test(cursor.line)) this.mark(entry, "content");
+
     if (
       leaf?.type === "html" &&
       leaf.kind <= 5 &&
@@ -562,8 +648,10 @@ export function scanMarkdownStructure(
   onSpan: (span: MarkdownSpan) => boolean | void,
 ): void {
   const scanner = createMarkdownScanner({ onSpan });
+
   for (const line of lines) {
     if (!scanner.push(line)) return;
   }
+
   scanner.end();
 }

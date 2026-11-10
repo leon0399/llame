@@ -85,9 +85,11 @@ export function isSkillActivationPayload(
   value: unknown,
 ): value is SkillActivationItemPayload {
   if (!isRecordWithKind(value)) return false;
+
   switch (value['kind']) {
     case 'activation': {
       const hasImports = Object.hasOwn(value, 'imports');
+
       return (
         isExactRecord(value, [
           'kind',
@@ -105,6 +107,7 @@ export function isSkillActivationPayload(
             value['imports'].every(isNonEmptyString)))
       );
     }
+
     case 'failure':
       return (
         isExactRecord(value, ['kind', 'skill', 'reason']) &&
@@ -125,16 +128,19 @@ function isOmissionPayload(value: UnknownRecord): boolean {
   const skills = value['skills'];
   const imports = value['imports'];
   const hasSkills = Array.isArray(skills) && skills.length > 0;
+
   const beyondValid =
     !hasBeyond ||
     (isNumber(value['beyond']) &&
       Number.isInteger(value['beyond']) &&
       value['beyond'] > 0);
+
   const importsBeyondValid =
     !hasImportsBeyond ||
     (isNumber(value['importsBeyond']) &&
       Number.isInteger(value['importsBeyond']) &&
       value['importsBeyond'] > 0);
+
   return (
     isExactRecord(value, [
       'kind',
@@ -193,6 +199,7 @@ export function createSkillActivationItem(input: {
 }): AuthoredContextItemPart {
   const imports = input.imports ?? [];
   const importPaths = imports.map((file) => file.path);
+
   const payload: SkillActivationPayload = {
     kind: 'activation',
     skill: input.skill,
@@ -200,10 +207,12 @@ export function createSkillActivationItem(input: {
     instructionsPath: input.instructionsPath,
     ...(importPaths.length > 0 && { imports: importPaths }),
   };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isSkillActivationPayload(payload)) {
     throw new TypeError('Invalid server-authored skill activation metadata');
   }
+
   return createRenderedContextItem({
     producer: 'skill-activation',
     form: 'notice',
@@ -243,10 +252,12 @@ export function createSkillActivationFailureItem(input: {
     skill: input.skill,
     reason: input.reason,
   };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isSkillActivationPayload(payload)) {
     throw new TypeError('Invalid server-authored skill activation metadata');
   }
+
   return createRenderedContextItem({
     producer: 'skill-activation',
     form: 'notice',
@@ -331,6 +342,7 @@ type BuiltOmission = {
 
 function truncateLocator(locator: string): string {
   const characters = Array.from(locator);
+
   return characters.length <= MAX_OMISSION_IMPORT_LOCATOR_LENGTH
     ? locator
     : `${characters.slice(0, MAX_OMISSION_IMPORT_LOCATOR_LENGTH - 1).join('')}…`;
@@ -339,17 +351,23 @@ function truncateLocator(locator: string): string {
 function buildOmission(input: SkillActivationOmissionInput): BuiltOmission {
   const imports = input.imports ?? [];
   const listedNames = input.skills.slice(0, MAX_OMISSION_NAMES);
+
   const listedImports = imports
     .slice(0, MAX_OMISSION_IMPORT_NAMES)
     .map(truncateLocator);
+
   const unlistedSkills =
     input.skills.length - listedNames.length + (input.unlisted ?? 0);
+
   const unlistedImports =
     imports.length - listedImports.length + (input.unlistedImports ?? 0);
+
   const listed = listedNames.map((skill) => `\`$${skill}\``).join(', ');
+
   const listedImportNames = listedImports
     .map((path) => `\`${path}\``)
     .join(', ');
+
   return {
     payload: {
       kind: 'omission',
@@ -378,9 +396,11 @@ export function createSkillActivationOmissionItem(
   input: SkillActivationOmissionInput,
 ): AuthoredContextItemPart {
   const { payload, template } = buildOmission(input);
+
   if (!isSkillActivationPayload(payload)) {
     throw new TypeError('Invalid server-authored skill activation metadata');
   }
+
   return createRenderedContextItem({
     producer: 'skill-activation',
     form: 'notice',

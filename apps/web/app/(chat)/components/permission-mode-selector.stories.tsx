@@ -74,6 +74,7 @@ const meta = {
 } satisfies Meta<typeof PermissionModeSelector>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -113,6 +114,7 @@ export const BothModes: Story = {
     const trigger = canvas.getByRole("button", {
       name: "Permission mode, Default",
     });
+
     await expect(trigger).toHaveAttribute("data-variant", "ghost");
 
     await userEvent.click(trigger);
@@ -130,6 +132,7 @@ export const BothModes: Story = {
       const bypassTrigger = canvas.getByRole("button", {
         name: "Permission mode, Bypass",
       });
+
       await expect(bypassTrigger).toHaveAttribute(
         "data-variant",
         "destructive",
@@ -156,6 +159,7 @@ export const BypassSelected: Story = {
     const trigger = await waitFor(() =>
       canvas.getByRole("button", { name: "Permission mode, Bypass" }),
     );
+
     await expect(trigger).toHaveAttribute("data-variant", "destructive");
   },
 };
@@ -184,6 +188,7 @@ export const ReadOnlySelected: Story = {
     const trigger = await waitFor(() =>
       canvas.getByRole("button", { name: "Permission mode, Read-only" }),
     );
+
     await expect(trigger).toHaveAttribute("data-variant", "ghost");
 
     await userEvent.click(trigger);

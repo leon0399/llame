@@ -87,6 +87,7 @@ function continueRequest(metadata: ProviderMetadata): Array<ModelMessage> {
     { ...readPart('call-1', FIRST_TEXT), step: 0 },
     { ...readPart('call-2', SECOND_TEXT), step: 0 },
   ];
+
   return [
     { role: 'user', content: 'Compare both files.' },
     ...projectStoredReplyParts(parts, {
@@ -110,16 +111,21 @@ async function sentBody(
   const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
     Promise.resolve(response()),
   );
+
   const previousFetch = globalThis.fetch;
   globalThis.fetch = fetchMock;
+
   try {
     await expect(
       build(['text']).streamText({ chat: CHAT, messages }).text,
     ).resolves.toBe('done');
     const [request, init] = fetchMock.mock.calls[0] ?? [];
+
     if (request === undefined) throw new Error('no request was sent');
     const body: unknown = JSON.parse(await new Request(request, init).text());
+
     if (!isRecord(body)) throw new TypeError('expected a JSON request body');
+
     return body;
   } finally {
     globalThis.fetch = previousFetch;
@@ -129,7 +135,9 @@ async function sentBody(
 /** The sent messages or input items, whichever the wire names them. */
 function sentItems(body: UnknownRecord): Array<UnknownRecord> {
   const sent = body['messages'] ?? body['input'];
+
   if (!Array.isArray(sent)) throw new TypeError('expected a sent item list');
+
   return sent.filter(isRecord);
 }
 
@@ -198,11 +206,13 @@ describe('a Continue request on the Responses wire', () => {
     expect(items).not.toContainEqual(
       expect.objectContaining({ type: 'item_reference' }),
     );
+
     // Both calls of the kept step, then both results, and nothing after them.
     const tail = items.slice(-4).map((item) => ({
       type: item['type'],
       id: item['call_id'],
     }));
+
     expect(tail).toEqual([
       { type: 'function_call', id: 'call-1' },
       { type: 'function_call', id: 'call-2' },
@@ -235,9 +245,11 @@ describe('a Continue request on the Codex wire', () => {
         summary: [expect.objectContaining({ text: KEPT_REASONING })],
       }),
     );
+
     const outputs = items.filter(
       (item) => item['type'] === 'function_call_output',
     );
+
     const sent = JSON.stringify(outputs);
     expect(outputs).toHaveLength(2);
     expect(sent).toContain('"call_id":"call-1"');

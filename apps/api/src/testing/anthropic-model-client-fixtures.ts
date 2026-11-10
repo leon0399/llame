@@ -73,20 +73,25 @@ type ReasoningCapture = {
 
 function requestUrl(input: RequestInfo | URL): string {
   if (isString(input)) return input;
+
   return input instanceof URL ? input.href : input.url;
 }
 
 function readBody(init: RequestInit | undefined): ProviderOptionRecord {
   const raw = init?.body;
+
   if (!isString(raw)) {
     throw new Error('expected the adapter to send a JSON string body');
   }
+
   // SAFETY: JSON.parse returns any; the record proof below is the only way
   // this value is narrowed into the body type.
   const parsed: unknown = JSON.parse(raw);
+
   if (!isProviderOptionRecord(parsed)) {
     throw new Error('expected the adapter to send a JSON object body');
   }
+
   return parsed;
 }
 
@@ -107,7 +112,9 @@ function recordRequest(
     headers: new Headers(init?.headers),
     body: readBody(init),
   };
+
   requests.push(request);
+
   return request;
 }
 
@@ -127,25 +134,31 @@ export function buildHarness(
 ): ClientHarness {
   const requests: Array<RecordedRequest> = [];
   const settings: Array<AnthropicProviderSettings> = [];
+
   const fetchStub = (
     requestInput: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
     const request = recordRequest(requests, requestInput, init);
     const failure = input.failWith?.(request);
+
     if (failure !== undefined) return Promise.reject(failure);
+
     return Promise.resolve(
       input.respond?.(request) ?? streamResponse(input.streamEvents ?? []),
     );
   };
+
   // The client passes an explicit baseURL plus the apiKey; only the capturing
   // transport is added here, so the recorded body is the adapter's own.
   const createAnthropicStub = (
     options?: AnthropicProviderSettings,
   ): AnthropicProvider => {
     if (options !== undefined) settings.push(options);
+
     return createAnthropic({ ...options, fetch: fetchStub });
   };
+
   return {
     requests,
     settings,
@@ -172,22 +185,27 @@ export function buildClient(
     reasoningDeclared: true,
     ...overrides,
   };
+
   return createAnthropicModelClient(config, harness.dependencies);
 }
 
 /** The request under test: an absent one fails loudly instead of reading undefined. */
 export function firstRequest(harness: ClientHarness): RecordedRequest {
   const request = harness.requests[0];
+
   if (!request) {
     throw new Error('expected the client to issue a request');
   }
+
   return request;
 }
 
 /** The tool names the adapter placed on a request body, if any. */
 export function toolNames(body: ProviderOptionRecord): Array<string> {
   const tools = body['tools'];
+
   if (!Array.isArray(tools)) return [];
+
   return tools.flatMap((tool) =>
     isRecord(tool) && isString(tool['name']) ? [tool['name']] : [],
   );
@@ -219,6 +237,7 @@ export function thinkingBlock(
     `data: {"type":"content_block_delta","index":${index},"delta":${payload}}`,
     '',
   ];
+
   return [
     'event: content_block_start',
     `data: {"type":"content_block_start","index":${index},"content_block":{"type":"thinking","thinking":""}}`,
@@ -304,6 +323,7 @@ export function unreachableEndpointFailure(host: string): TypeError {
 /** Captures the errors the client reports through the run's own channel. */
 export function captureErrors(): ErrorCapture {
   const errors: Array<unknown> = [];
+
   return {
     errors,
     onError: (event) => {
@@ -315,9 +335,11 @@ export function captureErrors(): ErrorCapture {
 /** Captures text deliveries exactly as the run's collector sees them. */
 export function captureText(): TextCapture {
   const texts: Array<string> = [];
+
   const deliveries: Array<
     [string, string | undefined, ProviderMetadata | undefined]
   > = [];
+
   return {
     texts,
     deliveries,
@@ -333,6 +355,7 @@ export function captureReasoning(): ReasoningCapture {
   const deliveries: Array<
     [string, string | undefined, ProviderMetadata | undefined]
   > = [];
+
   return {
     deliveries,
     onReasoningDelta: (text, partId, providerMetadata) => {

@@ -22,7 +22,9 @@ const COVERAGE_ROW = {
 };
 
 type CoverageRow = typeof COVERAGE_ROW;
+
 type StaleRow = { chat_id: string; owner_user_id: string };
+
 type FakeRow = CoverageRow | StaleRow | { bypass: boolean };
 
 function config(searchAllowed: boolean) {
@@ -48,9 +50,11 @@ async function buildService(
     provisioned ? [{ bypass: true }] : [{ bypass: false }],
     ...queries,
   ];
+
   const execute = vi.fn((): Promise<Iterable<FakeRow>> =>
     Promise.resolve((results.length > 1 ? results.shift() : results[0]) ?? []),
   );
+
   const runAsPublic = vi.fn(
     (
       fn: (tx: {
@@ -58,6 +62,7 @@ async function buildService(
       }) => Promise<Iterable<FakeRow>>,
     ) => fn({ execute }),
   );
+
   const moduleRef: TestingModule = await Test.createTestingModule({
     providers: [
       CanonicalSearchActivationService,
@@ -73,6 +78,7 @@ async function buildService(
       },
     ],
   }).compile();
+
   return {
     moduleRef,
     runAsPublic,
@@ -83,6 +89,7 @@ async function buildService(
 }
 
 const STALE_ROW: StaleRow = { chat_id: 'chat-1', owner_user_id: 'owner-1' };
+
 const ONE_STALE = {
   ...COVERAGE_ROW,
   ready_chat_count: 11,
@@ -131,6 +138,7 @@ describe('CanonicalSearchActivationService', () => {
   it('enqueues stale chats for the reindex workers and admits once they complete coverage', async () => {
     vi.useFakeTimers();
     const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+
     const { enqueueChatReindex, moduleRef, service } = await buildService(
       true,
       true,
@@ -175,6 +183,7 @@ describe('CanonicalSearchActivationService', () => {
     async (_name, fields) => {
       vi.useFakeTimers();
       const incomplete = { ...COVERAGE_ROW, ...fields };
+
       const { moduleRef, service } = await buildService(true, true, [
         [incomplete],
         [STALE_ROW],
@@ -182,10 +191,12 @@ describe('CanonicalSearchActivationService', () => {
       ]);
 
       let settled = false;
+
       const outcome = service.onApplicationBootstrap().then(
         () => 'admitted',
         (error: unknown) => String(error),
       );
+
       void outcome.finally(() => (settled = true));
       await vi.advanceTimersByTimeAsync(
         COVERAGE_REPAIR_DEADLINE_MS - COVERAGE_REPAIR_POLL_MS,
@@ -206,6 +217,7 @@ describe('CanonicalSearchActivationService', () => {
       stale_chat_count: 2,
       complete_document_count: 54,
     };
+
     const { enqueueChatReindex, moduleRef, service } = await buildService(
       true,
       true,

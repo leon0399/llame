@@ -96,6 +96,7 @@ function isPlainObject(value: unknown): value is object {
 
 function num(value: unknown): number | undefined {
   if (!isFiniteNumber(value)) return undefined;
+
   return value;
 }
 
@@ -127,10 +128,12 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
   // `usage` property may be absent or any shape, which the `isPlainObject`
   // check right below re-validates before anything reads through it.
   const usage = (metadata as { usage?: unknown }).usage;
+
   if (!isPlainObject(usage)) return null;
   // SAFETY: `RawTurnUsage` only names the fields read below, each still
   // validated by its field parser or billing enum check before use.
   const u = usage as RawTurnUsage;
+
   return {
     inputTokens: num(u.inputTokens),
     cachedInputTokens: num(u.cachedInputTokens),
@@ -169,12 +172,15 @@ function trimTrailingZero(s: string): string {
  */
 function fmtTokens(n: number): string {
   const rounded = Math.round(n);
+
   if (rounded >= 1_000_000) {
     return `${trimTrailingZero((rounded / 1_000_000).toFixed(1))}M`;
   }
+
   if (rounded >= 1000) {
     return `${trimTrailingZero((rounded / 1000).toFixed(1))}k`;
   }
+
   return String(rounded);
 }
 
@@ -187,9 +193,11 @@ function truncateTokens(n: number): string {
   if (n >= 1_000_000) {
     return `${trimTrailingZero((Math.floor(n / 100_000) / 10).toFixed(1))}M`;
   }
+
   if (n >= 1000) {
     return `${trimTrailingZero((Math.floor(n / 100) / 10).toFixed(1))}k`;
   }
+
   return String(Math.floor(n));
 }
 
@@ -201,13 +209,17 @@ export function formatCost(costUsd: number): string {
   // cost" (not a "~" value prefix) — the estimate signal now lives in the
   // label, matching the design's copy.
   if (costUsd > 0 && costUsd < 0.0001) return "<$0.0001";
+
   if (costUsd >= 1) return `$${costUsd.toFixed(2)}`;
+
   if (costUsd >= 0.01) return `$${costUsd.toFixed(3)}`;
+
   return `$${costUsd.toFixed(4)}`;
 }
 
 function truncateCost(costUsd: number, decimalPlaces: number): string {
   const scale = 10 ** decimalPlaces;
+
   return (Math.floor(costUsd * scale) / scale).toFixed(decimalPlaces);
 }
 
@@ -215,10 +227,14 @@ function truncateCost(costUsd: number, decimalPlaces: number): string {
 function formatLowerBoundCost(costUsd: number): string {
   if (costUsd > 0 && costUsd < 0.0001) {
     const decimalPlaces = 1 - Math.floor(Math.log10(costUsd));
+
     return `$${truncateCost(costUsd, decimalPlaces)}`;
   }
+
   if (costUsd >= 1) return `$${truncateCost(costUsd, 2)}`;
+
   if (costUsd >= 0.01) return `$${truncateCost(costUsd, 3)}`;
+
   return `$${truncateCost(costUsd, 4)}`;
 }
 
@@ -243,17 +259,22 @@ function formatLatency(latencyMs: number): string {
  */
 export function usageStatusLabel(status: string | undefined): string | null {
   if (status === "aborted") return "stopped";
+
   if (status === "error") return "error";
+
   return null;
 }
 
 export type UsageRow = { label: string; value: string };
+
 export type UsageSection = { header: string; rows: Array<UsageRow> };
+
 export type UsageLine = {
   text: string;
   sections: Array<UsageSection>;
   incompleteNotice?: string;
 };
+
 /** Display values shared by the badge and Cost & model section. */
 type UsageDisplayContext = {
   modelName: string | undefined;
@@ -270,7 +291,9 @@ function buildUsageDisplayContext(
     usage.totalTokens !== 0 || usage.complete === false
       ? usage.totalTokens
       : undefined;
+
   const lowerBoundPrefix = usage.complete === false ? "≥ " : "";
+
   return {
     modelName:
       usage.modelId !== undefined
@@ -303,10 +326,12 @@ function buildBadgeText(
 ): string | null {
   const totalTokensText =
     ctx.totalTokensText === undefined ? null : `${ctx.totalTokensText} tokens`;
+
   const costText =
     usage.costUsd === undefined || usage.costUsd === null
       ? null
       : formatDisplayCost(usage.costUsd, ctx.lowerBoundPrefix);
+
   const badgeCostText =
     ctx.lowerBoundPrefix !== "" && usage.billing !== "subscription"
       ? costText
@@ -328,12 +353,14 @@ function buildBadgeText(
       .filter((part): part is string => Boolean(part))
       .join(" · ");
   }
+
   if (totalTokensText !== null || badgeCostText !== null) {
     // Older turns without model tracking degrade to a token/cost-only badge.
     return [label, totalTokensText, badgeCostText]
       .filter((part): part is string => Boolean(part))
       .join(" · ");
   }
+
   return null;
 }
 
@@ -358,6 +385,7 @@ function formatRate(tokensPerSecond: number): string {
  */
 function buildPerformanceSection(usage: TurnUsage): UsageSection | null {
   if (usage.latencyMs === undefined) return null;
+
   return {
     header: "Performance",
     rows: [
@@ -400,15 +428,18 @@ function unknownTokenSection(): UsageSection {
 
 function buildInputTokenRows(usage: TurnUsage): Array<UsageRow> {
   const rows: Array<UsageRow> = [];
+
   if (usage.inputTokens !== undefined) {
     rows.push({ label: "Input", value: fmtTokens(usage.inputTokens) });
   }
+
   if (usage.cachedInputTokens !== undefined) {
     rows.push({
       label: "of which cached",
       value: fmtTokens(usage.cachedInputTokens),
     });
   }
+
   if (usage.cacheWriteTokens !== undefined) {
     // A sibling subset row of Input, like "of which cached": the adapter's
     // input total already includes these tokens, so showing them as their own
@@ -418,6 +449,7 @@ function buildInputTokenRows(usage: TurnUsage): Array<UsageRow> {
       value: fmtTokens(usage.cacheWriteTokens),
     });
   }
+
   return rows;
 }
 
@@ -429,9 +461,11 @@ function buildTokenSection(usage: TurnUsage): UsageSection | null {
     usage.outputTokens !== undefined ||
     usage.totalTokens !== undefined ||
     usage.reasoningTokens !== undefined;
+
   if (!hasTokenCounts) return unknownTokenSection();
 
   const rows = buildInputTokenRows(usage);
+
   if (usage.outputTokens !== undefined || usage.reasoningTokens !== undefined) {
     rows.push(
       {
@@ -450,6 +484,7 @@ function buildTokenSection(usage: TurnUsage): UsageSection | null {
       },
     );
   }
+
   return rows.length > 0 ? { header: "Tokens", rows } : null;
 }
 
@@ -458,20 +493,25 @@ function buildCostSection(
   ctx: UsageDisplayContext,
 ): UsageSection | null {
   const rows: Array<UsageRow> = [];
+
   if (usage.modelId) {
     rows.push({ label: "Model", value: ctx.modelName ?? usage.modelId });
   }
+
   // Indented beneath Model the way "of which cached" sits beneath Input: it
   // qualifies the row above rather than standing as a peer fact.
   if (ctx.effortDisplay !== undefined) {
     rows.push({ label: "at effort", value: ctx.effortDisplay });
   }
+
   if (usage.permissionMode === "bypass") {
     rows.push({ label: "permission mode", value: "Bypass" });
   }
+
   if (ctx.totalTokensText !== undefined) {
     rows.push({ label: "Total tokens", value: ctx.totalTokensText });
   }
+
   // Omitted entirely when cost is unknown (an unpriced model) — never a fake
   // "$0.00".
   if (usage.costUsd !== undefined && usage.costUsd !== null) {
@@ -480,6 +520,7 @@ function buildCostSection(
       value: formatDisplayCost(usage.costUsd, ctx.lowerBoundPrefix),
     });
   }
+
   return rows.length > 0 ? { header: "Cost & model", rows } : null;
 }
 
@@ -496,6 +537,7 @@ export function buildUsageLine(
 
   const ctx = buildUsageDisplayContext(usage, models);
   const text = buildBadgeText(usage, usageStatusLabel(usage.status), ctx);
+
   if (text === null) return null;
 
   const sections = [
@@ -505,6 +547,7 @@ export function buildUsageLine(
   ].filter((section): section is UsageSection => section !== null);
 
   if (usage.complete !== false) return { text, sections };
+
   return {
     text,
     sections,
@@ -626,6 +669,7 @@ export function MessageUsage({
   models?: ReadonlyArray<AvailableModel>;
 }) {
   const line = buildUsageLine(parseTurnUsage(metadata), models);
+
   // `sections` is never empty once `text` is non-null: a known model always
   // contributes at least a "Model" row, while token-only legacy and cost-only
   // incomplete badges carry their own breakdown rows for the hover card.

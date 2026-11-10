@@ -36,6 +36,7 @@ type ContextFileChipProps = {
   detail?: string;
   state: ContextFileState;
 };
+
 /** One owner-visible path or locator with its resolution outcome. */
 export function ContextFileChip({
   kind,
@@ -44,6 +45,7 @@ export function ContextFileChip({
   state,
 }: ContextFileChipProps) {
   const label = STATE_LABEL[state];
+
   const negative =
     state === "denied" || state === "failed" || state === "omitted";
 

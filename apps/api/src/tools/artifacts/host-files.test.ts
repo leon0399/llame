@@ -46,6 +46,7 @@ let temporaryRoot: string;
 
 function tenantDb() {
   const db: Db = drizzle.mock({ schema });
+
   return {
     runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
@@ -69,11 +70,13 @@ function chatRoot(chatId: string): string {
 function flippingSignal(flipAt: number): AbortSignal {
   const target = new AbortController().signal;
   let reads = 0;
+
   return new Proxy(target, {
     get(_target, property: string | symbol) {
       // The write path reads only `aborted`; everything else stays unset.
       if (property !== 'aborted') return undefined;
       reads += 1;
+
       return reads === flipAt;
     },
   });
@@ -288,6 +291,7 @@ describe('writing host files after the commit', () => {
 
   it('refuses a root another user owns', async () => {
     const getuid = vi.spyOn(process, 'getuid').mockReturnValue(99_999);
+
     try {
       const written = await write(CHAT);
 
@@ -408,6 +412,7 @@ describe('reconciling host files', () => {
       storedPart('stdout', 'hello\n'),
       storedPart('stderr', 'warn\n'),
     ]);
+
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
       .mockResolvedValueOnce([{ content: Buffer.from('hello\n') }])
@@ -428,9 +433,11 @@ describe('reconciling host files', () => {
 
   it('fetches no content for a file that matches', async () => {
     scriptParts([storedPart('stdout', 'hello\n')]);
+
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
       .mockResolvedValue([{ content: Buffer.from('hello\n') }]);
+
     await writeArtifactHostFiles({
       chatId: CHAT,
       toolName: 'bash',
@@ -458,6 +465,7 @@ describe('reconciling host files', () => {
     writeFileSync(stdout, 'hellO\n');
     const later = new Date(CREATED_AT.getTime() + 5000);
     utimesSync(stdout, later, later);
+
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
       .mockResolvedValue([{ content: Buffer.from('hello\n') }]);
@@ -554,12 +562,15 @@ describe('reconciling host files', () => {
     // offset it keeps is discovered from `stat`. The expectation below follows
     // what the reconcile itself reads, never the requested time.
     let delta = 0;
+
     for (const offset of [1, 2, 5, 10, 100, 1000]) {
       const requested = new Date(CREATED_AT.getTime() + offset);
       utimesSync(stdout, requested, requested);
       delta = statSync(stdout).mtimeMs - CREATED_AT.getTime();
+
       if (Math.abs(delta) >= 1) break;
     }
+
     const find = vi
       .spyOn(ArtifactsRepository.prototype, 'findPartContent')
       .mockResolvedValue([{ content: Buffer.from('hello\n') }]);
@@ -571,8 +582,10 @@ describe('reconciling host files', () => {
     // outcomes equal; every filesystem that can must repair.
     if (Math.abs(delta) < 1) {
       expect(find).not.toHaveBeenCalled();
+
       return;
     }
+
     expect(find).toHaveBeenCalledOnce();
     expect(readFileSync(stdout, 'utf8')).toBe('hello\n');
   });
@@ -687,6 +700,7 @@ describe('sweeping host directories', () => {
     const directory = chatRoot(chatId);
     mkdirPrivate(path.join(directory, 'artifacts', 'bash-1'));
     utimesSync(directory, seen, seen);
+
     return directory;
   }
 
@@ -702,6 +716,7 @@ describe('sweeping host directories', () => {
 
   it('keeps a directory seen exactly seven days ago and removes a millisecond more', async () => {
     const boundary = seed(CHAT, new Date(NOW.getTime() - SWEEP_AFTER_MS));
+
     const stale = seed(
       OTHER_CHAT,
       new Date(NOW.getTime() - SWEEP_AFTER_MS - 1),

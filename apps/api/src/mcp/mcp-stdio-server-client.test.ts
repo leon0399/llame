@@ -37,6 +37,7 @@ function connect(
   } = {},
 ) {
   const { args = [], env = {}, ...rest } = overrides;
+
   return McpServerClient.connectStdio({
     serverId: 'local',
     command: process.execPath,
@@ -59,6 +60,7 @@ describe('McpServerClient.connectStdio', () => {
       tools: [TOOL],
       callResult: { content: [{ type: 'text', text: 'answer' }] },
     });
+
     try {
       const discovery = await client.discover();
       expect(discovery.tools.map((entry) => entry.definition.id)).toEqual([
@@ -69,6 +71,7 @@ describe('McpServerClient.connectStdio', () => {
         {},
         { toolCallId: 'call-1', messages: [] },
       );
+
       expect(outcome.result.status).toBe('success');
     } finally {
       await client.close();
@@ -87,9 +90,11 @@ describe('McpServerClient.connectStdio', () => {
         { tools: [TOOL], envDumpPath },
         { env: { DECLARED_ONLY: 'declared-value', USER: 'declared-user' } },
       );
+
       await client.close();
 
       const childEnv: unknown = JSON.parse(readFileSync(envDumpPath, 'utf8'));
+
       if (!isRecord(childEnv)) {
         throw new Error('Expected the dumped child env to be an object');
       }
@@ -120,6 +125,7 @@ describe('McpServerClient.connectStdio', () => {
   // Task 1.7 — sanitization against a supplied protected-value set.
   it('sanitizes protected values out of results and refuses them in arguments', async () => {
     const secret = 'ghp_stdio_secret_value';
+
     const client = await connect(
       {
         tools: [TOOL],
@@ -129,6 +135,7 @@ describe('McpServerClient.connectStdio', () => {
       },
       { protectedValues: [secret] },
     );
+
     try {
       const discovery = await client.discover();
       const tool = discovery.tools[0];
@@ -140,6 +147,7 @@ describe('McpServerClient.connectStdio', () => {
         { q: `see ${secret}` },
         { toolCallId: 'c2', messages: [] },
       );
+
       expect(rejected.result).toMatchObject({
         status: 'error',
         type: 'invalid_input',
@@ -153,6 +161,7 @@ describe('McpServerClient.connectStdio', () => {
   it('captures pre-initialization diagnostics and redacts protected values', async () => {
     const secret = 'stdio-diagnostic-secret';
     const seen: Array<string> = [];
+
     const client = await connect(
       {
         tools: [TOOL],
@@ -162,6 +171,7 @@ describe('McpServerClient.connectStdio', () => {
       },
       { protectedValues: [secret], onDiagnostic: (text) => seen.push(text) },
     );
+
     await client.close();
 
     const combined = seen.join('');
@@ -172,10 +182,12 @@ describe('McpServerClient.connectStdio', () => {
 
   it('bounds retained diagnostic output', async () => {
     const seen: Array<string> = [];
+
     const client = await connect(
       { tools: [TOOL], stderrBytes: 200_000 },
       { onDiagnostic: (text) => seen.push(text) },
     );
+
     await client.discover();
     await client.close();
 
@@ -216,7 +228,9 @@ describe('McpServerClient.connectStdio', () => {
       'c2VjcmV0LWtleS1tYXRlcmlhbC1saW5lLXR3by1wYWRkaW5n',
       '-----END PRIVATE KEY-----',
     ].join('\n');
+
     const seen: Array<string> = [];
+
     const client = await connect(
       {
         tools: [TOOL],
@@ -224,12 +238,14 @@ describe('McpServerClient.connectStdio', () => {
       },
       { protectedValues: [secret], onDiagnostic: (text) => seen.push(text) },
     );
+
     await client.discover();
     await client.close();
 
     const combined = seen.join('\n');
     expect(combined).toContain('loaded credential');
     expect(combined).toContain('continuing');
+
     for (const line of secret.split('\n')) {
       expect(combined).not.toContain(line);
     }
@@ -248,7 +264,9 @@ describe('McpServerClient.connectStdio', () => {
       ...TOOL,
       name: `lookup_${index}`,
     }));
+
     const client = await connect({ tools });
+
     try {
       await expect(client.discover()).rejects.toMatchObject({
         limit: 'tools_per_page',
@@ -262,16 +280,20 @@ describe('McpServerClient.connectStdio', () => {
   it('passes shell metacharacters through as literal arguments', async () => {
     const argvDumpPath = scratchFile('argv.json');
     const hostile = '$(touch /tmp/llame-pwned); echo `whoami` && ls > /tmp/x';
+
     const client = await connect(
       { tools: [TOOL], argvDumpPath },
       { args: [hostile] },
     );
+
     await client.close();
 
     const argv: unknown = JSON.parse(readFileSync(argvDumpPath, 'utf8'));
+
     if (!Array.isArray(argv)) {
       throw new Error('Expected the dumped argv to be an array');
     }
+
     expect(argv).toContain(hostile);
   });
 
@@ -285,6 +307,7 @@ describe('McpServerClient.connectStdio', () => {
       {},
       { toolCallId: 'c1', messages: [] },
     );
+
     expect(outcome.result.status).toBe('error');
 
     await client.close();
@@ -292,13 +315,16 @@ describe('McpServerClient.connectStdio', () => {
 
   it('reports child exit through onDisconnect', async () => {
     let signalDisconnected!: () => void;
+
     const disconnected = new Promise<void>((resolve) => {
       signalDisconnected = resolve;
     });
+
     const client = await connect(
       { tools: [TOOL], exitAfterInit: true },
       { onDisconnect: () => signalDisconnected() },
     );
+
     await disconnected;
     await client.close();
   });
@@ -324,6 +350,7 @@ describe('BoundedReadBuffer', () => {
       '{"jsonrpc":"2.0","id":1,"result":{}}\r\n',
       'utf8',
     );
+
     const buffer = new BoundedReadBuffer(line.length);
 
     buffer.append(line);

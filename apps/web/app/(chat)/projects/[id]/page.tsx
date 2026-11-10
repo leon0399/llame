@@ -70,6 +70,7 @@ function ProjectChatsList({
     );
   // This card sits on the page canvas, not the sidebar.
   const surfaceClassName = "bg-background";
+
   return (
     // The sidebar groups carry their own side padding for a rail; on the page
     // it would inset the rows from the composer's edges, so it is cancelled
@@ -104,6 +105,7 @@ function ProjectChats({
   rows: ProjectChatRows;
 }) {
   const headingId = React.useId();
+
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 pl-2">
@@ -137,20 +139,25 @@ function useProjectPageData(id: string): ProjectPageData {
   const [show, setShow] = React.useState<ListShow>("active");
   const { projects, project, isLoading } = useProjectById(id);
   const { data: pinnedData } = useChatsQuery(pinnedChatsFilters(id));
+
   const { data, isLoading: chatsLoading } = useChatsQuery(
     chatListFilters(show, id),
   );
+
   const { data: pins } = usePins();
 
   const allProjects = React.useMemo(
     () => (projects ?? []).filter((project) => project.archivedAt === null),
     [projects],
   );
+
   const pinnedChats = React.useMemo(
     () => (show === "archived" ? [] : (pinnedData?.pages.flat() ?? [])),
     [pinnedData, show],
   );
+
   const chats = React.useMemo(() => data?.pages.flat() ?? [], [data]);
+
   const pinnedAtByChatId = React.useMemo(
     () => selectPinnedChatMap(pins),
     [pins],
@@ -181,12 +188,14 @@ function ProjectPageBody({
   onRequestNewProject: (chatId: string) => void;
 }) {
   if (data.loading) return <SidebarRowSkeletons count={4} />;
+
   if (!data.project)
     return (
       <p className="text-sm text-muted-foreground">
         This project doesn&apos;t exist or was deleted.
       </p>
     );
+
   return (
     <ProjectPageContent
       data={data}
@@ -211,6 +220,7 @@ function ProjectPageContent({
   const searchParams = useSearchParams();
   const prefillKey = searchParams.toString();
   const prefill = prefillFromSearchParams(searchParams);
+
   return (
     <div className="space-y-6">
       <ProjectDetailsHeader project={project} isPinned={data.isPinned} />
@@ -248,6 +258,7 @@ function ProjectPageContent({
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const data = useProjectPageData(id);
+
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );

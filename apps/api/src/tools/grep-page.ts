@@ -118,6 +118,7 @@ export function createGrepArtifact(options: GrepArtifactOptions): GrepArtifact {
 export function grepArtifactBytes(artifact: GrepArtifact): number {
   if (artifact.results.length === 0)
     return Math.max(0, artifact.noticeBytes - 1);
+
   return artifact.lineBytes - 1 + artifact.noticeBytes;
 }
 
@@ -132,8 +133,10 @@ export function addGrepPassages(
 ): boolean {
   for (const passage of passages) {
     const previous = artifact.results.at(-1);
+
     const merged =
       previous === undefined ? undefined : mergeCutPassage(previous, passage);
+
     if (
       merged !== undefined
         ? !replaceCutPassage(artifact, merged, passage)
@@ -141,21 +144,27 @@ export function addGrepPassages(
     )
       return false;
   }
+
   return true;
 }
 
 /** Append one passage's block, or end the artifact when it does not fit. */
 function appendBlock(artifact: GrepArtifact, passage: GrepPassage): boolean {
   const block = artifactBlock(artifact.results.at(-1), passage);
+
   if (grepArtifactBytes(artifact) + block.bytes > artifact.maxBytes) {
     artifact.full = true;
+
     return false;
   }
+
   artifact.results.push(passage);
   artifact.blocks.push(block);
   artifact.lineBytes += block.bytes;
+
   if (passage.locator.startsWith(`${KNOWLEDGE_LOCATOR_SCHEME}://`))
     artifact.knowledge = true;
+
   return true;
 }
 
@@ -169,6 +178,7 @@ function artifactBlock(
   opens: boolean = !grepPassageContinues(previous, passage),
 ): ArtifactBlock {
   const lines = grepPassageBlockLines(previous, passage, false, opens);
+
   return {
     bytes: lineBytes(lines),
     pieces: linePieces(lines),
@@ -190,6 +200,7 @@ export function replaceArtifactPassages(
   const blocks = results.map((passage, index) =>
     artifactBlock(results[index - 1], passage, opens[index]),
   );
+
   artifact.results.splice(0, artifact.results.length, ...results);
   artifact.blocks.splice(0, artifact.blocks.length, ...blocks);
   artifact.lineBytes = blocks.reduce((total, block) => total + block.bytes, 0);
@@ -198,10 +209,12 @@ export function replaceArtifactPassages(
 /** The passage counts of the artifact's runs, in order. */
 export function artifactRunLengths(artifact: GrepArtifact): Array<number> {
   const lengths: Array<number> = [];
+
   for (const block of artifact.blocks) {
     if (block.newRun || lengths.length === 0) lengths.push(1);
     else lengths[lengths.length - 1] += 1;
   }
+
   return lengths;
 }
 
@@ -234,10 +247,13 @@ function replaceCutPassage(
   const old = artifact.blocks[index];
   const lines = grepPassageBlockLines(undefined, continuation, false).slice(1);
   const added = lineBytes(lines);
+
   if (grepArtifactBytes(artifact) + added > artifact.maxBytes) {
     artifact.full = true;
+
     return false;
   }
+
   artifact.results[index] = merged;
   const pieces = linePieces(lines);
   artifact.blocks[index] = {
@@ -246,6 +262,7 @@ function replaceCutPassage(
     newRun: old.newRun,
   };
   artifact.lineBytes += added;
+
   return true;
 }
 
@@ -278,9 +295,11 @@ export function grepArtifactFindings(
   const findings: Array<ArtifactFinding> = [];
   let line = grepArtifactHasNotice(artifact) ? 1 : 0;
   let current: ArtifactFinding | undefined;
+
   for (const [index, block] of artifact.blocks.entries()) {
     const start = line + 1;
     line += block.pieces;
+
     if (block.newRun) {
       if (current !== undefined) findings.push(current);
       current = {
@@ -293,12 +312,15 @@ export function grepArtifactFindings(
       };
       continue;
     }
+
     // `current` exists whenever a block continues a run.
     if (current !== undefined) {
       current = { ...current, end: line };
     }
   }
+
   if (current !== undefined) findings.push(current);
+
   return findings;
 }
 
@@ -389,6 +411,7 @@ export function appendSegment(
   state.consumed.files += page.consumed.files;
   state.consumed.entries += page.consumed.entries;
   state.consumed.bytes += page.consumed.bytes;
+
   // Progress is the call's: a later segment's stop hides no file behind it.
   if (page.progressed) state.progressed = true;
   // A segment that names an unfinished file is incomplete, so the call stops
@@ -407,13 +430,16 @@ function mergeCutPassage(
 ): GrepPassage | undefined {
   if (previous.cut !== true) return undefined;
   const file = grepFileLocator(previous.locator);
+
   if (grepFileLocator(next.locator) !== file) return undefined;
+
   if (passageEndLine(previous.locator) + 1 !== passageStartLine(next.locator))
     return undefined;
   // The continuation starts after the cut, so the pieces share no line and
   // their matches are already in line order.
   const matches = [...previous.matches, ...next.matches];
   const truncated = previous.truncated === true || next.truncated === true;
+
   return {
     locator: `${file}:${String(passageStartLine(previous.locator))}-${String(
       passageEndLine(next.locator),
@@ -436,21 +462,26 @@ function mergeIgnored(
   admission: GrepReadAdmission,
 ): void {
   if (ignored === undefined) return;
+
   if (ignored.atLeast) state.ignored.atLeast = true;
+
   for (const locator of ignored.paths) {
     if (state.ignored.seen.size >= GREP_LIMITS.ignoredReported) {
       state.ignored.atLeast = true;
       break;
     }
+
     // A page that resumes inside a scope lists its ancestors again, so the
     // same excluded directory can arrive twice; the call names it once.
     if (state.ignored.seen.has(locator)) continue;
     state.ignored.seen.add(locator);
+
     // A literal clause matches text, so a reject written with the separator
     // must hide the directory written without it.
     if (!admission.allows(locator) || !admission.allows(`${locator}/`))
       continue;
     state.ignored.count += 1;
+
     if (state.ignored.paths.length < GREP_LIMITS.ignoredLocators)
       state.ignored.paths.push(locator);
   }
@@ -481,6 +512,7 @@ export function ignoredReportOf(state: PageState):
     }
   | undefined {
   if (state.ignored.count === 0) return undefined;
+
   return {
     count: state.ignored.count,
     locators: state.ignored.paths.map(spellIgnoredLocator),
@@ -499,6 +531,7 @@ export function pageResult(
   results: ReadonlyArray<GrepPassage> = state.artifact.results,
 ): ToolResult & { status: 'success' } {
   const ignored = ignoredReportOf(state);
+
   return {
     status: 'success',
     results,

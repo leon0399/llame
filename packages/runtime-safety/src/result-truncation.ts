@@ -88,6 +88,7 @@ function capRecord(
   path: string,
 ): { [key: string]: CappedValue } {
   const entries = Object.entries(value);
+
   return Object.fromEntries(
     (ctx.keepAllEntries ? entries : entries.slice(0, ctx.limit)).map(
       ([key, entry]) => [
@@ -113,8 +114,10 @@ function capValues(value: unknown, ctx: CapContext, path = ""): CappedValue {
   if (isString(value)) {
     return cutStringAtCodePointBoundary(value, ctx.limit);
   }
+
   if (Array.isArray(value)) {
     const kept = value.slice(0, ctx.limit);
+
     if (kept.length < value.length) {
       ctx.lists.push({
         path: path === "" ? "the result" : path,
@@ -122,13 +125,16 @@ function capValues(value: unknown, ctx: CapContext, path = ""): CappedValue {
         total: value.length,
       });
     }
+
     return kept.map((entry, index) =>
       capValues(entry, ctx, `${path}[${index}]`),
     );
   }
+
   if (isRecord(value)) {
     return capRecord(value, ctx, path);
   }
+
   // Numbers, booleans, null, and undefined are already shorter than any
   // useful limit. Anything else (symbol, function, bigint) is not a shape a
   // JSON-ish tool result carries — fail closed instead of passing it through.
@@ -140,6 +146,7 @@ function capValues(value: unknown, ctx: CapContext, path = ""): CappedValue {
   ) {
     return value;
   }
+
   throw new TypeError(
     // eslint-disable-next-line anti-slop/no-runtime-typeof -- diagnostic interpolation naming the rejected value's runtime type in the thrown message, not narrowing it; no predicate form applies to a value already excluded from every accepted branch above.
     `Cannot truncate a tool-result value of type ${typeof value}.`,
@@ -152,15 +159,19 @@ function capValues(value: unknown, ctx: CapContext, path = ""): CappedValue {
  */
 function shortenedListPhrase(lists: ReadonlyArray<ShortenedList>): string {
   if (lists.length === 0) return "";
+
   const ranked = [...lists].sort(
     (left, right) => right.total - right.kept - (left.total - left.kept),
   );
+
   const named = ranked
     .slice(0, NAMED_LIST_LIMIT)
     .map((list) => `${list.path} kept ${list.kept} of ${list.total}`)
     .join("; ");
+
   const remaining = ranked.length - Math.min(ranked.length, NAMED_LIST_LIMIT);
   const more = remaining > 0 ? ` (and ${remaining} more)` : "";
+
   return ` Lists shortened: ${named}${more}.`;
 }
 
@@ -171,6 +182,7 @@ function omittedFieldPhrase(
   totalFields: number,
 ): string {
   if (omittedFields === 0) return "";
+
   return ` ${omittedFields} of ${totalFields} result fields omitted entirely.`;
 }
 
@@ -184,6 +196,7 @@ interface TruncationNoticeInput {
 
 function truncationNotice(input: TruncationNoticeInput): string {
   const { omittedUnits, lists, omittedFields, totalFields, spill } = input;
+
   return (
     `Result truncated to fit the ${RESULT_TRUNCATE_CHARS}-character tool-result cap; ` +
     `${omittedUnits} characters omitted.${omittedFieldPhrase(omittedFields, totalFields)}` +
@@ -200,7 +213,9 @@ function truncationNotice(input: TruncationNoticeInput): string {
  */
 function spillPhrase(spill: CappedResultSpill | undefined): string {
   if (spill === undefined) return "";
+
   if (spill.kind === "not-stored") return ` ${ARTIFACT_NOT_STORED}`;
+
   return ` ${artifactNotice(
     [{ locator: spill.locator, lines: spill.lineCount }],
     {
@@ -222,6 +237,7 @@ function displayAwareMeasure(
   display: UnknownRecord,
 ): (candidate: ToolResult) => number {
   if (measure === measureJson) return measure;
+
   return (candidate) =>
     candidate.status === "success"
       ? measure({ ...candidate, display })
@@ -254,7 +270,9 @@ function splitDisplay(
   if (result.status !== "success" || !Object.hasOwn(result, "display")) {
     return { split: false, shown: result, measure };
   }
+
   const { display, ...shown } = result;
+
   return {
     split: true,
     shown,
@@ -277,6 +295,7 @@ export function isOversizedResult(
 ): boolean {
   if (result.status !== "success") return false;
   const split = splitDisplay(result, measure);
+
   return split.measure(split.shown) > RESULT_TRUNCATE_CHARS;
 }
 
@@ -312,13 +331,17 @@ export function truncateOversizedResult(
 ): ToolResult {
   if (result.status !== "success") return result;
   const split = splitDisplay(result, measure);
+
   if (split.split) {
     const capped = truncateOversizedResult(split.shown, split.measure, spill);
+
     return capped.status === "success"
       ? { ...capped, display: split.display }
       : capped;
   }
+
   const measured = measure(result);
+
   if (measured <= RESULT_TRUNCATE_CHARS) return result;
   const json = JSON.stringify(result) ?? "null";
 
@@ -326,10 +349,13 @@ export function truncateOversizedResult(
   // applied `toJSON`, dropped undefined, and fixed every length, so what is
   // measured below is exactly what the model receives.
   const parsed: unknown = JSON.parse(json);
+
   if (!isRecord(parsed) || parsed.status !== "success") {
     throw new TypeError("Malformed oversized tool result projection.");
   }
+
   const { status: _status, ...payload } = parsed;
+
   const source: TruncationSource = {
     payload,
     pinned: pinnedFields(payload),
@@ -348,6 +374,7 @@ export function truncateOversizedResult(
   // the marker says how many. That pass always fits: its own floor is the
   // marker alone.
   const preserved = searchLargestFittingLimit(source, true);
+
   return measure(preserved) <= RESULT_TRUNCATE_CHARS
     ? preserved
     : searchLargestFittingLimit(source, false);
@@ -361,13 +388,17 @@ export function truncateOversizedResult(
  */
 function pinnedFields(payload: UnknownRecord): UnknownRecord {
   const pinned: UnknownRecord = {};
+
   const pinsMedia =
     (payload.kind === "image" || payload.kind === "pdf") &&
     isString(payload.media);
+
   if (pinsMedia) pinned.media = payload.media;
+
   if (isArtifactLocatorValue(payload.artifact)) {
     pinned.artifact = payload.artifact;
   }
+
   return pinned;
 }
 
@@ -379,6 +410,7 @@ function pinnedFields(payload: UnknownRecord): UnknownRecord {
  */
 const ARTIFACT_LOCATOR =
   /^artifact:\/\/[A-Za-z0-9][A-Za-z0-9_-]*-[1-9]\d*(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?$/u;
+
 const ARTIFACT_LOCATOR_MAX_LENGTH = 512;
 
 function isArtifactLocatorValue(value: unknown): value is string {
@@ -411,14 +443,18 @@ function buildTruncatedResult(
   keepAllFields: boolean,
 ): ToolResult {
   const lists: Array<ShortenedList> = [];
+
   const capped = capRecord(
     source.payload,
     { limit, lists, keepAllEntries: keepAllFields },
     "",
   );
+
   const kept = { ...capped, ...source.pinned };
+
   const omittedUnits =
     source.measured - source.measure({ status: "success", ...kept });
+
   return {
     status: "success",
     ...kept,
@@ -447,9 +483,11 @@ function searchLargestFittingLimit(
   let low = 0;
   let high = source.json.length;
   let best = buildTruncatedResult(source, 0, keepAllFields);
+
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
     const candidate = buildTruncatedResult(source, mid, keepAllFields);
+
     if (source.measure(candidate) <= RESULT_TRUNCATE_CHARS) {
       best = candidate;
       low = mid + 1;
@@ -457,5 +495,6 @@ function searchLargestFittingLimit(
       high = mid - 1;
     }
   }
+
   return best;
 }

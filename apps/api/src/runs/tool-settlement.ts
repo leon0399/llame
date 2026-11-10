@@ -1,4 +1,5 @@
 export type ToolTerminationStatus = 'cancelled' | 'expired' | 'failed';
+
 import { type ToolResult } from '@workspace/runtime-safety';
 
 import { unknownMcpExecution } from '../tools/runner';
@@ -25,6 +26,7 @@ export function toolTerminationResult(
         'The host command was interrupted. Inspect the current host state before a new attempt.',
     };
   }
+
   if (toolName === 'edit' || toolName === 'write') {
     return {
       status: 'error',
@@ -33,6 +35,7 @@ export function toolTerminationResult(
         'The native mutation was interrupted. Inspect the current file before a new attempt.',
     };
   }
+
   return {
     status: 'error',
     type: 'cancelled',
@@ -69,19 +72,23 @@ export function interruptSettlementOf(
     message:
       'This call did not run. The owner interrupted the step before it started. Run it again if you still need it.',
   };
+
   if (!call.started) return { result: notRun, stopped: false };
+
   if (call.toolName === 'bash') {
     return {
       result: toolTerminationResult('cancelled', 'bash'),
       stopped: true,
     };
   }
+
   if (call.toolName.startsWith('mcp__')) {
     // A request that was never sent changed nothing.
     return call.mcpDispatched
       ? { result: unknownMcpExecution(), stopped: true }
       : { result: notRun, stopped: false };
   }
+
   return {
     result: {
       status: 'error',

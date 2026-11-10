@@ -10,6 +10,7 @@ const meta = {
 } satisfies Meta<typeof ToolCapNoticePart>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

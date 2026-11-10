@@ -260,6 +260,7 @@ describe('rerankModels config', () => {
     });
 
     let message = '';
+
     try {
       loadInstanceConfig({ SHARED_ID: 'sk-secret-looking-id' });
     } catch (error) {

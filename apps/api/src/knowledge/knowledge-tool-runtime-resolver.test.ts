@@ -28,9 +28,11 @@ describe('KnowledgeToolRuntimeResolver', () => {
     const resolveBindingForOwner = vi.fn(() =>
       Promise.resolve<typeof binding | undefined>(binding),
     );
+
     const spaces = bindingResolver({
       resolveBindingForOwner,
     });
+
     const resolver = new KnowledgeToolRuntimeResolver(spaces);
 
     await expect(resolver.resolveBindingForOwner('owner-a')).resolves.toBe(
@@ -50,6 +52,7 @@ describe('KnowledgeToolRuntimeResolver', () => {
 
   it('passes trusted owner and explicit ID to current binding resolution', async () => {
     const resolveBindingForOwnerById = vi.fn(() => Promise.resolve(binding));
+
     const resolver = new KnowledgeToolRuntimeResolver(
       bindingResolver({ resolveBindingForOwnerById }),
     );
@@ -65,6 +68,7 @@ describe('KnowledgeToolRuntimeResolver', () => {
 
   it('maps a bounded storage page and emits its deterministic next cursor', async () => {
     const createdAt = new Date('2026-08-23T12:00:00.000Z');
+
     const rows = Array.from({ length: 101 }, (_entry, index) => ({
       knowledgeSpaceId: `space-${String(index).padStart(3, '0')}`,
       ownerUserId: 'owner-a',
@@ -72,7 +76,9 @@ describe('KnowledgeToolRuntimeResolver', () => {
       createdAt,
       updatedAt: createdAt,
     }));
+
     const listForOwnerPage = vi.fn(() => Promise.resolve(rows));
+
     const resolver = new KnowledgeToolRuntimeResolver(
       bindingResolver({ listForOwnerPage }),
     );
@@ -91,6 +97,7 @@ describe('KnowledgeToolRuntimeResolver', () => {
     const spaces = bindingResolver({
       resolveBindingForOwner: () => Promise.resolve(binding),
     });
+
     const resolver = new KnowledgeToolRuntimeResolver(spaces);
 
     const adapter = resolver.createAdapter(binding);
@@ -102,11 +109,13 @@ describe('KnowledgeToolRuntimeResolver', () => {
     const error = new Error('binding failed');
     const resolveBindingForOwner = vi.fn(() => Promise.reject(error));
     const provisionForOwner = vi.fn();
+
     const spaces = {
       ...bindingResolver({ resolveBindingForOwner }),
       resolveBindingForOwner,
       provisionForOwner,
     };
+
     const resolver = new KnowledgeToolRuntimeResolver(spaces);
 
     await expect(resolver.resolveBindingForOwner('owner-a')).rejects.toBe(

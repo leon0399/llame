@@ -71,6 +71,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
         password: 'password123',
         name: 'Share E2E',
       });
+
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const registerBody: unknown = res.body;
@@ -85,6 +86,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
         workspaceRoot: '/srv/private-owner-workspace',
       }),
     );
+
     chatId = chat.id;
     await tenantDb.runAs(userId, (tx) =>
       new ChatsRepository(tx).setRecencyDigestIfAbsent(
@@ -119,6 +121,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
     const privateRes = await request(http).get(
       `/api/v1/shared/chats/${chatId}`,
     );
+
     const absentRes = await request(http).get(
       `/api/v1/shared/chats/${crypto.randomUUID()}`,
     );
@@ -149,6 +152,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       ChatsRepository.prototype,
       'findPublicById',
     );
+
     const res = await request(http)
       .get(`/api/v1/shared/chats/${chatId}`)
       .query({ targetSeq: '1' });
@@ -163,6 +167,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       .patch(`/api/v1/chats/${chatId}`)
       .set('Cookie', cookie)
       .send({ visibility: 'public' });
+
     expect(patchRes.status).toBe(200);
 
     const sharedRes = await request(http).get(`/api/v1/shared/chats/${chatId}`);
@@ -174,9 +179,11 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       messages: [],
     });
     const sharedBody: unknown = sharedRes.body;
+
     if (!isRecord(sharedBody)) {
       throw new Error('Expected object response body');
     }
+
     expect(Object.keys(sharedBody).sort()).toEqual(['id', 'messages', 'title']);
     expect(JSON.stringify(sharedRes.body)).not.toMatch(
       /PRIVATE DIGEST TITLE|PRIVATE DIGEST EXCERPT/,
@@ -188,6 +195,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       .patch(`/api/v1/chats/${chatId}`)
       .set('Cookie', cookie)
       .send({ visibility: 'private' });
+
     expect(patchRes.status).toBe(200);
 
     const sharedRes = await request(http).get(`/api/v1/shared/chats/${chatId}`);
@@ -230,6 +238,7 @@ d(
           password: 'password123',
           name: 'Fork Owner',
         });
+
       expect(ownerRes.status).toBe(201);
       ownerCookie = cookieOf(ownerRes);
       const ownerBody: unknown = ownerRes.body;
@@ -243,6 +252,7 @@ d(
           password: 'password123',
           name: 'Fork Visitor',
         });
+
       expect(visitorRes.status).toBe(201);
       visitorCookie = cookieOf(visitorRes);
 
@@ -254,6 +264,7 @@ d(
           workspaceRoot: '/srv/private-owner-workspace',
         }),
       );
+
       publicChatId = publicChat.id;
 
       const privateChat = await tenantDb.runAs(ownerId, (tx) =>
@@ -262,6 +273,7 @@ d(
           title: 'Private chat',
         }),
       );
+
       privateChatId = privateChat.id;
     });
 
@@ -273,6 +285,7 @@ d(
       const res = await request(http).post(
         `/api/v1/shared/chats/${publicChatId}/forks`,
       );
+
       expect(res.status).toBe(401);
     });
 
@@ -280,6 +293,7 @@ d(
       const privateRes = await request(http)
         .post(`/api/v1/shared/chats/${privateChatId}/forks`)
         .set('Cookie', visitorCookie);
+
       const absentRes = await request(http)
         .post(`/api/v1/shared/chats/${crypto.randomUUID()}/forks`)
         .set('Cookie', visitorCookie);
@@ -303,23 +317,28 @@ d(
       const asVisitor = await request(http)
         .get(`/api/v1/chats/${forkedId}`)
         .set('Cookie', visitorCookie);
+
       expect(asVisitor.status).toBe(200);
       const visitorBody: unknown = asVisitor.body;
+
       if (!isRecord(visitorBody)) {
         throw new Error('Expected visitor fork chat response body');
       }
+
       expect(visitorBody.workspaceRoot).toBeNull();
 
       // ...but the ORIGINAL owner cannot see the fork via their own chat list.
       const asOwner = await request(http)
         .get(`/api/v1/chats/${forkedId}`)
         .set('Cookie', ownerCookie);
+
       expect(asOwner.status).toBe(404);
 
       // The source chat is untouched — still public, still the owner's.
       const sourceStillOwners = await request(http)
         .get(`/api/v1/chats/${publicChatId}`)
         .set('Cookie', ownerCookie);
+
       expect(sourceStillOwners.status).toBe(200);
       const sourceBody: unknown = sourceStillOwners.body;
       assertChatVisibility(sourceBody);

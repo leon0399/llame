@@ -30,20 +30,25 @@ export function* messageInsertChunks<T extends { parts: Array<unknown> }>(
 ): Generator<Array<T>> {
   let chunk: Array<T> = [];
   let chunkPartsLength = 0;
+
   for (const row of rows) {
     const rowPartsLength = JSON.stringify(row.parts).length;
+
     const full =
       chunk.length >= CHUNK_ROWS ||
       (chunk.length > 0 &&
         chunkPartsLength + rowPartsLength > partsLengthBound);
+
     if (full) {
       yield chunk;
       chunk = [];
       chunkPartsLength = 0;
     }
+
     chunk.push(row);
     chunkPartsLength += rowPartsLength;
   }
+
   if (chunk.length > 0) {
     yield chunk;
   }

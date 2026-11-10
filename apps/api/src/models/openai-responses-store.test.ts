@@ -64,6 +64,7 @@ async function sentBody(
   const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
     Promise.resolve(RESPONSES_STREAM()),
   );
+
   const client = createOpenAIModelClient({
     credential: 'sk-test',
     providerModelId: 'gpt-test',
@@ -79,16 +80,21 @@ async function sentBody(
     'done',
   );
   const [request, init] = fetchMock.mock.calls[0] ?? [];
+
   if (request === undefined) throw new Error('no request was sent');
   const body: unknown = JSON.parse(await new Request(request, init).text());
+
   if (!isRecord(body)) throw new TypeError('expected a JSON request body');
+
   return body;
 }
 
 /** The sent input items. */
 function sentItems(body: UnknownRecord): Array<UnknownRecord> {
   const sent = body['input'];
+
   if (!Array.isArray(sent)) throw new TypeError('expected a sent item list');
+
   return sent.filter(isRecord);
 }
 

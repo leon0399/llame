@@ -19,11 +19,13 @@ export function registerApiQueryClient(client: QueryClient): void {
 function defaultDevApiUrl(): string {
   const hostname =
     typeof window === "undefined" ? "localhost" : window.location.hostname;
+
   return `http://${hostname}:${DEV_API_PORT}`;
 }
 
 export function getApiUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+
   const apiUrl =
     configured ||
     (process.env.NODE_ENV !== "production" ? defaultDevApiUrl() : undefined);
@@ -38,6 +40,7 @@ export function getApiUrl(): string {
 /** Resolve an API-relative path for the explicit AI SDK streaming transports. */
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+
   return `${getApiUrl()}/${normalizedPath}`;
 }
 
@@ -57,6 +60,7 @@ function createResolvedRequest(
   credentials: RequestCredentials | undefined,
 ): Request {
   const requestInput = input instanceof Request ? input : resolveApiUrl(input);
+
   const requestInit =
     credentials === undefined ? init : { ...init, credentials };
 
@@ -66,6 +70,7 @@ function createResolvedRequest(
 function isCredentialSubmission(requestUrl: string): boolean {
   try {
     const { pathname } = new URL(requestUrl);
+
     return CREDENTIAL_SUBMISSION_PATHS.some((path) => pathname.endsWith(path));
   } catch {
     return false;
@@ -86,9 +91,11 @@ export function handleUnauthorizedResponse(): void {
   redirectingToLogin = true;
   const { pathname, search } = window.location;
   const onAuthPage = pathname === "/login" || pathname === "/register";
+
   const target = onAuthPage
     ? "/login"
     : `/login?callbackUrl=${encodeURIComponent(`${pathname}${search}`)}`;
+
   window.location.assign(target);
 }
 
@@ -108,6 +115,7 @@ export function createAuthenticatedBrowserFetch(
     const request = createResolvedRequest(input, init, "include");
     const response = await fetchImpl(request);
     handleAuthenticatedResponse(request.url, response);
+
     return response;
   };
 }
@@ -123,6 +131,7 @@ export function authAwareFetch(
 export function createOptionalAuthFetch(fetchImpl: typeof fetch): typeof fetch {
   return async (input, init) => {
     const request = createResolvedRequest(input, init, "include");
+
     return fetchImpl(request);
   };
 }
@@ -130,6 +139,7 @@ export function createOptionalAuthFetch(fetchImpl: typeof fetch): typeof fetch {
 export function createServerFetch(fetchImpl: typeof fetch): typeof fetch {
   return async (input, init) => {
     const request = createResolvedRequest(input, init, undefined);
+
     return fetchImpl(request);
   };
 }

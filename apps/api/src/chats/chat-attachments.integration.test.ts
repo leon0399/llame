@@ -41,6 +41,7 @@ if (!process.env.POSTGRES_URL) {
 vi.setConfig({ testTimeout: 60_000 });
 
 type Prompt = LanguageModelV3CallOptions['prompt'];
+
 type PromptPart = Extract<Prompt[number], { role: 'user' }>['content'][number];
 
 const descriptorSchema = z.object({
@@ -52,6 +53,7 @@ const descriptorSchema = z.object({
   height: z.number(),
   model: z.object({ mediaType: z.string() }),
 });
+
 type Descriptor = z.infer<typeof descriptorSchema>;
 
 const pdfDescriptorSchema = z.object({
@@ -61,6 +63,7 @@ const pdfDescriptorSchema = z.object({
   mediaType: z.literal('application/pdf'),
   pages: z.number(),
 });
+
 type PdfDescriptor = z.infer<typeof pdfDescriptorSchema>;
 
 /** A file part's labels: what `file` sends and `stored` expects back. */
@@ -71,14 +74,19 @@ const UNKNOWN_ID = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e';
 /** The content of the last user message of a provider prompt. */
 function lastUserContent(prompt: Prompt): Array<PromptPart> {
   const user = prompt.filter((message) => message.role === 'user').at(-1);
+
   if (user?.role !== 'user') throw new Error('Expected a user message');
+
   return user.content;
 }
 
 function partBytes(part: PromptPart | undefined): Buffer {
   if (part?.type !== 'file') throw new Error('Expected a file part');
+
   if (part.data instanceof Uint8Array) return Buffer.from(part.data);
+
   if (part.data instanceof URL) throw new Error('Expected inline image bytes');
+
   return Buffer.from(part.data, 'base64');
 }
 
@@ -104,9 +112,11 @@ describe('owner image attachments (HTTP)', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password: 'password123', name: 'Attach' });
+
     expect(res.status).toBe(201);
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
@@ -119,6 +129,7 @@ describe('owner image attachments (HTTP)', () => {
         contentType: 'image/png',
       })
       .expect(201);
+
     return descriptorSchema.parse(res.body);
   }
 
@@ -128,6 +139,7 @@ describe('owner image attachments (HTTP)', () => {
       .get(`/api/v1/media/${id}/model`)
       .set('Cookie', cookie)
       .expect(200);
+
     return z.instanceof(Buffer).parse(res.body);
   }
 
@@ -138,6 +150,7 @@ describe('owner image attachments (HTTP)', () => {
         ownerUserId: userId,
         title: 'Attachments',
       });
+
       return chat.id;
     });
   }
@@ -185,6 +198,7 @@ describe('owner image attachments (HTTP)', () => {
     const chat = await tenantDb.runAs(userId, (tx) =>
       new ChatsRepository(tx).findById(chatId, userId),
     );
+
     expect(chat).toBeUndefined();
     expect(await userMessages(userId, chatId)).toEqual([]);
   }
@@ -193,6 +207,7 @@ describe('owner image attachments (HTTP)', () => {
   async function promptsDuring(act: () => PromiseLike<request.Response>) {
     const before = models.prompts.length;
     await act();
+
     return models.prompts.slice(before);
   }
 
@@ -205,6 +220,7 @@ describe('owner image attachments (HTTP)', () => {
     const label = content.findIndex(
       (part) => textOf(part) === `Image 1 (${media.locator}):`,
     );
+
     expect(label).toBeGreaterThanOrEqual(0);
     expect(content[label + 1]).toMatchObject({
       type: 'file',
@@ -229,6 +245,7 @@ describe('owner image attachments (HTTP)', () => {
       .overrideProvider(ModelsService)
       .useValue(models)
       .compile();
+
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.init();
@@ -278,6 +295,7 @@ describe('owner image attachments (HTTP)', () => {
         await upload(cookieA, 'b.png'),
         await upload(cookieA, 'c.png'),
       ];
+
       const chatId = await createChat(userA);
 
       await send(cookieA, chatId, [
@@ -334,6 +352,7 @@ describe('owner image attachments (HTTP)', () => {
         { type: 'text', text: 'borrow' },
         file(ownedByA),
       ]);
+
       const unknown = await send(cookieB, unknownChat, [
         { type: 'text', text: 'borrow' },
         { ...file(ownedByA), url: `media://${UNKNOWN_ID}` },
@@ -379,6 +398,7 @@ describe('owner image attachments (HTTP)', () => {
     it('keeps the image when an infrastructure failure retries the Run', async () => {
       const shot = await upload(cookieA);
       const chatId = await createChat(userA);
+
       // Only the first pickup fails; the spy then runs the real method.
       const spy = vi
         .spyOn(models, 'createClient')
@@ -415,6 +435,7 @@ describe('owner image attachments (HTTP)', () => {
         .set('Cookie', cookieA)
         .send({})
         .expect(201);
+
       const forkId = z.object({ id: z.string() }).parse(fork.body).id;
 
       const prompts = await promptsDuring(() =>
@@ -423,6 +444,7 @@ describe('owner image attachments (HTTP)', () => {
 
       expect(prompts).toHaveLength(1);
       const [history] = prompts[0].filter((message) => message.role === 'user');
+
       if (history?.role !== 'user') throw new Error('Expected history');
       await expectLabelledImageBefore(history.content, shot, 'original turn');
     });
@@ -443,9 +465,11 @@ describe('owner image attachments (HTTP)', () => {
       expect(prompts).toHaveLength(1);
       const content = lastUserContent(prompts[0]);
       expect(content.some((part) => part.type === 'file')).toBe(false);
+
       const label = content.findIndex(
         (part) => textOf(part) === `Image 1 (${shot.locator}):`,
       );
+
       expect(label).toBeGreaterThanOrEqual(0);
       expect(textOf(content[label + 1])).toBe(
         `[image ${shot.locator} shot.png ${shot.width}×${shot.height}, omitted: this model has no image input]`,
@@ -464,6 +488,7 @@ describe('owner image attachments (HTTP)', () => {
       const label = content.findIndex(
         (part) => textOf(part) === `PDF 1 (${pdf.locator}):`,
       );
+
       expect(label).toBeGreaterThanOrEqual(0);
       expect(content[label + 1]).toMatchObject({
         type: 'file',
@@ -480,6 +505,7 @@ describe('owner image attachments (HTTP)', () => {
       onePage = await readFile(
         join(__dirname, '../media/testing/pdf/one-page.pdf'),
       );
+
       const res = await request(http)
         .post('/api/v1/media')
         .set('Cookie', cookieA)
@@ -488,6 +514,7 @@ describe('owner image attachments (HTTP)', () => {
           contentType: 'application/pdf',
         })
         .expect(201);
+
       pdf = pdfDescriptorSchema.parse(res.body);
     });
 
@@ -522,6 +549,7 @@ describe('owner image attachments (HTTP)', () => {
 
     it('keeps the PDF when an infrastructure failure retries the Run', async () => {
       const chatId = await createChat(userA);
+
       // Only the first pickup fails; the spy then runs the real method.
       const spy = vi
         .spyOn(models, 'createClient')
@@ -557,6 +585,7 @@ describe('owner image attachments (HTTP)', () => {
         .set('Cookie', cookieA)
         .send({})
         .expect(201);
+
       const forkId = z.object({ id: z.string() }).parse(fork.body).id;
 
       const prompts = await promptsDuring(() =>
@@ -570,6 +599,7 @@ describe('owner image attachments (HTTP)', () => {
 
       expect(prompts).toHaveLength(1);
       const [history] = prompts[0].filter((message) => message.role === 'user');
+
       if (history?.role !== 'user') throw new Error('Expected history');
       expectLabelledPdfBefore(history.content, 'original turn');
     });
@@ -589,9 +619,11 @@ describe('owner image attachments (HTTP)', () => {
       expect(prompts).toHaveLength(1);
       const content = lastUserContent(prompts[0]);
       expect(content.some((part) => part.type === 'file')).toBe(false);
+
       const label = content.findIndex(
         (part) => textOf(part) === `PDF 1 (${pdf.locator}):`,
       );
+
       expect(label).toBeGreaterThanOrEqual(0);
       expect(textOf(content[label + 1])).toBe(
         `[pdf ${pdf.locator} one-page.pdf 1 pages, omitted: this model has no PDF input]`,
@@ -609,6 +641,7 @@ describe('owner image attachments (HTTP)', () => {
         [{ type: 'text', text: 'borrow' }, file(pdf)],
         PDF_MODEL,
       );
+
       const unknown = await send(
         cookieB,
         unknownChat,

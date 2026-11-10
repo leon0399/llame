@@ -44,13 +44,16 @@ function runEvent(
 
 function bridgeFixture() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
   );
+
   return {
     bridge: new RunStreamBridgeService(tenantDb),
     tenantDb,
@@ -317,6 +320,7 @@ describe('createRunEventTranslator', () => {
 
   it('survives the AI SDK transport parser and reconstructs a cancelled tool part', async () => {
     const t = createRunEventTranslator('run-transport');
+
     const chunks = [
       ...t.translate({
         eventType: 'tool.requested',
@@ -328,7 +332,9 @@ describe('createRunEventTranslator', () => {
       }),
       ...t.translate({ eventType: 'run.cancelled', payload: null }),
     ];
+
     const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`);
+
     const parsed = parseJsonEventStream({
       stream: new Blob(body).stream(),
       schema: uiMessageChunkSchema,
@@ -342,12 +348,14 @@ describe('createRunEventTranslator', () => {
           if (!result.success) {
             throw result.error;
           }
+
           controller.enqueue(result.value);
         },
       }),
     );
 
     let reconstructed: UIMessage | undefined;
+
     for await (const message of readUIMessageStream({ stream: parsed })) {
       reconstructed = message;
     }
@@ -484,6 +492,7 @@ describe('createRunEventTranslator', () => {
       });
 
       const chunks = t.translate({ eventType, payload: { message: 'x' } });
+
       const outcome = chunks.filter(
         (c) => 'toolCallId' in c && c.toolCallId === 'c1',
       );
@@ -742,6 +751,7 @@ describe('createRunEventTranslator', () => {
 
   it('surfaces model.completed telemetry as a non-terminal message-metadata chunk, closing text early so run.completed does not double-close it', () => {
     const t = createRunEventTranslator('run-6');
+
     const telemetry = {
       inputTokens: 10,
       outputTokens: 20,
@@ -773,6 +783,7 @@ describe('createRunEventTranslator', () => {
 
   it('emits message-metadata with no text-end when no text ever started', () => {
     const t = createRunEventTranslator('run-7');
+
     const telemetry = {
       totalTokens: 0,
       modelId: 'system:openai:gpt-4o-mini',
@@ -896,15 +907,18 @@ describe('RunStreamBridgeService', () => {
       runEvent(1, 'model.delta', { text: 'answer' }),
       runEvent(2, 'run.completed', null),
     ];
+
     const listByRunId = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValue(events);
+
     const { bridge } = bridgeFixture();
 
     const response = bridge.createUiMessageStreamResponse({
       runId: RUN_ID,
       userId: 'user-1',
     });
+
     const body = await response.text();
 
     expect(response.headers.get('content-type')).toBe('text/event-stream');
@@ -941,6 +955,7 @@ describe('RunStreamBridgeService', () => {
       { type: 'data-run-delivered', data: { messageId: 'delivered-message' } },
       { type: 'finish', finishReason: 'stop' },
     ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`);
+
     expect(body).toBe(`${frames.join('')}data: [DONE]\n\n`);
   });
 
@@ -951,6 +966,7 @@ describe('RunStreamBridgeService', () => {
         runEvent(3, 'model.delta', { text: 'second' }),
         runEvent(4, 'run.completed', null),
       ]);
+
     const { bridge } = bridgeFixture();
 
     const body = await bridge
@@ -978,9 +994,11 @@ describe('RunStreamBridgeService', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
       () => {
         polls += 1;
+
         if (polls === 1) {
           return Promise.resolve([runEvent(1, 'run.created', null)]);
         }
+
         return Promise.resolve([
           runEvent(2, 'model.delta', { text: 'Hi' }),
           runEvent(3, 'run.completed', null),
@@ -1004,6 +1022,7 @@ describe('RunStreamBridgeService', () => {
     const listByRunId = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValue([]);
+
     const findById = vi
       .spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValue({
@@ -1027,6 +1046,7 @@ describe('RunStreamBridgeService', () => {
         followUpAction: null,
         sourceRunId: null,
       });
+
     const { bridge } = bridgeFixture();
 
     const response = bridge.createUiMessageStreamResponse({
@@ -1089,12 +1109,14 @@ describe('RunStreamBridgeService', () => {
     // both that boundary and the direction of the elapsed-time arithmetic.
     let clock = 1_000_000;
     vi.spyOn(Date, 'now').mockImplementation(() => (clock += 5000));
+
     const listByRunId = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValue([runEvent(1, 'run.completed', null)]);
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
       id: RUN_ID,
       chatId: '00000000-0000-4000-8000-000000000002',
@@ -1135,6 +1157,7 @@ describe('RunStreamBridgeService', () => {
     const listByRunId = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValue([]);
+
     const controller = new AbortController();
     controller.abort();
     const { bridge } = bridgeFixture();
@@ -1161,10 +1184,12 @@ describe('createRunEventTranslator part identity and error text', () => {
       eventType: 'model.delta',
       payload: { text: 'one' },
     });
+
     const think = t.translate({
       eventType: 'reasoning.delta',
       payload: { text: 'hmm' },
     });
+
     const second = t.translate({
       eventType: 'model.delta',
       payload: { text: 'two' },
@@ -1197,10 +1222,13 @@ describe('createRunEventTranslator part identity and error text', () => {
     const build = () => {
       const t = createRunEventTranslator('run-1');
       t.translate({ eventType: 'run.started', payload: null });
+
       return t;
     };
+
     const plain = build();
     const withMetadata = build();
+
     const metadata = {
       openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
     };
@@ -1209,6 +1237,7 @@ describe('createRunEventTranslator part identity and error text', () => {
       eventType: 'reasoning.delta',
       payload: { text: 'think', partId: 'rs_1:0' },
     });
+
     const metadataChunks = withMetadata.translate({
       eventType: 'reasoning.delta',
       payload: { text: 'think', partId: 'rs_1:0', providerMetadata: metadata },
@@ -1227,16 +1256,19 @@ describe('createRunEventTranslator part identity and error text', () => {
         payload: { partId: 'rs_1:1', providerMetadata: metadata },
       }),
     ).toEqual([]);
+
     // The stream that saw the metadata-only event keeps the exact boundaries
     // of the one that never did: a changed adapter id still opens its own part.
     const nextPlain = plain.translate({
       eventType: 'reasoning.delta',
       payload: { text: 'more', partId: 'rs_1:1' },
     });
+
     const nextWithMetadata = withMetadata.translate({
       eventType: 'reasoning.delta',
       payload: { text: 'more', partId: 'rs_1:1' },
     });
+
     expect(nextWithMetadata).toEqual(nextPlain);
     expect(nextWithMetadata).toContainEqual({
       type: 'reasoning-delta',
@@ -1249,8 +1281,10 @@ describe('createRunEventTranslator part identity and error text', () => {
     const build = () => {
       const t = createRunEventTranslator('run-1');
       t.translate({ eventType: 'run.started', payload: null });
+
       return t;
     };
+
     const metadata = { openai: { itemId: 'msg_1' } };
 
     // A metadata-only `model.delta` (a text part's start) emits nothing: the
@@ -1267,6 +1301,7 @@ describe('createRunEventTranslator part identity and error text', () => {
       eventType: 'model.delta',
       payload: { text: 'answer', partId: '0:msg_1' },
     });
+
     const withMetadata = build().translate({
       eventType: 'model.delta',
       payload: {
@@ -1275,6 +1310,7 @@ describe('createRunEventTranslator part identity and error text', () => {
         providerMetadata: metadata,
       },
     });
+
     expect(withMetadata).toEqual(plain);
     expect(JSON.stringify(withMetadata)).not.toContain('itemId');
 
@@ -1289,6 +1325,7 @@ describe('createRunEventTranslator part identity and error text', () => {
         providerMetadata: metadata,
       },
     });
+
     expect(JSON.stringify(callChunks)).not.toContain('itemId');
   });
 
@@ -1519,9 +1556,11 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
       vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
         [],
       );
+
       const findById = vi
         .spyOn(RunsRepository.prototype, 'findById')
         .mockResolvedValue(terminalRun(status));
+
       const { bridge } = bridgeFixture();
 
       await expect(

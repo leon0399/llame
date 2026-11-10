@@ -86,7 +86,9 @@ export class KnowledgeSpaceController {
         ownerUserId,
         input,
       );
+
       response.setHeader('Location', `/api/v1/knowledge-spaces/${space.id}`);
+
       return toKnowledgeSpaceResponse(space);
     } catch (error) {
       throw mapProvisioningError(error);
@@ -116,6 +118,7 @@ export class KnowledgeSpaceController {
       if (error instanceof KnowledgeSpaceCursorError) {
         throw new BadRequestException('Invalid Knowledge Space cursor.');
       }
+
       throw error;
     }
   }
@@ -138,7 +141,9 @@ export class KnowledgeSpaceController {
       ownerUserId,
       knowledgeSpaceId,
     );
+
     if (space === undefined) throw knowledgeSpaceNotFound();
+
     return toKnowledgeSpaceResponse(space);
   }
 
@@ -162,7 +167,9 @@ export class KnowledgeSpaceController {
       knowledgeSpaceId,
       input,
     );
+
     if (space === undefined) throw knowledgeSpaceNotFound();
+
     return toKnowledgeSpaceResponse(space);
   }
 }
@@ -177,6 +184,7 @@ function mapProvisioningError(error: unknown): Error {
       ? error
       : new Error('Knowledge Space provisioning failed');
   }
+
   return new ServiceUnavailableException({
     statusCode: HttpStatus.SERVICE_UNAVAILABLE,
     error: 'Service Unavailable',

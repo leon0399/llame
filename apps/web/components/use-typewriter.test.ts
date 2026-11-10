@@ -161,6 +161,7 @@ describe("useTypewriter", () => {
 
   it("passes the target straight through under reduced motion", () => {
     reducedMotion = true;
+
     const { result, rerender } = renderHook(
       ({ title }) => useTypewriter(title),
       { initialProps: { title: "New chat" } },

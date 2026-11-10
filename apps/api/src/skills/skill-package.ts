@@ -40,12 +40,15 @@ export function parseSkillPackage(
   directoryName: string,
 ): SkillPackageParseResult {
   const block = frontmatterBlock(text);
+
   if (block.status === 'invalid') return block;
 
   const frontmatter = parseFrontmatterMapping(block.yaml);
+
   if (frontmatter.status === 'invalid') return frontmatter;
 
   const metadata = readSkillMetadata(frontmatter.value, directoryName);
+
   if (metadata.status === 'invalid') return metadata;
 
   return {
@@ -67,17 +70,23 @@ export function readSidecarInvocationControl(
   text: string,
 ): InvocationControlValue {
   let document: unknown;
+
   try {
     document = parseYaml(text);
   } catch {
     return 'invalid';
   }
+
   if (!isRecord(document)) return 'invalid';
   const policy = document.policy;
+
   if (policy === undefined) return 'absent';
+
   if (!isRecord(policy)) return 'invalid';
   const control = policy.allow_implicit_invocation;
+
   if (control === undefined) return 'absent';
+
   return isBoolean(control) ? control : 'invalid';
 }
 
@@ -90,7 +99,9 @@ export function readFrontmatterInvocationControl(
   frontmatter: UnknownRecord,
 ): InvocationControlValue {
   const control = frontmatter['disable-model-invocation'];
+
   if (control === undefined) return 'absent';
+
   return isBoolean(control) ? !control : 'invalid';
 }
 
@@ -108,11 +119,15 @@ export function readFrontmatterInvocationControl(
  */
 export function skillInstructionBody(text: string): string {
   const lines = text.split(/\r?\n/u);
+
   if (lines[0] !== '---') return text;
+
   const closingIndex = lines.findIndex(
     (line, index) => index > 0 && line.trimEnd() === '---',
   );
+
   if (closingIndex === -1) return text;
+
   return (
     lines
       .slice(closingIndex + 1)
@@ -130,21 +145,25 @@ function frontmatterBlock(
   | { readonly status: 'ok'; readonly yaml: string }
   | { readonly status: 'invalid'; readonly diagnostic: string } {
   const lines = text.split(/\r?\n/u);
+
   if (lines[0] !== '---') {
     return {
       status: 'invalid',
       diagnostic: 'SKILL.md must start with a YAML frontmatter block',
     };
   }
+
   const closingIndex = lines.findIndex(
     (line, index) => index > 0 && line.trimEnd() === '---',
   );
+
   if (closingIndex === -1) {
     return {
       status: 'invalid',
       diagnostic: 'SKILL.md frontmatter block is not closed',
     };
   }
+
   return { status: 'ok', yaml: lines.slice(1, closingIndex).join('\n') };
 }
 
@@ -154,6 +173,7 @@ function parseFrontmatterMapping(
   | { readonly status: 'ok'; readonly value: UnknownRecord }
   | { readonly status: 'invalid'; readonly diagnostic: string } {
   let parsed: unknown;
+
   try {
     parsed = parseYaml(yaml);
   } catch {
@@ -162,12 +182,14 @@ function parseFrontmatterMapping(
       diagnostic: 'SKILL.md frontmatter is not valid YAML',
     };
   }
+
   if (!isRecord(parsed)) {
     return {
       status: 'invalid',
       diagnostic: 'SKILL.md frontmatter must be a YAML mapping',
     };
   }
+
   return { status: 'ok', value: parsed };
 }
 
@@ -182,6 +204,7 @@ function readSkillMetadata(
     }
   | { readonly status: 'invalid'; readonly diagnostic: string } {
   const name = frontmatter.name;
+
   if (!isString(name) || !isValidSkillName(name)) {
     return {
       status: 'invalid',
@@ -189,6 +212,7 @@ function readSkillMetadata(
         'SKILL.md frontmatter `name` must be 1-64 lowercase letters, digits, or hyphens without a leading, trailing, or consecutive hyphen',
     };
   }
+
   if (name !== directoryName) {
     return {
       status: 'invalid',
@@ -197,6 +221,7 @@ function readSkillMetadata(
   }
 
   const description = frontmatter.description;
+
   if (
     !isString(description) ||
     description.trim().length === 0 ||

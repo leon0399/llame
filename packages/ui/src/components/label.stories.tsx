@@ -42,6 +42,7 @@ export const Basic: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     const label = canvas.getByText("Your email address");
+
     const input = canvas.getByRole("textbox", {
       name: "Your email address",
     });

@@ -116,6 +116,7 @@ describe('skill package references and scripts through the model loop', () => {
         const run = await harness.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(runId, userId),
         );
+
         return run &&
           ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
           ? run
@@ -133,17 +134,22 @@ describe('skill package references and scripts through the model loop', () => {
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, userId),
     );
+
     const byCallId = new Map<string, UnknownRecord>();
+
     for (const event of events) {
       if (event.eventType !== 'tool.completed') continue;
       const payload: unknown = event.payload;
+
       if (!isRecord(payload)) continue;
       const toolCallId = payload.toolCallId;
       const output = payload.output;
+
       if (isString(toolCallId) && isRecord(output)) {
         byCallId.set(toolCallId, output);
       }
     }
+
     return byCallId;
   }
 
@@ -154,7 +160,9 @@ describe('skill package references and scripts through the model loop', () => {
     field: string,
   ): string {
     const output = outputs.get(toolCallId);
+
     if (output === undefined) throw new Error(`No result for ${toolCallId}`);
+
     return String(output[field]);
   }
 
@@ -192,6 +200,7 @@ describe('skill package references and scripts through the model loop', () => {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('completed');
 
     const outputs = await completedOutputs(seeded.runId);

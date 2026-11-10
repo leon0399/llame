@@ -57,6 +57,7 @@ async function writeBack(
   const repositoryId = location?.repositoryId ?? null;
   const checkoutId = location?.checkoutId ?? null;
   const executorId = location?.executorId ?? null;
+
   if (
     project === null ||
     repositoryId === null ||
@@ -65,6 +66,7 @@ async function writeBack(
   ) {
     return;
   }
+
   const link = await deps.tenantDb.runAs(target.ownerUserId, (tx) =>
     new ProjectLinksRepository(tx).findLinkByRepository(
       target.ownerUserId,
@@ -72,6 +74,7 @@ async function writeBack(
       repositoryId,
     ),
   );
+
   if (link === undefined) return;
   await deps.projects.recordProjectDefault(
     target.ownerUserId,

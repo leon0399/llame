@@ -46,6 +46,7 @@ export class ChatDeliveriesRepository {
           eq(chatDeliveries.ownerUserId, ownerUserId),
         ),
       );
+
     return item;
   }
 
@@ -57,6 +58,7 @@ export class ChatDeliveriesRepository {
       .innerJoin(chats, eq(messages.chatId, chats.id))
       .where(and(eq(messages.id, id), eq(chats.ownerUserId, ownerUserId)))
       .limit(1);
+
     return row !== undefined;
   }
 
@@ -72,6 +74,7 @@ export class ChatDeliveriesRepository {
       .values({ ...input, producer: 'owner', senderRef: null })
       .onConflictDoNothing({ target: chatDeliveries.id })
       .returning();
+
     return created;
   }
 
@@ -115,7 +118,9 @@ export class ChatDeliveriesRepository {
       })
       .from(runs)
       .where(and(eq(runs.id, run.runId), eq(runs.userId, run.userId)));
+
     if (!row || row.cancelled) return 'cancel';
+
     return row.pending ? 'delivery' : undefined;
   }
 
@@ -134,6 +139,7 @@ export class ChatDeliveriesRepository {
         ),
       )
       .limit(1);
+
     return row !== undefined;
   }
 
@@ -180,6 +186,7 @@ export class ChatDeliveriesRepository {
       .orderBy(asc(chatDeliveries.position))
       .limit(1)
       .for('update');
+
     return item;
   }
 
@@ -199,6 +206,7 @@ export class ChatDeliveriesRepository {
         and(this.pendingOf(chatId, ownerUserId), eq(chatDeliveries.id, id)),
       )
       .returning();
+
     return withdrawn;
   }
 
@@ -221,11 +229,14 @@ export class ChatDeliveriesRepository {
     const { chatId, userId: ownerUserId } = run;
     await new ChatsRepository(this.db).lock(chatId, ownerUserId);
     const moving = await this.lockPendingSteering(chatId, ownerUserId);
+
     if (moving.length === 0) return;
     const head = await this.firstPendingQueueItem(chatId, ownerUserId);
+
     // Below the first queue item, or where they are when there is none.
     const below =
       head === undefined ? undefined : head.position - moving.length;
+
     for (const [index, item] of moving.entries()) {
       await this.db
         .update(chatDeliveries)
@@ -255,6 +266,7 @@ export class ChatDeliveriesRepository {
         and(this.pendingOf(chatId, ownerUserId), eq(chatDeliveries.id, id)),
       )
       .returning();
+
     return changed;
   }
 
@@ -284,6 +296,7 @@ export class ChatDeliveriesRepository {
         ),
       )
       .returning();
+
     return row;
   }
 

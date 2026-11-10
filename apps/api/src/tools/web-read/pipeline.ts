@@ -83,6 +83,7 @@ const CHALLENGE_MAX_CHARS = 1024;
 
 const SHORT_LINE_CHARS = 40;
 const SHORT_LINE_RATIO = 0.7;
+
 /**
  * The short-line ratio judges shape, which is the whole story only for a
  * small render: navigation chrome, a link list, a cookie wall. A render that
@@ -127,6 +128,7 @@ export async function renderWebContent(
 ): Promise<WebRender | WebFetchFailure> {
   // `:raw` skips every probe and conversion.
   if (options.raw) return { method: 'raw', content: response.body };
+
   if (bodyPath(response) !== 'html') {
     return renderWebDocument(response, options);
   }
@@ -147,20 +149,25 @@ async function runHtmlPipeline(
   // header announcement is found without it, and the render parses the body
   // when no probe won.
   let parsed: ParsedWebDocument | undefined;
+
   const page = (): ParsedWebDocument | undefined => {
     if (EMPTY_BODY.test(response.body)) return undefined;
     parsed ??= parseWebDocument(response.body, response.finalUrl);
+
     return parsed;
   };
 
   const published = await publisherMarkdown(response, page, deps);
+
   if (published !== undefined) return published;
 
   const document = page();
+
   const rendered =
     document === undefined
       ? unconverted(response, '')
       : renderPage(response, document);
+
   // Only a render that failed the gate justifies the walk.
   if (rendered.method === 'readability') return rendered;
 
@@ -185,11 +192,13 @@ async function publisherMarkdown(
 ): Promise<WebRender | WebFetchFailure | undefined> {
   const announced =
     announcedAlternate(response) ?? headAlternate(page(), response.finalUrl);
+
   const alternate = await firstDecisiveProbe(
     'alternate',
     announced === undefined ? [] : [announced],
     deps,
   );
+
   if (alternate !== undefined) return alternate;
 
   return firstDecisiveProbe(
@@ -233,12 +242,15 @@ async function firstDecisiveProbe(
   for (const url of urls) {
     if (deps.admit(kind, url).decision !== 'allow') continue;
     const fetched = await deps.fetch(url);
+
     if ('type' in fetched) {
       // Only the failures a candidate answers for itself are disqualified; a
       // deeper failure is the call's, and the walk may not swallow it either.
       if (Object.hasOwn(CANDIDATE_FAILURES, fetched.type)) continue;
+
       return fetched;
     }
+
     if (passesProbeGate(kind, fetched.body)) {
       // The probe's own response is where the content came from, so its final
       // URL — not the page's — is what the result must report.
@@ -262,6 +274,7 @@ async function firstDecisiveProbe(
  */
 function passesProbeGate(kind: ProbeKind, body: string): boolean {
   if (HTML_MARKUP_START.test(body)) return false;
+
   if (kind === 'llms-txt') {
     return body.replaceAll(/\s+/g, '').length > MIN_CONTENT_CHARS;
   }
@@ -273,12 +286,16 @@ function passesProbeGate(kind: ProbeKind, body: string): boolean {
  *  relation llmstxt.org v2 defines. */
 function announcedAlternate(response: WebResponse): string | undefined {
   const header = response.link;
+
   if (header === undefined) return undefined;
+
   for (const value of header.split(LINK_VALUE_SEPARATOR)) {
     const target = LINK_TARGET.exec(value);
+
     // An empty target resolves to the page itself, which is not an alternate.
     if (target === null || target[1].trim() === '') continue;
     const parameters = linkParameters(target[2]);
+
     if (
       !isMarkdownAlternate(
         parameters.get('rel') ?? '',
@@ -287,7 +304,9 @@ function announcedAlternate(response: WebResponse): string | undefined {
     ) {
       continue;
     }
+
     const resolved = resolveCandidate(target[1], response.finalUrl);
+
     if (resolved !== undefined) return resolved;
   }
 
@@ -305,13 +324,17 @@ function headAlternate(
   finalUrl: string,
 ): string | undefined {
   const links = page?.document.head.querySelectorAll('link[rel]') ?? [];
+
   for (const link of links) {
     const rel = link.getAttribute('rel') ?? '';
     const type = link.getAttribute('type') ?? '';
+
     if (!isMarkdownAlternate(rel, type)) continue;
     const href = link.getAttribute('href');
+
     if (href === null) continue;
     const resolved = resolveCandidate(href, finalUrl);
+
     if (resolved !== undefined) return resolved;
   }
 
@@ -324,6 +347,7 @@ function headAlternate(
  *  them. */
 function suffixCandidates(finalUrl: string): ReadonlyArray<string> {
   const url = webUrl(finalUrl);
+
   if (url === undefined) return [];
   url.pathname = url.pathname.endsWith('/')
     ? `${url.pathname}index.md`
@@ -338,15 +362,18 @@ function suffixCandidates(finalUrl: string): ReadonlyArray<string> {
  *  and the two below it, then the site root. */
 function llmsTxtCandidates(finalUrl: string): ReadonlyArray<string> {
   const url = webUrl(finalUrl);
+
   if (url === undefined) return [];
   const segments = url.pathname.split('/').filter((segment) => segment !== '');
   const candidates: Array<string> = [];
+
   for (let depth = segments.length; depth > 0; depth -= 1) {
     if (candidates.length === MAX_LLMS_TXT_SCOPES) break;
     candidates.push(
       `${url.origin}/${segments.slice(0, depth).join('/')}/llms.txt`,
     );
   }
+
   candidates.push(`${url.origin}/llms.txt`);
 
   return candidates;
@@ -355,6 +382,7 @@ function llmsTxtCandidates(finalUrl: string): ReadonlyArray<string> {
 /** A web URL the tool may fetch; anything else is not a candidate. */
 function webUrl(value: string): URL | undefined {
   let url: URL;
+
   try {
     url = new URL(value);
   } catch {
@@ -378,12 +406,15 @@ function webUrl(value: string): URL | undefined {
  *  miss the fragment-free text. */
 function resolveCandidate(value: string, base: string): string | undefined {
   let url: URL;
+
   try {
     url = new URL(value.trim(), base);
   } catch {
     return undefined;
   }
+
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+
   if (url.username !== '' || url.password !== '') return undefined;
   // An empty fragment setter drops the `#` delimiter with it, so a bare `#`
   // leaves no trace either.
@@ -404,8 +435,10 @@ function isMarkdownAlternate(rel: string, type: string): boolean {
 /** The parameters of one `Link` header value, by lowercased name. */
 function linkParameters(value: string): Map<string, string> {
   const parameters = new Map<string, string>();
+
   for (const match of value.matchAll(LINK_PARAMETER)) {
     const name = match[1];
+
     if (name === undefined) continue;
     parameters.set(name.toLowerCase(), match[2] ?? match[3] ?? '');
   }
@@ -451,6 +484,7 @@ export function renderWebDocument(
   if (options.raw) return { method: 'raw', content: response.body };
 
   const path = bodyPath(response);
+
   if (path !== 'html') {
     return {
       method: path,
@@ -481,9 +515,11 @@ export function renderWebDocument(
  */
 function bodyPath(response: WebResponse): BodyPath {
   const mediaType = responseMediaType(response);
+
   if (mediaType === 'text/markdown' || mediaType === 'text/plain') {
     return 'negotiated';
   }
+
   if (mediaType === 'text/html' || mediaType === 'application/xhtml+xml') {
     return 'html';
   }
@@ -509,10 +545,12 @@ export function passesQualityGate(text: string): boolean {
  *  afterwards; the whole body is converted when it finds no article. */
 function renderPage(response: WebResponse, page: ParsedWebDocument): WebRender {
   const article = new Readability(page.document).parse();
+
   const converted = titled(
     article?.title,
     convertToMarkdown(article?.content ?? page.bodyHtml),
   );
+
   if (passesQualityGate(converted)) {
     return {
       method: 'readability',
@@ -533,9 +571,12 @@ function renderPage(response: WebResponse, page: ParsedWebDocument): WebRender {
  */
 function titled(title: string | null | undefined, content: string): string {
   const trimmed = title?.trim() ?? '';
+
   if (trimmed.length === 0) return content;
   const opener = content.trimStart().split('\n', 1)[0] ?? '';
+
   if (opener.replace(/^#+\s*/u, '') === trimmed) return content;
+
   return `# ${trimmed}\n\n${content}`;
 }
 
@@ -543,6 +584,7 @@ function titled(title: string | null | undefined, content: string): string {
 function unconverted(response: WebResponse, converted: string): WebRender {
   const challenge =
     findChallengePhrase(converted) ?? findChallengePhrase(response.body);
+
   if (challenge === undefined) {
     return { method: 'raw', content: response.body, notes: [CONVERSION_NOTE] };
   }
@@ -570,6 +612,7 @@ type ParsedWebDocument = {
  */
 function parseWebDocument(html: string, baseHref: string): ParsedWebDocument {
   let document = parseHTML(html).document;
+
   if (
     document.documentElement.tagName !== 'HTML' ||
     document.body.childElementCount === 0
@@ -595,6 +638,7 @@ export function convertToMarkdown(html: string): string {
     headingStyle: 'atx',
     codeBlockStyle: 'fenced',
   });
+
   service.use(gfm);
 
   return service.turndown(html);
@@ -602,6 +646,7 @@ export function convertToMarkdown(html: string): string {
 
 function isLowQuality(text: string): boolean {
   const trimmed = text.trim();
+
   if (
     trimmed.length < CHALLENGE_MAX_CHARS &&
     findChallengePhrase(trimmed) !== undefined
@@ -610,11 +655,13 @@ function isLowQuality(text: string): boolean {
   }
 
   const lines = text.split('\n').filter((line) => line.trim().length > 0);
+
   if (lines.length === 0) return false;
 
   const shortLines = lines.filter(
     (line) => line.trim().length < SHORT_LINE_CHARS,
   ).length;
+
   if (lines.length - shortLines >= SUBSTANTIAL_LINES) return false;
 
   return shortLines / lines.length > SHORT_LINE_RATIO;

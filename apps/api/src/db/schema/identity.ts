@@ -165,7 +165,9 @@ export const orgUnits = pgTable(
 ).enableRLS();
 
 export type OrgUnit = InferSelectModel<typeof orgUnits>;
+
 export type OrgUnitType = (typeof orgUnitType.enumValues)[number];
+
 export type OrgRole = (typeof orgRole.enumValues)[number];
 
 // Explicit memberships (#44, SPEC §7.2): one row per (user, org unit).

@@ -66,10 +66,13 @@ export function usePendingStop({
 
   function requestStop() {
     const knownId = runIdToCancel(messages);
+
     if (knownId) {
       cancelAndStop(knownId, stop, deps);
+
       return;
     }
+
     setHeld(true);
   }
 

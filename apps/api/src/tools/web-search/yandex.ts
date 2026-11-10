@@ -14,8 +14,10 @@ import { vendorCount } from './limits';
 
 export const YANDEX_SEARCH_URL =
   'https://searchapi.api.cloud.yandex.net/v2/web/search';
+
 /** Passages per document for the snippet; the vendor takes 1 to 5. */
 const MAX_PASSAGES = 3;
+
 /**
  * What the vendor means by each error code it reports inside the XML body, also
  * after HTTP 200. Code 2 means the query was empty and code 15 that nothing was
@@ -30,12 +32,15 @@ const IN_BODY_ERRORS = {
   '55': 'rate_limited',
   '100': 'challenge',
 } as const satisfies Readonly<Record<string, FailureClass | 'empty'>>;
+
 type InBodyErrorCode = keyof typeof IN_BODY_ERRORS;
+
 /** The vendor `period` of one `recency` value, and the note where it differs. */
 type RecencyPeriod = {
   readonly period?: string;
   readonly notes?: ReadonlyArray<string>;
 };
+
 const RECENCY_PERIODS: Readonly<
   Record<NonNullable<EngineRequest['recency']>, RecencyPeriod>
 > = {
@@ -47,7 +52,9 @@ const RECENCY_PERIODS: Readonly<
   month: { period: 'PERIOD_MONTH' },
   year: { notes: ['recency not applied by yandex'] },
 };
+
 const YandexPayloadSchema = z.object({ rawData: z.string() });
+
 /** `modtime`, the vendor's publication stamp, as `YYYYMMDDTHHMMSS`. */
 const MODTIME = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/u;
 const PARSER = new DOMParser();
@@ -99,13 +106,16 @@ function parseResponse(rawData: string): Document {
     Buffer.from(rawData, 'base64').toString('utf8'),
     'text/xml',
   );
+
   if (document.querySelector('yandexsearch') === null)
     throw new EngineFailure('upstream_error');
+
   return document;
 }
 
 function textOf(element: Element, selector: string): string | undefined {
   const text = element.querySelector(selector)?.textContent?.trim();
+
   return text === undefined || text === '' ? undefined : text;
 }
 
@@ -115,6 +125,7 @@ function textOf(element: Element, selector: string): string | undefined {
  */
 function publishedOf(modtime: string | undefined): string | undefined {
   const match = modtime === undefined ? null : MODTIME.exec(modtime);
+
   return match === null ? undefined : `${match[1]}-${match[2]}-${match[3]}`;
 }
 
@@ -125,10 +136,14 @@ function publishedOf(modtime: string | undefined): string | undefined {
 function mapYandexResults(document: Document): Array<RawResult> {
   return Array.from(document.querySelectorAll('group > doc')).flatMap((doc) => {
     const url = textOf(doc, 'url');
+
     if (url === undefined) return [];
+
     const snippet =
       textOf(doc, 'headline') ?? textOf(doc, 'passages > passage');
+
     const published = publishedOf(textOf(doc, 'modtime'));
+
     return [
       {
         title: textOf(doc, 'title') ?? '',
@@ -147,11 +162,14 @@ function mapYandexResults(document: Document): Array<RawResult> {
  */
 function errorOutcome(document: Document): EngineOutcome | undefined {
   const error = document.querySelector('response > error');
+
   if (error === null) return undefined;
   const code = error.getAttribute('code') ?? '';
+
   const mapped = isInBodyErrorCode(code)
     ? IN_BODY_ERRORS[code]
     : 'upstream_error';
+
   if (mapped === 'empty') return { kind: 'empty' };
   throw new EngineFailure(mapped);
 }
@@ -166,8 +184,10 @@ export function createYandexEngine(
       request.recency === undefined
         ? undefined
         : RECENCY_PERIODS[request.recency];
+
     const notes = recency?.notes;
     const extra = notes === undefined ? {} : { notes };
+
     const payload = await fetchVendorJson(
       YANDEX_SEARCH_URL,
       {
@@ -186,12 +206,15 @@ export function createYandexEngine(
       },
       YandexPayloadSchema,
     );
+
     const document = parseResponse(payload.rawData);
     // The error is decided before any result, so a response that carries both
     // never reports partial results as success.
     const outcome = errorOutcome(document);
+
     if (outcome !== undefined) return { ...outcome, ...extra };
     const results = mapYandexResults(document);
+
     return results.length > 0
       ? { kind: 'results', results, ...extra }
       : { kind: 'empty', ...extra };

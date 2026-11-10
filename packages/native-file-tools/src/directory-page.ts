@@ -47,7 +47,9 @@ export function directoryResult(
     truncated: page.truncated,
     entryCount,
   };
+
   if (page.nextOffset !== undefined) result.nextOffset = page.nextOffset;
+
   return result;
 }
 
@@ -67,24 +69,30 @@ export function boundFlatResult(
   const lines = result.content.split("\n");
   const header = lines[0] ?? "";
   const entries = lines.slice(1).filter((line) => line.length > 0);
+
   const page = (kept: number): DirectorySuccess => ({
     ...result,
     content: [header, ...entries.slice(0, kept)].join("\n") + "\n",
     truncated: true,
     nextOffset: requestOffset + kept,
   });
+
   // A page that keeps no entry names the entry it already selected, so the
   // continuation would return it again. The smallest page that keeps one entry
   // is the last chance to advance, and a requested window with no entry to
   // keep has none at all: both fail closed rather than stall.
   if (entries.length === 0) return listingTooLarge(false);
+
   if (!fitsResultCap(page(1), cap)) return listingTooLarge(true);
   let low = 1;
   let high = entries.length - 1;
+
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
+
     if (fitsResultCap(page(middle), cap)) low = middle;
     else high = middle - 1;
   }
+
   return page(low);
 }

@@ -12,13 +12,16 @@ const adapter = createArxivAdapter(
   { id: 'arxiv', use: 'arxiv' },
   { origin: API_ORIGIN },
 );
+
 const HTML_URL = `${API_ORIGIN}/html/1706.03762v7`;
 const ABS_URL = `${API_ORIGIN}/abs/1706.03762v7`;
+
 const NOT_FOUND: WebFetchFailure = {
   type: 'http_status',
   message: 'HTTP 404',
   httpStatus: 404,
 };
+
 const PROSE =
   'The encoder maps an input sequence of symbol representations to a sequence of continuous representations, and the decoder then generates an output sequence one element at a time.';
 
@@ -33,6 +36,7 @@ function page(url: string, body: string): Reply {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map(({ url }) => url) };
 }
 
@@ -66,6 +70,7 @@ describe('arXiv adapter read', () => {
     // An aligned group: two cells and a padded number, an unnumbered row, and
     // a spacer row without math that must not become a blank line.
     const equation = String.raw`<table class="ltx_equationgroup ltx_eqn_align ltx_eqn_table" id="S3.EGx1"><tbody><tr><td><math alttext="\displaystyle a" display="inline"><mi>a</mi></math></td><td><math alttext="=b" display="inline"><mi>b</mi></math></td><td><span class="ltx_tag ltx_tag_equation ltx_align_right"> (1) </span></td></tr><tr><td><math alttext="c=d" display="inline"><mi>c</mi></math></td></tr><tr><td></td></tr></tbody></table>`;
+
     const inline =
       'Keys have dimension <math alttext="d_{k}" display="inline"><msub><mi>d</mi><mi>k</mi></msub></math> here.';
 

@@ -44,18 +44,23 @@ export function boundSkillCatalog(
   const ordered = [...eligible].sort((left, right) =>
     compareSkillNames(left.name, right.name),
   );
+
   const entries: Array<SkillCatalogBaselineEntry> = [];
   let bytes = 0;
+
   for (const entry of ordered) {
     if (entries.length >= SKILL_BASELINE_MAX_ENTRIES) break;
     const description = entry.description ?? '';
+
     const entryBytes =
       Buffer.byteLength(entry.name, 'utf8') +
       Buffer.byteLength(description, 'utf8');
+
     if (bytes + entryBytes > SKILL_BASELINE_MAX_BYTES) break;
     bytes += entryBytes;
     entries.push({ name: entry.name, description });
   }
+
   return { entries, omitted: ordered.length - entries.length };
 }
 
@@ -70,7 +75,9 @@ export function resolveSkillCatalogBaseline(
   extraSources?: ReadonlyArray<string>,
 ): SkillCatalogBaseline | undefined {
   const snapshot = catalog.getSnapshot(extraSources);
+
   if (!snapshot.available) return undefined;
+
   return resolveSkillCatalogBaselineFromSnapshot(snapshot);
 }
 
@@ -85,6 +92,7 @@ export function resolveSkillCatalogBaselineFromSnapshot(
   const eligible = snapshot.entries.filter(
     (entry) => entry.proactive && entry.available,
   );
+
   return boundSkillCatalog(eligible);
 }
 

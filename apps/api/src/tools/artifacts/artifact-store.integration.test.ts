@@ -43,9 +43,11 @@ d('artifact store', () => {
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
     owner = crypto.randomUUID();
     stranger = crypto.randomUUID();
+
     for (const id of [owner, stranger]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'A', ${`a-${id}@t.com`})`;
     }
+
     chatId = await createChat(tenantDb, owner, 'Main');
     otherChatId = await createChat(tenantDb, owner, 'Other');
     await createChat(tenantDb, stranger, 'Stranger');
@@ -106,6 +108,7 @@ d('artifact store', () => {
     if (result.status !== 'success' || !isString(result['content'])) {
       throw new Error(`Expected a read success, got ${JSON.stringify(result)}`);
     }
+
     return result['content'];
   };
 
@@ -113,6 +116,7 @@ d('artifact store', () => {
     if (result.status !== 'success' || !isNumber(result['entryCount'])) {
       throw new Error(`Expected a listing, got ${JSON.stringify(result)}`);
     }
+
     return result['entryCount'];
   };
 
@@ -121,13 +125,16 @@ d('artifact store', () => {
       SELECT current_user, rolsuper, rolbypassrls
       FROM pg_roles WHERE rolname = current_user
     `;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
+
     const tables = await sql`
       SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
       FROM pg_class c WHERE c.relname IN ('tool_artifacts', 'tool_artifact_parts')
       ORDER BY c.relname
     `;
+
     expect(tables).toEqual([
       {
         relname: 'tool_artifact_parts',
@@ -146,6 +153,7 @@ d('artifact store', () => {
     it('numbers across tools from one Chat counter', async () => {
       const chat = await createChat(tenantDb, owner, 'Numbers');
       const grep = await write(chat, { toolName: 'grep' });
+
       const bash = await write(chat, {
         toolName: 'bash',
         parts: [
@@ -159,14 +167,17 @@ d('artifact store', () => {
 
       expect(grep.locator).toBe('artifact://grep-1');
       expect(bash.locator).toBe('artifact://bash-2');
+
       const [row] = await tenantDb.runAs(owner, (tx) =>
         tx.select().from(chats).where(eq(chats.id, chat)),
       );
+
       expect(row.artifactSeq).toBe(2);
     });
 
     it('gives concurrent calls different numbers', async () => {
       const chat = await createChat(tenantDb, owner, 'Concurrent');
+
       const written = await Promise.all([
         write(chat, { toolName: 'grep' }),
         write(chat, { toolName: 'grep' }),
@@ -177,6 +188,7 @@ d('artifact store', () => {
 
     it('stores the parts, digest, and findings in one transaction', async () => {
       const chat = await createChat(tenantDb, owner, 'Parts');
+
       const written = await write(chat, {
         toolName: 'bash',
         parts: [
@@ -193,6 +205,7 @@ d('artifact store', () => {
           },
         ],
       });
+
       const found = await tenantDb.runAs(owner, (tx) =>
         new ArtifactsRepository(tx).findParts(chat, 'bash', written.seq),
       );
@@ -202,12 +215,14 @@ d('artifact store', () => {
         { name: 'stderr', lineCount: 1, byteSize: 2 },
         { name: 'stdout', lineCount: 1, byteSize: 8 },
       ]);
+
       const stored = await tenantDb.runAs(owner, (tx) =>
         tx
           .select()
           .from(toolArtifactParts)
           .where(eq(toolArtifactParts.artifactId, written.id)),
       );
+
       const stdout = stored.find((part) => part.name === 'stdout');
       expect(stdout?.findings).toEqual([
         { locator: '/r/a.ts', rule: 'allow_only' },
@@ -217,6 +232,7 @@ d('artifact store', () => {
 
     it('refuses a part above the byte bound and writes no artifact', async () => {
       const chat = await createChat(tenantDb, owner, 'Too large');
+
       const attempt = write(chat, {
         content: 'x'.repeat(2048),
         maxBytes: 1024,
@@ -230,6 +246,7 @@ d('artifact store', () => {
     it('treats a reused tool call id as a failed write', async () => {
       const chat = await createChat(tenantDb, owner, 'Conflict');
       const runId = crypto.randomUUID();
+
       const writeOnce = () =>
         writeToolArtifact(
           tenantDb,
@@ -246,6 +263,7 @@ d('artifact store', () => {
           },
           { maxBytes: MAX_BYTES },
         );
+
       await writeOnce();
 
       const refused = await writeOnce().catch((error: unknown) => error);
@@ -270,9 +288,11 @@ d('artifact store', () => {
       const rows = await tenantDb.runAs(stranger, (tx) =>
         new ArtifactsRepository(tx).listChat(chat),
       );
+
       const part = await tenantDb.runAs(stranger, (tx) =>
         new ArtifactsRepository(tx).readPart(chat, 'grep', written.seq, ''),
       );
+
       expect(rows).toEqual([]);
       expect(part).toBeUndefined();
     });
@@ -292,6 +312,7 @@ d('artifact store', () => {
           }),
         )
         .catch((error: unknown) => error);
+
       expect(sqlStateOf(refused)).toBe('42501');
     });
 
@@ -303,20 +324,25 @@ d('artifact store', () => {
           visibility: 'public',
         }),
       );
+
       await write(chat.id);
 
       const rows = await tenantDb.runAsPublic((tx) =>
         new ArtifactsRepository(tx).listChat(chat.id),
       );
+
       expect(rows).toEqual([]);
+
       const [artifacts] = await tenantDb.runAsPublic((tx) =>
         tx.select({ n: drizzleSql<number>`count(*)::int` }).from(toolArtifacts),
       );
+
       const [parts] = await tenantDb.runAsPublic((tx) =>
         tx
           .select({ n: drizzleSql<number>`count(*)::int` })
           .from(toolArtifactParts),
       );
+
       expect(artifacts.n).toBe(0);
       expect(parts.n).toBe(0);
     });
@@ -338,11 +364,13 @@ d('artifact store', () => {
           }),
         )
         .catch((error: unknown) => error);
+
       expect(sqlStateOf(refused)).toBe('42501');
     });
 
     it('keeps part names unique inside one artifact', async () => {
       const chat = await createChat(tenantDb, owner, 'Duplicate part');
+
       const written = await write(chat, {
         toolName: 'bash',
         parts: [
@@ -367,12 +395,14 @@ d('artifact store', () => {
           }),
         )
         .catch((error: unknown) => error);
+
       expect(sqlStateOf(refused)).toBe('23505');
     });
 
     it('deletes every artifact and part row with its Chat', async () => {
       const chat = await createChat(tenantDb, owner, 'Cascade');
       const grep = await write(chat);
+
       const bash = await write(chat, {
         toolName: 'bash',
         parts: [
@@ -383,30 +413,36 @@ d('artifact store', () => {
           },
         ],
       });
+
       const artifactIds = [grep.id, bash.id];
+
       const partsBefore = await tenantDb.runAs(owner, (tx) =>
         tx
           .select({ n: drizzleSql<number>`count(*)::int` })
           .from(toolArtifactParts)
           .where(inArray(toolArtifactParts.artifactId, artifactIds)),
       );
+
       expect(partsBefore[0].n).toBe(2);
 
       await tenantDb.runAs(owner, (tx) =>
         new ChatsRepository(tx).deleteById(chat, owner),
       );
+
       const remaining = await tenantDb.runAs(owner, (tx) =>
         tx
           .select({ n: drizzleSql<number>`count(*)::int` })
           .from(toolArtifacts)
           .where(eq(toolArtifacts.chatId, chat)),
       );
+
       const parts = await tenantDb.runAs(owner, (tx) =>
         tx
           .select({ n: drizzleSql<number>`count(*)::int` })
           .from(toolArtifactParts)
           .where(inArray(toolArtifactParts.artifactId, artifactIds)),
       );
+
       expect(remaining[0].n).toBe(0);
       expect(parts[0].n).toBe(0);
     });
@@ -559,6 +595,7 @@ d('artifact store', () => {
       expect(contentOf(await read('artifact://grep-1:4:raw', chat))).toBe(
         'second paragraph\n',
       );
+
       const plain = await write(chat, {
         toolName: 'bash',
         parts: [
@@ -569,6 +606,7 @@ d('artifact store', () => {
           },
         ],
       });
+
       expect(await read(`${plain.locator}/stdout:outline`, chat)).toMatchObject(
         { status: 'error', type: 'invalid_selector' },
       );
@@ -608,6 +646,7 @@ d('artifact store', () => {
         .from(chats)
         .where(eq(chats.id, chat)),
     );
+
     return row.seq;
   }
 });
@@ -615,11 +654,14 @@ d('artifact store', () => {
 /** The PostgreSQL SQLSTATE behind a Drizzle-wrapped query failure. */
 function sqlStateOf(error: unknown): string | undefined {
   let current = error;
+
   while (isRecord(current)) {
     const code = current['code'];
+
     if (isString(code)) return code;
     current = current['cause'];
   }
+
   return undefined;
 }
 
@@ -631,5 +673,6 @@ async function createChat(
   const chat = await tenantDb.runAs(ownerUserId, (tx) =>
     new ChatsRepository(tx).create({ ownerUserId, title }),
   );
+
   return chat.id;
 }

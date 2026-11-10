@@ -38,10 +38,12 @@ export function orderByScores(
   const unjudged: Array<string> = [];
   keys.forEach((key, position) => {
     const score = scores.get(key);
+
     if (score === undefined) unjudged.push(key);
     else judged.push({ key, score, position });
   });
   judged.sort((a, b) => b.score - a.score || a.position - b.position);
+
   return [...judged.map(({ key }) => key), ...unjudged];
 }
 
@@ -51,11 +53,13 @@ export function assertPermutation(
   order: ReadonlyArray<string>,
 ): void {
   const expected = new Set(canonical);
+
   const valid =
     expected.size === canonical.length &&
     order.length === canonical.length &&
     new Set(order).size === order.length &&
     order.every((key) => expected.has(key));
+
   if (!valid) {
     throw new Error('rankCards produced an order that is not a permutation');
   }
@@ -76,8 +80,10 @@ export async function rankCards(
   const order = orderByScores(canonical, judged);
   assertPermutation(canonical, order);
   let status: RankCardsResult['status'] = 'partial';
+
   if (judged.size === 0) status = 'unavailable';
   else if (judged.size === canonical.length) status = 'ranked';
+
   return {
     status,
     order,

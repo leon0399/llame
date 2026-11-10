@@ -22,6 +22,7 @@ const TEST_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
+
 import {
   loadInstanceConfig as loadInstanceConfigFromPath,
   resolveConfigPath,
@@ -38,6 +39,7 @@ function errorMessage(err: unknown): string {
   if (!(err instanceof Error)) {
     throw new Error(`expected an Error instance, got ${String(err)}`);
   }
+
   return err.message;
 }
 
@@ -85,6 +87,7 @@ function loadInstanceConfig(env: NodeJS.ProcessEnv = process.env) {
 
 beforeEach(() => {
   originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+
   for (const k of ENV_KEYS) delete process.env[k];
 
   tmpDir = mkdtempSync(path.join(tmpdir(), 'llame-instance-config-'));
@@ -101,6 +104,7 @@ afterEach(() => {
 function writeConfig(content: string, filename = 'llame.config.json'): string {
   const file = path.join(tmpDir, filename);
   writeFileSync(file, content);
+
   return file;
 }
 
@@ -108,6 +112,7 @@ function writePrompt(content: string, filename: string): string {
   const file = path.join(tmpDir, filename);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, content);
+
   return file;
 }
 
@@ -130,6 +135,7 @@ function modelFixtureJson(modelId: string): string {
 
 function renderFirstModel(): string {
   const model = loadInstanceConfig().models[0];
+
   return renderSystemPromptTemplate({
     template: model.systemPromptTemplate,
     model,
@@ -195,11 +201,13 @@ describe('resolvePermissionModes', () => {
     expected: string,
   ): void {
     let thrown: unknown;
+
     try {
       resolvePermissionModes({ configPath, present: true, raw });
     } catch (error) {
       thrown = error;
     }
+
     expect(thrown).toBeInstanceOf(InstanceConfigError);
     expect(errorMessage(thrown)).toBe(expected);
   }
@@ -297,6 +305,7 @@ describe('loadInstanceConfig — file presence', () => {
       __dirname,
       '../../llame.config.jsonc.example',
     );
+
     const copy = path.join(tmpDir, 'llame.config.jsonc');
     writeFileSync(copy, readFileSync(examplePath, 'utf8'));
     process.env.LLAME_CONFIG_PATH = copy;
@@ -327,6 +336,7 @@ describe('loadInstanceConfig — file presence', () => {
   it('fails loudly, naming the file and parse location, on malformed JSONC', () => {
     const file = writeConfig('{ "defaults": { "modelId": "x", } ');
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -445,6 +455,7 @@ timeoutSeconds = 120
     process.env.LLAME_CONFIG_PATH = file;
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -459,6 +470,7 @@ timeoutSeconds = 120
     process.env.LLAME_CONFIG_PATH = file;
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -621,6 +633,7 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     const missing = path.join(tmpDir, 'does-not-exist.secret');
     writeConfig(`{ "defaults": { "modelId": "{path:${missing}}" } }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -757,6 +770,7 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     { label: 'interpolation token', value: ['default', '{env:X}'] },
   ])('rejects tools.permissionModes ($label)', ({ value }) => {
     writeConfig(`{ "tools": { "permissionModes": ${JSON.stringify(value)} } }`);
+
     try {
       loadInstanceConfig();
       throw new Error('expected tools.permissionModes to fail');
@@ -1061,11 +1075,13 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
 
   it('resolves a GitHub token from an environment interpolation', () => {
     process.env.GITHUB_READ_TOKEN = '  github-env-token  ';
+
     const entry = {
       id: 'github',
       use: 'github' as const,
       token: '{env:GITHUB_READ_TOKEN}',
     };
+
     writeConfig(JSON.stringify({ tools: { webAdapters: [entry] } }));
 
     expect(loadInstanceConfig().tools.webAdapters).toEqual([
@@ -1084,11 +1100,13 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     );
 
     let caught: unknown;
+
     try {
       loadInstanceConfig();
     } catch (error) {
       caught = error;
     }
+
     const message = errorMessage(caught);
     expect(message).toContain('tools.webAdapters[github].token');
     expect(message).not.toContain(literalToken);
@@ -1144,11 +1162,13 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const lobsters = { id: 'lobsters', use: 'lobsters' as const };
     const luma = { id: 'luma', use: 'luma' as const };
     const linkedin = { id: 'linkedin', use: 'linkedin' as const };
+
     const forums = {
       id: 'forums',
       use: 'discourse' as const,
       hosts: ['meta.discourse.org'],
     };
+
     writeConfig(
       JSON.stringify({
         tools: {
@@ -1298,6 +1318,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
         tools: { webAdapters: [rewriteEntry({ id })] },
       }),
     );
+
     try {
       loadInstanceConfig();
       throw new Error('expected adapter id interpolation to fail');
@@ -1486,6 +1507,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
 
     const web = loadInstanceConfig({ MCP_URL: 'https://example.test/mcp' })
       .mcpServers.web;
+
     expect(web.type === 'stdio' ? undefined : web.url).toBe(
       'https://example.test/mcp',
     );
@@ -1529,7 +1551,9 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
 
     const local = loadInstanceConfig({ GH_PAT: 'ghp_secret_value' }).mcpServers
       .local;
+
     expect(local.type).toBe('stdio');
+
     if (local.type !== 'stdio') expect.unreachable('expected a stdio entry');
 
     expect(local.command).toBe('docker');
@@ -1558,8 +1582,10 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
     }`);
 
     const odd = loadInstanceConfig({}).mcpServers.odd;
+
     if (odd.type !== 'stdio') expect.unreachable('expected a stdio entry');
     const { env } = odd;
+
     if (env === undefined) expect.unreachable('expected a declared env');
 
     expect(Object.hasOwn(env, '__proto__')).toBe(true);
@@ -1578,6 +1604,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
     }`);
 
     const notes = loadInstanceConfig({ NOTES_KEY: 'nk_9f8e' }).mcpServers.notes;
+
     if (notes.type !== 'stdio') expect.unreachable('expected a stdio entry');
 
     expect(notes.args).toEqual(['--auth', 'Bearer nk_9f8e']);
@@ -1595,6 +1622,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
         "local": { "type": "stdio", "command": "server", "shell": true }
       }
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -1624,6 +1652,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
         }
       }
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -1698,6 +1727,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
         }
       }
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -1729,6 +1759,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
         }
       }
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -1767,6 +1798,7 @@ describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1�
         "web": { "type": "http", "url": ${JSON.stringify(url)} }
       }
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -2025,6 +2057,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
 
   it('loads a completions provider without contacting its endpoint', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
     try {
       writeConfig(`{
         "providers": [{ "id": "local", "type": "openai-completions", "baseUrl": "https://endpoint.invalid/v1" }]
@@ -2101,10 +2134,12 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     'rejects a blank resolved Codex %s without exposing the other credential',
     (field) => {
       const secret = 'codex-secret-canary';
+
       const fields = {
         key: field === 'key' ? '{env:CODEX_BLANK:-}' : secret,
         accountId: field === 'accountId' ? '{env:CODEX_BLANK:-}' : secret,
       };
+
       writeConfig(`{
         "providers": [{
           "id": "personal-codex",
@@ -2205,6 +2240,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     'rejects the out-of-enum provider type %s naming the entry and the value',
     (type) => {
       writeConfig(`{ "providers": [{ "id": "claude", "type": "${type}" }] }`);
+
       try {
         loadInstanceConfig();
         expect.unreachable('expected an out-of-enum provider type to fail');
@@ -2220,6 +2256,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     writeConfig(
       `{ "providers": [{ "id": "local", "type": "openai-completions" }] }`,
     );
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected a missing completions baseUrl to fail');
@@ -2239,6 +2276,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         "baseUrl": "{env:IC_EMPTY_BASE_URL}"
       }]
     }`);
+
     try {
       loadInstanceConfig({ IC_EMPTY_BASE_URL: '   ' });
       expect.unreachable('expected a blank completions baseUrl to fail');
@@ -2260,6 +2298,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           "accountId": "account-id"
         }]
       }`);
+
       try {
         loadInstanceConfig();
         expect.unreachable('expected a Codex-only accountId to fail');
@@ -2520,6 +2559,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         } else if (file === 'empty.md') {
           writePrompt(' \r\n\t', file);
         }
+
         writeConfig(`{
         ${SINGLE_PROVIDER_JSON},
         "models": [{
@@ -2579,6 +2619,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         { "id": "openai", "type": "openai-responses", "key": "sk-should-never-leak" }
       ]
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -2593,6 +2634,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     writeConfig(
       `{ "defaults": { "modelId": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" } }`,
     );
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -2717,6 +2759,7 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
     (entryType, _kind, value, path) => {
       const providerBilling =
         entryType === 'provider' ? `"billing": ${value},` : '';
+
       const modelBilling = entryType === 'model' ? `"billing": ${value},` : '';
       writeConfig(`{
         "providers": [{
@@ -2901,6 +2944,7 @@ describe('loadInstanceConfig — no secret in logs', () => {
       "http": { "trustProxy": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" },
       "runs": { "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS_SRC}" }
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -2909,6 +2953,7 @@ describe('loadInstanceConfig — no secret in logs', () => {
         'sk-should-never-appear-in-any-error',
       );
     }
+
     delete process.env.RUN_TIMEOUT_SECONDS_SRC;
   });
 
@@ -2920,6 +2965,7 @@ describe('loadInstanceConfig — no secret in logs', () => {
         { "id": "e", "provider": "p", "providerModelId": "m2", "dimensions": 8 }
       ]
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -2935,6 +2981,7 @@ describe('loadInstanceConfig — no secret in logs', () => {
     writeConfig(
       `{ "search": { "chats": { "embeddingModelId": "{path:${escapedPath}}" } } }`,
     );
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected throw');
@@ -3197,6 +3244,7 @@ describe('loadInstanceConfig — models[].input (vision-media, task 2.1)', () =>
 
   it('does not verify a declared image input against the provider', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
     try {
       writeModel(', "input": ["text", "image"]');
       expect(loadInstanceConfig().models[0]?.input).toEqual(['text', 'image']);
@@ -3225,6 +3273,7 @@ describe('loadInstanceConfig — models[].providerOptions / models[].maxOutputTo
     } catch (error) {
       return errorMessage(error);
     }
+
     throw new Error('expected loadInstanceConfig to fail');
   }
 
@@ -3237,6 +3286,7 @@ describe('loadInstanceConfig — models[].providerOptions / models[].maxOutputTo
         nested: { list: [1, 'two', true, null] },
       },
     };
+
     writeModel(`, "providerOptions": ${JSON.stringify(providerOptions)}`);
 
     expect(loadInstanceConfig().models[0].providerOptions).toEqual(
@@ -3359,9 +3409,11 @@ describe('loadInstanceConfig — models[].providerOptions / models[].maxOutputTo
     });
   });
 });
+
 describe('loadInstanceConfig — anthropic-messages providers (anthropic-provider, task 3.1)', () => {
   it('loads a default and a gateway anthropic provider as authored without contacting either endpoint', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
     try {
       writeConfig(`{
         "providers": [
@@ -3512,6 +3564,7 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
 
   it('fails boot naming the entry for a bare "anthropic" type, advertising anthropic-messages', () => {
     writeConfig('{ "providers": [{ "id": "claude", "type": "anthropic" }] }');
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected a bare "anthropic" type to fail');
@@ -3531,6 +3584,7 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
         "accountId": "account-id"
       }]
     }`);
+
     try {
       loadInstanceConfig();
       expect.unreachable('expected a Codex-only accountId to fail');
@@ -3563,6 +3617,7 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
 describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, task 3.1)', () => {
   it('loads a key-only entry as authored, with no endpoint field and no network at boot', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
     try {
       writeConfig(`{
         "providers": [{
@@ -3730,17 +3785,22 @@ describe('loadInstanceConfig — llame.config.jsonc.example opencode-go entries 
    */
   function withGoBlocksUncommented(example: string): string {
     let inBlock = false;
+
     return example
       .split('\n')
       .map((line) => {
         if (line.includes('opencode-go block: start')) {
           inBlock = true;
+
           return line;
         }
+
         if (line.includes('opencode-go block: end')) {
           inBlock = false;
+
           return line;
         }
+
         return inBlock ? line.replace(/^(\s*)\/\/ ?/u, '$1') : line;
       })
       .join('\n');
@@ -3776,11 +3836,13 @@ describe('loadInstanceConfig — llame.config.jsonc.example opencode-go entries 
       'glm-5.3-flash',
       'deepseek-v4.1-flash',
     ]);
+
     // The subscription bills per usage window, not per token, so the example
     // declares no rate on either model and cost stays unknown.
     for (const model of goModels) {
       expect(model.pricingUsdPer1M).toBeUndefined();
     }
+
     // Only the model that reasons declares an effort vocabulary.
     expect(goModels[0].reasoning).toBeUndefined();
     expect(goModels[1].reasoning?.defaultEffort).toBe('medium');
@@ -3951,6 +4013,7 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
 
     const headers = loadInstanceConfig().providers[0]?.headers;
     expect(headers).toBeDefined();
+
     if (headers === undefined) return;
     expect(Object.getPrototypeOf(headers)).toBeNull();
     expect(Object.hasOwn(headers, '__proto__')).toBe(true);
@@ -4141,6 +4204,7 @@ describe('loadInstanceConfig — models[].pricingUsdPer1M.cacheWrite (anthropic-
       writePricedModel(
         `{ "input": 3, "output": 15, "cacheWrite": ${cacheWrite} }`,
       );
+
       try {
         loadInstanceConfig();
         expect.unreachable('expected a bad cacheWrite to fail');
@@ -4225,6 +4289,7 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
       expect(() => loadInstanceConfig({ IC_NUMERIC: belowBound })).toThrow(
         InstanceConfigError,
       );
+
       try {
         loadInstanceConfig({ IC_NUMERIC: belowBound });
         throw new Error(`expected ${configPath} to fail`);
@@ -4283,6 +4348,7 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
       "defaults": { "modelId": "absent-model" },
       ${modelFixtureJson('present-model')}
     }`);
+
     try {
       loadInstanceConfig();
       throw new Error('expected a dangling defaults.modelId to fail');
@@ -4296,6 +4362,7 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
       "defaults": { "titleGenerationModelId": "absent-model" },
       ${modelFixtureJson('present-model')}
     }`);
+
     try {
       loadInstanceConfig();
       throw new Error('expected a dangling titleGenerationModelId to fail');
@@ -4312,6 +4379,7 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
       ],
       "search": { "chats": { "embeddingModelId": "absent-embedding" } }
     }`);
+
     try {
       loadInstanceConfig();
       throw new Error('expected a dangling embeddingModelId to fail');
@@ -4324,6 +4392,7 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
 
   it('scopes an interpolation failure to the setting that carries the token', () => {
     writeConfig('{ "defaults": { "modelId": "{env:IC_ABSENT_VARIABLE}" } }');
+
     try {
       loadInstanceConfig({});
       throw new Error('expected an unresolved token to fail');
@@ -4334,6 +4403,7 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
     writeConfig(
       '{ "defaults": { "titleGenerationModelId": "{env:IC_ABSENT_VARIABLE}" } }',
     );
+
     try {
       loadInstanceConfig({});
       throw new Error('expected an unresolved token to fail');
@@ -4352,9 +4422,11 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
     );
 
     const provider = loadInstanceConfig().providers[0];
+
     if (provider?.type !== 'openai-completions') {
       expect.unreachable('expected an openai-completions provider');
     }
+
     expect(provider.key).toBe('literal-key');
     expect(provider.baseUrl).toBe('https://example.test');
   });
@@ -4363,6 +4435,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
     writeConfig(
       '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "{env:IC_ABSENT_VARIABLE}" }] }',
     );
+
     try {
       loadInstanceConfig({});
       throw new Error('expected an unresolved provider key to fail');
@@ -4373,6 +4446,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
     writeConfig(
       '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "{env:IC_ABSENT_VARIABLE}" }] }',
     );
+
     try {
       loadInstanceConfig({});
       throw new Error('expected an unresolved provider baseUrl to fail');
@@ -4388,6 +4462,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
     }`;
 
     writeConfig(modelJson('"contextWindowTokens": "{env:IC_NUMERIC}"'));
+
     try {
       loadInstanceConfig({ IC_NUMERIC: '0' });
       throw new Error('expected a non-positive context window to fail');
@@ -4398,6 +4473,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
     }
 
     writeConfig(modelJson('"contextWindowTokens": "{env:IC_NUMERIC}"'));
+
     try {
       loadInstanceConfig({ IC_NUMERIC: '' });
       throw new Error('expected an empty context window to fail');
@@ -4412,6 +4488,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
         '"contextWindowTokens": 1000, "compactionThresholdTokens": "{env:IC_NUMERIC}"',
       ),
     );
+
     try {
       loadInstanceConfig({ IC_NUMERIC: '0' });
       throw new Error('expected a non-positive compaction threshold to fail');
@@ -4426,6 +4503,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
         '"contextWindowTokens": 1000, "compactionThresholdTokens": "{env:IC_NUMERIC}"',
       ),
     );
+
     try {
       loadInstanceConfig({ IC_NUMERIC: '' });
       throw new Error('expected an empty compaction threshold to fail');
@@ -4456,6 +4534,7 @@ describe('loadInstanceConfig — file diagnostics name the exact location', () =
     } catch (error) {
       return errorMessage(error);
     }
+
     throw new Error('expected loadInstanceConfig to fail');
   }
 
@@ -4567,11 +4646,13 @@ describe('loadInstanceConfig — mcpServers entries name their own path', () => 
 
   function failureFor(json: string, env: NodeJS.ProcessEnv = {}): string {
     writeConfig(json);
+
     try {
       loadInstanceConfig(env);
     } catch (error) {
       return errorMessage(error);
     }
+
     throw new Error('expected the mcpServers entry to fail');
   }
 
@@ -4587,6 +4668,7 @@ describe('loadInstanceConfig — mcpServers entries name their own path', () => 
     const message = failureFor(
       stdioServer('"command": "{env:IC_ABSENT_VARIABLE}"'),
     );
+
     expect(message).toBe('mcpServers.web.command: interpolation failed');
   });
 
@@ -4678,6 +4760,7 @@ describe('loadInstanceConfig — mcpServers entries name their own path', () => 
       IC_SECRET: 'shared-secret',
       IC_OTHER: 'other-secret',
     }).mcpServers.web;
+
     expect(web).toMatchObject({
       type: 'stdio',
       command: 'shared-secret',
@@ -4697,11 +4780,13 @@ describe('loadInstanceConfig — mcpServers entries name their own path', () => 
 describe('loadInstanceConfig — tools.allowed entry validation', () => {
   function allowlistFailure(ids: ReadonlyArray<string>, extra = ''): string {
     writeConfig(`{ "tools": { "allowed": ${JSON.stringify(ids)} }${extra} }`);
+
     try {
       loadInstanceConfig();
     } catch (error) {
       return errorMessage(error);
     }
+
     throw new Error('expected the allowlist to fail');
   }
 
@@ -4763,6 +4848,7 @@ describe('resolveConfigPath override hygiene', () => {
 describe('loadInstanceConfig — configured credential set', () => {
   function credentialsOf(json: string, env: NodeJS.ProcessEnv = {}) {
     writeConfig(json);
+
     return configuredCredentials(loadInstanceConfig(env));
   }
 
@@ -4935,6 +5021,7 @@ describe('loadInstanceConfig — configured credential set', () => {
         'X-Api-Key': 'literal-header-canary-9f3a',
         'X-Region': 'eu-west-1',
       });
+
       const json =
         section === 'mcpServers'
           ? `{ "mcpServers": { "r": { "type": "http", "url": "https://mcp.example/mcp", "headers": ${headers} } } }`
@@ -4998,6 +5085,7 @@ describe('loadInstanceConfig — configured credential set', () => {
         last_refresh: '2026-01-01T00:00:00Z',
       }),
     );
+
     const members = credentialsOf(
       `{ "providers": [{ "id": "c", "type": "openai-codex", "accountId": "account-canary-9f3a2b", "key": "{path:${authFile}|json:/tokens/access_token}" }] }`,
     );
@@ -5017,6 +5105,7 @@ describe('loadInstanceConfig — configured credential set', () => {
 
   it('takes the POSTGRES_URL password and PGPASSWORD, never the whole URL', () => {
     const url = 'postgres://app:pw%2Fcanary-1065-long@db.example:5432/llame';
+
     const members = credentialsOf('{}', {
       POSTGRES_URL: url,
       PGPASSWORD: 'pgpass-canary-9f3a2b7c',
@@ -5047,6 +5136,7 @@ describe('loadInstanceConfig — configured credential set', () => {
 
   it('does not read POSTGRES_URL from process.env, only from the env given', () => {
     process.env.POSTGRES_URL = 'postgres://app:ambient-password@db/llame';
+
     try {
       expect(credentialsOf('{}', {})).toEqual([]);
     } finally {

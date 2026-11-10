@@ -55,6 +55,7 @@ function contactRow(
   contact: MachineContact,
 ): typeof machinesStatus.$inferInsert {
   const success = contact.failure === undefined;
+
   return {
     name: contact.name,
     firstContactAt: success ? contact.at : null,
@@ -93,6 +94,7 @@ function contactUpdate(
       roots: row.roots,
       updatedAt: row.updatedAt,
     };
+
   return {
     lastFailureReason: sql`case when ${machinesStatus.lastFailureAt} is null or excluded.last_failure_at >= ${machinesStatus.lastFailureAt} then excluded.last_failure_reason else ${machinesStatus.lastFailureReason} end`,
     lastFailureAt: sql`greatest(${machinesStatus.lastFailureAt}, excluded.last_failure_at)`,
@@ -136,11 +138,13 @@ export class MachinesStatusRepository {
     names: ReadonlyArray<string>,
   ): Promise<ReadonlyArray<MachineStatusRow>> {
     if (names.length === 0) return [];
+
     return this.tenantDb.runAs(userId, async (tx) => {
       const rows = await tx
         .select()
         .from(machinesStatus)
         .where(inArray(machinesStatus.name, [...names]));
+
       return rows.map(asStatusRow);
     });
   }
@@ -153,11 +157,13 @@ export class MachinesStatusRepository {
   async findForLive(name: string): Promise<MachineStatusRow | undefined> {
     return this.db.transaction(async (tx) => {
       await tx.execute(SYSTEM_MARKER);
+
       const [row] = await tx
         .select()
         .from(machinesStatus)
         .where(eq(machinesStatus.name, name))
         .limit(1);
+
       return row === undefined ? undefined : asStatusRow(row);
     });
   }
@@ -169,12 +175,14 @@ export class MachinesStatusRepository {
   async pruneExcept(names: ReadonlyArray<string>): Promise<number> {
     return this.db.transaction(async (tx) => {
       await tx.execute(SYSTEM_MARKER);
+
       const deleted =
         names.length === 0
           ? await tx.delete(machinesStatus)
           : await tx
               .delete(machinesStatus)
               .where(notInArray(machinesStatus.name, [...names]));
+
       return deleted.count ?? 0;
     });
   }

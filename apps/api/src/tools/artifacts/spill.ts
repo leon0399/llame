@@ -65,18 +65,23 @@ export async function capHeadResult(
   if (result.status !== 'success') return result;
   const measure = measureToolResultForModel(toolName);
   const hasDisplay = Object.hasOwn(result, 'display');
+
   const rendered = hasDisplay
     ? undefined
     : renderToolResultForSpill(toolName, result);
+
   const oversized =
     rendered === undefined
       ? isOversizedResult(result, measure)
       : rendered.text.length > RESULT_TRUNCATE_CHARS;
+
   if (!oversized) return result;
   const rendering = rendered ?? renderToolResultForSpill(toolName, result);
   const spill = await boundedSpill(context, toolName, rendering);
+
   const spilled =
     spill?.kind === 'stored' ? { ...result, artifact: spill.locator } : result;
+
   return truncateOversizedResult(spilled, measure, spill);
 }
 
@@ -91,18 +96,23 @@ async function boundedSpill(
   rendering: SpillRendering,
 ): Promise<CappedResultSpill | undefined> {
   const signal = context.abortSignal;
+
   if (signal === undefined) {
     return await storeHeadRendering(context, toolName, rendering).catch(() => ({
       kind: 'not-stored',
     }));
   }
+
   if (signal.aborted) return { kind: 'not-stored' };
+
   return await new Promise<CappedResultSpill | undefined>((resolve) => {
     const onAbort = () => resolve({ kind: 'not-stored' });
+
     const settle = (spill: CappedResultSpill | undefined): void => {
       signal.removeEventListener('abort', onAbort);
       resolve(spill);
     };
+
     signal.addEventListener('abort', onAbort, { once: true });
     void storeHeadRendering(context, toolName, rendering).then(settle, () =>
       settle({ kind: 'not-stored' }),
@@ -130,9 +140,11 @@ async function storeHeadRendering(
     contentType: rendering.contentType,
     content: rendering.content,
   });
+
   if (write.kind === 'no-reader') return undefined;
   const written = write.written;
   const hostFiles = artifactHostFiles(context, toolName, written);
+
   return {
     kind: 'stored',
     locator: written.locator,
@@ -165,6 +177,7 @@ export async function storeSinglePartArtifact(
 ): Promise<WrittenArtifact | undefined> {
   try {
     const write = await writeSinglePart(context, toolName, part);
+
     return write.kind === 'written' ? write.written : undefined;
   } catch {
     return undefined;
@@ -187,17 +200,22 @@ async function writeSinglePart(
   part: SinglePartArtifact,
 ): Promise<SinglePartWrite> {
   const { runId } = context;
+
   if (runId === undefined || !canReadArtifacts(context, toolName)) {
     return { kind: 'no-reader' };
   }
+
   const written = await writePart(context, runId, toolName, part);
+
   // A host route needs the file it would name: when the writer made none,
   // only `read` reaches the artifact.
   const reachable =
     written.hostDirectory === undefined
       ? readAdmitsArtifact(context, toolName, written.seq)
       : canReadArtifacts(context, toolName, written.seq);
+
   if (!reachable) throw new Error('The artifact is not reachable.');
+
   return { kind: 'written', written };
 }
 
@@ -246,7 +264,9 @@ export function artifactHostFiles(
   written: WrittenArtifact,
 ): ArtifactNoticeHostFiles | undefined {
   const directory = written.hostDirectory;
+
   if (directory === undefined) return undefined;
+
   return {
     directory,
     elsewhere:

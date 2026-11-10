@@ -81,6 +81,7 @@ const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
 }: ChatTranscriptMessageProps) {
   const renderKey = messageRenderKey(message);
   transcriptMessageRenderProbe?.(renderKey);
+
   const { boundary, modelBoundary } = messageBoundaries({
     message,
     index,
@@ -159,6 +160,7 @@ export function ChatTranscriptMessageList({
     latestRun,
     status,
   });
+
   return displayMessages.map((message, index) => (
     <ChatTranscriptMessage
       key={`message-${messageRenderKey(message)}`}
@@ -207,6 +209,7 @@ function ChatTranscriptMessages(props: ChatTranscriptMessagesProps) {
  *  component composes only regions. */
 function useForkedChatNavigation(): (forkedChatId: string) => void {
   const router = useRouter();
+
   return useCallback(
     (forkedChatId: string) => {
       router.push(`/chat/${forkedChatId}`);
@@ -228,15 +231,18 @@ function ChatTranscriptFailedTurn({
   onFollowUp,
 }: ChatTranscriptMessagesProps) {
   if (latestRun === null) return null;
+
   if (!needsFailedTurnRow({ messages: displayMessages, latestRun, status })) {
     return null;
   }
+
   const title =
     latestRun.status === "cancelled"
       ? "This turn was stopped"
       : latestRun.error === null
         ? "This turn ended without an answer"
         : "This turn failed";
+
   return (
     <div className="mx-auto w-full max-w-3xl md:px-6">
       <Alert>
@@ -300,12 +306,14 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
     latestRun,
     status,
   } = props;
+
   // The failed-turn row already names this message once the history read
   // reports it; a second alert would announce the same failure twice.
   const shownByFailedTurn =
     latestRun !== null &&
     latestRun.error === displayedError?.message &&
     needsFailedTurnRow({ messages: displayMessages, latestRun, status });
+
   return (
     <>
       <ChatLoadOlder
@@ -352,10 +360,12 @@ function useTargetScroll(
     displayMessages.some(
       (message) => messageSeqFromMetadata(message.metadata) === targetSeq,
     );
+
   const scrolledTargetRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     if (!targetLoaded || scrolledTargetRef.current === targetSeq) return;
     const target = document.getElementById(`msg-${targetSeq}`);
+
     if (!target) return;
     conversationRef.current?.stopScroll();
     target.scrollIntoView({ block: "center" });
@@ -371,6 +381,7 @@ export function ChatTranscript({
 }: ChatTranscriptProps & { targetSeq: number | null }) {
   const conversationRef = useRef<StickToBottomContext>(null);
   useTargetScroll(conversationRef, props.displayMessages, targetSeq);
+
   return (
     <div className="relative flex-1 overflow-hidden">
       {/* initial="instant": the reader must LAND at the newest message, not

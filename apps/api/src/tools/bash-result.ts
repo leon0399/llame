@@ -56,6 +56,7 @@ function typedFailureResult(
 ): ToolResult {
   if (result.type !== 'timed_out')
     return { status: 'error', type: result.type, message: result.message };
+
   return failureResult('timed_out', result, spill);
 }
 
@@ -91,6 +92,8 @@ export function toToolResult(
       }),
     };
   }
+
   if ('type' in result) return typedFailureResult(result, spill);
+
   return commandFailedResult(result, spill);
 }

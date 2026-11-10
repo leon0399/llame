@@ -36,12 +36,14 @@ afterEach(() => {
 describe("auth query hooks", () => {
   it("refetches on mount even with already-fresh cached data (staleTime: 0, refetchOnMount: 'always')", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ id: "u1", name: "A" }));
+
     // A high default staleTime means cached data reads as fresh under the
     // client's own defaults; only the hook's per-query overrides can still
     // force a network refetch on mount.
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 5 * 60_000 } },
     });
+
     queryClient.setQueryData(authQueryKeys.me, {
       id: "cached",
       name: "Cached",

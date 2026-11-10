@@ -32,21 +32,29 @@ export async function openWalkFile(
   signal: AbortSignal | undefined,
 ): Promise<KnowledgeWalkOpen> {
   let stats: KnowledgeFilesystemStats;
+
   try {
     stats = await observe(file.stat(), signal);
   } catch (error) {
     await closeFileAndTranslateFailure(file, error, signal);
+
     return { kind: 'unreadable' };
   }
+
   if (stats.isSymbolicLink() || !stats.isFile()) {
     await closeResource(file, signal);
+
     return { kind: 'unreadable' };
   }
+
   let closing: Promise<void> | undefined;
+
   const close = (): Promise<void> => {
     closing ??= file.close().catch(() => undefined);
+
     return closing;
   };
+
   return {
     size: stats.size,
     close,
@@ -66,6 +74,7 @@ async function readWalkBytes(
   signal: AbortSignal | undefined,
 ): Promise<number | undefined> {
   let bytesRead: number;
+
   try {
     ({ bytesRead } = await observe(
       file.read(buffer, 0, buffer.length, position),
@@ -73,10 +82,13 @@ async function readWalkBytes(
     ));
   } catch (error) {
     if (signal?.aborted) throw error;
+
     return undefined;
   }
+
   const impossible =
     !Number.isInteger(bytesRead) || bytesRead < 0 || bytesRead > buffer.length;
+
   return impossible ? undefined : bytesRead;
 }
 
@@ -92,19 +104,24 @@ async function* readFileChunks(
   signal: AbortSignal | undefined,
 ): AsyncGenerator<Uint8Array | KnowledgeWalkReadRefusal> {
   let offset = 0;
+
   try {
     for (;;) {
       throwIfAborted(signal);
       const buffer = Buffer.allocUnsafe(KNOWLEDGE_MAX_READ_CHUNK_BYTES);
       const bytesRead = await readWalkBytes(file, buffer, offset, signal);
+
       if (bytesRead === undefined) {
         yield { kind: 'unreadable' };
+
         return;
       }
+
       // The end of the file, or a read that would not move it forward: either
       // way the stream is over, so no faulty count can repeat it forever.
       if (bytesRead <= 0) return;
       const next = offset + bytesRead;
+
       if (next <= offset) return;
       offset = next;
       yield buffer.subarray(0, bytesRead);
@@ -126,15 +143,19 @@ export async function readWholeFileBytes(
 ): Promise<Buffer> {
   const chunks: Array<Buffer> = [];
   let totalBytes = 0;
+
   while (totalBytes <= maxBytes) {
     throwIfAborted(signal);
+
     const buffer = Buffer.allocUnsafe(
       Math.min(KNOWLEDGE_MAX_READ_CHUNK_BYTES, maxBytes + 1 - totalBytes),
     );
+
     const result = await observe(
       file.read(buffer, 0, buffer.length, totalBytes),
       signal,
     );
+
     if (
       !Number.isInteger(result.bytesRead) ||
       result.bytesRead < 0 ||
@@ -142,13 +163,16 @@ export async function readWholeFileBytes(
     ) {
       throw new KnowledgeFilesystemError('knowledge_space_unavailable');
     }
+
     if (result.bytesRead === 0) break;
     chunks.push(buffer.subarray(0, result.bytesRead));
     totalBytes += result.bytesRead;
+
     if (totalBytes > maxBytes) {
       throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
     }
   }
+
   return Buffer.concat(chunks, totalBytes);
 }
 
@@ -170,15 +194,19 @@ export async function closeFileAndTranslateFailure(
       error ??= closeError;
     }
   }
+
   if (error instanceof KnowledgeFilesystemError) {
     throw error;
   }
+
   if (isErrno(error, 'ENOENT')) {
     throw new KnowledgeFilesystemError('knowledge_not_found');
   }
+
   if (isErrno(error, 'ELOOP')) {
     throw new KnowledgeFilesystemError('knowledge_path_invalid');
   }
+
   if (error !== undefined) {
     throw new KnowledgeFilesystemError('knowledge_space_unavailable');
   }
@@ -191,15 +219,19 @@ export async function readAllDirectoryEntries(
   signal: AbortSignal | undefined,
 ): Promise<Array<KnowledgeFilesystemDirent>> {
   const entries: Array<KnowledgeFilesystemDirent> = [];
+
   while (true) {
     throwIfAborted(signal);
     const entry = await observe(directory.read(), signal);
+
     if (entry === null) break;
     entries.push(entry);
+
     if (entries.length > remainingEntries) {
       throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
     }
   }
+
   return entries;
 }
 
@@ -214,12 +246,15 @@ export async function readDirectoryEntriesUpTo(
   signal: AbortSignal | undefined,
 ): Promise<Array<KnowledgeFilesystemDirent>> {
   const entries: Array<KnowledgeFilesystemDirent> = [];
+
   while (entries.length < limit) {
     throwIfAborted(signal);
     const entry = await observe(directory.read(), signal);
+
     if (entry === null) break;
     entries.push(entry);
   }
+
   return entries;
 }
 
@@ -241,12 +276,15 @@ export async function closeDirectoryAndTranslateFailure(
       error ??= closeError;
     }
   }
+
   if (error instanceof KnowledgeFilesystemError) {
     throw error;
   }
+
   if (isErrno(error, 'ENOENT')) {
     throw new KnowledgeFilesystemError('knowledge_space_unavailable');
   }
+
   if (error !== undefined) {
     throw new KnowledgeFilesystemError('knowledge_space_unavailable');
   }

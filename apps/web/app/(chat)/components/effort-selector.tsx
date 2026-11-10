@@ -61,8 +61,10 @@ function useActiveEffortSelection(): EffortSelection | null {
   // was mounted alone.
   const reasoning = React.useMemo(() => {
     const modelId = selectedModel ?? data?.defaultModelId;
+
     return data?.models.find((model) => model.id === modelId)?.reasoning;
   }, [data, selectedModel]);
+
   const levels = reasoning?.effortLevels;
 
   // Keep the selection valid for the CURRENT model: vocabularies differ, so a
@@ -75,8 +77,10 @@ function useActiveEffortSelection(): EffortSelection | null {
     // set — and send — a level the user can neither see nor change.
     if (!reasoning || reasoning.effortLevels.length === 0) {
       if (selectedEffort !== undefined) setSelectedEffort(undefined);
+
       return;
     }
+
     if (
       selectedEffort === undefined ||
       !reasoning.effortLevels.some((level) => level.value === selectedEffort)
@@ -94,7 +98,9 @@ function useActiveEffortSelection(): EffortSelection | null {
     levels.some((level) => level.value === selectedEffort)
       ? selectedEffort
       : reasoning.defaultEffort;
+
   const activeEntry = levels.find((level) => level.value === activeLevel);
+
   const activeIndex = Math.max(
     0,
     levels.findIndex((level) => level.value === activeLevel),
@@ -211,6 +217,7 @@ function EffortSelectorSlider({
         onValueChange={(value) => {
           const next = Array.isArray(value) ? value[0] : value;
           const level = levels[next ?? 0];
+
           // Live: the trigger label re-renders from context as the thumb
           // moves, so the choice is legible before the popup closes.
           if (level !== undefined) setSelectedEffort(level.value);
@@ -291,6 +298,7 @@ export function EffortSelector({ className }: { className?: string }) {
   const selection = useActiveEffortSelection();
 
   if (!selection) return null;
+
   const {
     levels,
     activeIndex,

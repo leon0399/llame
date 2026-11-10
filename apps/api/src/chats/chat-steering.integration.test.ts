@@ -75,20 +75,24 @@ describe('chat deliveries — the steer mode', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password: 'password123', name });
+
     expect(res.status).toBe(201);
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
   beforeAll(async () => {
     models = new FakeModelsService();
+
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(ModelsService)
       .useValue(models)
       .compile();
+
     app = mod.createNestApplication();
     configureApp(app);
     await app.listen(0);
@@ -116,6 +120,7 @@ describe('chat deliveries — the steer mode', () => {
     const chat = await tenantDb.runAs(userAId, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: userAId, title: 'Steer' }),
     );
+
     return chat.id;
   }
 
@@ -126,6 +131,7 @@ describe('chat deliveries — the steer mode', () => {
     messageId: string;
   }> {
     const chatId = await createChat();
+
     return tenantDb.runAs(userAId, async (tx) => {
       const message = await new MessagesRepository(
         tx,
@@ -135,15 +141,19 @@ describe('chat deliveries — the steer mode', () => {
         senderUserId: userAId,
         parts: [{ type: 'text', text: 'seed' }],
       });
+
       if (!message) throw new Error('seed message not stored');
       const runs = new RunsRepository(tx);
+
       const run = await runs.create({
         chatId,
         messageId: message.id,
         userId: userAId,
         modelId: MODEL,
       });
+
       await runs.markStarted(run.id, userAId);
+
       return { chatId, runId: run.id, messageId: message.id };
     });
   }
@@ -185,7 +195,9 @@ describe('chat deliveries — the steer mode', () => {
     const res = await request(http)
       .get(`/api/v1/chats/${chatId}/deliveries`)
       .set('Cookie', cookieA);
+
     expect(res.status).toBe(200);
+
     return itemsBody.parse(res.body).items;
   }
 
@@ -199,16 +211,19 @@ describe('chat deliveries — the steer mode', () => {
     tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findByChatId(chatId, userAId),
     );
+
   const messagesOf = (chatId: string) =>
     tenantDb.runAs(userAId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userAId),
     );
+
   /**
    * The handler a `runs` worker registers on the `runs.dead` queue, real
    * executor and tenant scope behind it; the queue only captures it.
    */
   async function deadLetterConsumer(): Promise<(job: RunJob) => Promise<void>> {
     let handler: ((job: RunJob) => Promise<void>) | undefined;
+
     const consume = vi
       .fn<
         (
@@ -220,8 +235,10 @@ describe('chat deliveries — the steer mode', () => {
         if (definition.name === deadLetterQueue(RUNS_QUEUE).name) {
           handler = consumer;
         }
+
         return Promise.resolve('consumer-id');
       });
+
     await new RunsWorkerService(
       { ensureQueue: () => Promise.resolve(), consume },
       app.get(InstanceConfigService, { strict: false }),
@@ -232,7 +249,9 @@ describe('chat deliveries — the steer mode', () => {
       tenantDb,
       app.get(RunAbortRegistry, { strict: false }),
     ).onApplicationBootstrap();
+
     if (!handler) throw new Error('runs.dead consumer not registered');
+
     return handler;
   }
 
@@ -256,7 +275,9 @@ describe('chat deliveries — the steer mode', () => {
     const aborts = app.get(RunAbortRegistry, { strict: false });
     aborts.register(runId, userAId);
     const segment = aborts.beginSegment(runId, attemptId);
+
     if (!segment) throw new Error('the Run has no segment');
+
     return segment;
   }
 
@@ -327,6 +348,7 @@ describe('chat deliveries — the steer mode', () => {
           senderUserId: userAId,
           parts: [{ type: 'text', text: 'steer' }],
         });
+
         await new ChatDeliveriesRepository(tx).markDelivered(id, userAId, {
           messageId: message?.id ?? id,
           runId,
@@ -365,6 +387,7 @@ describe('chat deliveries — the steer mode', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ id, mode: 'steer', state: 'pending' });
+
       // The next step end of the Run finds it.
       const signal = await tenantDb.runAs(userAId, (tx) =>
         new ChatDeliveriesRepository(tx).stepEndSignal({
@@ -373,6 +396,7 @@ describe('chat deliveries — the steer mode', () => {
           userId: userAId,
         }),
       );
+
       expect(signal).toBe('delivery');
     });
 
@@ -462,9 +486,11 @@ describe('chat deliveries — the steer mode', () => {
         const { chatId, runId } = await chatWithLiveRun();
         const id = crypto.randomUUID();
         await sendMode(chatId, 'queue', { id });
+
         if (state === 'paused queue') {
           await settle(runId, 'failed', { error: { message: 'boom' } });
         }
+
         await tenantDb.runAs(userAId, (tx) =>
           tx.execute(
             sql`UPDATE chats SET archived_at = now() WHERE id = ${chatId}`,
@@ -543,14 +569,17 @@ describe('chat deliveries — the steer mode', () => {
     /** A steer sent last, behind two queue items: it must come out first. */
     async function liveRunWithThreeItems() {
       const run = await chatWithLiveRun();
+
       const ids = {
         one: crypto.randomUUID(),
         two: crypto.randomUUID(),
         steer: crypto.randomUUID(),
       };
+
       await sendMode(run.chatId, 'queue', { id: ids.one });
       await sendMode(run.chatId, 'queue', { id: ids.two });
       await sendMode(run.chatId, 'steer', { id: ids.steer });
+
       return { ...run, ids };
     }
 
@@ -634,14 +663,18 @@ describe('chat deliveries — the steer mode', () => {
   describe('the stream of a Run that delivered', () => {
     it('A resume after a delivery replays only the current segment', async () => {
       const { runId } = await chatWithLiveRun();
+
       const sequences = await tenantDb.runAs(userAId, async (tx) => {
         const events = new RunEventsRepository(tx);
         const before = await latestDeliverySequence(tx, runId, userAId);
         await events.append(runId, 'model.delta', { text: 'first segment' });
+
         const delivered = await events.append(runId, 'run.delivered', {
           messageId: crypto.randomUUID(),
         });
+
         await events.append(runId, 'model.delta', { text: 'second segment' });
+
         return {
           before,
           delivered: delivered.sequence,

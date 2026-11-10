@@ -161,6 +161,7 @@ interface Span {
 const nodeSpan = (node: MdNode): Span | undefined => {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
+
   return start === undefined || end === undefined ? undefined : { start, end };
 };
 
@@ -173,6 +174,7 @@ const innerStart = (node: MdNode): number | undefined =>
 /** Last content offset, descending past wrapper delimiters (e.g. `*`). */
 const innerEnd = (node: MdNode): number | undefined => {
   const last = node.children?.at(-1);
+
   return last === undefined ? nodeSpan(node)?.end : innerEnd(last);
 };
 
@@ -386,6 +388,7 @@ function flattenRun({
     !isTextOnly(candidate.end, runEnd, textSpans)
   ) {
     rebuilt.push(...run);
+
     return;
   }
 
@@ -441,6 +444,7 @@ function applyCandidateToQueue(
   }
 
   flattenRun({ candidate, run, runStart, runEnd, rebuilt, queue, source });
+
   return true;
 }
 
@@ -472,6 +476,7 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
   if (!collectProtectedSpans(node, protectedSpans)) {
     return false;
   }
+
   const candidates = findRegexCandidates(raw)
     .filter(isRewritable)
     .map((candidate) => ({
@@ -502,6 +507,7 @@ const rewritePhrasingFromSource = (node: MdNode, source: string): boolean => {
   }
 
   node.children = [...rebuilt, ...queue];
+
   return true;
 };
 
@@ -560,6 +566,7 @@ const rewriteRegexNodes = (node: MdNode, source: string): void => {
     if (!rewritePhrasingFromSource(node, source)) {
       rewriteChildrenByValue(node);
     }
+
     return;
   }
 

@@ -16,6 +16,7 @@ import { ProjectsService } from './projects.service';
 
 const INSTANT = new Date('2026-10-24T00:00:00.000Z');
 const OWNER = 'verified-user';
+
 // The service's user-facing refusals, asserted verbatim: a message a client
 // shows must name the row it refused, so a blank one is a regression.
 const LINK_CONFLICT =
@@ -99,13 +100,16 @@ function defaultRow(
 
 function makeService() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
   );
+
   return new ProjectsService(tenantDb);
 }
 
@@ -118,12 +122,15 @@ describe('ProjectsService project links', () => {
     vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
       projectRow(),
     );
+
     const findRepository = vi
       .spyOn(ProjectLinksRepository.prototype, 'findRepository')
       .mockResolvedValue(repositoryRow());
+
     const createLink = vi
       .spyOn(ProjectLinksRepository.prototype, 'createLink')
       .mockResolvedValue(linkRow({ alias: 'llame-core' }));
+
     const clearPrimary = vi.spyOn(
       ProjectLinksRepository.prototype,
       'clearPrimary',
@@ -154,9 +161,11 @@ describe('ProjectsService project links', () => {
       ProjectLinksRepository.prototype,
       'findRepository',
     ).mockResolvedValue(repositoryRow());
+
     const clearPrimary = vi
       .spyOn(ProjectLinksRepository.prototype, 'clearPrimary')
       .mockResolvedValue(undefined);
+
     vi.spyOn(ProjectLinksRepository.prototype, 'createLink').mockResolvedValue(
       linkRow({ isPrimary: true }),
     );
@@ -337,9 +346,11 @@ describe('ProjectsService project links', () => {
       ProjectLinksRepository.prototype,
       'findLinkByRepository',
     ).mockResolvedValue(linkRow());
+
     const clearPrimary = vi
       .spyOn(ProjectLinksRepository.prototype, 'clearPrimary')
       .mockResolvedValue(undefined);
+
     vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockResolvedValue(
       linkRow({ alias: 'core' }),
     );
@@ -386,9 +397,11 @@ describe('ProjectsService project links', () => {
       ProjectLinksRepository.prototype,
       'findLinkByRepository',
     ).mockResolvedValue(linkRow());
+
     const clearPrimary = vi
       .spyOn(ProjectLinksRepository.prototype, 'clearPrimary')
       .mockResolvedValue(undefined);
+
     const updateLink = vi
       .spyOn(ProjectLinksRepository.prototype, 'updateLink')
       .mockResolvedValue(linkRow({ isPrimary: true }));
@@ -415,9 +428,11 @@ describe('ProjectsService project links', () => {
       ProjectLinksRepository.prototype,
       'findLinkByRepository',
     ).mockResolvedValue(linkRow({ isPrimary: true }));
+
     const clearPrimary = vi
       .spyOn(ProjectLinksRepository.prototype, 'clearPrimary')
       .mockResolvedValue(undefined);
+
     vi.spyOn(ProjectLinksRepository.prototype, 'updateLink').mockResolvedValue(
       linkRow({ isPrimary: true, alias: 'core' }),
     );
@@ -539,6 +554,7 @@ describe('ProjectsService project links', () => {
       ProjectLinksRepository.prototype,
       'findLinkByRepository',
     ).mockResolvedValue(linkRow());
+
     const deleteLink = vi
       .spyOn(ProjectLinksRepository.prototype, 'deleteLink')
       .mockResolvedValue(true);
@@ -574,13 +590,16 @@ describe('ProjectsService project links', () => {
     vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
       projectRow(),
     );
+
     const other = linkRow({
       id: '77777777-7777-4777-8777-777777777777',
       repositoryId: '33333333-3333-4333-8333-333333333333',
     });
+
     const listLinks = vi
       .spyOn(ProjectLinksRepository.prototype, 'listLinks')
       .mockResolvedValue([linkRow(), other]);
+
     vi.spyOn(
       ProjectLinksRepository.prototype,
       'listDefaults',
@@ -677,6 +696,7 @@ describe('ProjectsService project defaults', () => {
       ProjectLinksRepository.prototype,
       'findCheckout',
     ).mockResolvedValue(checkoutRow());
+
     const upsert = vi
       .spyOn(ProjectLinksRepository.prototype, 'upsertDefault')
       .mockResolvedValue(defaultRow());

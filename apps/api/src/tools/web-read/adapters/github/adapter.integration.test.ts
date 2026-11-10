@@ -27,9 +27,11 @@ type JsonValue =
   | string
   | JsonObject
   | ReadonlyArray<JsonValue>;
+
 type JsonObject = { readonly [key: string]: JsonValue };
 
 type FixtureAddress = 'api' | 'redirect';
+
 type FixtureRequest = {
   readonly address: FixtureAddress;
   readonly method: string;
@@ -38,18 +40,21 @@ type FixtureRequest = {
   readonly userAgent: string | undefined;
   readonly authorization: string | undefined;
 };
+
 type FixtureRoute = (
   address: FixtureAddress,
   path: string,
   response: ServerResponse,
   redirectOrigin: string,
 ) => void;
+
 type GithubFixture = {
   readonly apiOrigin: string;
   readonly requests: Array<FixtureRequest>;
   readonly resolve: ResolveHost;
   close(): Promise<void>;
 };
+
 type PullRouteOptions = {
   readonly redirectPrimary?: boolean;
   readonly primaryRateLimited?: boolean;
@@ -63,8 +68,10 @@ const PULL_ISSUE_COMMENTS = '/repos/o/r/issues/12/comments?per_page=100&page=1';
 const PULL_REVIEWS = '/repos/o/r/pulls/12/reviews?per_page=100&page=1';
 const PULL_REVIEW_COMMENTS = '/repos/o/r/pulls/12/comments?per_page=100&page=1';
 const PULL_FILES = '/repos/o/r/pulls/12/files?per_page=100&page=1';
+
 const CHECK_RUNS =
   '/repos/o/r/commits/abc123/check-runs?filter=latest&per_page=100&page=1';
+
 const RESET = '123';
 const JOB_SOURCE = 'https://github.com/o/r/actions/runs/7/job/9';
 const JOB_API = '/repos/o/r/actions/jobs/9';
@@ -75,6 +82,7 @@ const ADMIT_ALL_POLICY = compileToolPermissionMap(
   { read: { allow: true } },
   'github-adapter-integration',
 );
+
 const SOURCE_ONLY_POLICY = compileToolPermissionMap(
   {
     read: {
@@ -88,6 +96,7 @@ const SOURCE_ONLY_POLICY = compileToolPermissionMap(
   },
   'github-adapter-source-only',
 );
+
 const API_ONLY_POLICY = compileToolPermissionMap(
   {
     read: {
@@ -165,14 +174,17 @@ async function listenOn(
     server.listen(port, address, resolve);
   });
   const listening = server.address();
+
   if (listening === null || isString(listening)) {
     throw new Error('The GitHub fixture did not receive a TCP address.');
   }
+
   return listening.port;
 }
 
 function closeServer(server: Server): Promise<void> {
   server.closeAllConnections();
+
   return new Promise<void>((resolve, reject) => {
     server.close((error) => {
       if (error === undefined) resolve();
@@ -180,9 +192,11 @@ function closeServer(server: Server): Promise<void> {
     });
   });
 }
+
 async function startGithubFixture(route: FixtureRoute): Promise<GithubFixture> {
   const requests: Array<FixtureRequest> = [];
   let port = 0;
+
   const create = (address: FixtureAddress): Server => {
     const server = createServer((request, response) => {
       requests.push({
@@ -202,9 +216,12 @@ async function startGithubFixture(route: FixtureRoute): Promise<GithubFixture> {
         `http://redirect.github.test:${port}`,
       );
     });
+
     server.on('clientError', (_error, socket) => socket.destroy());
+
     return server;
   };
+
   const api = create('api');
   const redirect = create('redirect');
   port = await listenOn(api, '127.0.0.1', 0);
@@ -214,9 +231,11 @@ async function startGithubFixture(route: FixtureRoute): Promise<GithubFixture> {
     if (hostname === 'api.github.test') {
       return Promise.resolve([{ address: '127.0.0.1', family: 4 }]);
     }
+
     if (hostname === 'redirect.github.test') {
       return Promise.resolve([{ address: '127.0.0.2', family: 4 }]);
     }
+
     return Promise.reject(
       new Error(`Unexpected GitHub fixture hostname: ${hostname}`),
     );
@@ -237,8 +256,10 @@ function pullRoute(options: PullRouteOptions = {}): FixtureRoute {
     if (address === 'redirect') {
       if (path === PULL_PRIMARY) sendJson(response, 200, pullPayload());
       else sendNotFound(response);
+
       return;
     }
+
     if (path === PULL_PRIMARY) {
       if (options.primaryRateLimited === true) {
         sendRateLimit(response, 'primary rate limit body');
@@ -247,12 +268,16 @@ function pullRoute(options: PullRouteOptions = {}): FixtureRoute {
       } else {
         sendJson(response, 200, pullPayload());
       }
+
       return;
     }
+
     if (path === '/repos/o/r/issues/12/comments?per_page=100&page=1') {
       sendJson(response, 200, []);
+
       return;
     }
+
     if (
       path === PULL_REVIEWS ||
       path === PULL_REVIEW_COMMENTS ||
@@ -264,8 +289,10 @@ function pullRoute(options: PullRouteOptions = {}): FixtureRoute {
         200,
         path === CHECK_RUNS ? { total_count: 0, check_runs: [] } : [],
       );
+
       return;
     }
+
     sendNotFound(response);
   };
 }
@@ -301,8 +328,10 @@ function jobRoute(): FixtureRoute {
       } else {
         sendNotFound(response);
       }
+
       return;
     }
+
     if (path === JOB_API) sendJson(response, 200, jobPayload());
     else if (path === JOB_LOGS) {
       sendRedirect(response, `${redirectOrigin}${SIGNED_LOG}`);
@@ -337,6 +366,7 @@ async function dispatchGithub(
 ): Promise<WebAdapterDispatch> {
   const context = testContext(policy);
   const admit = createDerivedAdmission(context);
+
   const session = createWebFetchSession(
     { userAgent: USER_AGENT },
     {
@@ -346,6 +376,7 @@ async function dispatchGithub(
       resolve: fixture.resolve,
     },
   );
+
   const io: WebAdapterIo = {
     fetch: async (url, init) => {
       if (admit('adapter', url).decision === 'reject') {
@@ -354,13 +385,16 @@ async function dispatchGithub(
           message: 'The adapter target was refused by operator permissions.',
         };
       }
+
       return session.fetch(url, init);
     },
   };
+
   try {
     const adapter = createGithubAdapter(githubConfig(token), {
       apiOrigin: fixture.apiOrigin,
     });
+
     return await dispatchWebAdapters(new URL(source), [adapter], io);
   } finally {
     session.dispose();
@@ -378,9 +412,11 @@ function expectProductHeaders(requests: ReadonlyArray<FixtureRequest>): void {
 describe('GitHub adapter over a real shared web session', () => {
   it('scopes a token to the API origin across a real redirect', async () => {
     const token = 'integration-secret-token';
+
     const fixture = await startGithubFixture(
       pullRoute({ redirectPrimary: true }),
     );
+
     try {
       const result = await dispatchGithub(
         fixture,
@@ -388,7 +424,9 @@ describe('GitHub adapter over a real shared web session', () => {
         token,
         ADMIT_ALL_POLICY,
       );
+
       expect(result.kind).toBe('rendered');
+
       if (result.kind !== 'rendered')
         throw new Error('Pull request did not render.');
       expect(result.render.content).toContain(
@@ -409,12 +447,15 @@ describe('GitHub adapter over a real shared web session', () => {
         { address: 'api', path: PULL_FILES },
         { address: 'api', path: CHECK_RUNS },
       ]);
+
       const apiRequests = fixture.requests.filter(
         ({ address }) => address === 'api',
       );
+
       const redirectRequests = fixture.requests.filter(
         ({ address }) => address === 'redirect',
       );
+
       expect(
         apiRequests.every(
           ({ authorization }) => authorization === `Bearer ${token}`,
@@ -430,6 +471,7 @@ describe('GitHub adapter over a real shared web session', () => {
 
   it('falls through when the adapter API target is outside the source policy', async () => {
     const fixture = await startGithubFixture(pullRoute());
+
     try {
       const result = await dispatchGithub(
         fixture,
@@ -437,6 +479,7 @@ describe('GitHub adapter over a real shared web session', () => {
         undefined,
         SOURCE_ONLY_POLICY,
       );
+
       expect(result).toStrictEqual({
         kind: 'fallthrough',
         notes: ['web adapter "github" fell through: permission'],
@@ -451,6 +494,7 @@ describe('GitHub adapter over a real shared web session', () => {
     const fixture = await startGithubFixture(
       pullRoute({ primaryRateLimited: true }),
     );
+
     try {
       const result = await dispatchGithub(
         fixture,
@@ -458,6 +502,7 @@ describe('GitHub adapter over a real shared web session', () => {
         undefined,
         ADMIT_ALL_POLICY,
       );
+
       expect(result).toStrictEqual({
         kind: 'fallthrough',
         notes: [
@@ -474,6 +519,7 @@ describe('GitHub adapter over a real shared web session', () => {
   it('reads a job log from the signed storage origin without sending it the token', async () => {
     const token = 'integration-secret-token';
     const fixture = await startGithubFixture(jobRoute());
+
     try {
       const result = await dispatchGithub(
         fixture,
@@ -481,7 +527,9 @@ describe('GitHub adapter over a real shared web session', () => {
         token,
         ADMIT_ALL_POLICY,
       );
+
       expect(result.kind).toBe('rendered');
+
       if (result.kind !== 'rendered') throw new Error('Job did not render.');
       expect(result.render.content).toContain(
         '## Log (2 lines)\n\n```text\nfirst\n##[error]boom\n```',
@@ -505,6 +553,7 @@ describe('GitHub adapter over a real shared web session', () => {
 
   it('keeps the job when operator policy refuses the log redirect target', async () => {
     const fixture = await startGithubFixture(jobRoute());
+
     try {
       const result = await dispatchGithub(
         fixture,
@@ -512,7 +561,9 @@ describe('GitHub adapter over a real shared web session', () => {
         'integration-secret-token',
         API_ONLY_POLICY,
       );
+
       expect(result.kind).toBe('rendered');
+
       if (result.kind !== 'rendered') throw new Error('Job did not render.');
       expect(result.render.notes).toStrictEqual(['log omitted: permission']);
       expect(result.render.content).toContain('## Steps (1)');

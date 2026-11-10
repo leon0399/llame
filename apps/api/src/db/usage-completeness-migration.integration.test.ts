@@ -8,6 +8,7 @@ import path from 'node:path';
 import postgres, { type JSONValue, type Sql } from 'postgres';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'usage-completeness-migration.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration`.',
@@ -42,6 +43,7 @@ const migrationStatements = readFileSync(
   .split('--> statement-breakpoint')
   .map((statement) => statement.trim())
   .filter(Boolean);
+
 const schemaName = `usage_completeness_${crypto.randomUUID().replaceAll('-', '')}`;
 
 describe('historical usage completeness migration', () => {
@@ -91,6 +93,7 @@ describe('historical usage completeness migration', () => {
 
   it('marks historical usage without changing its existing JSONB values and is safe to rerun', async () => {
     const reclaimedRunId = crypto.randomUUID();
+
     const rows = [
       {
         id: crypto.randomUUID(),
@@ -235,6 +238,7 @@ describe('historical usage completeness migration', () => {
         AND c.relname IN ('messages', 'system_prompt_receipts')
       ORDER BY c.relname
     `;
+
     expect(rlsState).toEqual([
       { relname: 'messages', relforcerowsecurity: true },
       { relname: 'system_prompt_receipts', relforcerowsecurity: true },
@@ -242,13 +246,16 @@ describe('historical usage completeness migration', () => {
 
     const firstApplication = await readMarkedRows(sql);
     expect(firstApplication).toHaveLength(rows.length);
+
     for (const row of rows) {
       const result = firstApplication.find(
         (candidate) => candidate.id === row.id,
       );
+
       expect(result).toBeDefined();
       expect(result?.preserved).toBe(true);
       expect(result?.hasBilling).toBe(false);
+
       if (row.expectedComplete === null) {
         expect(result?.usageIsNull).toBe(true);
         expect(result?.complete).toBeNull();
@@ -268,11 +275,13 @@ describe('historical usage completeness migration', () => {
         AND c.relname IN ('messages', 'system_prompt_receipts')
       ORDER BY c.relname
     `;
+
     expect(secondRlsState).toEqual(rlsState);
     const secondApplication = await readMarkedRows(sql);
     expect(secondApplication).toEqual(firstApplication);
   });
 });
+
 async function applyUsageCompletenessMigration(sql: SqlClient): Promise<void> {
   await sql.begin(async (tx) => {
     for (const statement of migrationStatements) {
@@ -287,6 +296,7 @@ async function readMarkedRows(sql: SqlClient): Promise<Array<MarkedRow>> {
     ALTER TABLE "${schemaName}"."messages" NO FORCE ROW LEVEL SECURITY;
     ALTER TABLE "${schemaName}"."system_prompt_receipts" NO FORCE ROW LEVEL SECURITY;
   `);
+
   const rows = await sql<Array<MarkedRow>>`
     SELECT
       message.id::text AS id,
@@ -309,9 +319,11 @@ async function readMarkedRows(sql: SqlClient): Promise<Array<MarkedRow>> {
       ON baseline.message_id = message.id
     ORDER BY message.id
   `;
+
   await sql.unsafe(`
     ALTER TABLE "${schemaName}"."messages" FORCE ROW LEVEL SECURITY;
     ALTER TABLE "${schemaName}"."system_prompt_receipts" FORCE ROW LEVEL SECURITY;
   `);
+
   return rows;
 }

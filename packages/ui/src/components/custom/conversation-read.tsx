@@ -47,6 +47,7 @@ const cutReasons = {
 
 function ConversationMessage({ output }: { output: ConversationReadOutput }) {
   const lines = parseNumberedLines(output.content);
+
   return (
     <>
       <ToolSection
@@ -92,6 +93,7 @@ export function ConversationReadTool({
 }: ConversationReadToolProps): ReactElement {
   const source = inputSchema.safeParse(input).data;
   const result = outputSchema.safeParse(output).data;
+
   return (
     <ToolRow
       name="conversation_read"

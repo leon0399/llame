@@ -36,10 +36,12 @@ const projectPin: PinnedItem = {
 };
 
 const archivedAt = "2026-01-03T00:00:00.000Z";
+
 const archivedChatPin: PinnedItem = {
   ...chatPin,
   item: { id: "c1", title: "Trip to Lisbon", archivedAt },
 };
+
 const archivedProjectPin: PinnedItem = {
   ...projectPin,
   item: { id: "p1", name: "Acme relaunch", archivedAt },
@@ -54,6 +56,7 @@ const archivedProjectPin: PinnedItem = {
 let fetchMock: Mock<typeof fetch>;
 let serverPins: Array<PinnedItem>;
 let releasePins: () => void;
+
 /** The project's description as the server holds it now; undefined makes
  *  the project's read fail. */
 let serverDescription: string | undefined;
@@ -71,26 +74,34 @@ function routeFetch() {
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
+
       if (key === "GET /api/v1/pins") {
         if (holdPins) {
           return new Promise<Response>((resolve) => {
             releasePins = () => resolve(jsonResponse(serverPins));
           });
         }
+
         return Promise.resolve(jsonResponse(serverPins));
       }
+
       if (key === "PATCH /api/v1/chats/c1") {
         serverPins = [archivedChatPin];
+
         return Promise.resolve(emptyResponse());
       }
+
       if (key === "PATCH /api/v1/projects/p1") {
         serverPins = [archivedProjectPin];
+
         return Promise.resolve(emptyResponse());
       }
+
       if (key === "GET /api/v1/projects/p1") {
         if (serverDescription === undefined) {
           return Promise.resolve(new Response(null, { status: 500 }));
         }
+
         return Promise.resolve(
           jsonResponse({
             id: "p1",
@@ -103,8 +114,10 @@ function routeFetch() {
           }),
         );
       }
+
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -115,6 +128,7 @@ function routeFetch() {
 function sentRoutes() {
   return fetchMock.mock.calls.map(([input]) => {
     const request = input instanceof Request ? input : new Request(input);
+
     return `${request.method} ${new URL(request.url).pathname}`;
   });
 }
@@ -123,9 +137,11 @@ function sentRoutes() {
 async function sentBody(route: string) {
   const index = sentRoutes().indexOf(route);
   const input = fetchMock.mock.calls[index]?.[0];
+
   if (!(input instanceof Request)) {
     throw new Error(`expected a Request for ${route}`);
   }
+
   return input.clone().json();
 }
 
@@ -136,6 +152,7 @@ async function openRowMenu(canvasElement: HTMLElement) {
   // The menu portals into document.body, outside the story canvas.
   const menu = await screen.findByRole("menu");
   await waitFor(() => expect(menu).toBeVisible());
+
   return within(menu);
 }
 
@@ -151,6 +168,7 @@ async function openedDialog(role: "dialog" | "alertdialog", name: string) {
   // The dialog portals into document.body, outside the story canvas.
   const dialog = await screen.findByRole(role, { name });
   await waitFor(() => expect(dialog).toBeVisible());
+
   return within(dialog);
 }
 
@@ -175,6 +193,7 @@ const meta = {
 } satisfies Meta<typeof AppSidebarPinned>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -184,6 +203,7 @@ type Story = StoryObj<typeof meta>;
  */
 function PinnedSlot() {
   const { status } = usePins();
+
   return (
     <>
       <div data-testid="pinned-slot">

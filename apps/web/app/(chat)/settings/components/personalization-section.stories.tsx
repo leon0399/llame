@@ -16,8 +16,10 @@ const SAVE_ROUTE = "PATCH /api/v1/me/personalization";
 const ME_ROUTE = "GET /auth/v1/me";
 
 const NAME_LABEL = "What should the assistant call you?";
+
 const SKELETON_DESCRIPTION =
   "What the assistant knows about you, and how you want it to answer.";
+
 const FORM_DESCRIPTION =
   "What the assistant knows about you, and how you want it to answer. Everything here is sent with every message you write.";
 
@@ -48,6 +50,7 @@ function requestOf(input: RequestInfo | URL) {
 /** "METHOD /path" a fetch call targets. */
 function routeOf(input: RequestInfo | URL) {
   const request = requestOf(input);
+
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
@@ -69,6 +72,7 @@ function savedBodies(): Promise<Array<unknown>> {
 /** `respond()` now, or — while the story holds this request — once released. */
 function answer(hold: boolean, respond: () => Response) {
   if (!hold) return Promise.resolve(respond());
+
   return new Promise<Response>((resolve) => {
     releases.push(() => resolve(respond()));
   });
@@ -83,22 +87,28 @@ function routeFetch() {
   fetchMock.mockImplementation(async (input) => {
     const request = requestOf(input);
     const key = routeOf(request);
+
     // Signed out: the preview has no account to show, which it never needs
     // while account sharing is off.
     if (key === ME_ROUTE) return new Response(null, { status: 401 });
+
     if (key === LOAD_ROUTE) {
       return answer(holdLoad, () => jsonResponse(stored));
     }
+
     if (key === SAVE_ROUTE) {
       const body: Partial<PersonalizationResponse> = await request
         .clone()
         .json();
+
       return answer(holdSave, () => {
         if (failSave) return new Response(null, { status: 500 });
         stored = { ...stored, ...body };
+
         return jsonResponse(stored);
       });
     }
+
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -114,6 +124,7 @@ const meta = {
     failSave = false;
     releases = [];
     routeFetch();
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -121,12 +132,14 @@ const meta = {
 } satisfies Meta<typeof PersonalizationSection>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** The settings form's controls, once the settings have loaded. */
 async function formControls(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
   const name = await canvas.findByLabelText(NAME_LABEL);
+
   return {
     canvas,
     name,

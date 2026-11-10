@@ -13,6 +13,7 @@ export {
   PATH_NOT_REGISTERED_MESSAGE,
   PROTOCOL_VERSION,
 } from "./constants";
+
 export {
   isMachineErrorCode,
   JSON_RPC_BUDGET_EXHAUSTED,
@@ -25,16 +26,22 @@ export {
   MACHINE_ERROR_CODES,
   MACHINE_ERROR_JSON_RPC,
 } from "./errors";
+
 export type { MachineErrorCode } from "./errors";
+
 export {
   decodeFrame,
   encodeFrame,
   FrameSizeError,
   toJsonRpcMessage,
 } from "./frame";
+
 export type { Frame, FrameDecodeResult } from "./frame";
+
 export { createHeartbeat } from "./heartbeat";
+
 export type { Heartbeat, HeartbeatOptions } from "./heartbeat";
+
 export {
   GIT_INSPECT_METHOD,
   GIT_LOCATE_METHOD,
@@ -45,15 +52,20 @@ export {
   GIT_WORKTREE_REMOVE_METHOD,
   isGitMethod,
 } from "./git";
+
 export type { GitMethod } from "./git";
+
 export { fsGrepCursorKey } from "./grep";
+
 export type { FsGrepCursorInputs } from "./grep";
+
 export {
   isJsonRpcError,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcSuccess,
 } from "./json-rpc";
+
 export type {
   JsonRpcError,
   JsonRpcErrorObject,
@@ -66,8 +78,11 @@ export type {
   SerializableRecord,
   SerializableValue,
 } from "./json-rpc";
+
 export { createLineFramer } from "./framer";
+
 export type { FramerEvent, LineFramer } from "./framer";
+
 export {
   BYTES_NOTIFICATION,
   CANCEL_NOTIFICATION,
@@ -90,17 +105,20 @@ export {
   PROC_CANCEL_METHOD,
   ROOTS_LIST_METHOD,
 } from "./methods";
+
 export {
   createFrameMultiplexer,
   MachineProtocolError,
   StreamClosedError,
 } from "./multiplexer";
+
 export type {
   ChannelRequestOptions,
   FrameMultiplexer,
   FrameMultiplexerOptions,
   MachineChannel,
 } from "./multiplexer";
+
 export type {
   FsBytesChunk,
   FsBytesParams,
@@ -177,6 +195,7 @@ export type {
   RootsListParams,
   RootsListResult,
 } from "./types";
+
 export {
   isIdValue,
   isIntegerValue,

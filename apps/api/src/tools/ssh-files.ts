@@ -61,10 +61,13 @@ const MORE_ENTRIES_LINE = '  … more entries exist';
 
 const NOT_FOUND_MESSAGE = 'File not found.';
 const UNREADABLE_MESSAGE = 'File could not be read.';
+
 const NOT_REGULAR_MESSAGE =
   'Only a regular file or a directory can be read; a FIFO, socket, or device is never opened.';
+
 const INVALID_UTF8_MESSAGE = 'The remote file is not valid UTF-8 text.';
 const FILE_TOO_LARGE_MESSAGE = `The remote file is larger than the ${String(SSH_READ_MAX_BYTES / (1024 * 1024))} MiB read bound; examine it with a bash ssh:// cwd instead.`;
+
 const UNFINISHED_READ_MESSAGE =
   'The remote read did not finish, so the file could not be read.';
 
@@ -89,6 +92,7 @@ const REFUSAL_RESULTS: Record<SshReadRefusal, ToolResult> = {
 /** The relative budget one read carries, capped at the read's own bound. */
 function readBudgetMs(context: ToolContext): number {
   const remaining = context.timeoutMs;
+
   return remaining === undefined
     ? SSH_READ_BUDGET_MS
     : Math.max(1, Math.min(remaining, SSH_READ_BUDGET_MS));
@@ -101,12 +105,14 @@ function directorySelectorFailure(target: ReadTarget): ToolResult | undefined {
       type: 'invalid_selector',
       message: 'The :outline member is not supported for directory reads.',
     };
+
   if (target.raw)
     return {
       status: 'error',
       type: 'invalid_selector',
       message: 'The :raw selector is not supported for directory reads.',
     };
+
   if (target.ranges !== undefined || target.pending?.includes(',') === true)
     return {
       status: 'error',
@@ -114,6 +120,7 @@ function directorySelectorFailure(target: ReadTarget): ToolResult | undefined {
       message:
         'Comma-separated selectors are not supported for directory reads.',
     };
+
   return undefined;
 }
 
@@ -129,10 +136,13 @@ function failureResult(verdict: SshReadVerdict): ToolResult {
       type: 'cancelled',
       message: 'Tool "read" was cancelled.',
     };
+
   if (verdict.kind === 'unsupported')
     return sshUnsupportedHostResult(verdict.cause);
+
   if (verdict.kind === 'unavailable')
     return sshUnavailableResult(verdict.reason);
+
   return sshUnavailableResult('session_lost');
 }
 
@@ -162,6 +172,7 @@ function remoteText(
         message: FILE_TOO_LARGE_MESSAGE,
       },
     };
+
   try {
     return {
       text: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
@@ -193,6 +204,7 @@ async function renderTextRead(
 ): Promise<ToolResult> {
   try {
     const read = applySelectorSuffix(target.locator, target.selector);
+
     // The text is in hand, so its own line count is the count an `N-` or a
     // `-K` member resolves against, exactly as a file's own lines are.
     return await selectInMemoryText({
@@ -216,7 +228,9 @@ async function renderFileRead(
   content: Buffer,
 ): Promise<ToolResult> {
   const decoded = remoteText(content);
+
   if ('result' in decoded) return decoded.result;
+
   return renderTextRead(target, decoded.text);
 }
 
@@ -227,6 +241,7 @@ function listingOptions(
   more: boolean,
 ) {
   const read = applySelectorSuffix(locator, selector);
+
   return {
     read,
     options: {
@@ -251,34 +266,42 @@ function renderDirectoryRead(
 ): ToolResult {
   try {
     const { entries, more } = parseSshDirectoryEntries(content);
+
     const { read, options } = listingOptions(
       target.locator,
       target.selector,
       more,
     );
+
     // A selector the local directory reader refuses is refused first, exactly
     // as locally: it needs no page of the directory.
     const refused = directorySelectorFailure(read);
+
     if (refused !== undefined) return refused;
+
     // The host collects at most the local traversal budget plus one, so a
     // transfer that reaches it is a directory a local listing refuses. The
     // local renderer names the refusal, and the count it prints is the one the
     // transfer carried: a subset of a directory that size would misreport it.
     if (entries.length > DIRECTORY_TRAVERSAL_BUDGET)
       return renderCollectedDirectory(target.locator, entries);
+
     // The host sends glob order; the hub keeps the local order, so the bound
     // selects the first entries a local listing shows rather than the first
     // ones a glob group happened to reach.
     const shown = [...entries]
       .sort(compareEntries)
       .slice(0, SSH_LIST_MAX_ENTRIES);
+
     const result = renderCollectedDirectory(target.locator, shown, options);
+
     if (result.status === 'error')
       return {
         status: 'error',
         type: result.type,
         message: result.message,
       };
+
     return more
       ? {
           ...result,
@@ -323,6 +346,7 @@ type RemoteReadRequest = {
 
 async function runRemoteRead(request: RemoteReadRequest): Promise<RemoteRead> {
   const { client, binding, context } = request;
+
   // The read's kind is unknown until its marker, so the bound covers a
   // directory transfer; a file's own bound is what the script asks for.
   const outcome = await client.run({
@@ -337,11 +361,13 @@ async function runRemoteRead(request: RemoteReadRequest): Promise<RemoteRead> {
     stderrTailBytes: SSH_READ_NOISE_BYTES,
     ...(context.abortSignal !== undefined && { signal: context.abortSignal }),
   });
+
   const frames = parseSshReadFrames(
     outcome.outcome === 'ended' ? outcome.stdout : Buffer.alloc(0),
     outcome.diagnostic,
     request.nonce,
   );
+
   return {
     frames,
     verdict: classifySshReadOutcome(outcome, frames),
@@ -361,16 +387,19 @@ function frameResult(
       type: 'executor_unavailable',
       message: UNFINISHED_READ_MESSAGE,
     };
+
   if (frames.kind === 'file')
     return renderFileRead(
       { locator, selector: parsed.selector, path: parsed.path },
       frames.content,
     );
+
   if (frames.kind === 'dir')
     return renderDirectoryRead(
       { locator, selector: parsed.selector },
       frames.content,
     );
+
   return sshUnavailableResult('session_lost');
 }
 
@@ -384,16 +413,20 @@ export async function executeSshRead(
   path: string,
 ): Promise<ToolResult> {
   const parsed = parseSshLocator(path);
+
   if (parsed.kind === 'invalid')
     return { status: 'error', type: 'invalid_path', message: parsed.message };
+
   if (parsed.kind === 'help') return helpResult(path);
   const { sshClient: client, sshBinding: binding } = context;
+
   if (client === undefined || binding === undefined)
     return {
       status: 'error',
       type: 'invalid_path',
       message: 'This path scheme is not available.',
     };
+
   const { frames, verdict, overflow } = await runRemoteRead({
     client,
     binding,
@@ -401,6 +434,7 @@ export async function executeSshRead(
     nonce: createSshNonce(),
     context,
   });
+
   // The transfer stopped at the stdout bound, so its bytes are a prefix of
   // what the host sent: a truncated success would misreport the file or the
   // listing, whichever the marker named.
@@ -410,6 +444,7 @@ export async function executeSshRead(
       type: 'executor_unavailable',
       message: UNFINISHED_READ_MESSAGE,
     };
+
   // A refusal the host named is its own result: the script ran, and it says
   // which precondition failed. A kind this revision does not know is a frame
   // mismatch, not a refusal to act on.
@@ -417,7 +452,9 @@ export async function executeSshRead(
     return isSshReadRefusal(frames.refusal)
       ? REFUSAL_RESULTS[frames.refusal]
       : sshUnavailableResult('session_lost');
+
   if (verdict.kind !== 'complete') return failureResult(verdict);
+
   return frameResult(
     parsed,
     formatSshLocator(parsed.destination, parsed.path) ?? binding.locator,

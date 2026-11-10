@@ -77,6 +77,7 @@ export class RepositoriesController {
     @CurrentUser() userId: string,
   ): Promise<Array<RepositoryResponse>> {
     const list = await this.repositories.listRepositories(userId);
+
     return list.map(toRepositoryResponse);
   }
 

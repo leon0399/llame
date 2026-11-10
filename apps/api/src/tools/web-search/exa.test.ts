@@ -17,16 +17,19 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 type FixtureResult = {
   readonly title?: string | number;
   readonly url?: string | number;
   readonly publishedDate?: string;
   readonly highlights?: Array<string>;
 };
+
 type FixtureBody =
   | string
   | { readonly results: Array<FixtureResult> }
   | { readonly results: string };
+
 const ExaRequestSchema = z.object({
   query: z.string(),
   objective: z.string(),
@@ -36,12 +39,16 @@ const ExaRequestSchema = z.object({
   startPublishedDate: z.string().optional(),
   contents: z.object({ highlights: z.literal(true) }),
 });
+
 type ExaRequest = z.infer<typeof ExaRequestSchema>;
+
 async function parseBody(init: RequestInit | undefined): Promise<ExaRequest> {
   const text = await new Response(init?.body ?? null).text();
+
   // SAFETY: The schema validates JSON parsed from the captured vendor request.
   return ExaRequestSchema.parse(JSON.parse(text) as unknown);
 }
+
 function captureFixture(body: FixtureBody, status = 200) {
   return captureFetch(JSON.stringify(body), status);
 }
@@ -50,6 +57,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-08T12:00:00.000Z'));
 });
+
 afterEach(() => vi.useRealTimers());
 
 describe('Exa adapter', () => {
@@ -66,10 +74,12 @@ describe('Exa adapter', () => {
         { title: 'Malformed', url: 3 },
       ],
     });
+
     const result = await createExaEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request());
+
     expect(recorded.seen().url).toBe(EXA_SEARCH_URL);
     expect(recorded.seen().init?.method).toBe('POST');
     const headers = new Headers(recorded.seen().init?.headers);
@@ -187,6 +197,7 @@ describe('Exa adapter', () => {
       { key: 'secret' },
       { fetch: captureFixture({ results: [{ title: 'bad' }] }).fetch },
     );
+
     await expect(engine(request())).resolves.toStrictEqual({ kind: 'empty' });
   });
 
@@ -195,6 +206,7 @@ describe('Exa adapter', () => {
       { key: 'secret' },
       { fetch: captureFixture({ results: 'bad' }).fetch },
     );
+
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -207,10 +219,12 @@ describe('Exa adapter', () => {
     [503, 'upstream_error'],
   ] as const)('classifies HTTP %s as %s', async (status, failureClass) => {
     const key = 'secret-key';
+
     const engine = createExaEngine(
       { key },
       { fetch: captureFixture(`body ${key}`, status).fetch },
     );
+
     await expect(engine(request())).rejects.toMatchObject({ failureClass });
     await expect(engine(request())).rejects.not.toThrow(key);
   });

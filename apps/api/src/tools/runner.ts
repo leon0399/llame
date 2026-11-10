@@ -80,21 +80,27 @@ function withAbort<T>(
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     let graceTimer: NodeJS.Timeout | undefined;
+
     const cleanup = () => {
       signal.removeEventListener('abort', onAbort);
+
       if (graceTimer !== undefined) clearTimeout(graceTimer);
     };
+
     const finish = (settle: () => void) => {
       if (settled) return;
       settled = true;
       cleanup();
       settle();
     };
+
     const onAbort = () => {
       if (abortGraceMs === 0) {
         finish(() => reject(new ToolAbortError('Tool call aborted')));
+
         return;
       }
+
       if (graceTimer !== undefined) return;
       graceTimer = setTimeout(() => {
         finish(() => reject(new ToolAbortError('Tool call aborted')));
@@ -108,6 +114,7 @@ function withAbort<T>(
           reject(error instanceof Error ? error : new Error(String(error))),
         ),
     );
+
     if (signal.aborted) onAbort();
     else signal.addEventListener('abort', onAbort, { once: true });
   });
@@ -120,9 +127,11 @@ function prepareToolExecution(
 ): PreparedToolExecution {
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
+
   const composedSignal = context.abortSignal
     ? AbortSignal.any([context.abortSignal, timeoutSignal])
     : timeoutSignal;
+
   return {
     context: {
       ...context,
@@ -152,6 +161,7 @@ export function invalidCallResult(toolName: string): ToolResult {
     message: `The call to "${toolName}" had invalid arguments.`,
   };
 }
+
 /** The admitted schema of an MCP tool is static for the process lifetime. */
 const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
 
@@ -164,11 +174,15 @@ const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
 function mcpDeclaredStringFields(tool: Tool): ReadonlySet<string> | undefined {
   if (!tool.id.startsWith('mcp__')) return undefined;
   const cached = declaredFieldCache.get(tool);
+
   if (cached !== undefined) return cached;
+
   const fields = isRecord(tool.inputSchema)
     ? declaredStringProperties(tool.inputSchema)
     : new Set<string>();
+
   declaredFieldCache.set(tool, fields);
+
   return fields;
 }
 
@@ -185,7 +199,9 @@ function projectWorkspaceArguments(
   root: string | undefined,
 ): WorkspaceProjection {
   if (isNativeFileTool(tool)) return projectNativeFileArguments(args, root);
+
   if (isBashTool(tool)) return projectBashArguments(args, root);
+
   return { args, changed: false };
 }
 
@@ -208,10 +224,13 @@ function projectNativeFileArguments(
   root: string | undefined,
 ): WorkspaceProjection {
   const path = args.path;
+
   if (!isString(path) || root === undefined) return { args, changed: false };
+
   if (isWorkspaceRelative(path))
     return projectedField(args, 'path', resolveWorkspacePath(root, path));
   const mapped = mapToWorkspaceHost(root, path);
+
   return mapped === path
     ? { args, changed: false }
     : projectedField(args, 'path', mapped);
@@ -227,18 +246,25 @@ function projectBashArguments(
   root: string | undefined,
 ): WorkspaceProjection {
   const cwd = args.cwd;
+
   if (isString(cwd) && isMachineLocator(cwd)) {
     const canonical = canonicalMachineLocator(cwd);
+
     return canonical === cwd
       ? { args, changed: false }
       : projectedField(args, 'cwd', canonical);
   }
+
   if (root === undefined) return { args, changed: false };
+
   if (cwd === undefined) return projectedField(args, 'cwd', root);
+
   if (isString(cwd) && isWorkspaceRelative(cwd))
     return projectedField(args, 'cwd', resolveWorkspacePath(root, cwd));
+
   if (!isString(cwd)) return { args, changed: false };
   const mapped = mapToWorkspaceHost(root, cwd);
+
   return mapped === cwd
     ? { args, changed: false }
     : projectedField(args, 'cwd', mapped);
@@ -256,7 +282,9 @@ function evaluateCanonicalReadPermission(
     tool.id === 'read' && isString(workspace.args.path)
       ? projectFieldValue('path', workspace.args.path)
       : undefined;
+
   const canonicalPath = context.canonicalReadPath;
+
   if (
     canonicalPath === undefined ||
     evaluatedPath === undefined ||
@@ -271,14 +299,17 @@ function evaluateCanonicalReadPermission(
       args: { path: canonicalPath },
     }),
   );
+
   if (canonicalDecision !== undefined) {
     context.onDerivedDecision?.({
       kind: 'canonical',
       url: canonicalPath,
       decision: canonicalDecision,
     });
+
     if (canonicalDecision.decision === 'reject') return canonicalDecision;
   }
+
   return decision;
 }
 
@@ -305,6 +336,7 @@ function evaluateToolPermission(
 ): PermissionDecision | undefined {
   // `grep` is admitted once per scope on each scope's literal prefix.
   if (tool.id === 'grep') return evaluateGrepPermission(args, context);
+
   return evaluateLocatorToolPermission(tool, args, context);
 }
 
@@ -315,6 +347,7 @@ function evaluateLocatorToolPermission(
 ): PermissionDecision | undefined {
   const root = context.workspaceRoot?.current();
   const workspace = projectWorkspaceArguments(tool, args, root);
+
   const options = {
     toolId: tool.id,
     args: workspace.args,
@@ -323,6 +356,7 @@ function evaluateLocatorToolPermission(
     validFields: mcpDeclaredStringFields(tool),
     projectFieldValue: nativeFileProjection(tool.id, root),
   };
+
   const submitted = {
     ...options,
     args,
@@ -332,11 +366,13 @@ function evaluateLocatorToolPermission(
             field === 'path' ? withoutReadSelector(value) : value
         : undefined,
   };
+
   const decision = admitPermission(context, (evaluate) =>
     workspace.changed
       ? evaluate(options)
       : evaluateSubmittedThenProjected(evaluate, submitted, options),
   );
+
   return evaluateCanonicalReadPermission(
     context,
     tool,
@@ -359,9 +395,11 @@ export function previewToolPermission(
   // The `read-only` ceiling refuses before anything else, exactly as in
   // `runTool`, so no caller plans a call the attempt cannot make.
   if (readOnlyCeiling(context, tool, args) !== undefined) return false;
+
   // A preview is synchronous: it cannot resolve an ssh destination, and the
   // allow must be decided on the resolved locator, so it fails closed.
   if (isSshRead(tool, args) || isSshBash(tool, args)) return false;
+
   return evaluateToolPermission(tool, args, context)?.decision === 'allow';
 }
 
@@ -387,34 +425,46 @@ export async function runTool(
   onAdmitted?: (decision: PermissionDecision) => void | Promise<void>,
 ): Promise<ToolResult> {
   const admission = admitToolCall(tool, args, context, callTimeoutSeconds);
+
   if ('result' in admission) return admission.result;
   const { context: validContext, args: validArgs, submittedArgs } = admission;
   // The `read-only` ceiling runs right after argument validation: a rejected
   // call resolves no SSH destination, asks for no grep scope, and evaluates no
   // permission group. It records the same decision path as a policy reject.
   const ceiling = readOnlyCeiling(validContext, tool, submittedArgs);
+
   if (ceiling !== undefined) {
     if (onAdmitted !== undefined) await onAdmitted(ceiling);
+
     return permissionDeniedResult(ceiling.reason);
   }
+
   // Any other call keeps the synchronous permission path; an `ssh://` read or
   // `bash` cwd must resolve its destination first, so only those await.
   const pendingSsh = admitSshCall(tool, submittedArgs, validContext);
   const ssh = pendingSsh === undefined ? NO_SSH : await pendingSsh;
+
   if (ssh.kind === 'refused') return ssh.result;
+
   // Policy is not asked for a scope this process cannot search.
   if (tool.id === 'grep') {
     const scope = refuseUnsearchableGrepScopes(submittedArgs, validContext);
+
     if (scope !== undefined) return scope;
   }
+
   const decision =
     ssh.kind === 'decided'
       ? ssh.decision
       : evaluateToolPermission(tool, submittedArgs, validContext);
+
   if (decision === undefined) return permissionDeniedResult('no_allow');
+
   if (onAdmitted !== undefined) await onAdmitted(decision);
+
   if (decision.decision === 'reject')
     return permissionDeniedResult(decision.reason);
+
   return executeAdmittedTool(
     tool,
     validArgs,
@@ -434,6 +484,7 @@ async function executeAdmittedTool(
 ): Promise<ToolResult> {
   if (context.abortSignal?.aborted) return cancelledBeforeExecution(tool.id);
   const prepared = prepareToolExecution(tool, context, callTimeoutSeconds);
+
   return settleAdmittedExecution(tool, validArgs, context, prepared);
 }
 
@@ -444,6 +495,7 @@ async function settleAdmittedExecution(
   prepared: PreparedToolExecution,
 ): Promise<ToolResult> {
   let mcpDispatchRecorded = false;
+
   const executionContext = {
     ...prepared.context,
     onMcpDispatchRecorded: () => {
@@ -451,13 +503,16 @@ async function settleAdmittedExecution(
       context.onMcpDispatchRecorded?.();
     },
   };
+
   try {
     const result = await withAbort(
       Promise.resolve(tool.execute(executionContext, validArgs)),
       prepared.composedSignal,
       isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
     );
+
     notifyUnknownOutcome(tool, context, result);
+
     return await capToolResult(tool, context, result);
   } catch (error) {
     const result = classifyToolExecutionError(
@@ -467,7 +522,9 @@ async function settleAdmittedExecution(
       tool,
       mcpDispatchRecorded,
     );
+
     notifyUnknownOutcome(tool, context, result);
+
     return await capToolResult(tool, context, result);
   }
 }
@@ -491,9 +548,11 @@ function notifyUnknownOutcome(
   if (result.status !== 'error' || result.type !== 'outcome_unknown') {
     return;
   }
+
   if (!isNativeFileTool(tool) || tool.id === 'read') {
     return;
   }
+
   context.onNativeMutationUnknown?.();
 }
 
@@ -521,10 +580,13 @@ function classifyToolExecutionError(
   if (tool.id.startsWith('mcp__') && mcpDispatchRecorded) {
     return unknownMcpExecution();
   }
+
   if (isBashTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
     return unknownNativeExecution(tool);
   }
+
   const toolId = tool.id;
+
   if (context.abortSignal?.aborted) {
     return {
       status: 'error',
@@ -532,6 +594,7 @@ function classifyToolExecutionError(
       message: `Tool "${toolId}" was cancelled.`,
     };
   }
+
   if (timeoutSignal.aborted) {
     return {
       status: 'error',
@@ -539,10 +602,12 @@ function classifyToolExecutionError(
       message: `Tool "${toolId}" timed out.`,
     };
   }
+
   logger.error(
     `Tool "${toolId}" threw`,
     error instanceof Error ? error.stack : String(error),
   );
+
   return {
     status: 'error',
     type: 'execution_failed',
@@ -568,9 +633,11 @@ function parseToolArguments(
   args: SubmittedToolArguments,
 ): AdmittedArguments | ToolResult {
   const parsed = safeParseArgs(tool.inputSchema, args);
+
   if (!parsed.success || !isRecord(parsed.data)) {
     return invalidToolArguments(tool);
   }
+
   return { args: parsed.data, submittedArgs: args };
 }
 
@@ -616,7 +683,10 @@ function admitToolCall(
   if (!isRecord(args)) {
     return { result: invalidToolArguments(tool) };
   }
+
   const parsed = parseToolArguments(tool, args);
+
   if ('status' in parsed) return { result: parsed };
+
   return { context, ...parsed };
 }

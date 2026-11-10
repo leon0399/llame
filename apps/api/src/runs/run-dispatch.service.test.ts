@@ -73,6 +73,7 @@ describe('RunDispatchService', () => {
     ensureQueue
       .mockRejectedValueOnce(bootstrapFailure)
       .mockResolvedValue(undefined);
+
     const service = new RunDispatchService(
       q,
       config(),
@@ -91,15 +92,18 @@ describe('RunDispatchService', () => {
     const enqueueFailure = new Error('queue send failed');
     const db = tenantDb();
     const tx: Db = drizzle.mock({ schema });
+
     const runAs = vi
       .spyOn(db, 'runAs')
       .mockImplementation(
         <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
           callback(tx),
       );
+
     const markFinished = vi
       .spyOn(RunsRepository.prototype, 'markFinished')
       .mockResolvedValue(undefined);
+
     const q = queue();
     const enqueue = vi.spyOn(q, 'enqueue');
     enqueue.mockRejectedValue(enqueueFailure);

@@ -83,6 +83,7 @@ export class RunResponse {
   @ApiProperty({ format: 'date-time', type: Date, nullable: true })
   finishedAt!: Date | null;
 }
+
 /** A single system-prompt receipt for one execution attempt. */
 export class AttemptReceiptResponse {
   @ApiProperty({ description: 'Attempt identity.' })
@@ -188,6 +189,7 @@ export function toContextReceiptResponse(
   }>,
 ): ContextReceiptResponse {
   const isTerminal = isTerminalRunStatus(run.status);
+
   const state =
     receipts.length > 0 ? 'prepared' : isTerminal ? 'not_produced' : 'pending';
 

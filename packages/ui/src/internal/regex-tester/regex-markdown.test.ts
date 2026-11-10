@@ -81,6 +81,7 @@ describe("remarkRegexTokens", () => {
     const source = "Use `/\\d+\\.\\d+/` here.";
     const codeStart = source.indexOf("`");
     const codeValue = String.raw`/\d+\.\d+/`;
+
     const tree = paragraph(source, [
       positioned("text", "Use "),
       {
@@ -111,12 +112,14 @@ describe("remarkRegexTokens", () => {
 
   it("leaves fenced-code subtrees for the code-highlighter adapter", () => {
     const source = String.raw`const pattern = /^\d+$/;`;
+
     const code = {
       type: "code",
       value: source,
       position: { start: { offset: 0 }, end: { offset: source.length } },
       children: [],
     } satisfies MdNode;
+
     const tree: MdNode = { type: "root", children: [code] };
 
     applyRemark(tree, source);

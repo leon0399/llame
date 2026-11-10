@@ -116,6 +116,7 @@ function asciiFold(value: string): string {
 function unavailable(id: string, reason: string): WorkspaceMcpServerState {
   return { id, state: 'unavailable', reason };
 }
+
 function runtimeDefinition(
   config: ConfiguredServerConfig,
 ): McpRuntimeDefinition {
@@ -158,7 +159,9 @@ function runtimeState(
   states: ReadonlyArray<McpRuntimeServerState>,
 ): WorkspaceMcpServerState {
   const state = states.find((entry) => entry.serverId === id);
+
   if (state === undefined) return unavailable(id, 'source_connecting');
+
   return state.state === 'available'
     ? { id, state: 'available' }
     : unavailable(id, state.reason ?? 'source_disconnected');
@@ -199,24 +202,33 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     this.cleanupIdle();
     const id = keyString(key);
     const existing = this.records.get(id);
+
     if (existing !== undefined) {
       existing.lastUsed = this.now();
+
       return this.describe(existing);
     }
+
     const pending = this.starts.get(id);
+
     if (pending !== undefined) {
       const record = await pending;
+
       return this.describe(record);
     }
+
     const record = await this.startKey(key, await this.stopStale(key));
     record.lastUsed = this.now();
+
     return this.describe(record);
   }
 
   stateForKey(key: WorkspaceMcpKey): WorkspaceMcpEntryState | undefined {
     const record = this.records.get(keyString(key));
+
     if (record === undefined) return undefined;
     record.lastUsed = this.now();
+
     return this.describe(record);
   }
 
@@ -232,6 +244,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     key: WorkspaceMcpKey,
   ): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
     const configs = await this.readConfigs(key.root);
+
     return Object.freeze(
       configs.map((config) =>
         unavailable(
@@ -251,11 +264,14 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     key: WorkspaceMcpKey,
   ): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
     const current = cell.listing;
+
     if (current !== undefined && sameKey(current.key, key)) {
       return current.servers;
     }
+
     const servers = await this.listUnstarted(key);
     cell.listing = { key, servers };
+
     return servers;
   }
 
@@ -270,15 +286,19 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     const epoch = this.bumpStopEpoch(key.chatId);
     await this.stopStaleForChat(key);
     await this.awaitPendingStarts(key.chatId);
+
     return epoch;
   }
 
   beginAttempt(key: WorkspaceMcpKey): void {
     const id = keyString(key);
     const previous = this.activeHolds.get(key.chatId);
+
     if (previous === id) return;
+
     if (previous !== undefined) this.releaseHold(previous);
     const record = this.records.get(id);
+
     if (record === undefined) return;
     record.activeAttempts += 1;
     record.lastUsed = this.now();
@@ -287,6 +307,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
 
   endAttempt(chatId: string): void {
     const id = this.activeHolds.get(chatId);
+
     if (id === undefined) return;
     this.releaseHold(id);
     this.activeHolds.delete(chatId);
@@ -297,6 +318,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   }
   private releaseHold(id: string): void {
     const record = this.records.get(id);
+
     if (record === undefined) return;
     record.activeAttempts = Math.max(0, record.activeAttempts - 1);
     record.lastUsed = this.now();
@@ -307,11 +329,14 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     additions: AttemptToolAdditions,
   ): Promise<WorkspaceMcpEntryState> {
     const record = this.records.get(keyString(key));
+
     if (record === undefined) return { key, servers: [] };
     record.lastUsed = this.now();
+
     const statuses = this.describe(record).servers.map((status) =>
       this.addServerToAttempt(record, status, additions),
     );
+
     return { key, servers: await Promise.all(statuses) };
   }
 
@@ -320,12 +345,15 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     operatorCandidates: ReadonlyArray<TurnToolCandidate> = this.operator.snapshotCandidates(),
   ): ReadonlyArray<TurnToolCandidate> {
     const record = this.records.get(keyString(key));
+
     if (record === undefined) return operatorCandidates;
+
     const activeServers = new Set(
       this.describe(record)
         .servers.filter(({ state }) => state === 'available')
         .map(({ id }) => id),
     );
+
     return [
       ...operatorCandidates.filter((candidate) =>
         candidate.source.type === 'mcp'
@@ -357,9 +385,11 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
 
   async stopForChat(chatId: string): Promise<void> {
     this.bumpStopEpoch(chatId);
+
     const matches = [...this.records.values()].filter(
       (record) => record.key.chatId === chatId,
     );
+
     await Promise.all(matches.map((record) => this.stopRecord(record)));
     await this.awaitPendingStarts(chatId);
   }
@@ -371,6 +401,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
       ) {
         continue;
       }
+
       void this.stopRecord(record);
     }
   }
@@ -378,9 +409,11 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     if (this.stopping) return;
     this.stopping = true;
     clearInterval(this.cleanupTimer);
+
     for (const record of this.records.values()) {
       this.bumpStopEpoch(record.key.chatId);
     }
+
     await Promise.allSettled(this.starts.values());
     await Promise.all(
       [...this.records.values()].map((record) => this.stopRecord(record)),
@@ -389,15 +422,18 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   private async awaitPendingStarts(chatId: string): Promise<void> {
     const prefix = `${chatId}\u0000`;
     const pending: Array<Promise<ClientSet>> = [];
+
     for (const [id, operation] of this.starts) {
       if (id.startsWith(prefix)) pending.push(operation);
     }
+
     await Promise.allSettled(pending);
   }
 
   private bumpStopEpoch(chatId: string): number {
     const epoch = (this.stopEpochs.get(chatId) ?? 0) + 1;
     this.stopEpochs.set(chatId, epoch);
+
     return epoch;
   }
 
@@ -406,18 +442,25 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     epoch: number,
   ): Promise<ClientSet> {
     const existing = this.records.get(keyString(key));
+
     if (existing !== undefined) return existing;
     const pending = this.starts.get(keyString(key));
+
     if (pending !== undefined) return pending;
     const operation = this.createClientSet(key);
     this.starts.set(keyString(key), operation);
+
     try {
       const record = await operation;
+
       if (this.stopping || this.stopEpochs.get(key.chatId) !== epoch) {
         await record.runtime.stop();
+
         return record;
       }
+
       this.records.set(keyString(key), record);
+
       return record;
     } finally {
       this.starts.delete(keyString(key));
@@ -429,6 +472,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     const configs = await this.readConfigs(key.root);
     const operatorIds = this.operator.snapshotServerIds();
     const configured = configuredEntries(configs, operatorIds);
+
     const runtime = new McpRuntimeService(runtimeDefinitions(configured), {
       ...(this.clientFactory !== undefined && {
         clientFactory: this.clientFactory,
@@ -440,7 +484,9 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
         ),
       }),
     });
+
     await runtime.start();
+
     return { key, configs, runtime, activeAttempts: 0, lastUsed: this.now() };
   }
 
@@ -449,6 +495,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     root: string,
   ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
     const target = machineWorkspaceTarget(root);
+
     return target === undefined
       ? this.readLocalConfigs(root)
       : readMachineServerConfigs(this.connector, target);
@@ -469,11 +516,13 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     const stale = [...this.records.values()].filter(
       (record) => record.key.chatId === key.chatId && !sameKey(record.key, key),
     );
+
     await Promise.all(stale.map((record) => this.stopRecord(record)));
   }
 
   private async stopRecord(record: ClientSet): Promise<void> {
     const id = keyString(record.key);
+
     if (this.records.get(id) !== record) return;
     this.records.delete(id);
     await record.runtime.stop();
@@ -482,6 +531,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   private describe(record: ClientSet): WorkspaceMcpEntryState {
     const operatorIds = this.operator.snapshotServerIds();
     const states = record.runtime.snapshotServerStates();
+
     return {
       key: record.key,
       servers: Object.freeze(
@@ -489,12 +539,14 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
           if (config.state === 'unavailable') {
             return unavailable(config.id, config.reason);
           }
+
           if (isCaseOnlyCollision(config.id, operatorIds)) {
             return unavailable(
               config.id,
               'case-only collision with an operator server',
             );
           }
+
           return runtimeState(config.id, states);
         }),
       ),
@@ -507,6 +559,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     additions: AttemptToolAdditions,
   ): Promise<WorkspaceMcpServerState> {
     if (status.state !== 'available') return status;
+
     if (this.operator.snapshotServerIds().some((id) => id === status.id)) {
       if (additions.hasOperatorDeclaration(status.id)) {
         return {
@@ -515,13 +568,16 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
         };
       }
     }
+
     const tools = record.runtime
       .snapshotCandidatesForServer(status.id)
       .flatMap((candidate) =>
         candidate.state === 'available' ? [candidate.tool] : [],
       );
+
     if (tools.length === 0) return status;
     const result = await additions.add(status.id, tools);
+
     return this.statusAfterAddition(status, result);
   }
 
@@ -541,17 +597,21 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   ): DynamicToolResolution {
     const record = this.records.get(keyString(key));
     const parsed = parseMcpToolId(id);
+
     if (record !== undefined && parsed.success) {
       const status = this.describe(record).servers.find(
         ({ id: serverId }) => serverId === parsed.serverId,
       );
+
       if (status?.state === 'available') {
         const resolution = record.runtime.resolveDynamicTool(id);
+
         return resolution.state === 'available'
           ? { ...resolution, workspaceServer: parsed.serverId }
           : resolution;
       }
     }
+
     return operatorResolver?.resolveDynamicTool(id) ?? { state: 'not_dynamic' };
   }
 }

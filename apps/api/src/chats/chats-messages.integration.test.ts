@@ -50,10 +50,12 @@ async function waitFor(
   timeoutMs = 1000,
 ): Promise<void> {
   const started = Date.now();
+
   while (!(await condition())) {
     if (Date.now() - started > timeoutMs) {
       throw new Error('Timed out waiting for condition');
     }
+
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
@@ -112,9 +114,11 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password, name });
+
     expect(res.status).toBe(201);
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
@@ -132,6 +136,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const chat = await tenantDb.runAs(userId, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: userId, title }),
     );
+
     return chat.id;
   }
 
@@ -153,20 +158,27 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   function holdNextTurn() {
     let release = () => {};
     let announce = () => {};
+
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const started = new Promise<void>((resolve) => {
       announce = resolve;
     });
+
     releaseHeldTurn = () => release();
+
     const original: typeof models.client.streamText =
       models.client.streamText.bind(models.client);
+
     const spy = vi.spyOn(models.client, 'streamText');
     spy.mockImplementation((input) => {
       const onFinish = input.onFinish;
+
       if (!onFinish) return original(input);
       spy.mockRestore();
+
       return original({
         ...input,
         onFinish: async (output) => {
@@ -176,11 +188,13 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         },
       });
     });
+
     return { started, release: () => release() };
   }
 
   beforeAll(async () => {
     models = new FakeModelsService();
+
     const mod = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -243,6 +257,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     await tenantDb.runAs(userAId, async (tx) => {
       const repo = new RunsRepository(tx);
       const runs = await repo.findByChatId(chatA, userAId);
+
       for (const leftover of runs) {
         if (
           !['completed', 'failed', 'cancelled', 'expired'].includes(
@@ -272,6 +287,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         parts: [{ type: 'text', text: 'History prompt' }],
         attachments: [{ type: 'file', name: 'context.txt' }],
       });
+
       const assistantMessage = await messagesRepo.create({
         chatId: historyChatId,
         role: 'assistant',
@@ -281,18 +297,23 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         usage: { status: 'completed', cachedInputTokens: 1 },
         inReplyTo: userMessageId,
       });
+
       assistantMessageId = assistantMessage.id;
     });
 
     const ownerRead = await request(http)
       .get(`/api/v1/chats/${historyChatId}/messages`)
       .set('Cookie', cookieA);
+
     const ownerReadBody: unknown = ownerRead.body;
+
     if (!isRecord(ownerReadBody) || !Array.isArray(ownerReadBody.messages)) {
       throw new Error('Expected a messages array');
     }
+
     const [firstMessage, secondMessage]: Array<unknown> =
       ownerReadBody.messages;
+
     assertOrderedMessage(firstMessage);
     assertOrderedMessage(secondMessage);
 
@@ -336,6 +357,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .get(`/api/v1/chats/${historyChatId}/messages`)
       .query({ limit: 1, beforeSeq: secondMessage.seq })
       .set('Cookie', cookieA);
+
     expect(olderPage.status).toBe(200);
     expect(olderPage.body).toEqual({
       messages: [
@@ -351,16 +373,19 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .get(`/api/v1/chats/${historyChatId}/messages`)
       .query({ limit: 201 })
       .set('Cookie', cookieA);
+
     expect(tooLarge.status).toBe(400);
 
     const crossTenantRead = await request(http)
       .get(`/api/v1/chats/${historyChatId}/messages`)
       .set('Cookie', cookieB);
+
     expect(crossTenantRead.status).toBe(404);
 
     const anonymousRead = await request(http).get(
       `/api/v1/chats/${historyChatId}/messages`,
     );
+
     expect(anonymousRead.status).toBe(401);
   });
 
@@ -368,12 +393,14 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const retainedChatId = await createChat(userAId, 'Retained read API Chat');
     // Base64 of "RETAINEDBYTES": a marker no other response field can produce.
     const retainedData = 'UkVUQUlORURCWVRFUw==';
+
     const retainedMedia = {
       mediaType: 'image/png',
       width: 1600,
       height: 900,
       data: retainedData,
     };
+
     const imports = {
       locator: 'shot.png',
       outcome: 'imported',
@@ -382,6 +409,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       mediaType: 'image/png',
       retainedMedia,
     };
+
     const toolPart = {
       type: 'tool-read',
       toolCallId: 'call-1',
@@ -397,10 +425,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       },
       retainedMedia,
     };
+
     let userMessageId = '';
 
     await tenantDb.runAs(userAId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
+
       const userMessage = await messagesRepo.create({
         chatId: retainedChatId,
         role: 'user',
@@ -419,6 +449,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           },
         ],
       });
+
       userMessageId = userMessage.id;
       await messagesRepo.create({
         chatId: retainedChatId,
@@ -496,6 +527,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         userMessageId,
       ),
     );
+
     expect(JSON.stringify(stored?.parts)).toContain(retainedData);
   });
 
@@ -515,6 +547,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         senderUserId: userAId,
         parts: [{ type: 'text', text: 'A turn that failed at pickup' }],
       });
+
       // Failed before it dispatched: nothing of the turn was written, and the
       // follow-up actions must still judge it.
       const failed = await runsRepo.create({
@@ -525,6 +558,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         effort: 'high',
         permissionMode: 'bypass',
       });
+
       // The same message the Run's stream error frame carries.
       await runsRepo.markFinished(failed.id, userAId, 'failed', {
         error: { message: 'This model is unavailable for free.' },
@@ -537,6 +571,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const failedRead = await request(http)
       .get(`/api/v1/chats/${runChatId}/messages`)
       .set('Cookie', cookieA);
+
     expect(failedRead.status).toBe(200);
     expect(
       z.object({ latestRun: z.unknown() }).parse(failedRead.body).latestRun,
@@ -556,6 +591,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     // is strictly later than the Run it continues.
     await tenantDb.runAs(userAId, async (tx) => {
       const runsRepo = new RunsRepository(tx);
+
       const continued = await runsRepo.create({
         chatId: runChatId,
         messageId: userMessageId,
@@ -566,6 +602,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         followUpAction: 'continue',
         sourceRunId: failedRunId,
       });
+
       // A cancelled Run records why, but its stream sends no error frame.
       await runsRepo.markFinished(continued.id, userAId, 'cancelled', {
         error: { message: 'Cancelled.' },
@@ -595,6 +632,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const foreignRead = await request(http)
       .get(`/api/v1/chats/${runChatId}/messages`)
       .set('Cookie', cookieB);
+
     expect(foreignRead.status).toBe(404);
     expect(foreignRead.body).not.toHaveProperty('latestRun');
   });
@@ -608,6 +646,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     // publishes them.
     await tenantDb.runAs(userAId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
+
       const append = async (role: 'user' | 'assistant', text: string) =>
         messagesRepo.create({
           chatId: checkpointChatId,
@@ -616,6 +655,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text }],
           attachments: [],
         });
+
       const checkpoint = async (summary: string, absorbedThroughSeq: number) =>
         (
           await messagesRepo.createCheckpoint({
@@ -646,10 +686,13 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       const response = await request(http)
         .get(`/api/v1/chats/${checkpointChatId}/messages${query}`)
         .set('Cookie', cookieA);
+
       expect(response.status).toBe(200);
+
       return z.object({ messages: z.array(z.unknown()) }).parse(response.body)
         .messages;
     };
+
     const firstCheckpoint = expect.objectContaining({
       id: checkpointIds[0],
       role: 'checkpoint',
@@ -662,6 +705,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         modelId: 'e2e-checkpoint-model',
       },
     });
+
     const secondCheckpoint = expect.objectContaining({
       id: checkpointIds[1],
       role: 'checkpoint',
@@ -691,6 +735,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     await tenantDb.runAs(userAId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
+
       for (const text of ['first', 'middle', 'latest']) {
         targetMessages.push(
           await messagesRepo.create({
@@ -709,6 +754,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         .get(`/api/v1/chats/${targetChatId}/messages`)
         .query({ limit: 2, targetSeq: target.seq })
         .set('Cookie', cookieA);
+
       const body = z
         .object({ messages: z.array(z.object({ seq: z.number() })) })
         .parse(response.body);
@@ -726,19 +772,23 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .get(`/api/v1/chats/${targetChatId}/messages`)
       .query({ targetSeq: targetMessages.at(-1)!.seq + 1 })
       .set('Cookie', cookieA);
+
     expect(missingTarget.status).toBe(404);
 
     const deletedTarget = targetMessages[1];
     await tenantDb.runAs(userAId, (tx) =>
       tx.execute(dsql`delete from messages where id = ${deletedTarget.id}`),
     );
+
     const deletedResponse = await request(http)
       .get(`/api/v1/chats/${targetChatId}/messages`)
       .query({ targetSeq: deletedTarget.seq })
       .set('Cookie', cookieA);
+
     expect(deletedResponse.status).toBe(404);
 
     const otherChatId = await createChat(userBId, 'Foreign Target API Chat');
+
     const [otherMessage] = await tenantDb.runAs(userBId, async (tx) => {
       const created = await new MessagesRepository(tx).create({
         chatId: otherChatId,
@@ -747,8 +797,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         parts: [{ type: 'text', text: 'foreign' }],
         attachments: [],
       });
+
       return [created];
     });
+
     await tenantDb.runAs(userBId, (tx) =>
       new ChatsRepository(tx).update(otherChatId, userBId, {
         visibility: 'public',
@@ -759,12 +811,14 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .get(`/api/v1/chats/${otherChatId}/messages`)
       .query({ targetSeq: otherMessage.seq })
       .set('Cookie', cookieA);
+
     expect(ownerToForeign.status).toBe(404);
 
     const foreignToOwner = await request(http)
       .get(`/api/v1/chats/${targetChatId}/messages`)
       .query({ targetSeq: targetMessages[0].seq })
       .set('Cookie', cookieB);
+
     expect(foreignToOwner.status).toBe(404);
   });
 
@@ -773,6 +827,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       userAId,
       'Invalid Target API Chat',
     );
+
     const findChat = vi.spyOn(ChatsRepository.prototype, 'findById');
     const findMessages = vi.spyOn(MessagesRepository.prototype, 'findByChatId');
 
@@ -789,6 +844,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         .get(`/api/v1/chats/${invalidQueryChatId}/messages`)
         .query(query)
         .set('Cookie', cookieA);
+
       expect(response.status).toBe(400);
     }
 
@@ -802,6 +858,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     await tenantDb.runAs(userAId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
+
       for (let index = 0; index < 101; index += 1) {
         const id = crypto.randomUUID();
         seededMessageIds.push(id);
@@ -818,6 +875,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const ownerRead = await request(http)
       .get(`/api/v1/chats/${cappedChatId}/messages`)
       .set('Cookie', cookieA);
+
     const ownerReadBody = z
       .object({
         messages: z.array(z.object({ id: z.string(), seq: z.number() })),
@@ -840,6 +898,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const telemetryLog = vi
       .spyOn(turnTelemetryLogger, 'info')
       .mockImplementation(() => {});
+
     models.client.responses = ['hello from model'];
     const userMessageId = crypto.randomUUID();
 
@@ -861,10 +920,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(models.client.turns).toHaveLength(1);
 
     const messages = await listMessages(chatA);
+
     const assistantMessage = messages.find(
       (message) =>
         message.role === 'assistant' && message.inReplyTo === userMessageId,
     );
+
     expectTemporalRow(
       messages.find((message) => message.id === userMessageId)?.parts ?? [],
     );
@@ -1052,6 +1113,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Once' }],
         },
       });
+
     expect(first.status).toBe(200);
 
     const second = await request(http)
@@ -1080,13 +1142,17 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const runs = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findByChatId(chatA, userAId),
     );
+
     const run = runs.find((r) => r.messageId === messageId);
     expect(run).toBeDefined();
+
     const cancelRes = await request(http)
       .patch(`/api/v1/runs/${run!.id}`)
       .set('Cookie', cookieA)
       .send({ status: 'cancelled' });
+
     expect(cancelRes.status).toBe(200);
+
     return run!;
   }
 
@@ -1112,6 +1178,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Abort me mid-stream' }],
         },
       });
+
     const settled = pending.then(
       () => undefined,
       () => undefined,
@@ -1125,6 +1192,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     // The cancelled turn persisted only the empty placeholder, never text.
     await waitFor(async () => {
       const messages = await listMessages(chatA);
+
       return messages.some(
         (m) =>
           m.inReplyTo === userMessageId &&
@@ -1140,6 +1208,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const finalRun = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findById(run.id, userAId),
     );
+
     expect(finalRun?.status).toBe('cancelled');
   });
 
@@ -1160,6 +1229,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Try again' }],
         },
       });
+
     const settled = pending.then(
       (res) => res,
       () => undefined,
@@ -1175,9 +1245,11 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       const current = await tenantDb.runAs(userAId, (tx) =>
         new RunsRepository(tx).findById(run.id, userAId),
       );
+
       if (current == null) {
         return false;
       }
+
       return ['cancelled', 'failed', 'completed', 'expired'].includes(
         current.status,
       );
@@ -1186,6 +1258,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     const turnsAfterCancel = models.client.turns.length;
     models.client.responses = ['retry answer'];
+
     const retried = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
@@ -1225,6 +1298,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Prompt one' }],
         },
       });
+
     const firstResponse = firstRequest.then((res) => res);
     await Promise.race([
       completion.started,
@@ -1245,6 +1319,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Prompt two' }],
         },
       });
+
     completion.release();
     expect(overlapping.status).toBe(409);
 
@@ -1260,6 +1335,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     // After the in-flight run finished, the chat accepts the next turn — and
     // its context includes the completed first exchange.
     const secondId = crypto.randomUUID();
+
     const second = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
@@ -1270,6 +1346,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Prompt two' }],
         },
       });
+
     expect(second.status).toBe(200);
     expect(models.client.turns).toHaveLength(2);
     const secondContext = JSON.stringify(models.client.turns[1].messages);
@@ -1328,6 +1405,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const chat = await request(http)
       .get(`/api/v1/chats/${newChatId}`)
       .set('Cookie', cookieA);
+
     expect(chat.status).toBe(200);
     expect(chat.body).toMatchObject({
       id: newChatId,
@@ -1342,8 +1420,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     // the terminal write (#261).
     const readChat = () =>
       request(http).get(`/api/v1/chats/${newChatId}`).set('Cookie', cookieA);
+
     await waitFor(async () => {
       const body: unknown = (await readChat()).body;
+
       return isRecord(body) && body.title === 'Generated Title';
     }, 10_000);
     expect((await readChat()).body).toMatchObject({ title: 'Generated Title' });
@@ -1371,6 +1451,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const runs = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findByChatId(newChatId, userAId),
     );
+
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({
       messageId: userMessageId,
@@ -1384,6 +1465,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const events = await tenantDb.runAs(userAId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runs[0].id, userAId),
     );
+
     expect(events.map((e) => e.eventType)).toEqual([
       'run.created',
       'run.started',
@@ -1398,12 +1480,15 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       modelId: 'system:openai:gpt-5.4-mini',
       attemptId: expect.any(String),
     });
+
     const completedPayload = events.find(
       (event) => event.eventType === 'model.completed',
     )?.payload;
+
     const completedTelemetry = isRecord(completedPayload)
       ? completedPayload.telemetry
       : undefined;
+
     expect(completedTelemetry).toEqual(
       expect.objectContaining({
         modelId: 'system:openai:gpt-5.4-mini',
@@ -1436,6 +1521,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     const newChatId = crypto.randomUUID();
     const userMessageId = crypto.randomUUID();
+
     const responsePromise = request(http)
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
@@ -1454,6 +1540,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .patch(`/api/v1/chats/${newChatId}`)
       .set('Cookie', cookieA)
       .send({ title: 'New chat' });
+
     expect(rename.status).toBe(200);
     expect(rename.body).toMatchObject({ title: 'New chat' });
 
@@ -1464,6 +1551,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const chat = await request(http)
       .get(`/api/v1/chats/${newChatId}`)
       .set('Cookie', cookieA);
+
     expect(chat.status).toBe(200);
     expect(chat.body).toMatchObject({ title: 'New chat' });
   });
@@ -1484,6 +1572,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         modelId: 'system:openai:gpt-5.4-mini',
         message: { id: firstId, parts: [{ type: 'text', text: 'First' }] },
       });
+
     const settled = pending.then(
       (res) => res,
       () => undefined,
@@ -1499,6 +1588,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     ]);
 
     const secondId = crypto.randomUUID();
+
     const second = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
@@ -1506,6 +1596,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         modelId: 'system:openai:gpt-5.4-mini',
         message: { id: secondId, parts: [{ type: 'text', text: 'Second' }] },
       });
+
     completion.release();
     expect(second.status).toBe(409);
 
@@ -1536,16 +1627,19 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Replay me' }],
         },
       });
+
     expect(res.status).toBe(200);
 
     const [run] = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findByChatId(newChatId, userAId),
     );
+
     expect(run).toBeDefined();
     await waitFor(async () => {
       const current = await tenantDb.runAs(userAId, (tx) =>
         new RunsRepository(tx).findById(run.id, userAId),
       );
+
       return current?.status === 'completed';
     }, 5000);
 
@@ -1553,6 +1647,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const runRes = await request(http)
       .get(`/api/v1/runs/${run.id}`)
       .set('Cookie', cookieA);
+
     expect(runRes.status).toBe(200);
     expect(runRes.body).toMatchObject({
       id: run.id,
@@ -1565,13 +1660,16 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const sse = await request(http)
       .get(`/api/v1/runs/${run.id}/events`)
       .set('Cookie', cookieA);
+
     expect(sse.status).toBe(200);
     expect(sse.headers['content-type']).toContain('text/event-stream');
+
     const runEventFrameSchema = z.object({
       sequence: z.number(),
       eventType: z.string(),
       payload: z.object({ text: z.string().optional() }).nullable(),
     });
+
     const frames = z.array(runEventFrameSchema).parse(parseSseEvents(sse.text));
     expect(frames.map((f) => f.eventType)).toEqual([
       'run.created',
@@ -1588,22 +1686,28 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     // Cursor: replay strictly after the last seen sequence → tail only ([DONE]).
     const lastFrame = frames.at(-1);
+
     if (lastFrame === undefined) expect.unreachable('expected replayed frames');
     const lastSequence = lastFrame.sequence;
+
     const resumed = await request(http)
       .get(`/api/v1/runs/${run.id}/events?after_sequence=${lastSequence}`)
       .set('Cookie', cookieA);
+
     expect(resumed.status).toBe(200);
     expect(parseSseEvents(resumed.text)).toHaveLength(0);
 
     // Cursor mid-stream: only events after it are replayed.
     const midSequence = frames[2].sequence; // after model.requested
+
     const partial = await request(http)
       .get(`/api/v1/runs/${run.id}/events?after_sequence=${midSequence}`)
       .set('Cookie', cookieA);
+
     const partialFrames = z
       .array(runEventFrameSchema)
       .parse(parseSseEvents(partial.text));
+
     expect(partialFrames.map((f) => f.eventType)).toEqual([
       'model.delta',
       'model.completed',
@@ -1617,9 +1721,11 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .get(`/api/v1/runs/${run.id}/events`)
       .set('Cookie', cookieA)
       .set('Last-Event-ID', String(midSequence));
+
     const reconnectedFrames = z
       .array(runEventFrameSchema)
       .parse(parseSseEvents(reconnected.text));
+
     expect(reconnectedFrames.map((f) => f.eventType)).toEqual([
       'model.delta',
       'model.completed',
@@ -1630,10 +1736,13 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const deniedRun = await request(http)
       .get(`/api/v1/runs/${run.id}`)
       .set('Cookie', cookieB);
+
     expect(deniedRun.status).toBe(404);
+
     const deniedEvents = await request(http)
       .get(`/api/v1/runs/${run.id}/events`)
       .set('Cookie', cookieB);
+
     expect(deniedEvents.status).toBe(404);
   });
 
@@ -1658,6 +1767,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     const chat = await request(http)
       .get(`/api/v1/chats/${newChatId}`)
       .set('Cookie', cookieA);
+
     expect(chat.status).toBe(200);
   });
 
@@ -1677,6 +1787,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'mine' }],
         },
       });
+
     expect(bFirst.status).toBe(200);
 
     const aSteal = await request(http)
@@ -1689,17 +1800,20 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'steal' }],
         },
       });
+
     expect(aSteal.status).toBe(404);
 
     // A cannot see it (no existence leak); B still owns it.
     const aGet = await request(http)
       .get(`/api/v1/chats/${sharedId}`)
       .set('Cookie', cookieA);
+
     expect(aGet.status).toBe(404);
 
     const bGet = await request(http)
       .get(`/api/v1/chats/${sharedId}`)
       .set('Cookie', cookieB);
+
     expect(bGet.status).toBe(200);
     expect(bGet.body).toMatchObject({ id: sharedId, ownerUserId: userBId });
   });

@@ -54,10 +54,12 @@ vi.mock("next/navigation", () => ({
 vi.mock("@ai-sdk/react", () => ({
   useChat: (options: { messages?: Array<UIMessage> }) => {
     const instanceId = useRef<number | null>(null);
+
     if (instanceId.current === null) {
       instanceId.current = ++mocks.nextChatInstanceId;
       mocks.chatInstanceIds.push(instanceId.current);
     }
+
     return {
       error: undefined,
       messages: options.messages ?? [],
@@ -123,14 +125,19 @@ function stubChatNetwork() {
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname } = new URL(request.url);
+
     if (pathname === "/api/v1/me/runs") return jsonResponse([]);
+
     if (pathname === "/api/v1/models") return jsonResponse(MODELS_RESPONSE);
+
     if (pathname === "/api/v1/permission-modes") {
       return jsonResponse({ modes: [{ value: "default" }] });
     }
+
     if (pathname === `/api/v1/chats/${CHAT_ID}/messages`) {
       return jsonResponse<ChatMessagesResponse>(TARGET_PAGE);
     }
+
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
   });
 }
@@ -139,9 +146,11 @@ beforeAll(() => {
   // A warm renderer cache opens the transcript gate on the first paint.
   installStubChatMarkdownRenderers();
   configure({ asyncUtilTimeout: 5000 });
+
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
+
   if (!("ResizeObserver" in globalThis)) {
     vi.stubGlobal(
       "ResizeObserver",
@@ -181,9 +190,11 @@ afterEach(() => {
 it("restores the target hash and input when a target send fails", async () => {
   const user = userEvent.setup();
   mocks.sendMessage.mockRejectedValue(new Error("send failed"));
+
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
+
   seedChatMessagesQueryData(
     queryClient,
     CHAT_ID,
@@ -205,9 +216,11 @@ it("restores the target hash and input when a target send fails", async () => {
   );
   await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
   const targetSessionCount = mocks.chatInstanceIds.length;
+
   const input = screen.getByPlaceholderText(
     "Describe a task or ask a question",
   );
+
   await user.type(input, "follow-up");
   await user.click(screen.getByRole("button", { name: "Send message" }));
   await waitFor(() =>

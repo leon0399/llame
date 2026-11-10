@@ -31,6 +31,7 @@ const grepCase: RankingCase = {
 
 function judgement(scores: Record<string, number>): CandidateJudgement {
   const map = new Map(Object.entries(scores));
+
   return {
     status: map.size === 0 ? 'unavailable' : 'answered',
     probabilities: map.size === 0 ? undefined : map,
@@ -45,12 +46,15 @@ function harness(scores: Record<string, number>) {
   const judgeCandidates = vi.fn((_input: JudgeCandidatesInput) =>
     Promise.resolve(judgement(scores)),
   );
+
   const written: Array<[string, string, RecordedAnswer]> = [];
   const lines: Array<string> = [];
+
   const sink: RecordSink = {
     write: (name, model, answer) => written.push([name, model, answer]),
     log: (line) => lines.push(line),
   };
+
   return { judge: { judgeCandidates }, judgeCandidates, sink, written, lines };
 }
 
@@ -173,6 +177,7 @@ describe('recordAll', () => {
 describe('fileSink', () => {
   it('creates the directory and writes one JSON file per case and model', () => {
     const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rec-')), 'a');
+
     const answer: RecordedAnswer = {
       model: 'jev-1.14',
       status: 'ranked',
@@ -180,6 +185,7 @@ describe('fileSink', () => {
       latencyMs: 3,
       costUsd: null,
     };
+
     const sink = fileSink(dir);
     sink.write('case-a', 'jev-1.14', answer);
     const raw = fs.readFileSync(path.join(dir, 'case-a.jev-1.14.json'), 'utf8');

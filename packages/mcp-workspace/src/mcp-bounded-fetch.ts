@@ -31,17 +31,22 @@ function requestContext(
   const httpMethod = (
     init?.method ?? (request instanceof Request ? request.method : 'GET')
   ).toUpperCase();
+
   if (!isString(init?.body)) {
     return { httpMethod, rpcMethod: null };
   }
+
   try {
     // SAFETY: JSON.parse returns any; asserting unknown forces isRecord's
     // check below rather than silently inheriting any.
     const body = JSON.parse(init.body) as unknown;
+
     if (!isRecord(body)) {
       return { httpMethod, rpcMethod: null };
     }
+
     const method = body['method'];
+
     return {
       httpMethod,
       rpcMethod: isString(method) ? method : null,
@@ -55,13 +60,19 @@ function requestBodySize(
   body: BodyInit | null | undefined,
 ): number | undefined {
   if (body === undefined || body === null) return 0;
+
   if (isString(body)) return new TextEncoder().encode(body).byteLength;
+
   if (body instanceof URLSearchParams) {
     return new TextEncoder().encode(body.toString()).byteLength;
   }
+
   if (body instanceof ArrayBuffer) return body.byteLength;
+
   if (ArrayBuffer.isView(body)) return body.byteLength;
+
   if (body instanceof Blob) return body.size;
+
   return undefined;
 }
 
@@ -88,6 +99,7 @@ function createByteInspector(
   let eventBytes = 0;
   let lineBytes = 0;
   let previousWasCarriageReturn = false;
+
   const onLineEnd = (): void => {
     if (lineBytes === 0) eventBytes = 0;
     lineBytes = 0;
@@ -95,15 +107,18 @@ function createByteInspector(
 
   return (chunk) => {
     onBytes?.(chunk.byteLength, context);
+
     if (!isEventStream) {
       responseBytes += chunk.byteLength;
       throwIfOverLimit(responseBytes, maxResponseBytes);
+
       return;
     }
 
     for (const byte of chunk) {
       eventBytes += 1;
       throwIfOverLimit(eventBytes, maxResponseBytes);
+
       if (byte === 0x0d) {
         onLineEnd();
         previousWasCarriageReturn = true;
@@ -127,14 +142,18 @@ function boundResponseBody(
   inspect: (chunk: Uint8Array) => void,
 ): Response {
   const reader = body.getReader();
+
   const boundedBody = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const next = await reader.read();
+
         if (next.done) {
           controller.close();
+
           return;
         }
+
         inspect(next.value);
         controller.enqueue(next.value);
       } catch (error) {
@@ -144,16 +163,19 @@ function boundResponseBody(
     },
     cancel: (reason) => reader.cancel(reason),
   });
+
   const boundedResponse = new Response(boundedBody, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,
   });
+
   Object.defineProperties(boundedResponse, {
     redirected: { value: response.redirected },
     type: { value: response.type },
     url: { value: response.url },
   });
+
   return boundedResponse;
 }
 
@@ -179,6 +201,7 @@ async function rejectIfContentLengthExceeds(
   maxResponseBytes: number,
 ): Promise<void> {
   const contentLength = response.headers.get('content-length');
+
   if (
     isEventStream ||
     contentLength === null ||
@@ -187,6 +210,7 @@ async function rejectIfContentLengthExceeds(
   ) {
     return;
   }
+
   await response.body?.cancel().catch(() => undefined);
   throw new McpBodyLimitError(maxResponseBytes);
 }
@@ -209,7 +233,9 @@ export function createMcpBoundedFetch(input: {
       ...init,
       redirect: 'error',
     });
+
     const sessionId = response.headers.get('mcp-session-id');
+
     if (sessionId) input.onSessionId?.(sessionId);
 
     const isEventStream =
@@ -218,11 +244,13 @@ export function createMcpBoundedFetch(input: {
         .get('content-type')
         ?.toLowerCase()
         .startsWith('text/event-stream');
+
     await rejectIfContentLengthExceeds(
       response,
       isEventStream,
       input.maxResponseBytes,
     );
+
     if (response.body === null) return response;
 
     const inspect = createByteInspector(
@@ -231,6 +259,7 @@ export function createMcpBoundedFetch(input: {
       input.maxResponseBytes,
       input.onBytes,
     );
+
     return boundResponseBody(response, response.body, inspect);
   };
 }

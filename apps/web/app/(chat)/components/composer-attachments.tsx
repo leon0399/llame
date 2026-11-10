@@ -44,6 +44,7 @@ import type {
  *  attachment still uploading or failed keeps its tile without a link. */
 function thumbnailItem(item: ComposerAttachment): MediaThumbnailItem {
   const { key, file, previewUrl, status, descriptor } = item;
+
   if ((descriptor?.mediaType ?? file.type) === ATTACHABLE_PDF_TYPE) {
     return {
       key,
@@ -55,6 +56,7 @@ function thumbnailItem(item: ComposerAttachment): MediaThumbnailItem {
         : undefined,
     };
   }
+
   return { key, status, kind: "image", src: previewUrl, alt: file.name };
 }
 
@@ -69,8 +71,10 @@ function uploadedSlides(
     // `pages` is the PDF member's discriminant; a PDF never enters the slides.
     if (!descriptor || "pages" in descriptor) return [];
     const sources = storedImageSources(descriptor.locator);
+
     if (!sources) return [];
     const caption = mediaCaption(descriptor.locator, descriptor);
+
     return [{ key, src: sources.original, alt: file.name, caption }];
   });
 }
@@ -86,8 +90,10 @@ export function ComposerAttachmentRow({
   attachments: ComposerAttachments;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
+
   if (attachments.items.length === 0) return null;
   const slides = uploadedSlides(attachments.items);
+
   return (
     <>
       <MediaThumbnailRow
@@ -122,6 +128,7 @@ function UploadMenuItem({
   onUpload: () => void;
 }) {
   const modifierKey = usePrimaryModifierKey();
+
   return (
     <DropdownMenuItem
       disabled={disabled}
@@ -190,14 +197,19 @@ function useUploadShortcut(
   useEffect(() => {
     if (!enabled) return;
     const isMac = detectPrimaryModifier() === "⌘";
+
     const onKey = (e: KeyboardEvent) => {
       const modifier = isMac ? e.metaKey : e.ctrlKey;
+
       if (e.repeat || !modifier || e.shiftKey || e.altKey) return;
+
       if (e.key.toLowerCase() !== UPLOAD_SHORTCUT_KEY) return;
       e.preventDefault();
       inputRef.current?.click();
     };
+
     document.addEventListener("keydown", onKey);
+
     return () => document.removeEventListener("keydown", onKey);
   }, [inputRef, enabled]);
 }
@@ -219,6 +231,7 @@ export function ComposerAddMenu({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useUploadShortcut(inputRef, !attachDisabled);
+
   return (
     <>
       <ComposerAddDropdown
@@ -249,7 +262,9 @@ export function ComposerAddMenu({
 export function pasteFilesInto(add: (files: Iterable<File>) => void) {
   return (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const { clipboardData } = event;
+
     if (clipboardData.files.length === 0) return;
+
     if (clipboardData.types.includes("text/plain")) return;
     event.preventDefault();
     add(Array.from(clipboardData.files));

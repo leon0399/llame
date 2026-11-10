@@ -126,12 +126,15 @@ export const api: StoryApi = {
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
   const url = new URL(request.url);
+
   return `${request.method} ${url.pathname}${url.search}`;
 }
 
 function chatResponse(chatId: string) {
   const chat = CHATS.find((candidate) => candidate.id === chatId);
+
   if (chat === undefined) throw new Error(`unknown chat in story: ${chatId}`);
+
   return jsonResponse({
     id: chat.id,
     ownerUserId: "u1",
@@ -155,23 +158,32 @@ const LINKS = "/api/v1/projects/p1/repositories";
 
 function answer(key: string): Response {
   if (key === `GET ${LINKS}`) return jsonResponse(api.links);
+
   if (key === "GET /api/v1/repositories") return jsonResponse(api.repositories);
+
   if (key === "GET /api/v1/checkouts") {
     return api.checkoutsFail
       ? jsonResponse({ statusCode: 500, message: "Internal" }, 500)
       : jsonResponse(api.checkouts);
   }
+
   if (key === `POST ${LINKS}`)
     return jsonResponse(link({ repositoryId: "r2" }), 201);
+
   if (key.startsWith(`PATCH ${LINKS}/`))
     return jsonResponse(link({ repositoryId: "r1" }));
+
   if (key.startsWith(`DELETE ${LINKS}/`)) return refusalOrEmpty();
+
   if (key === "POST /api/v1/checkouts")
     return jsonResponse(api.registered, 201);
+
   if (key.startsWith("DELETE /api/v1/checkouts/")) return refusalOrEmpty();
+
   if (key.startsWith("GET /api/v1/chats/")) {
     return chatResponse(key.slice("GET /api/v1/chats/".length));
   }
+
   throw new Error(`unrouted fetch in story: ${key}`);
 }
 
@@ -184,6 +196,7 @@ export function routeFetch() {
   fetchMock.mockImplementation((input) =>
     Promise.resolve(answer(routeOf(input))),
   );
+
   return () => {
     vi.unstubAllGlobals();
   };
@@ -197,8 +210,10 @@ export function sentRoutes() {
 /** The JSON body of the first request sent to `route`. */
 export async function sentBody(route: string): Promise<JsonValue> {
   const call = fetchMock.mock.calls.find(([input]) => routeOf(input) === route);
+
   if (call === undefined) throw new Error(`no request to ${route}`);
   const [input, init] = call;
   const request = input instanceof Request ? input : new Request(input, init);
+
   return request.clone().json();
 }

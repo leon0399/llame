@@ -7,10 +7,13 @@ import {
 } from './render';
 
 const CDN = 'https://cdn4.telesco.pe/file/token.jpg';
+
 const OWNER =
   '<div class="tgme_widget_message_author"><a class="tgme_widget_message_owner_name" href="https://t.me/durov"><span dir="auto">Pavel Durov</span></a></div>';
+
 const HIDDEN =
   '<div class="media_not_supported_cont"><div class="message_media_not_supported_wrap"><div class="message_media_not_supported_label">Please open Telegram to view this post</div></div></div>';
+
 const HEADER =
   '<div class="tgme_channel_info"><div class="tgme_channel_info_header_title"><span dir="auto">Pavel Durov</span></div><div class="tgme_channel_info_header_username"><a href="https://t.me/durov">@durov</a></div></div>';
 
@@ -43,11 +46,13 @@ function page(posts: Array<string>, head = '', header = HEADER): string {
   const wraps = posts
     .map((item) => `<div class="tgme_widget_message_wrap">${item}</div>`)
     .join('');
+
   return `<!DOCTYPE html><html><head>${head}</head><body>${header}<section>${wraps}</section></body></html>`;
 }
 
 function content(render: TelegramRender): string {
   if (!('content' in render)) throw new Error(`failed: ${render.failure}`);
+
   return render.content;
 }
 

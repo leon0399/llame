@@ -24,6 +24,7 @@ import { RUN_CONTROL_CHANNEL } from '../runs/run-control';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
@@ -38,6 +39,7 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).createIfAbsent({ id, ownerUserId: owner }),
     );
+
     return id;
   };
 
@@ -50,6 +52,7 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     tenantDb = new TenantDbService(db);
     a = crypto.randomUUID();
     b = crypto.randomUUID();
+
     for (const id of [a, b]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'D', ${`d-${id}@t.com`})`;
     }
@@ -76,25 +79,32 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     const deleted = await tenantDb.runAs(a, (tx) =>
       new ChatsRepository(tx).deleteById(chat, a),
     );
+
     expect(deleted).toBe(true);
 
     // Chat gone, and the cascade cleaned the children (raw counts, no RLS).
     const [{ n: chatN }] =
       await sql`SELECT count(*)::int AS n FROM chats WHERE id = ${chat}`;
+
     const [{ n: msgN }] =
       await sql`SELECT count(*)::int AS n FROM messages WHERE chat_id = ${chat}`;
+
     expect({ chatN, msgN }).toEqual({ chatN: 0, msgN: 0 });
   });
 
   it('a cross-tenant delete is a no-op — the chat survives', async () => {
     const chat = await newChat(a);
+
     const deleted = await tenantDb.runAs(b, (tx) =>
       new ChatsRepository(tx).deleteById(chat, b),
     );
+
     expect(deleted).toBe(false);
+
     const survivor = await tenantDb.runAs(a, (tx) =>
       new ChatsRepository(tx).findById(chat, a),
     );
+
     expect(survivor?.id).toBe(chat);
   });
 
@@ -113,9 +123,11 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     );
 
     const control: Array<string> = [];
+
     const listener = await sql.listen(RUN_CONTROL_CHANNEL, (raw) =>
       control.push(raw),
     );
+
     const service = new ChatsService(
       tenantDb,
       noopReindexDispatch(),
@@ -124,18 +136,22 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     );
 
     let deleted: boolean;
+
     try {
       deleted = await service.deleteChat(a, chat);
       await vi.waitFor(() => expect(control).toHaveLength(1));
     } finally {
       await listener.unlisten();
     }
+
     expect(deleted).toBe(true);
     // The cancellation was sent on the run-control channel, delivered on
     // commit, so the process executing the run stops it.
     expect(JSON.parse(control[0])).toEqual({ runId, kind: 'cancel' });
+
     const [{ n }] =
       await sql`SELECT count(*)::int AS n FROM runs WHERE id = ${runId}`;
+
     expect(n).toBe(0);
   });
 });

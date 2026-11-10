@@ -24,14 +24,17 @@ export function useProjectListData(
 ) {
   const { data: pinnedData, isLoading: pinnedLoading } =
     useProjectsQuery(PINNED_LIST_FILTERS);
+
   const { data: listData, isLoading: listLoading } = useProjectsQuery(
     listViewFilters(show),
   );
+
   const { project: open } = useProjectById(openProjectId);
   const { data: pins } = usePins();
 
   const pinned = show === "archived" ? [] : (pinnedData ?? []);
   const listed = withOpenItem(listData ?? [], open, pinned);
+
   return {
     pinnedProjects: filterProjectsByName(pinned, filter),
     listedProjects: filterProjectsByName(listed, filter),

@@ -11,6 +11,7 @@ import { type WebRender } from './pipeline';
 import { buildWebReadResult } from './result';
 
 const GUIDE_URL = 'https://example.test/guide';
+
 const RANGED_MARKDOWN = [
   '# Root',
   'Root body',
@@ -43,6 +44,7 @@ function readWindow(first: number, last: number, raw = false): string {
 }
 
 const DIRECTORY_URL = 'https://github.com/o/r/tree/main/apps';
+
 const directoryEntries: ReadonlyArray<DirectoryListingEntry> = [
   {
     name: 'src',
@@ -71,6 +73,7 @@ describe('buildWebReadResult', () => {
       method: 'negotiated',
       content: '# Guide\n\nBody text\n',
     });
+
     expect(result).toMatchObject({
       status: 'success',
       kind: 'file',
@@ -96,6 +99,7 @@ describe('buildWebReadResult', () => {
       method: 'negotiated' as const,
       content: renderedLines(100),
     };
+
     // A selected window still reports the page's own line count.
     expect(
       await buildWebReadResult(
@@ -104,6 +108,7 @@ describe('buildWebReadResult', () => {
         render,
       ),
     ).toMatchObject({ status: 'success', lineCount: 100 });
+
     // An outline stores none: its scan can stop early.
     const outline = await buildWebReadResult(
       { url: GUIDE_URL, selector: 'outline' },
@@ -114,6 +119,7 @@ describe('buildWebReadResult', () => {
         mediaType: 'text/markdown',
       },
     );
+
     expect(outline).toMatchObject({
       status: 'success',
       representation: 'outline',
@@ -126,6 +132,7 @@ describe('buildWebReadResult', () => {
       displayPath: DIRECTORY_URL,
       entries: directoryEntries,
     };
+
     const full = await buildWebReadResult(
       { url: DIRECTORY_URL },
       DIRECTORY_URL,
@@ -135,6 +142,7 @@ describe('buildWebReadResult', () => {
         directory,
       },
     );
+
     expect(full).toEqual({
       status: 'success',
       kind: 'directory',
@@ -169,9 +177,11 @@ describe('buildWebReadResult', () => {
       finalUrl: DIRECTORY_URL,
       method: 'adapter',
     });
+
     if (full.status !== 'success' || full.kind !== 'directory') {
       throw new Error('expected a full directory result');
     }
+
     expect(full.content).toContain('… 1 more');
 
     const selected = await buildWebReadResult(
@@ -179,6 +189,7 @@ describe('buildWebReadResult', () => {
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
     );
+
     expect(selected).toEqual({
       status: 'success',
       kind: 'directory',
@@ -199,6 +210,7 @@ describe('buildWebReadResult', () => {
       name: `file-${index}`,
       kind: 'file' as const,
     }));
+
     expect(renderCollectedDirectory(DIRECTORY_URL, rootEntries)).toEqual({
       status: 'error',
       type: 'directory_too_large',
@@ -211,9 +223,11 @@ describe('buildWebReadResult', () => {
       name: `file-${index}`,
       kind: 'file' as const,
     }));
+
     const child = renderCollectedDirectory(DIRECTORY_URL, [
       { name: 'big', kind: 'directory', children: childEntries },
     ]);
+
     expect(child).toMatchObject({
       status: 'success',
       content: `${DIRECTORY_URL}\n  - big/\n    … 10001 entries\n`,
@@ -225,6 +239,7 @@ describe('buildWebReadResult', () => {
       displayPath: DIRECTORY_URL,
       entries: directoryEntries,
     };
+
     expect(
       await buildWebReadResult(
         { url: DIRECTORY_URL, selector: 'raw' },
@@ -258,11 +273,13 @@ describe('buildWebReadResult', () => {
       content: '',
       directory: { displayPath: DIRECTORY_URL, entries },
     });
+
     const refusal = {
       status: 'error',
       type: 'invalid_selector',
       message: invalidSelectorMessage(),
     };
+
     expect(
       await buildWebReadResult(
         { url: DIRECTORY_URL, selector: '0' },
@@ -287,6 +304,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'negotiated', content: renderedLines(100) },
     );
+
     expect(result).toMatchObject({
       status: 'success',
       requestedRange: { startLine: 61, endLine: 100 },
@@ -301,6 +319,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'negotiated', content: renderedLines(100) },
     );
+
     expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',
@@ -315,6 +334,7 @@ describe('buildWebReadResult', () => {
       content: renderedLines(100),
       truncated: true,
     };
+
     // The end of a cut document is not the document's end, so the tail is
     // refused rather than answered with the wrong end.
     expect(
@@ -367,11 +387,13 @@ describe('buildWebReadResult', () => {
         kind: 'file' as const,
       })),
     };
+
     const result = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: '-2' },
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
     );
+
     expect(result).toMatchObject({
       status: 'success',
       content: `${DIRECTORY_URL}\n  - c\n  - d\n`,
@@ -396,11 +418,13 @@ describe('buildWebReadResult', () => {
         kind: 'file' as const,
       })),
     };
+
     const result = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: '2-2' },
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
     );
+
     expect(result).toMatchObject({
       status: 'success',
       content: `${DIRECTORY_URL}\n  - b\n`,
@@ -417,11 +441,13 @@ describe('buildWebReadResult', () => {
         kind: 'file' as const,
       })),
     };
+
     const result = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: '1-1' },
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
     );
+
     expect(result).toMatchObject({
       status: 'success',
       content: `${DIRECTORY_URL}\n  - a\n`,
@@ -540,11 +566,13 @@ describe('buildWebReadResult', () => {
       content: '{"key":"value"}\n',
       adapter: { id: 'github', route: 'native' },
     };
+
     const outline = await buildWebReadResult(
       { url: GUIDE_URL, selector: 'outline' },
       GUIDE_URL,
       render,
     );
+
     const plain = await buildWebReadResult(
       { url: GUIDE_URL },
       GUIDE_URL,
@@ -592,11 +620,13 @@ describe('buildWebReadResult', () => {
       mediaType: 'text/markdown',
       truncated: true,
     };
+
     const outline = await buildWebReadResult(
       { url: GUIDE_URL, selector: 'outline' },
       GUIDE_URL,
       render,
     );
+
     const plain = await buildWebReadResult(
       { url: GUIDE_URL },
       GUIDE_URL,
@@ -622,6 +652,7 @@ describe('buildWebReadResult', () => {
       'https://cdn.example.test/guide',
       { method: 'text', content: 'hello\n' },
     );
+
     expect(result).toMatchObject({
       path: GUIDE_URL,
       finalUrl: 'https://cdn.example.test/guide',
@@ -631,11 +662,13 @@ describe('buildWebReadResult', () => {
 
   it('reports a winning probe’s finalUrl instead of the page’s', async () => {
     const probeUrl = 'https://cdn.example.test/guide.md';
+
     const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'alternate',
       content: '# Guide\n\nFrom the probe.\n',
       finalUrl: probeUrl,
     });
+
     // `path` stays the locator the model asked for; `finalUrl` is where the
     // content actually came from.
     expect(result).toMatchObject({
@@ -651,6 +684,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'readability', content: renderedLines(30) },
     );
+
     expect(result).toMatchObject({
       path: GUIDE_URL,
       representation: 'text',
@@ -724,6 +758,7 @@ describe('buildWebReadResult', () => {
         mediaType: 'text/plain',
       },
     );
+
     expect(plain).toEqual({
       status: 'success',
       kind: 'file',
@@ -748,6 +783,7 @@ describe('buildWebReadResult', () => {
         mediaType: 'text/markdown',
       },
     );
+
     expect(raw).toEqual({
       status: 'success',
       kind: 'file',
@@ -804,6 +840,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
+
     expect(result).toMatchObject({
       path: GUIDE_URL,
       representation: 'text',
@@ -828,6 +865,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
+
     expect(result).toMatchObject({
       requestedRanges: [{ startLine: 4, endLine: 7 }],
       shownRanges: [{ startLine: 3, endLine: 8 }],
@@ -842,6 +880,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
+
     expect(result).toMatchObject({
       requestedRanges: [
         { startLine: 2, endLine: 3 },
@@ -860,6 +899,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'readability', content: renderedLines(600) },
     );
+
     expect(result).toMatchObject({
       shownRanges: [{ startLine: 1, endLine: 201 }],
       truncated: true,
@@ -877,6 +917,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
+
     expect(result).toMatchObject({
       representation: 'raw',
       requestedRanges: [
@@ -901,6 +942,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'raw', content: '<p>a</p>\nmore\n' },
     );
+
     expect(result).toMatchObject({
       representation: 'raw',
       content: '<p>a</p>\nmore\n',
@@ -912,11 +954,13 @@ describe('buildWebReadResult', () => {
 
   it('reserves the envelope before the shared bound truncates the render', async () => {
     const notes = ['The page could not be converted.'];
+
     const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'readability',
       content: renderedLines(1200),
       notes,
     });
+
     expect(result).toMatchObject({
       path: GUIDE_URL,
       finalUrl: GUIDE_URL,
@@ -940,6 +984,7 @@ describe('buildWebReadResult', () => {
       content: '{}\n',
       notes: [],
     });
+
     expect(result).not.toHaveProperty('notes');
   });
 
@@ -952,6 +997,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'text', content: 'only one line\n' },
     );
+
     expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',
@@ -970,6 +1016,7 @@ describe('buildWebReadResult', () => {
         throw new Error('the render never produced text');
       },
     } satisfies WebRender;
+
     await expect(
       buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, failing),
     ).rejects.toThrow('the render never produced text');
@@ -981,6 +1028,7 @@ describe('buildWebReadResult', () => {
       GUIDE_URL,
       { method: 'text', content: '' },
     );
+
     expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',

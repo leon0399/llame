@@ -53,6 +53,7 @@ import { SEARCH_EMBED_QUEUE, type SearchEmbedJob } from './reindex-queues';
 
 /** The consumer `SearchEmbedWorker` registers on the embed queue. */
 type EmbedJobHandler = (job: SearchEmbedJob) => Promise<void>;
+
 import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
 
 const openModules: Array<TestingModule> = [];
@@ -92,6 +93,7 @@ async function buildWorker(
   concurrencyFor: (group: string) => number | null,
 ) {
   const ensureQueue = vi.fn().mockResolvedValue(undefined);
+
   const consume = vi
     .fn<
       (
@@ -101,6 +103,7 @@ async function buildWorker(
       ) => Promise<string>
     >()
     .mockResolvedValue('consumer-id');
+
   const moduleRef = await Test.createTestingModule({
     providers: [
       SearchEmbedWorker,
@@ -114,8 +117,10 @@ async function buildWorker(
       },
     ],
   }).compile();
+
   openModules.push(moduleRef);
   const worker = moduleRef.get(SearchEmbedWorker);
+
   return { worker, ensureQueue, consume };
 }
 
@@ -176,24 +181,31 @@ function dataWorkerHarness(options: {
   reusedIds?: ReadonlyArray<string>;
 }) {
   const updateCounts = [...(options.updateCounts ?? [])];
+
   const nextOutstanding =
     options.nextOutstanding ?? (() => options.outstanding);
+
   const bindingRows: ReadonlyArray<Record<string, never>> = options.binding
     ? [{}]
     : [];
+
   let selectedTable: FakeTable | undefined;
   // The reuse UPDATE only ever touches the batch it was handed, so the fake
   // returns `reusedIds` intersected with the most recently read batch.
   let lastBatch: ReadonlyArray<EmbedRow> = [];
+
   const whereResult = {
     limit: vi.fn(() => {
       lastBatch = nextOutstanding();
+
       return Promise.resolve(lastBatch);
     }),
   };
+
   const selectBuilder: FakeSelectQuery = {
     from: vi.fn((table: FakeTable) => {
       selectedTable = table;
+
       return selectBuilder;
     }),
     where: vi.fn(() =>
@@ -202,19 +214,23 @@ function dataWorkerHarness(options: {
         : whereResult,
     ),
   };
+
   const conflictBuilder: FakeInsertBuilder = {
     values: vi.fn(() => conflictBuilder),
     onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
   };
+
   const insertBuilder: FakeInsertBuilder = {
     values: vi.fn(() => conflictBuilder),
     onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
   };
+
   const reuse = {
     set: vi.fn((_values: ReuseSetValues) => updateBuilder),
     from: vi.fn((_source: PgTable) => updateBuilder),
     where: vi.fn((_condition: SQL | undefined) => updateBuilder),
   };
+
   const updateBuilder: FakeUpdateBuilder = {
     ...reuse,
     returning: vi.fn(() =>
@@ -225,12 +241,14 @@ function dataWorkerHarness(options: {
       ),
     ),
   };
+
   const tx: FakeEmbedTransaction = {
     select: vi.fn(() => selectBuilder),
     execute: vi.fn(() => Promise.resolve({ count: updateCounts.shift() ?? 0 })),
     insert: vi.fn(() => insertBuilder),
     update: vi.fn((_table: PgTable) => updateBuilder),
   };
+
   const tenantDb = {
     runAs: vi.fn(
       (
@@ -248,10 +266,12 @@ function dataWorkerHarness(options: {
       ) => callback(tx),
     ),
   };
+
   const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
   const model = options.model ?? MODEL;
   const config = instanceConfig(model.id);
   config.config.embeddingModels = [model];
+
   const moduleRefPromise = Test.createTestingModule({
     providers: [
       SearchEmbedWorker,
@@ -268,8 +288,10 @@ function dataWorkerHarness(options: {
     .compile()
     .then((moduleRef) => {
       openModules.push(moduleRef);
+
       return moduleRef;
     });
+
   return {
     enqueueChatEmbed,
     model,
@@ -301,10 +323,12 @@ describe('SearchEmbedWorker.onApplicationBootstrap — gating', () => {
 
   it('off-by-default: no ensureQueue, no consume, when no corpus model is configured', async () => {
     const concurrencyFor = vi.fn(() => 1);
+
     const { worker, ensureQueue, consume } = await buildWorker(
       null,
       concurrencyFor,
     );
+
     await worker.onApplicationBootstrap();
     expect(ensureQueue).not.toHaveBeenCalled();
     expect(consume).not.toHaveBeenCalled();
@@ -315,10 +339,12 @@ describe('SearchEmbedWorker.onApplicationBootstrap — gating', () => {
     const logSpy = vi
       .spyOn(Logger.prototype, 'log')
       .mockImplementation(() => {});
+
     const { worker, ensureQueue, consume } = await buildWorker(
       'embed-a',
       (group) => (group === 'search-embed' ? 4 : null),
     );
+
     await worker.onApplicationBootstrap();
     expect(ensureQueue).toHaveBeenCalledWith(SEARCH_EMBED_QUEUE);
     expect(consume).toHaveBeenCalledTimes(1);
@@ -333,10 +359,12 @@ describe('SearchEmbedWorker.onApplicationBootstrap — gating', () => {
     const warnSpy = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const { worker, ensureQueue, consume } = await buildWorker(
       'embed-a',
       () => null,
     );
+
     await worker.onApplicationBootstrap();
     expect(ensureQueue).not.toHaveBeenCalled();
     expect(consume).not.toHaveBeenCalled();
@@ -349,10 +377,12 @@ describe('SearchEmbedWorker.onApplicationBootstrap — gating', () => {
     const errorSpy = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
+
     const { worker, ensureQueue, consume } = await buildWorker(
       'nonexistent-model',
       () => 1,
     );
+
     await worker.onApplicationBootstrap();
     expect(ensureQueue).not.toHaveBeenCalled();
     expect(consume).not.toHaveBeenCalled();
@@ -491,9 +521,11 @@ describe('SearchEmbedWorker.embedChat', () => {
       outstanding: [row('doc-1', '[user] Original Case')],
       updateCounts: [1],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(
       (documents: ReadonlyArray<EmbeddingDocumentInput>) =>
         Promise.resolve(documents.map(resultFor)),
@@ -523,9 +555,11 @@ describe('SearchEmbedWorker.embedChat', () => {
 
   it('stops without calling the backend when no documents are outstanding', async () => {
     const harness = dataWorkerHarness({ outstanding: [] });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(() => Promise.resolve([]));
 
     await worker.embedChat(
@@ -542,18 +576,22 @@ describe('SearchEmbedWorker.embedChat', () => {
   it('re-enqueues after the bounded batch limit while work remains', async () => {
     const model = { ...MODEL, batchSize: 1 };
     let batch = 0;
+
     const harness = dataWorkerHarness({
       model,
       outstanding: [],
       nextOutstanding: () => {
         batch += 1;
+
         return [row(`doc-${batch}`)];
       },
       updateCounts: Array.from({ length: EMBED_MAX_BATCHES_PER_JOB }, () => 1),
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(
       (documents: ReadonlyArray<EmbeddingDocumentInput>) =>
         Promise.resolve(documents.map(resultFor)),
@@ -574,10 +612,12 @@ describe('SearchEmbedWorker.embedChat', () => {
     const warnSpy = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const harness = dataWorkerHarness({
       outstanding: [row('doc-1'), row('doc-2')],
       updateCounts: [],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -598,6 +638,7 @@ describe('SearchEmbedWorker.embedChat', () => {
       outstanding: [row('doc-1'), row('doc-2')],
       binding: true,
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -619,9 +660,11 @@ describe('SearchEmbedWorker.embedChat', () => {
       outstanding: [row('doc-1'), row('doc-2')],
       updateCounts: [1, 1],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const failure = new EmbeddingBackendError('dimension mismatch', true);
 
     await worker.embedChat(
@@ -637,9 +680,11 @@ describe('SearchEmbedWorker.embedChat', () => {
 
   it('rethrows transient backend failures without attempting persistence', async () => {
     const harness = dataWorkerHarness({ outstanding: [row('doc-1')] });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const failure = new EmbeddingBackendError('provider unavailable', false);
 
     await expect(
@@ -658,6 +703,7 @@ describe('SearchEmbedWorker.embedChat', () => {
       outstanding: [row('doc-1')],
       updateCounts: [0],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -681,9 +727,11 @@ describe('SearchEmbedWorker.embedChat', () => {
       reusedIds: ['doc-1'],
       updateCounts: [1],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(
       (documents: ReadonlyArray<EmbeddingDocumentInput>) =>
         Promise.resolve(documents.map(resultFor)),
@@ -712,9 +760,11 @@ describe('SearchEmbedWorker.embedChat', () => {
       outstanding: [row('doc-1'), row('doc-2')],
       reusedIds: ['doc-1', 'doc-2'],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(() => Promise.resolve([]));
 
     await worker.embedChat(
@@ -743,6 +793,7 @@ describe('SearchEmbedWorker.embedChat', () => {
       outstanding: [row('doc-1'), row('doc-2')],
       reusedIds: ['doc-1', 'doc-2'],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -797,11 +848,13 @@ describe('SearchEmbedWorker.embedChat', () => {
   it('keeps paging through batches that were reused whole, with no provider call', async () => {
     const model = { ...MODEL, batchSize: 1 };
     let batch = 0;
+
     const harness = dataWorkerHarness({
       model,
       outstanding: [],
       nextOutstanding: () => {
         batch += 1;
+
         return [row(`doc-${batch}`)];
       },
       reusedIds: Array.from(
@@ -809,9 +862,11 @@ describe('SearchEmbedWorker.embedChat', () => {
         (_, index) => `doc-${index + 1}`,
       ),
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(() => Promise.resolve([]));
 
     await worker.embedChat(
@@ -829,6 +884,7 @@ describe('SearchEmbedWorker.embedChat', () => {
   it('counts reused and provider-embedded rows together as one batch of progress', async () => {
     const model = { ...MODEL, batchSize: 2 };
     let batch = 0;
+
     const harness = dataWorkerHarness({
       model,
       outstanding: [],
@@ -836,6 +892,7 @@ describe('SearchEmbedWorker.embedChat', () => {
       // provider — equal counts, so any accounting that nets them cancels.
       nextOutstanding: () => {
         batch += 1;
+
         return [row(`reused-${batch}`), row(`fresh-${batch}`)];
       },
       reusedIds: Array.from(
@@ -844,9 +901,11 @@ describe('SearchEmbedWorker.embedChat', () => {
       ),
       updateCounts: Array.from({ length: EMBED_MAX_BATCHES_PER_JOB }, () => 1),
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(
       (documents: ReadonlyArray<EmbeddingDocumentInput>) =>
         Promise.resolve(documents.map(resultFor)),
@@ -883,6 +942,7 @@ describe('SearchEmbedWorker persistence accounting', () => {
       outstanding: [embedRow('doc-1')],
       updateCounts: [1],
     });
+
     const persistedWorker = await persisted.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -901,6 +961,7 @@ describe('SearchEmbedWorker persistence accounting', () => {
       updateCounts: [0],
       binding: true,
     });
+
     const supersededWorker = await superseded.moduleRefPromise.then(
       (moduleRef) => moduleRef.get(SearchEmbedWorker),
     );
@@ -923,6 +984,7 @@ describe('SearchEmbedWorker persistence accounting', () => {
       updateCounts: [0],
       binding: true,
     });
+
     const stuckWorker = await stuck.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -942,9 +1004,11 @@ describe('SearchEmbedWorker persistence accounting', () => {
       outstanding: [],
       updateCounts: [],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
+
     const embedDocuments = vi.fn(() => Promise.resolve([]));
 
     await worker.embedChat(
@@ -961,9 +1025,11 @@ describe('SearchEmbedWorker persistence accounting', () => {
 
   it('reports a first-batch short response as a transient failure the queue may retry', async () => {
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+
     const harness = dataWorkerHarness({
       outstanding: [embedRow('doc-1'), embedRow('doc-2')],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -987,6 +1053,7 @@ describe('SearchEmbedWorker persistence accounting', () => {
       outstanding: [embedRow('doc-1'), embedRow('doc-2')],
       updateCounts: [1, 1],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -1008,10 +1075,12 @@ describe('SearchEmbedWorker persistence accounting', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const harness = dataWorkerHarness({
       outstanding: [embedRow('doc-1')],
       updateCounts: [0],
     });
+
     const worker = await harness.moduleRefPromise.then((moduleRef) =>
       moduleRef.get(SearchEmbedWorker),
     );
@@ -1101,7 +1170,9 @@ describe('SearchEmbedWorker queue handler', () => {
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
+
     const { worker, consume } = await buildWorker('embed-a', () => 2);
+
     const embedChat = vi
       .spyOn(worker, 'embedChat')
       .mockRejectedValue(new Error('provider unavailable'));
@@ -1121,6 +1192,7 @@ describe('SearchEmbedWorker queue handler', () => {
 
   it('passes the job chat and owner straight through to embedChat', async () => {
     const { worker, consume } = await buildWorker('embed-a', () => 2);
+
     const embedChat = vi
       .spyOn(worker, 'embedChat')
       .mockResolvedValue(undefined);

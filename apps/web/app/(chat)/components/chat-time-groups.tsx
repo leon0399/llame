@@ -59,6 +59,7 @@ function ChatGroupRows({
   pinned: boolean;
 }) {
   const { onRequestNewProject, pinnedAtByChatId } = rowProps;
+
   return (
     <SidebarGroupContent>
       <SidebarMenu>
@@ -118,6 +119,7 @@ export function PinnedChatGroup({
   surfaceClassName: string;
 } & ChatRowProps) {
   if (chats.length === 0) return null;
+
   return (
     <CollapsibleSidebarGroup
       title="Pinned"

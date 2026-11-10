@@ -96,11 +96,13 @@ export function resolveEffortSelection(
   if (requested === undefined) {
     return model.reasoning?.defaultEffort;
   }
+
   if (
     !model.reasoning?.effortLevels.some((level) => level.value === requested)
   ) {
     throw new EffortNotAvailableError(model.id, requested);
   }
+
   return requested;
 }
 
@@ -115,9 +117,11 @@ export function resolvePermissionMode(
   enabled: ReadonlyArray<PermissionMode>,
 ): PermissionMode {
   const mode = requested ?? 'default';
+
   if (!enabled.includes(mode)) {
     throw new PermissionModeNotAvailableError(mode);
   }
+
   return mode;
 }
 
@@ -139,6 +143,7 @@ export function resolveSendSettings(
   },
 ) {
   const model = models.validateModelSelection(requested.modelId);
+
   return {
     effort: models.resolveEffortSelection(model, requested.effort),
     permissionMode: resolvePermissionMode(
@@ -192,6 +197,7 @@ export class ModelsService {
 
   getAvailableModels(): ModelsAvailability {
     const defaultModel = this.resolveDefaultModelConfig();
+
     if (this.modelsById.size === 0) {
       throw new ModelConfigurationError('No models are configured.');
     }
@@ -207,6 +213,7 @@ export class ModelsService {
     // config-loader has already boot-validated that a SET modelId references
     // a configured model — this only guards the unset case.
     const modelId = this.instanceConfig.config.defaults.modelId;
+
     if (!modelId) {
       throw new ModelConfigurationError('defaults.modelId is required.');
     }
@@ -219,6 +226,7 @@ export class ModelsService {
 
   resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
     const modelId = this.instanceConfig.config.defaults.titleGenerationModelId;
+
     if (!modelId) {
       return undefined;
     }
@@ -228,14 +236,17 @@ export class ModelsService {
 
   requireAvailableModel(modelId: string): SystemModelCatalogEntry {
     const model = this.modelsById.get(modelId);
+
     if (!model) {
       throw new ModelNotAvailableError(modelId);
     }
+
     return model;
   }
 
   validateModelSelection(modelId: string): SystemModelCatalogEntry {
     this.resolveDefaultModelConfig();
+
     return this.requireAvailableModel(modelId);
   }
 
@@ -276,6 +287,7 @@ export class ModelsService {
   createClient(modelId: string): ModelClient {
     const model = this.requireAvailableModel(modelId);
     const provider = this.providersById.get(model.provider);
+
     if (!provider) {
       // Unreachable once config-loader's boot-time reference check has run
       // (models[].provider is validated against providers[].id at load
@@ -302,9 +314,11 @@ export class ModelsService {
     message: string,
   ): SystemModelCatalogEntry {
     const model = this.modelsById.get(modelId);
+
     if (!model) {
       throw new ModelConfigurationError(message);
     }
+
     return model;
   }
 }

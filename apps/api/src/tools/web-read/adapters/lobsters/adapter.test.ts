@@ -53,6 +53,7 @@ function story(extra: JsonObject = {}): JsonObject {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map(({ url }) => url) };
 }
 
@@ -164,6 +165,7 @@ describe('Lobsters adapter read', () => {
     ]);
 
     expect(outcome.kind).toBe('rendered');
+
     if (outcome.kind !== 'rendered') throw new Error('expected render');
     expect(outcome.content).not.toContain('Link:');
     expect(outcome.content).toContain(
@@ -188,6 +190,7 @@ describe('Lobsters adapter read', () => {
     ]);
 
     expect(outcome.kind).toBe('rendered');
+
     if (outcome.kind !== 'rendered') throw new Error('expected render');
     expect(outcome.content).toContain('## Reply · 2/2 — [deleted]');
     expect(outcome.content).not.toContain('Replying to');
@@ -219,6 +222,7 @@ describe('Lobsters adapter read', () => {
       ...response(story()),
       finalUrl: 'https://cdn.example/s/o0ixth.json',
     };
+
     await expect(
       read('https://lobste.rs/s/o0ixth', [[storyUrl('o0ixth'), offOrigin]]),
     ).resolves.toMatchObject({

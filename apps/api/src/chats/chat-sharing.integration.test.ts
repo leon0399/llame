@@ -30,6 +30,7 @@ import { isTextPart } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 describeIfDb('chat sharing — RLS relaxation is safe', () => {
@@ -53,9 +54,11 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         ownerUserId: owner,
         title,
       });
+
       if (visibility === 'public') {
         await new ChatsRepository(tx).update(id, owner, { visibility });
       }
+
       const messages = new MessagesRepository(tx);
       await messages.create({
         chatId: id,
@@ -128,6 +131,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         ],
       });
     });
+
     return id;
   };
 
@@ -146,6 +150,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     );
     owner = crypto.randomUUID();
     other = crypto.randomUUID();
+
     for (const id of [owner, other]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'S', ${`s-${id}@t.com`})`;
     }
@@ -160,13 +165,17 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
 
   it('runAsPublic reads a PUBLIC chat + its messages', async () => {
     const chat = await seedChat('public');
+
     const found = await tenantDb.runAsPublic((tx) =>
       new ChatsRepository(tx).findPublicById(chat),
     );
+
     expect(found?.id).toBe(chat);
+
     const messages = await tenantDb.runAsPublic((tx) =>
       new MessagesRepository(tx).listPublicByChatId(chat),
     );
+
     expect(messages.length).toBe(2);
   });
 
@@ -174,13 +183,16 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     const chat = await seedChat('public');
     await tenantDb.runAs(owner, async (tx) => {
       const messages = new MessagesRepository(tx);
+
       const user = await messages.create({
         chatId: chat,
         role: 'user',
         senderUserId: owner,
         parts: [{ type: 'text', text: 'an in-flight question' }],
       });
+
       const replies = new RunningReplyRepository(tx);
+
       const reply = await replies.upsertRunningReply({
         chatId: chat,
         inReplyTo: user.id,
@@ -193,6 +205,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         },
         followUpAction: null,
       });
+
       expect(reply).toBeDefined();
       await replies.updateRunningReplyParts({
         chatId: chat,
@@ -205,6 +218,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     const messages = await tenantDb.runAsPublic((tx) =>
       new MessagesRepository(tx).listPublicByChatId(chat),
     );
+
     expect(messages.map(({ role }) => role)).toEqual([
       'user',
       'assistant',
@@ -216,13 +230,17 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
 
   it('runAsPublic NEVER leaks a PRIVATE chat or its messages', async () => {
     const chat = await seedChat('private');
+
     const found = await tenantDb.runAsPublic((tx) =>
       new ChatsRepository(tx).findPublicById(chat),
     );
+
     expect(found).toBeUndefined();
+
     const messages = await tenantDb.runAsPublic((tx) =>
       new MessagesRepository(tx).listPublicByChatId(chat),
     );
+
     expect(messages).toEqual([]);
   });
 
@@ -231,27 +249,34 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).update(chat, owner, { visibility: 'private' }),
     );
+
     const found = await tenantDb.runAsPublic((tx) =>
       new ChatsRepository(tx).findPublicById(chat),
     );
+
     expect(found).toBeUndefined();
   });
 
   it('a non-owner cannot flip visibility', async () => {
     const chat = await seedChat('private');
+
     const updated = await tenantDb.runAs(other, (tx) =>
       new ChatsRepository(tx).update(chat, other, { visibility: 'public' }),
     );
+
     expect(updated).toBeUndefined();
+
     // …and it's still private.
     const found = await tenantDb.runAsPublic((tx) =>
       new ChatsRepository(tx).findPublicById(chat),
     );
+
     expect(found).toBeUndefined();
   });
 
   it('the public context grants NO write (SELECT-only policies)', async () => {
     const chat = await seedChat('public');
+
     const rows = await tenantDb.runAsPublic((tx) =>
       tx
         .update(chats)
@@ -259,15 +284,19 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         .where(and(eq(chats.id, chat), eq(chats.visibility, 'public')))
         .returning({ id: chats.id }),
     );
+
     expect(rows).toEqual([]); // 0 rows — no write policy for current_user=''
+
     const survivor = await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).findById(chat, owner),
     );
+
     expect(survivor?.title).not.toBe('HACKED');
   });
 
   it('an AUTHENTICATED read cannot see another user’s public chat via RLS alone (invariant preserved)', async () => {
     const chat = await seedChat('public'); // owned by `owner`, public
+
     // `other` (a different authenticated user) does a RAW select with NO
     // owner/app predicate — relying only on RLS. The public-read policy is gated
     // on current_user='' so it does NOT apply here; only chats_owner does, which
@@ -276,6 +305,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     const rows = await tenantDb.runAs(other, (tx) =>
       tx.select().from(chats).where(eq(chats.id, chat)),
     );
+
     expect(rows).toEqual([]);
   });
 
@@ -320,9 +350,11 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     // B is independently still not shareable, proving the two chats' public
     // visibility is scoped per-row, not per-owner.
     expect(await service.getSharedChat(privateChatB)).toBeUndefined();
+
     const foundB = await tenantDb.runAsPublic((tx) =>
       new ChatsRepository(tx).findPublicById(privateChatB),
     );
+
     expect(foundB).toBeUndefined();
   });
 
@@ -352,6 +384,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
           inReplyTo: null,
         }),
       );
+
       await new MessagesRepository(tx).createMany(rows);
     });
 
@@ -368,7 +401,9 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         limit: PAGE_SIZE,
         beforeSeq,
       });
+
       const messages = shared!.messages;
+
       if (messages.length === 0) break;
 
       expect(messages.length).toBeLessThanOrEqual(PAGE_SIZE);
@@ -383,6 +418,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       );
 
       beforeSeq = messages[0].seq;
+
       if (messages.length < PAGE_SIZE) break; // reached the conversation start
     }
 
@@ -393,10 +429,12 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     expect(walked[1]).toBe('the public answer');
     expect(walked[2]).toBe('turn-0');
     expect(walked.at(-1)).toBe(`turn-${total - 1}`);
+
     // Numeric ascending order, no gaps, no duplicates across the page walk.
     const numeric = walked
       .slice(2)
       .map((t) => Number(t!.slice('turn-'.length)));
+
     expect(numeric).toEqual([...numeric].sort((a, b) => a - b));
 
     // A single page is always bounded to PAGE_SIZE regardless of how long the
@@ -436,6 +474,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       const copiedMessages = await tenantDb.runAs(other, (tx) =>
         new MessagesRepository(tx).findByChatId(forked!.id, other),
       );
+
       expect(copiedMessages.length).toBe(2);
       const serialized = JSON.stringify(copiedMessages);
       expect(serialized).not.toContain('PRIVATE_THINKING');
@@ -455,10 +494,13 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       const source = await tenantDb.runAs(owner, (tx) =>
         new ChatsRepository(tx).findById(chat, owner),
       );
+
       expect(source?.visibility).toBe('public');
+
       const sourceMessages = await tenantDb.runAs(owner, (tx) =>
         new MessagesRepository(tx).findByChatId(chat, owner),
       );
+
       expect(sourceMessages.length).toBe(2);
     });
 
@@ -471,17 +513,21 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       const asOwner = await tenantDb.runAs(owner, (tx) =>
         new ChatsRepository(tx).findById(forked!.id, owner),
       );
+
       expect(asOwner).toBeUndefined();
+
       // ...nor via a raw select relying on RLS alone (no app-layer predicate).
       const rawRows = await tenantDb.runAs(owner, (tx) =>
         tx.select().from(chats).where(eq(chats.id, forked!.id)),
       );
+
       expect(rawRows).toEqual([]);
 
       // The caller (new owner) CAN see it via their own owner-scoped lookup.
       const asCaller = await tenantDb.runAs(other, (tx) =>
         new ChatsRepository(tx).findById(forked!.id, other),
       );
+
       expect(asCaller?.id).toBe(forked!.id);
     });
 
@@ -500,14 +546,17 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
             attachments: [],
             inReplyTo: null,
           }));
+
         await new MessagesRepository(tx).createMany(rows);
       });
 
       const forked = await service.forkSharedChat(chat, other);
       expect(forked).toBeDefined();
+
       const copied = await tenantDb.runAs(other, (tx) =>
         new MessagesRepository(tx).findByChatId(forked!.id, other),
       );
+
       // +2 from seedChat's own turn pair — nothing dropped, unlike a cap.
       expect(copied.length).toBe(total + 2);
     });

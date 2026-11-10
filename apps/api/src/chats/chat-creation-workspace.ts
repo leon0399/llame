@@ -128,7 +128,9 @@ export class ChatCreationWorkspace {
    */
   async enter(input: CreationWorkspaceInput): Promise<CreationWorkspaceResult> {
     const gate = this.availabilityGate(input.target);
+
     if (gate !== null) return gate;
+
     return this.decideAndEnter({ input, decisions: [] });
   }
 
@@ -137,12 +139,16 @@ export class ChatCreationWorkspace {
     log: DecisionLog,
   ): Promise<CreationWorkspaceResult> {
     const submitted = this.decideOrRefuse(log, log.input.checkout.path);
+
     if (submitted !== undefined) return this.finish(log, submitted);
 
     const canonical = await this.canonicalOrFailure(log);
+
     if ('status' in canonical) return canonical;
     const decided = this.decideOrRefuse(log, canonical.path);
+
     if (decided !== undefined) return this.finish(log, decided);
+
     return this.createOrBind(log, canonical.path);
   }
 
@@ -168,10 +174,13 @@ export class ChatCreationWorkspace {
     canonical: string,
   ): Promise<CreationWorkspaceResult> {
     const { input } = log;
+
     if (input.worktree === undefined) {
       await this.recordAttempt(log);
+
       return this.bindAtCheckout(input, canonical);
     }
+
     return this.createWorktree(log, {
       target: input.target,
       source: { checkout: input.checkout, repository: input.repository },
@@ -190,11 +199,13 @@ export class ChatCreationWorkspace {
       ...planInput,
       decide: (_kind, address) => this.decideOrRefuse(log, address),
     });
+
     // The recorded directory is what a resend reads instead of a second add.
     await this.recordAttempt(
       log,
       'status' in plan ? undefined : plan.directory,
     );
+
     if ('status' in plan) return workspaceFailure(plan.result);
 
     const outcome = await addCreationWorktree(
@@ -207,8 +218,11 @@ export class ChatCreationWorkspace {
       { ...planInput, decide: () => undefined },
       plan,
     );
+
     if (outcome.status === 'conflict') return { status: 'conflict' };
+
     if (outcome.status === 'failed') return workspaceFailure(outcome.result);
+
     return {
       status: 'bound',
       root: outcome.root,
@@ -231,7 +245,9 @@ export class ChatCreationWorkspace {
           args: { path: projectNativeFilePath(address) },
         }),
     );
+
     log.decisions.push({ path: address, decision });
+
     return decision.decision === 'reject'
       ? permissionDeniedResult(decision.reason)
       : undefined;
@@ -248,6 +264,7 @@ export class ChatCreationWorkspace {
         message: `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this Chat cannot bind a Workspace.`,
       };
     }
+
     if (
       target.machine === undefined &&
       this.config.config.tools.nativeExecutorId !== target.executorId
@@ -259,6 +276,7 @@ export class ChatCreationWorkspace {
           'The serving process holds no matching tools.nativeExecutorId, so it cannot bind a local root.',
       };
     }
+
     if (
       target.machine !== undefined &&
       !isConfiguredExecutor(target.executorId, this.config.config)
@@ -269,6 +287,7 @@ export class ChatCreationWorkspace {
         message: 'The resolved Machine is no longer configured.',
       };
     }
+
     return null;
   }
 
@@ -278,6 +297,7 @@ export class ChatCreationWorkspace {
     result: ToolErrorResult,
   ): Promise<CreationWorkspaceResult> {
     await this.recordAttempt(log);
+
     return workspaceFailure(result);
   }
 
@@ -309,6 +329,7 @@ export class ChatCreationWorkspace {
         root,
       }),
     );
+
     return result.status === 'bound'
       ? { status: 'bound', root, executorId: input.target.executorId }
       : { status: 'conflict' };
@@ -318,6 +339,7 @@ export class ChatCreationWorkspace {
 /** A read-only probe's typed failure, in the tool result vocabulary. */
 function probeFailure(error: unknown): ToolErrorResult {
   if (!(error instanceof ExecutorGitError)) throw error;
+
   switch (error.code) {
     case 'machine_unavailable':
     case 'machine_update_required':
@@ -370,11 +392,14 @@ function bindFailed(
  */
 function workspaceFailure(result: ToolErrorResult): CreationWorkspaceResult {
   const bind = bindFailure(result);
+
   if (bind !== undefined) return bind;
+
   const left =
     result.leftDirectory === undefined
       ? {}
       : { leftDirectory: result.leftDirectory };
+
   switch (result.type) {
     case 'path_not_registered':
       return {

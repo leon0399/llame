@@ -83,16 +83,21 @@ export class RunsRepository {
       userId: input.userId,
       modelId: input.modelId,
     };
+
     if (input.effort !== undefined) values.effort = input.effort;
+
     if (input.permissionMode !== undefined) {
       values.permissionMode = input.permissionMode;
     }
+
     if (input.followUpAction !== undefined) {
       values.followUpAction = input.followUpAction;
     }
+
     if (input.sourceRunId !== undefined) {
       values.sourceRunId = input.sourceRunId;
     }
+
     if (input.id !== undefined) values.id = input.id;
 
     const [created] = await this.db.insert(runs).values(values).returning();
@@ -133,6 +138,7 @@ export class RunsRepository {
       .limit(1);
 
     const row = rows[0];
+
     return row === undefined
       ? undefined
       : { run: row.runs, triggeringUserSeq: row.triggeringSeq };
@@ -177,18 +183,22 @@ export class RunsRepository {
       userId,
       options.beforeSeq,
     );
+
     if (namedRunId !== undefined) {
       const named = await this.findById(namedRunId, userId);
+
       // The same link the sequence lookup requires: a completed Run records the
       // attempt that produced its answer, and only that Run's receipt describes
       // the context the model read.
       if (named?.status === 'completed' && named.completedAttemptId !== null) {
         const trigger = await this.findTriggerSeq(chatId, named.messageId);
+
         if (trigger !== undefined) {
           return { run: named, triggeringUserSeq: trigger };
         }
       }
     }
+
     return this.findMostRecentCompletedByChatMessageSequence(
       chatId,
       userId,
@@ -203,6 +213,7 @@ export class RunsRepository {
     beforeSeq: number,
   ): Promise<string | undefined> {
     const runId = sql<string>`(${messages.usage} ->> 'runId')`;
+
     const [row] = await this.db
       .select({ runId })
       .from(messages)
@@ -218,6 +229,7 @@ export class RunsRepository {
       )
       .orderBy(desc(messages.seq))
       .limit(1);
+
     return row?.runId;
   }
 
@@ -227,6 +239,7 @@ export class RunsRepository {
     messageId: string | null,
   ): Promise<number | undefined> {
     if (messageId === null) return undefined;
+
     const [row] = await this.db
       .select({ seq: messages.seq })
       .from(messages)
@@ -238,6 +251,7 @@ export class RunsRepository {
         ),
       )
       .limit(1);
+
     return row?.seq;
   }
 
@@ -444,8 +458,10 @@ export class RunsRepository {
         ),
       )
       .returning();
+
     for (const run of cancelled)
       await new ChatDeliveriesRepository(this.db).pauseBehind(run);
+
     return cancelled;
   }
 
@@ -472,6 +488,7 @@ export class RunsRepository {
     if (updated) {
       await notifyRunControl(this.db, { runId, kind: 'cancel' });
     }
+
     return updated;
   }
 
@@ -492,9 +509,11 @@ export class RunsRepository {
       .set(markFinishedUpdate(status, options))
       .where(markFinishedPredicate(runId, userId, options?.attemptId))
       .returning();
+
     // The queue pauses behind a Run that did not deliver its steering items.
     if (updated)
       await new ChatDeliveriesRepository(this.db).pauseBehind(updated);
+
     return updated;
   }
 
@@ -521,6 +540,7 @@ export class RunsRepository {
         ),
       )
       .returning();
+
     return updated;
   }
 
@@ -548,6 +568,7 @@ export class RunsRepository {
         ),
       )
       .for('update');
+
     return locked;
   }
 }
@@ -641,6 +662,7 @@ export class RunEventsRepository {
       )
       .orderBy(newest ? desc(runEvents.sequence) : asc(runEvents.sequence))
       .limit(1);
+
     return row?.run_events;
   }
 
@@ -662,6 +684,7 @@ export class RunEventsRepository {
     if (options?.afterSequence !== undefined) {
       predicates.push(gt(runEvents.sequence, options.afterSequence));
     }
+
     if (options?.eventTypes !== undefined) {
       predicates.push(inArray(runEvents.eventType, [...options.eventTypes]));
     }
@@ -672,6 +695,7 @@ export class RunEventsRepository {
       .innerJoin(runs, eq(runEvents.runId, runs.id))
       .where(and(...predicates))
       .orderBy(asc(runEvents.sequence));
+
     const rows =
       options?.limit === undefined
         ? await query

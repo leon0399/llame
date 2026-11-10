@@ -47,6 +47,7 @@ import {
 } from './worker-harness';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'run-segment-prep.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
@@ -67,6 +68,7 @@ const TITLE_MODEL_ID = 'system:openai:gpt-5.4-nano';
 const answer = (text: string): ScriptedStep => [
   { type: 'text', id: 't', text },
 ];
+
 const call = (
   toolCallId: string,
   toolName: string,
@@ -166,6 +168,7 @@ describe('run steering segment preparation', () => {
     waitFor(
       async () => {
         const found = await run(runId);
+
         return found && isTerminalRunStatus(found.status) ? found : undefined;
       },
       40_000,
@@ -206,6 +209,7 @@ describe('run steering segment preparation', () => {
     seed?: SeededRun;
   }) {
     const modelId = `segment-prep-${randomUUID()}`;
+
     const seeded =
       input.seed ??
       (await seedRun({
@@ -214,6 +218,7 @@ describe('run steering segment preparation', () => {
         modelId,
         text: input.firstText ?? 'first message',
       }));
+
     const runRow = await run(seeded.runId);
     const runModelId = runRow?.modelId ?? modelId;
     harness.models.register(runModelId, {
@@ -224,6 +229,7 @@ describe('run steering segment preparation', () => {
         if (index === 0) {
           await storeSteer(seeded.chatId, input.steer, input.steerModelId);
         }
+
         await input.beforeStep?.(index, seeded.chatId);
       },
     });
@@ -235,6 +241,7 @@ describe('run steering segment preparation', () => {
       modelId: runModelId,
     });
     const finished = await terminal(seeded.runId);
+
     return {
       ...seeded,
       modelId: runModelId,
@@ -258,10 +265,12 @@ describe('run steering segment preparation', () => {
       const delivered = messageWith(messages, 'please use $pdf here');
       expect(producers(delivered)).toContain('skill-activation');
       const firstItem = delivered?.parts.findIndex(isContextItemPart) ?? -1;
+
       const textAt =
         delivered?.parts.findIndex(
           (part) => isRecord(part) && part['type'] === 'text',
         ) ?? -1;
+
       expect(firstItem).toBeGreaterThan(-1);
       expect(firstItem).toBeLessThan(textAt);
     });
@@ -285,6 +294,7 @@ describe('run steering segment preparation', () => {
 
     it('A delivered steer imports a file', async () => {
       const file = join(directory, 'notes.txt');
+
       const started = await steeredRun({
         steps: [call('a', 'read', { path: directory }), answer('done')],
         steer: `summarize @${file}`,
@@ -294,15 +304,18 @@ describe('run steering segment preparation', () => {
       const delivered = messageWith(messages, `summarize @${file}`);
       const items = producers(delivered);
       expect(items).toContain('prompt-imports');
+
       const importAt =
         delivered?.parts.findIndex(
           (part) =>
             isContextItemPart(part) && part.data.producer === 'prompt-imports',
         ) ?? -1;
+
       const textAt =
         delivered?.parts.findIndex(
           (part) => isRecord(part) && part['type'] === 'text',
         ) ?? -1;
+
       expect(importAt).toBeLessThan(textAt);
       expect(
         started.prompts[1]?.some((line) =>
@@ -371,6 +384,7 @@ describe('run steering segment preparation', () => {
       const delivered = (await chatMessages(crashed.chatId)).find(
         ({ id }) => id === crashed.delivery.message.id,
       );
+
       expect(producers(delivered).filter((p) => p === 'temporal')).toHaveLength(
         1,
       );
@@ -417,6 +431,7 @@ describe('run steering segment preparation', () => {
       const providerMetadata = {
         openai: { itemId: 'rs_segment_1', reasoningEncryptedContent: 'ENC_1' },
       };
+
       const started = await steeredRun({
         steps: [
           [
@@ -441,9 +456,11 @@ describe('run steering segment preparation', () => {
       expect(started.finished.status).toBe('completed');
       // The second segment's first request is the second one of the Run.
       const [, second] = started.rawPrompts;
+
       const replayed = (second ?? []).flatMap((message): Array<unknown> =>
         isString(message.content) ? [] : [...message.content],
       );
+
       expect(replayed).toContainEqual(
         expect.objectContaining({
           type: 'reasoning',
@@ -470,6 +487,7 @@ describe('run steering segment preparation', () => {
       modelId,
       text: 'first message',
     });
+
     await db((tx) =>
       new MessagesRepository(tx).createAssistantReplyIfAbsent({
         chatId: seeded.chatId,
@@ -478,14 +496,17 @@ describe('run steering segment preparation', () => {
         usage: { status: 'completed', complete: true, runId: seeded.runId },
       }),
     );
+
     const started = await db((tx) =>
       new RunsRepository(tx).markStarted(seeded.runId, userId),
     );
+
     await db((tx) =>
       new RunEventsRepository(tx).append(seeded.runId, 'run.started'),
     );
     await beforeDelivery?.(seeded);
     await storeSteer(seeded.chatId, steerText);
+
     const delivery = await db((tx) =>
       deliverPendingSteering(tx, {
         run: { runId: seeded.runId, userId },
@@ -493,7 +514,9 @@ describe('run steering segment preparation', () => {
         models: [],
       }),
     );
+
     if (delivery.kind !== 'delivered') throw new Error('not delivered');
+
     return { ...seeded, delivery };
   }
 
@@ -517,6 +540,7 @@ describe('run steering segment preparation', () => {
       followUp: 'continue' | 'regenerate',
     ) {
       const chatId = randomUUID();
+
       return db(async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId,
@@ -524,18 +548,21 @@ describe('run steering segment preparation', () => {
           title: 'Follow-up chat',
         });
         const messagesRepo = new MessagesRepository(tx);
+
         const trigger = await messagesRepo.create({
           chatId,
           role: 'user',
           senderUserId: userId,
           parts: [{ type: 'text', text: 'first message' }],
         });
+
         const source = await new RunsRepository(tx).create({
           chatId,
           messageId: trigger.id,
           userId,
           modelId,
         });
+
         await new RunsRepository(tx).markFinished(source.id, userId, 'failed', {
           error: { message: 'the stream dropped' },
         });
@@ -554,6 +581,7 @@ describe('run steering segment preparation', () => {
             attemptId: randomUUID(),
           },
         });
+
         const { run: created } = await createRunForMessage(
           tx,
           {
@@ -580,6 +608,7 @@ describe('run steering segment preparation', () => {
           },
           trigger,
         );
+
         return {
           chatId,
           runId: created.id,
@@ -595,6 +624,7 @@ describe('run steering segment preparation', () => {
     it('A steer inside a Continue Run', async () => {
       const modelId = `segment-prep-${randomUUID()}`;
       const seed = await seedFollowUp(modelId, 'continue');
+
       const started = await steeredRun({
         seed,
         steps: [
@@ -624,6 +654,7 @@ describe('run steering segment preparation', () => {
     it('A delivered message does not repeat the kept parts', async () => {
       const modelId = `segment-prep-${randomUUID()}`;
       const seed = await seedFollowUp(modelId, 'continue');
+
       const started = await steeredRun({
         seed,
         steps: [
@@ -653,6 +684,7 @@ describe('run steering segment preparation', () => {
     it('A steer inside a Regenerate Run leaves the second segment without the notice or a replaced reply', async () => {
       const modelId = `segment-prep-${randomUUID()}`;
       const seed = await seedFollowUp(modelId, 'regenerate');
+
       const started = await steeredRun({
         seed,
         steps: [
@@ -715,6 +747,7 @@ describe('run steering segment preparation', () => {
       const messages = await chatMessages(started.chatId);
       const replies = messages.filter(({ role }) => role === 'assistant');
       expect(replies).toHaveLength(2);
+
       for (const reply of replies) {
         expect(usageOf(reply)).toMatchObject({ complete: true });
       }
@@ -735,15 +768,18 @@ describe('run steering segment preparation', () => {
 
     it('A reclaimed Run is incomplete', async () => {
       const modelId = `segment-prep-${randomUUID()}`;
+
       const seeded = await seedRun({
         tenantDb: harness.tenantDb,
         userId,
         modelId,
         text: 'first message',
       });
+
       const claimed = await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, userId),
       );
+
       // An earlier attempt of the same segment reached prompt preparation.
       await writeReceipt(seeded.runId, claimed?.activeAttemptId ?? '');
       harness.models.register(modelId, {
@@ -764,11 +800,13 @@ describe('run steering segment preparation', () => {
       // An attempt of the FIRST segment left a receipt before the delivery:
       // the final reply of the second segment does not count it.
       const modelId = `segment-prep-${randomUUID()}`;
+
       const earlier = await runAfterFirstSegment(
         modelId,
         'a steer',
         async ({ runId }) => writeReceipt(runId, randomUUID()),
       );
+
       harness.models.register(modelId, {
         kind: 'step-script',
         steps: [answer('second reply')],
@@ -825,12 +863,14 @@ describe('run steering segment preparation', () => {
 
     it('A reclaim inside the first segment leaves the closed reply incomplete', async () => {
       const modelId = `segment-prep-${randomUUID()}`;
+
       const seeded = await seedRun({
         tenantDb: harness.tenantDb,
         userId,
         modelId,
         text: 'first message',
       });
+
       const started = await steeredRun({
         seed: seeded,
         steps: [call('a', 'read', { path: directory }), answer('done')],
@@ -856,6 +896,7 @@ describe('run steering segment preparation', () => {
 
     it('A steer delivery writes the first-epoch baselines of the first Run', async () => {
       const seen: Array<boolean> = [];
+
       const started = await steeredRun({
         steps: [call('a', 'read', { path: directory }), answer('done')],
         steer: 'second segment',
@@ -864,6 +905,7 @@ describe('run steering segment preparation', () => {
           const chat = await db((tx) =>
             new ChatsRepository(tx).findById(chatId, userId),
           );
+
           // The baseline is on the Chat before the second segment's request.
           seen[index] = chat?.skillCatalogBaseline !== null;
         },
@@ -880,9 +922,11 @@ describe('run steering segment preparation', () => {
         userId,
         modelId: 'unused',
       });
+
       const started = await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, userId),
       );
+
       const baselines = {
         recencyDigestInitialization: {
           baseline: {
@@ -902,6 +946,7 @@ describe('run steering segment preparation', () => {
           told: [],
         },
       };
+
       const deliver = (attemptId: string | null | undefined) =>
         db((tx) =>
           deliverPendingSteering(tx, {
@@ -911,6 +956,7 @@ describe('run steering segment preparation', () => {
             baselines,
           }),
         );
+
       const chat = () =>
         db((tx) => new ChatsRepository(tx).findById(seeded.chatId, userId));
 
@@ -922,9 +968,11 @@ describe('run steering segment preparation', () => {
 
       // A steer delivery of the same Run establishes them.
       await storeSteer(seeded.chatId, 'carry on');
+
       const steered = await deliver(
         interrupted.kind === 'delivered' ? interrupted.attemptId : undefined,
       );
+
       expect(steered.kind).toBe('delivered');
       expect((await chat())?.skillCatalogBaseline).not.toBeNull();
       expect((await chat())?.recencyDigestBaseline).not.toBeNull();
@@ -936,9 +984,11 @@ describe('run steering segment preparation', () => {
         userId,
         modelId: 'unused',
       });
+
       const started = await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, userId),
       );
+
       const baselines = (compiledOn: string) => ({
         recencyDigestInitialization: {
           baseline: {
@@ -958,6 +1008,7 @@ describe('run steering segment preparation', () => {
           told: [],
         },
       });
+
       const deliver = (attemptId: string, compiledOn: string) =>
         db((tx) =>
           deliverPendingSteering(tx, {
@@ -967,18 +1018,21 @@ describe('run steering segment preparation', () => {
             baselines: baselines(compiledOn),
           }),
         );
+
       const chat = () =>
         db((tx) => new ChatsRepository(tx).findById(seeded.chatId, userId));
 
       // Segment 1 closes on an interrupt: nothing is written.
       await storeSteer(seeded.chatId, 'stop that', undefined, 'interrupt');
       const first = await deliver(started?.activeAttemptId ?? '', '2026-11-01');
+
       if (first.kind !== 'delivered') throw new Error('no delivery');
       expect((await chat())?.recencyDigestBaseline).toBeNull();
 
       // Segment 2 closes on a steer: the baselines are written now.
       await storeSteer(seeded.chatId, 'carry on');
       const second = await deliver(first.attemptId, '2026-11-02');
+
       if (second.kind !== 'delivered') throw new Error('no delivery');
       const written = await chat();
       expect(written?.skillCatalogBaseline).not.toBeNull();
@@ -997,24 +1051,28 @@ describe('run steering segment preparation', () => {
     it('A steer in the first Run', async () => {
       const chatId = randomUUID();
       const modelId = `segment-prep-${randomUUID()}`;
+
       const seeded = await db(async (tx) => {
         // No title: the completed Run generates one.
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId,
           ownerUserId: userId,
         });
+
         const message = await new MessagesRepository(tx).create({
           chatId,
           role: 'user',
           senderUserId: userId,
           parts: [{ type: 'text', text: 'FIRST_TITLE_SOURCE message' }],
         });
+
         const created = await new RunsRepository(tx).create({
           chatId,
           messageId: message.id,
           userId,
           modelId,
         });
+
         return {
           chatId,
           runId: created.id,
@@ -1025,6 +1083,7 @@ describe('run steering segment preparation', () => {
           },
         };
       });
+
       await steeredRun({
         seed: seeded,
         steps: [call('a', 'read', { path: directory }), answer('done')],
@@ -1035,6 +1094,7 @@ describe('run steering segment preparation', () => {
           const chat = await db((tx) =>
             new ChatsRepository(tx).findById(chatId, userId),
           );
+
           return chat?.title ?? undefined;
         },
         20_000,
@@ -1044,6 +1104,7 @@ describe('run steering segment preparation', () => {
       const titlePrompt = flatten(harness.models.prompts.at(-1) ?? []).join(
         '\n',
       );
+
       expect(titlePrompt).toContain('FIRST_TITLE_SOURCE');
       expect(titlePrompt).not.toContain('LATER_STEER_TEXT');
     });
@@ -1056,8 +1117,10 @@ describe('run steering segment preparation', () => {
         userId,
         modelId: 'unused',
       });
+
       const state = () =>
         db((tx) => currentSegmentState(tx, seeded.runId, userId));
+
       const append = (type: 'model.requested' | 'run.delivered') =>
         db((tx) => new RunEventsRepository(tx).append(seeded.runId, type, {}));
 
@@ -1072,12 +1135,14 @@ describe('run steering segment preparation', () => {
 
     it('findEarlierSegmentBaseline reaches the Run through the reply it produced', async () => {
       const modelId = 'baseline-model';
+
       const seeded = await seedRun({
         tenantDb: harness.tenantDb,
         userId,
         modelId,
         text: 'first',
       });
+
       const delivered = await db(async (tx) => {
         const messagesRepo = new MessagesRepository(tx);
         await messagesRepo.createAssistantReplyIfAbsent({
@@ -1086,18 +1151,21 @@ describe('run steering segment preparation', () => {
           parts: [{ type: 'text', text: 'reply' }],
           usage: { status: 'completed', complete: true, runId: seeded.runId },
         });
+
         const second = await messagesRepo.create({
           chatId: seeded.chatId,
           role: 'user',
           senderUserId: userId,
           parts: [{ type: 'text', text: 'delivered' }],
         });
+
         // The dispatch of the first segment wrote its record, then a delivery
         // moved the Run onto the second message.
         await tx
           .update(runs)
           .set({ turnToolAvailability: [], messageId: second.id })
           .where(eq(runs.id, seeded.runId));
+
         return second;
       });
 

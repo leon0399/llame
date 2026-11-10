@@ -66,13 +66,16 @@ export interface TagToken {
  */
 export function* scanTagTokens(text: string): Generator<TagToken> {
   let index = text.indexOf("<");
+
   while (index !== -1) {
     // One forward pass per token: every position is visited once overall, so a
     // run of `<` with no `>` costs linear time rather than a rescan per token.
     let end = index + 1;
+
     while (end < text.length && text[end] !== "<" && text[end] !== ">") {
       end += 1;
     }
+
     if (end < text.length && text[end] === ">") end += 1;
     yield { start: index, end, token: text.slice(index, end) };
     index = text.indexOf("<", end);
@@ -87,6 +90,7 @@ export function escapeAngles(token: string): string {
  *  spelled. */
 export function isReservedDelimiterToken(token: string): boolean {
   const name = RESERVED_INTENT.exec(token)?.[1];
+
   return name !== undefined && RESERVED_DELIMITER_NAMES.has(name.toLowerCase());
 }
 
@@ -98,11 +102,13 @@ export function isReservedDelimiterToken(token: string): boolean {
 export function neutralizeReservedDelimiters(text: string): string {
   let out = "";
   let cursor = 0;
+
   for (const { start, end, token } of scanTagTokens(text)) {
     if (!isReservedDelimiterToken(token)) continue;
     out += text.slice(cursor, start) + escapeAngles(token);
     cursor = end;
   }
+
   return cursor === 0 ? text : out + text.slice(cursor);
 }
 
@@ -117,13 +123,17 @@ export function neutralizeReservedDelimiters(text: string): string {
  */
 export function hasEscapedKeyCollision(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasEscapedKeyCollision);
+
   if (!isRecord(value) || !isPlainObject(value)) return false;
   const keys = Object.keys(value);
   const keySet = new Set(keys);
+
   for (const key of keys) {
     const escaped = neutralizeReservedDelimiters(key);
+
     if (escaped !== key && keySet.has(escaped)) return true;
   }
+
   return Object.values(value).some(hasEscapedKeyCollision);
 }
 
@@ -147,6 +157,7 @@ export function neutralizeReservedDelimitersDeep<T>(value: T): T {
  */
 function isPlainObject(value: UnknownRecord): boolean {
   const prototype: unknown = Object.getPrototypeOf(value);
+
   return prototype === Object.prototype || prototype === null;
 }
 
@@ -155,9 +166,11 @@ function isPlainObject(value: UnknownRecord): boolean {
 // eslint-disable-next-line anti-slop/no-unknown-returns -- a pass-through walk's output is its input's shape, which no annotation can state: unknown in, unknown out, with the exported generic restoring the caller's type.
 function neutralizeValue(value: unknown): unknown {
   if (isString(value)) return neutralizeReservedDelimiters(value);
+
   if (Array.isArray(value)) {
     return value.map((entry) => neutralizeValue(entry));
   }
+
   if (isRecord(value) && isPlainObject(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [
@@ -166,5 +179,6 @@ function neutralizeValue(value: unknown): unknown {
       ]),
     );
   }
+
   return value;
 }

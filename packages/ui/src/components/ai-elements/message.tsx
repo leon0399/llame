@@ -193,12 +193,14 @@ export const MessageBranch = ({
   const goToPrevious = () => {
     const newBranch =
       currentBranch > 0 ? currentBranch - 1 : branches.length - 1;
+
     handleBranchChange(newBranch);
   };
 
   const goToNext = () => {
     const newBranch =
       currentBranch < branches.length - 1 ? currentBranch + 1 : 0;
+
     handleBranchChange(newBranch);
   };
 
@@ -228,6 +230,7 @@ export const MessageBranchContent = ({
   ...props
 }: MessageBranchContentProps) => {
   const { currentBranch, setBranches, branches } = useMessageBranch();
+
   const childrenArray = useMemo(
     () => (Array.isArray(children) ? children : [children]),
     [children],
@@ -362,8 +365,10 @@ export function MessageAttachment({
   ...props
 }: MessageAttachmentProps) {
   const filename = data.filename || "";
+
   const mediaType =
     data.mediaType?.startsWith("image/") && data.url ? "image" : "file";
+
   const isImage = mediaType === "image";
   const attachmentLabel = filename || (isImage ? "Image" : "Attachment");
 

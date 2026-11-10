@@ -108,6 +108,7 @@ const CREDENTIAL_NAME_FRAGMENTS = [
 /** A name is credential-shaped when it contains any {@link CREDENTIAL_NAME_FRAGMENTS}. */
 export function isCredentialName(name: string): boolean {
   const folded = name.toLowerCase();
+
   return CREDENTIAL_NAME_FRAGMENTS.some((fragment) =>
     folded.includes(fragment),
   );
@@ -123,6 +124,7 @@ export function interpolateStringWithSubstitutions(
   const substituted: Array<InterpolationSubstitution> = [];
   let out = "";
   let i = 0;
+
   while (i < input.length) {
     if (input[i] !== "{") {
       out += input[i];
@@ -139,6 +141,7 @@ export function interpolateStringWithSubstitutions(
     const rest = input.slice(i);
 
     const envMatch = matchEnvToken(rest, env);
+
     if (envMatch) {
       out = appendSubstitution(out, envMatch, substituted);
       i += envMatch.length;
@@ -146,6 +149,7 @@ export function interpolateStringWithSubstitutions(
     }
 
     const pathMatch = matchPathToken(rest);
+
     if (pathMatch) {
       out = appendSubstitution(out, pathMatch, substituted);
       i += pathMatch.length;
@@ -155,6 +159,7 @@ export function interpolateStringWithSubstitutions(
     out += input[i];
     i += 1;
   }
+
   return { value: out, substituted };
 }
 
@@ -170,6 +175,7 @@ function appendSubstitution(
       documentLeaves: match.documentLeaves,
     });
   }
+
   return out + match.resolved;
 }
 
@@ -186,9 +192,11 @@ function matchEnvToken(
   env: NodeJS.ProcessEnv,
 ): TokenMatch | undefined {
   const envMatch = ENV_TOKEN.exec(rest);
+
   if (!envMatch) return undefined;
   const [full, name, fallback] = envMatch;
   const resolved = resolveEnvToken(name, fallback, env);
+
   return {
     resolved: resolved.value,
     length: full.length,
@@ -199,9 +207,11 @@ function matchEnvToken(
 
 function matchPathToken(rest: string): TokenMatch | undefined {
   const pathMatch = PATH_TOKEN.exec(rest);
+
   if (!pathMatch) return undefined;
   const [full, location] = pathMatch;
   const resolved = resolvePathToken(location);
+
   return {
     resolved: resolved.value,
     length: full.length,
@@ -219,16 +229,20 @@ function resolveEnvToken(
   env: NodeJS.ProcessEnv,
 ): EnvResolution {
   const value = env[name];
+
   if (fallback !== undefined) {
     // Bash/docker-compose `:-` semantics (D4): the fallback applies when the
     // variable is unset OR empty — that is precisely what distinguishes `:-`
     // from `-`. A blank env var must not shadow the declared default.
     const usedFallback = value === undefined || value === "";
+
     return { value: usedFallback ? fallback : value, fallback: usedFallback };
   }
+
   if (value !== undefined) {
     return { value, fallback: false };
   }
+
   throw new InterpolationError(
     `required environment variable ${name} is not set`,
     { kind: "env", name },
@@ -253,17 +267,21 @@ type PathResolution = {
  */
 function resolvePathToken(location: string): PathResolution {
   const separatorAt = location.indexOf(JSON_POINTER_SEPARATOR);
+
   const filePath =
     separatorAt === -1 ? location : location.slice(0, separatorAt);
+
   const pointer =
     separatorAt === -1
       ? undefined
       : location.slice(separatorAt + JSON_POINTER_SEPARATOR.length);
 
   const payload = readSecretFile(filePath);
+
   if (pointer === undefined) {
     return { value: payload.trim(), documentLeaves: [] };
   }
+
   return selectJsonPointerFromPayload(payload, pointer, filePath);
 }
 
@@ -286,6 +304,7 @@ function selectJsonPointerFromPayload(
   filePath: string,
 ): PathResolution {
   let document: JsonValue;
+
   try {
     // SAFETY: JSON.parse returns `any`; unknown is the I/O-boundary type that
     // parseJsonValue validates into JsonValue.
@@ -300,6 +319,7 @@ function selectJsonPointerFromPayload(
   }
 
   let selected: JsonValue;
+
   try {
     selected = selectJsonPointer(document, pointer);
   } catch {
@@ -315,6 +335,7 @@ function selectJsonPointerFromPayload(
       { kind: "path", location: filePath },
     );
   }
+
   // Both come from the one parse above: the set can never mix two versions of
   // the file, even if it rotates between reads.
   return {
@@ -330,6 +351,7 @@ function selectJsonPointerFromPayload(
 function credentialDocumentLeaves(document: JsonValue): ReadonlyArray<string> {
   const leaves: Array<string> = [];
   collectLeaves(document, false, leaves);
+
   return leaves;
 }
 
@@ -347,15 +369,20 @@ function collectLeaves(
 ): void {
   if (isJsonString(value)) {
     if (underCredentialName) pushCredentialLeaf(value, leaves);
+
     return;
   }
+
   if (isJsonArray(value)) {
     for (const item of value) {
       collectLeaves(item, underCredentialName, leaves);
     }
+
     return;
   }
+
   if (!isJsonObject(value)) return;
+
   for (const [key, child] of Object.entries(value)) {
     collectLeaves(child, isCredentialName(key), leaves);
   }
@@ -370,6 +397,7 @@ function pushCredentialLeaf(value: string, leaves: Array<string>): void {
 
 /** Parsed JSON tree for secret-file pointer selection. */
 type JsonObject = { readonly [key: string]: JsonValue };
+
 type JsonValue =
   | string
   | number
@@ -412,14 +440,20 @@ function isJsonArray(value: JsonValue): value is ReadonlyArray<JsonValue> {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- this function IS the JSON I/O-boundary parser: first uses are `isString`/`isNumber`/`isBoolean`/`Array.isArray`/`isRecord` guards over `raw`, but the null short-circuit must run first and the exemption only recognizes an isXxx call as the first statement.
 function parseJsonValue(raw: unknown): JsonValue {
   if (raw === null) return null;
+
   if (isString(raw)) return raw;
+
   if (isNumber(raw)) return raw;
+
   if (isBoolean(raw)) return raw;
+
   if (Array.isArray(raw)) {
     return raw.map((item) => parseJsonValue(item));
   }
+
   if (isRecord(raw)) {
     const entries: { [key: string]: JsonValue } = {};
+
     for (const entry of Object.entries(raw)) {
       const key = entry[0];
       const value: unknown = entry[1];
@@ -433,25 +467,32 @@ function parseJsonValue(raw: unknown): JsonValue {
         configurable: true,
       });
     }
+
     return entries;
   }
+
   throw new Error("unsupported JSON value");
 }
 
 function decodePointerToken(token: string): string {
   let out = "";
+
   for (let i = 0; i < token.length; i += 1) {
     if (token[i] !== "~") {
       out += token[i];
       continue;
     }
+
     const escape = token[i + 1];
+
     if (escape !== "0" && escape !== "1") {
       throw new Error("invalid JSON pointer escape");
     }
+
     out += escape === "0" ? "~" : "/";
     i += 1;
   }
+
   return out;
 }
 
@@ -459,39 +500,52 @@ function selectJsonPointer(document: JsonValue, pointer: string): JsonValue {
   if (pointer === "") {
     return document;
   }
+
   if (!pointer.startsWith("/")) {
     throw new Error("JSON pointer must be empty or start with '/'");
   }
+
   let current: JsonValue = document;
+
   for (const rawToken of pointer.slice(1).split("/")) {
     const token = decodePointerToken(rawToken);
+
     if (isJsonObject(current)) {
       if (!Object.hasOwn(current, token)) {
         throw new Error("missing property");
       }
+
       current = current[token];
       continue;
     }
+
     if (isJsonArray(current)) {
       if (token !== "0" && (!/^\d+$/.test(token) || token.startsWith("0"))) {
         throw new Error("invalid array index");
       }
+
       const index = Number(token);
+
       if (index >= current.length) {
         throw new Error("array index out of range");
       }
+
       const next = current[index];
+
       if (next === undefined) {
         throw new Error("array index out of range");
       }
+
       current = next;
       continue;
     }
+
     throw new Error("cannot traverse value");
   }
 
   return current;
 }
+
 /** Workspace interpolation is single-pass and does not unescape doubled braces. */
 export type WorkspaceInterpolationSubstitution = Readonly<{
   value: string;
@@ -519,18 +573,23 @@ export async function interpolateWorkspaceString(
   let value = "";
   const substitutions: Array<WorkspaceInterpolationSubstitution> = [];
   let index = 0;
+
   while (index < input.length) {
     const token = await workspaceToken(input, index, root, env);
+
     if (token === undefined) {
       value += input[index];
       index += 1;
       continue;
     }
+
     value += token.value;
+
     if (token.substitution !== undefined)
       substitutions.push(token.substitution);
     index += token.length;
   }
+
   return { value, substitutions };
 }
 
@@ -543,27 +602,37 @@ async function workspaceToken(
   const dollar = input.startsWith("${", index);
   const envPrefix = input.startsWith("{env:", index);
   const pathPrefix = input.startsWith("{path:", index);
+
   if (!dollar && !envPrefix && !pathPrefix) return undefined;
   const prefixLength = dollar ? 2 : pathPrefix ? 6 : 5;
   const close = input.indexOf("}", index + prefixLength);
+
   if (close === -1) return undefined;
   const body = input.slice(index + prefixLength, close);
+
   if (pathPrefix) {
     const value = await workspacePath(body, root);
+
     return workspaceTokenResult(value, close - index + 1, false);
   }
+
   const parsed = workspaceEnvBody(body);
+
   if (parsed === undefined) return undefined;
   const value = Object.hasOwn(env, parsed.name) ? env[parsed.name] : undefined;
+
   const useFallback =
     value === undefined || (value === "" && parsed.fallback !== undefined);
+
   if (useFallback && parsed.fallback === undefined) {
     throw new InterpolationError(
       `required environment variable ${parsed.name} is not set`,
       { kind: "env", name: parsed.name },
     );
   }
+
   const resolved = useFallback ? (parsed.fallback ?? "") : (value ?? "");
+
   return workspaceTokenResult(resolved, close - index + 1, useFallback);
 }
 
@@ -573,7 +642,9 @@ function workspaceTokenResult(
   fallback: boolean,
 ): WorkspaceToken {
   const result: WorkspaceToken = { value, length };
+
   if (value.length > 0) result.substitution = { value, fallback };
+
   return result;
 }
 
@@ -582,9 +653,12 @@ type WorkspaceEnvBody = { name: string; fallback?: string };
 function workspaceEnvBody(body: string): WorkspaceEnvBody | undefined {
   const separator = body.indexOf(":-");
   const name = separator === -1 ? body : body.slice(0, separator);
+
   if (!WORKSPACE_ENV_NAME.test(name)) return undefined;
   const result: WorkspaceEnvBody = { name };
+
   if (separator !== -1) result.fallback = body.slice(separator + 2);
+
   return result;
 }
 
@@ -595,9 +669,11 @@ async function workspacePath(location: string, root: string): Promise<string> {
       location,
     });
   }
+
   const file = path.isAbsolute(location)
     ? location
     : path.resolve(root, location);
+
   try {
     return (await readFile(file, "utf8")).trim();
   } catch {

@@ -23,6 +23,7 @@ async function expectRequest(expected: {
   expect(request.method).toBe(expected.method);
   expect(new URL(request.url).pathname).toBe(expected.pathname);
   expect(request.credentials).toBe("include");
+
   if (expected.body !== undefined) {
     await expect(request.json()).resolves.toEqual(expected.body);
   }
@@ -62,10 +63,12 @@ import type { MembershipResponse, OrgUnitResponse } from "./types";
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
+
   const promise = new Promise<T>((res, rej) => {
     resolve = res;
     reject = rej;
   });
+
   return { promise, resolve, reject };
 }
 
@@ -239,6 +242,7 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
     const { result } = renderHook(() => useUpdateOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", name: "New" });
 
     // The patch lands after onMutate's `await cancelQueries(...)` resolves —
@@ -271,6 +275,7 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
     const { result } = renderHook(() => useUpdateOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", name: "New" });
 
     await waitFor(() =>
@@ -299,10 +304,12 @@ describe("useUpdateOrgUnit: optimistic cache patch", () => {
 describe("useDeleteOrgUnit: optimistic cache patch", () => {
   it("removes the unit from lists() before the fetcher resolves", async () => {
     const queryClient = newTestQueryClient();
+
     const seeded = [
       orgUnitFixture({ id: "u1" }),
       orgUnitFixture({ id: "u2", name: "Keep me" }),
     ];
+
     queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
 
     const { promise, resolve } = deferred<Response>();
@@ -311,6 +318,7 @@ describe("useDeleteOrgUnit: optimistic cache patch", () => {
     const { result } = renderHook(() => useDeleteOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate("u1");
 
     await waitFor(() =>
@@ -336,6 +344,7 @@ describe("useDeleteOrgUnit: optimistic cache patch", () => {
     const { result } = renderHook(() => useDeleteOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate("u1");
 
     await waitFor(() =>
@@ -368,6 +377,7 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
     const { result } = renderHook(() => useChangeMembershipRole(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", userId: "user-2", role: "owner" });
 
     await waitFor(() =>
@@ -395,6 +405,7 @@ describe("useChangeMembershipRole: optimistic cache patch", () => {
     const { result } = renderHook(() => useChangeMembershipRole(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", userId: "user-2", role: "owner" });
 
     await waitFor(() =>
@@ -428,6 +439,7 @@ describe("useCreateRootOrg: no optimistic insert", () => {
     const { result } = renderHook(() => useCreateRootOrg(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ name: "New Co" });
 
     // Still pending — the server hasn't assigned id/path yet, so there is
@@ -459,10 +471,12 @@ describe("useCreateRootOrg: no optimistic insert", () => {
 describe("useUpdateOrgUnit: patches only the matching row", () => {
   it("leaves a sibling unit's fields untouched (applyOrgUnitPatch's id-mismatch branch)", async () => {
     const queryClient = newTestQueryClient();
+
     const seeded = [
       orgUnitFixture({ id: "u1", name: "Old" }),
       orgUnitFixture({ id: "u2", name: "Sibling" }),
     ];
+
     queryClient.setQueryData(orgUnitsQueryKeys.lists(), seeded);
     fetchMock.mockResolvedValue(
       jsonResponse(orgUnitFixture({ id: "u1", name: "New" })),
@@ -471,6 +485,7 @@ describe("useUpdateOrgUnit: patches only the matching row", () => {
     const { result } = renderHook(() => useUpdateOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", name: "New" });
 
     await waitFor(() =>
@@ -496,6 +511,7 @@ describe("useCreateChildOrg: hook invalidates lists() on success", () => {
     const { result } = renderHook(() => useCreateChildOrg(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ parentId: "u1", name: "Team" });
 
     expect(invalidateSpy).not.toHaveBeenCalled();
@@ -517,6 +533,7 @@ describe("useGrantMembership: invalidates memberships() and myRole()", () => {
     const { result } = renderHook(() => useGrantMembership(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", userId: "user-2", role: "admin" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -532,10 +549,12 @@ describe("useGrantMembership: invalidates memberships() and myRole()", () => {
 describe("useRevokeMembership: optimistic removal + rollback + invalidation", () => {
   it("removes the membership from the cache before the fetcher resolves, then invalidates myRole and lists (self-leave)", async () => {
     const queryClient = newTestQueryClient();
+
     const seeded = [
       membershipFixture({ userId: "user-2" }),
       membershipFixture({ userId: "user-3" }),
     ];
+
     queryClient.setQueryData(orgUnitsQueryKeys.memberships("u1"), seeded);
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     const { promise, resolve } = deferred<Response>();
@@ -544,6 +563,7 @@ describe("useRevokeMembership: optimistic removal + rollback + invalidation", ()
     const { result } = renderHook(() => useRevokeMembership(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", userId: "user-2" });
 
     await waitFor(() =>
@@ -574,6 +594,7 @@ describe("useRevokeMembership: optimistic removal + rollback + invalidation", ()
     const { result } = renderHook(() => useRevokeMembership(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", userId: "user-2" });
 
     await waitFor(() =>
@@ -602,6 +623,7 @@ describe("optimistic mutations: empty-cache edge", () => {
     const { result } = renderHook(() => useUpdateOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ orgUnitId: "u1", name: "New" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -615,6 +637,7 @@ describe("optimistic mutations: empty-cache edge", () => {
     const { result } = renderHook(() => useDeleteOrgUnit(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate("u1");
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

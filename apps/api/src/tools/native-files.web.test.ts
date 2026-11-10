@@ -33,12 +33,14 @@ const READ_POLICY = compileToolPermissionMap(
   { read: { allow: true } },
   'test-policy',
 );
+
 const REWRITE_ADAPTER = {
   id: 'reader',
   use: 'rewrite',
   hosts: ['example.test'],
   target: 'https://reader.example.test{path}',
 } as const;
+
 const SOURCE_ONLY_POLICY = compileToolPermissionMap(
   {
     read: {
@@ -52,6 +54,7 @@ const SOURCE_ONLY_POLICY = compileToolPermissionMap(
   },
   'source-only-policy',
 );
+
 const TEST_ADDRESS = [{ address: '93.184.216.34', family: 4 }] as const;
 const resolvePublicAddress: ResolveHost = () => Promise.resolve(TEST_ADDRESS);
 
@@ -71,6 +74,7 @@ function webReadExecutor(
 let fetchDouble: Mock<TestFetch>;
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
+
 /** The same shape with a two-column table, so a range inside it can only
  *  report its columns through the header pair. */
 const RANGED_TABLE_MARKDOWN =
@@ -110,14 +114,17 @@ const PAGE_LINES = [
   '</body>',
   '</html>',
 ];
+
 const PAGE_HTML = `${PAGE_LINES.join('\n')}\n`;
 
 type FixtureRequest = { readonly method: string; readonly path: string };
+
 type FixtureResponse = {
   readonly status: number;
   readonly contentType: string;
   readonly body: string;
 };
+
 type WebFixture = {
   readonly port: number;
   readonly requests: Array<FixtureRequest>;
@@ -154,6 +161,7 @@ function startFixture(): Promise<WebFixture> {
   return new Promise<WebFixture>((resolve, reject) => {
     const requests: Array<FixtureRequest> = [];
     let nextResponse: FixtureResponse | undefined;
+
     const server = createServer((request, response) => {
       requests.push({
         method: request.method ?? 'GET',
@@ -163,15 +171,19 @@ function startFixture(): Promise<WebFixture> {
       nextResponse = undefined;
       sendFixtureResponse(response, fixtureResponse);
     });
+
     const onError = (error: Error): void => reject(error);
     server.once('error', onError);
     server.listen(0, '127.0.0.1', () => {
       server.off('error', onError);
       const address = server.address();
+
       if (address === null || !(address instanceof Object)) {
         reject(new Error('The web fixture did not receive a TCP address.'));
+
         return;
       }
+
       resolve({
         port: address.port,
         requests,
@@ -221,16 +233,19 @@ const DECODED_IMAGE = {
 /** A media store that records each decode and decodes every body it is given. */
 function imageStore() {
   const decoded: Array<{ byteSize: number; bytes: Buffer }> = [];
+
   const media = {
     readMedia: vi.fn<ToolMediaStore['readMedia']>(
       () =>
         async ({ byteSize, readBytes }) => {
           decoded.push({ byteSize, bytes: await readBytes() });
+
           return DECODED_IMAGE;
         },
     ),
     findMedia: () => Promise.resolve(undefined),
   } satisfies ToolMediaStore;
+
   return { media, decoded };
 }
 
@@ -283,6 +298,7 @@ describe('web locator dispatch', () => {
     const runAs = vi.fn(() =>
       Promise.reject(new Error('Database unavailable')),
     );
+
     const url = fixtureUrl('/guide');
 
     const result = await nativeReadTool.execute(
@@ -300,11 +316,13 @@ describe('web locator dispatch', () => {
 
   it('rejects edit and write on a web locator before any request', async () => {
     const url = fixtureUrl('/guide');
+
     const edited = await nativeEditTool.execute(webContext(), {
       path: url,
       oldText: 'a',
       newText: 'b',
     });
+
     const written = await nativeWriteTool.execute(webContext(), {
       path: url,
       content: 'x',
@@ -316,6 +334,7 @@ describe('web locator dispatch', () => {
         type: 'invalid_path',
       });
     }
+
     expect(fixture.requests).toEqual([]);
   });
 
@@ -358,6 +377,7 @@ describe('web locator dispatch', () => {
 
   it('returns the body verbatim for a :raw read', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: fixtureUrl('/guide:raw'),
     });
@@ -387,6 +407,7 @@ describe('web locator dispatch', () => {
 
   it('outlines a readability-converted HTML response', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: fixtureUrl('/guide:outline'),
     });
@@ -412,6 +433,7 @@ describe('web locator dispatch', () => {
 
   it('rejects outline for a plain-text response', async () => {
     respondWith(MARKDOWN, 'text/plain; charset=utf-8');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: fixtureUrl('/guide:outline'),
     });
@@ -425,6 +447,7 @@ describe('web locator dispatch', () => {
 
   it('returns an unnumbered window for a :raw line selector', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: fixtureUrl('/guide:raw:4-5'),
     });
@@ -442,6 +465,7 @@ describe('web locator dispatch', () => {
 
   it('numbers the converted window for a selector that is not raw', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: fixtureUrl('/guide:4-5'),
     });
@@ -474,6 +498,7 @@ describe('web locator dispatch', () => {
   it('prepends ancestors for a negotiated Markdown ranged read', async () => {
     respondWith(RANGED_MARKDOWN, 'text/markdown; charset=utf-8');
     const url = fixtureUrl('/guide');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: `${url}:6-6`,
     });
@@ -502,6 +527,7 @@ describe('web locator dispatch', () => {
   it('prepends the table header pair for a negotiated Markdown ranged read', async () => {
     respondWith(RANGED_TABLE_MARKDOWN, 'text/markdown; charset=utf-8');
     const url = fixtureUrl('/guide');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: `${url}:8-8`,
     });
@@ -535,6 +561,7 @@ describe('web locator dispatch', () => {
   it('does not add ancestors to a negotiated plain-text ranged read', async () => {
     respondWith(RANGED_MARKDOWN, 'text/plain; charset=utf-8');
     const url = fixtureUrl('/guide');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: `${url}:6-6`,
     });
@@ -585,6 +612,7 @@ describe('web locator dispatch', () => {
 
   it('fetches a fragment locator without the fragment', async () => {
     const url = fixtureUrl('/guide');
+
     const result = await nativeReadTool.execute(webContext(), {
       path: `${url}#top`,
     });
@@ -714,15 +742,18 @@ describe('web locator dispatch', () => {
   it('does not start the render when the fetch resolves after the Run aborted', async () => {
     const abort = new AbortController();
     const render = vi.fn(renderWebContent);
+
     // The client's deadline, and the listener that reports a caller abort, are
     // released when the session is disposed, so an abort that lands once the
     // fetch has resolved is visible only to the guard under test.
     const fetchThenAbort: typeof createWebFetchSession = (options, deps) => {
       const session = createWebFetchSession(options, deps);
+
       return {
         fetch: async (url) => {
           const response = await session.fetch(url);
           abort.abort();
+
           return response;
         },
         fetchPage: session.fetchPage,
@@ -730,6 +761,7 @@ describe('web locator dispatch', () => {
         dispose: session.dispose,
       };
     };
+
     fetchDouble.mockImplementationOnce(() =>
       Promise.resolve(
         new Response(LARGE_HTML, {
@@ -738,6 +770,7 @@ describe('web locator dispatch', () => {
         }),
       ),
     );
+
     const execute = webReadExecutor({
       createWebFetchSession: fetchThenAbort,
       renderWebContent: render,
@@ -763,8 +796,10 @@ describe('web locator dispatch', () => {
     // and the listener on the caller's signal, so the double wraps the real
     // session and counts its release on each path.
     const dispose = vi.fn();
+
     const sessionDouble: typeof createWebFetchSession = (options, deps) => {
       const session = createWebFetchSession(options, deps);
+
       return {
         fetch: session.fetch,
         fetchPage: session.fetchPage,
@@ -775,6 +810,7 @@ describe('web locator dispatch', () => {
         },
       };
     };
+
     const execute = webReadExecutor({
       createWebFetchSession: sessionDouble,
       renderWebContent,
@@ -799,6 +835,7 @@ describe('web locator dispatch', () => {
         }),
       ),
     );
+
     const refused = await execute(webContext(), {
       operation: 'read',
       input: { path: 'https://example.test/guide' },
@@ -810,19 +847,23 @@ describe('web locator dispatch', () => {
 
   it('reports a fetch failure as itself when the Run aborts as it lands', async () => {
     const abort = new AbortController();
+
     const failThenAbort: typeof createWebFetchSession = (options, deps) => {
       const session = createWebFetchSession(options, deps);
+
       return {
         fetch: session.fetch,
         fetchPage: async (url) => {
           const response = await session.fetchPage(url);
           abort.abort();
+
           return response;
         },
         dispose: session.dispose,
         untilDeadline: session.untilDeadline,
       };
     };
+
     fetchDouble.mockImplementationOnce(() =>
       Promise.resolve(
         new Response('no such page', {
@@ -901,12 +942,14 @@ describe('web locator dispatch', () => {
     const CALL_ID = 'call-web-pdf';
     const PDF_URL = 'https://example.test/paper.pdf';
     const PDF_FIXTURES = join(__dirname, '../media/testing/pdf');
+
     /** An unstored page is served from the attempt, never the store, so a
      *  lookup here means the read took a path it must not have. */
     const mediaService: Pick<MediaService, 'findOwned'> = {
       findOwned: () =>
         Promise.reject(new Error('An unstored PDF looked up the media store.')),
     };
+
     let paper: Buffer;
     let retained: Map<string, RetainedMedia>;
 
@@ -1041,6 +1084,7 @@ describe('web locator dispatch', () => {
         paper,
         Buffer.alloc(21 * 1024 * 1024 - paper.byteLength, 0x20),
       ]);
+
       fetchDouble.mockImplementationOnce(() =>
         Promise.resolve(pdfPage(oversized)),
       );
@@ -1077,14 +1121,18 @@ describe('web locator dispatch', () => {
       function pendingPreparation() {
         const { promise: started, resolve: entered } =
           Promise.withResolvers<void>();
+
         const { promise: prepared, resolve: finish } =
           Promise.withResolvers<number>();
+
         const parse = vi
           .spyOn(pdfPreparation, 'preparePdf')
           .mockImplementation(() => {
             entered();
+
             return prepared;
           });
+
         return { started, finish, restore: () => parse.mockRestore() };
       }
 
@@ -1098,15 +1146,20 @@ describe('web locator dispatch', () => {
           fetchDouble.mockImplementationOnce(() =>
             Promise.resolve(pdfPage(paper)),
           );
+
           const pending = readPdf(PDF_URL, {
             abortSignal: abort.signal,
           }).then((result) => {
             observed = result;
+
             return result;
           });
+
           const settled = Promise.allSettled([pending]);
+
           try {
             await preparation.started;
+
             if (type === 'aborted') abort.abort();
             else await vi.advanceTimersByTimeAsync(30_000);
             await vi.advanceTimersByTimeAsync(0);

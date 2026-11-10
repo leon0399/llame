@@ -25,8 +25,10 @@ type FailureNode = Error | Array<unknown> | UnknownRecord;
  */
 export function isFailureGraph(value: unknown): value is FailureNode {
   if (value instanceof Error || Array.isArray(value)) return true;
+
   if (!isRecord(value)) return false;
   const prototype = Reflect.getPrototypeOf(value);
+
   return prototype === null || prototype === Object.prototype;
 }
 
@@ -93,9 +95,11 @@ export function redactModelFailure(
   credentials: ReadonlyArray<string>,
 ): object | string | undefined {
   if (isString(error)) return redactedText(error, credentials);
+
   if (!isFailureGraph(error)) return undefined;
   const unrewritable = new Set<object>();
   redactInPlace(error, credentials, new Set(), unrewritable);
+
   return unrewritable.size === 0
     ? error
     : rebuildRedacted(error, credentials, new Map());
@@ -110,25 +114,35 @@ function redactInPlace(
 ): void {
   if (visited.has(container)) return;
   visited.add(container);
+
   for (const key of Reflect.ownKeys(container)) {
     if (isClassificationKey(container, key)) continue;
     const descriptor = Object.getOwnPropertyDescriptor(container, key);
+
     if (descriptor === undefined) continue;
+
     if (!('value' in descriptor)) {
       if (!redactAccessor(container, key, descriptor, credentials)) {
         unrewritable.add(container);
       }
+
       continue;
     }
+
     const current: unknown = descriptor.value;
+
     if (isString(current)) {
       const redacted = redactedText(current, credentials);
+
       if (redacted === current) continue;
+
       if (!defineValue(container, key, descriptor, redacted)) {
         unrewritable.add(container);
       }
+
       continue;
     }
+
     if (isFailureGraph(current)) {
       redactInPlace(current, credentials, visited, unrewritable);
     }
@@ -149,13 +163,16 @@ function redactAccessor(
 ): boolean {
   if (descriptor.get === undefined) return true;
   let read: unknown;
+
   try {
     read = descriptor.get.call(container);
   } catch {
     return false;
   }
+
   if (!isString(read)) return false;
   const redacted = redactedText(read, credentials);
+
   return (
     redacted === read ||
     defineValue(
@@ -179,6 +196,7 @@ function defineValue(
 ): boolean {
   try {
     Object.defineProperty(container, key, { ...descriptor, value });
+
     return true;
   } catch {
     return false;
@@ -199,14 +217,18 @@ function rebuildRedacted(
   copies: Map<object, FailureNode>,
 ): FailureNode {
   const existing = copies.get(original);
+
   if (existing !== undefined) return existing;
   const copy = createCopy(original);
   copies.set(original, copy);
   const state = { original, copy, credentials, copies };
+
   for (const key of Reflect.ownKeys(original)) {
     const descriptor = Object.getOwnPropertyDescriptor(original, key);
+
     if (descriptor !== undefined) copyProperty(state, key, descriptor);
   }
+
   return copy;
 }
 
@@ -225,6 +247,7 @@ type RebuildState = {
 function createCopy(original: FailureNode): FailureNode {
   const copy: FailureNode = Array.isArray(original) ? [] : {};
   Object.setPrototypeOf(copy, Reflect.getPrototypeOf(original));
+
   return copy;
 }
 
@@ -236,10 +259,13 @@ function copyProperty(
 ): void {
   if (!('value' in descriptor)) {
     copyAccessor(state, key, descriptor);
+
     return;
   }
+
   const current: unknown = descriptor.value;
   let next: unknown = current;
+
   if (isString(current)) {
     if (!isClassificationKey(state.original, key)) {
       next = redactedText(current, state.credentials);
@@ -247,6 +273,7 @@ function copyProperty(
   } else if (isFailureGraph(current)) {
     next = rebuildRedacted(current, state.credentials, state.copies);
   }
+
   Object.defineProperty(state.copy, key, { ...descriptor, value: next });
 }
 
@@ -262,16 +289,19 @@ function copyAccessor(
   descriptor: PropertyDescriptor,
 ): void {
   let read: unknown;
+
   try {
     read = descriptor.get?.call(state.original);
   } catch {
     return;
   }
+
   const value = isString(read)
     ? redactedText(read, state.credentials)
     : isFailureGraph(read)
       ? rebuildRedacted(read, state.credentials, state.copies)
       : read;
+
   Object.defineProperty(state.copy, key, {
     value,
     writable: true,

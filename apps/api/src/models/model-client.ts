@@ -305,6 +305,7 @@ export function createModelStreamFinishCallback(
   onFinish: ModelStreamInput['onFinish'],
 ): ((event: ModelStreamFinishEventSource) => void | Promise<void>) | undefined {
   if (onFinish === undefined) return undefined;
+
   return (event) => onFinish(toModelStreamFinishEvent(event));
 }
 

@@ -62,6 +62,7 @@ export class PersonalizationService {
       async (tx) => {
         const repository = new PersonalizationRepository(tx);
         const profile = await repository.findForOwner(userId);
+
         // Only read `users` when the owner actually shares their identity —
         // which they do not by default. Skipping it saves a query on the common
         // path, and keeps an unshared address out of process memory entirely.

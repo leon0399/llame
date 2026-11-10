@@ -85,7 +85,9 @@ export function normalizeChatMessagesResponse(
       parts: message.parts as UIMessage["parts"],
     }),
   );
+
   const compaction = [...messages].reverse().find(isCompaction);
+
   return {
     compaction: compaction ?? null,
     messages,
@@ -236,6 +238,7 @@ function isModelSwitchPayload(
   ) {
     return false;
   }
+
   // SAFETY: `keysMatch` above confirmed `value` has exactly these three
   // keys; each field is validated individually below.
   const { cause, fromModelId, toModelId } = value as {
@@ -243,6 +246,7 @@ function isModelSwitchPayload(
     fromModelId: unknown;
     toModelId: unknown;
   };
+
   return (
     cause === "model" &&
     isString(fromModelId) &&
@@ -276,6 +280,7 @@ function isInstructionsFileEntry(
 ): value is InstructionsPart["data"]["payload"]["files"][number] {
   if (!isNonNullObject(value)) return false;
   const hasImportedBy = Object.hasOwn(value, "importedBy");
+
   if (
     !keysMatch(Object.keys(value), [
       "path",
@@ -286,6 +291,7 @@ function isInstructionsFileEntry(
   ) {
     return false;
   }
+
   // SAFETY: `keysMatch` above confirmed `value` has exactly the accepted
   // file-entry shape; each field is validated individually below.
   const { path, canonicalPath, truncated, importedBy } = value as {
@@ -294,6 +300,7 @@ function isInstructionsFileEntry(
     truncated: unknown;
     importedBy?: unknown;
   };
+
   return (
     isNonEmptyString(path) &&
     isNonEmptyString(canonicalPath) &&
@@ -316,9 +323,11 @@ function isInstructionsPayload(
   ) {
     return false;
   }
+
   // SAFETY: `keysMatch` above confirmed `value` has exactly the `files` and
   // `denied` keys; both stay `unknown` and are validated individually below.
   const { files, denied } = value as { files: unknown; denied: unknown };
+
   return (
     Array.isArray(files) &&
     files.length > 0 &&
@@ -399,15 +408,19 @@ function isPromptImportsPayload(value: unknown): value is PromptImportsPayload {
   if (!isNonNullObject(value)) return false;
   const hasOmitted = Object.hasOwn(value, "omitted");
   const expectedKeys = hasOmitted ? ["imports", "omitted"] : ["imports"];
+
   if (!keysMatch(Object.keys(value), expectedKeys)) return false;
   // SAFETY: `keysMatch` above confirmed `value` has exactly the `imports` key
   // (plus `omitted` when present); both stay `unknown` and are validated
   // individually below.
   const { imports, omitted } = value as { imports: unknown; omitted?: unknown };
+
   if (!Array.isArray(imports) || !imports.every(isPromptImportEntry)) {
     return false;
   }
+
   if (!hasOmitted) return imports.length > 0;
+
   return (
     Array.isArray(omitted) &&
     omitted.length > 0 &&
@@ -431,7 +444,9 @@ function isRegenerateNoticePayload(
   if (!isNonNullObject(value) || !keysMatch(Object.keys(value), ["reason"])) {
     return false;
   }
+
   if (!("reason" in value)) return false;
+
   return value.reason === "non_read_only_calls";
 }
 
@@ -513,7 +528,9 @@ function trustedContextParts(message: {
       | RegenerateNoticePart
       | InterruptedNoticePart;
   }> = [];
+
   let index = 0;
+
   for (const part of message.parts) {
     if (!isContextItemPart(part)) {
       index += 1;
@@ -521,6 +538,7 @@ function trustedContextParts(message: {
       placed.push({ index, part });
     }
   }
+
   return placed;
 }
 
@@ -531,9 +549,11 @@ function samePartList(
   next: ReadonlyArray<unknown>,
 ): boolean {
   if (prev.length !== next.length) return false;
+
   for (let i = 0; i < prev.length; i += 1) {
     if (prev[i] !== next[i]) return false;
   }
+
   return true;
 }
 
@@ -568,18 +588,21 @@ export function mergeTrustedModelContextParts(
     const visibleParts: Array<unknown> = message.parts.filter(
       (part) => !isContextItemPart(part),
     );
+
     // Stored indices ascend, so offsetting by the parts already inserted keeps
     // two parts sharing one index in server order; splice clamps a start past
     // the end of a shorter live turn.
     (trustedByMessageId.get(message.id) ?? []).forEach(
       ({ index, part }, placed) => visibleParts.splice(index + placed, 0, part),
     );
+
     // Streaming re-runs this merge on every token. Reusing the live object
     // when the part list is unchanged keeps idle fat turns (80+ tool rows)
     // referentially stable so memoized rows can skip reconciliation.
     if (samePartList(message.parts, visibleParts)) {
       return message;
     }
+
     return {
       ...message,
       // SAFETY: `part` is this app's own `data-context` part and
@@ -597,10 +620,12 @@ export function runIdFromMessageMetadata(metadata: unknown): string | null {
   // SAFETY: `isNonNullObject` above confirmed `metadata` is a non-null
   // object; `usage` is read here still unvalidated and checked next.
   const usage = (metadata as { usage?: unknown }).usage;
+
   if (!isNonNullObject(usage)) return null;
   // SAFETY: `isNonNullObject` above confirmed `usage` is a non-null
   // object; `runId` is read here still unvalidated and checked next.
   const runId = (usage as { runId?: unknown }).runId;
+
   return isUuid(runId) ? runId : null;
 }
 
@@ -611,6 +636,7 @@ export function messageRenderKey(
     message.role === "assistant"
       ? (runIdFromMessageMetadata(message.metadata) ?? message.id)
       : message.id;
+
   return `${message.role}:${identity}`;
 }
 
@@ -642,6 +668,7 @@ export function toChatUiMessages(response: {
     const metadata = message.usage
       ? { seq: message.seq, usage: message.usage }
       : { seq: message.seq };
+
     return {
       id: message.id,
       role: message.role,
@@ -662,5 +689,6 @@ export function messageSeqFromMetadata(metadata: unknown): number | null {
   // SAFETY: `isNonNullObject` above confirmed `metadata` is a non-null
   // object; `seq` is read here still unvalidated and checked next.
   const seq = (metadata as { seq?: unknown }).seq;
+
   return isNumber(seq) && Number.isSafeInteger(seq) && seq > 0 ? seq : null;
 }

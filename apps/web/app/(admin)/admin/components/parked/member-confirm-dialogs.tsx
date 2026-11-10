@@ -186,6 +186,7 @@ function ConfirmRevokeDialog({
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);
+
         if (next) revoke.reset();
       }}
     >

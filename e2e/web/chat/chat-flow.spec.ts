@@ -12,9 +12,11 @@ import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
+
 // The structured title the model mock returns for `generate_title`; a fallback
 // to text would title the chat with the mock's default streamed answer.
 const GENERATED_TITLE = "E2E Generated Title";
+
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
@@ -57,8 +59,10 @@ test.describe("chat flow (worker execution mode)", () => {
             `${apiUrl}/api/v1/chats/${chatId}`,
             { headers: { Authorization: `Bearer ${account.token}` } },
           );
+
           expect(response.status(), await response.text()).toBe(200);
           const body: unknown = await response.json();
+
           return isTitledChat(body) ? body.title : undefined;
         },
         { timeout: 15_000 },

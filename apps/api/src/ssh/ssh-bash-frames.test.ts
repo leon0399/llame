@@ -100,6 +100,7 @@ describe('parseSshBashFrames stderr', () => {
   it('reports a gap that falls exactly at the command stderr start', () => {
     const diagnostic = `${MARKER}\ncommand err\n${NONCE}:end:0\n`;
     const start = MARKER.length + 1;
+
     const frames = parseSshBashFrames(
       Buffer.from(`${MARKER}\n`),
       diagnostic,
@@ -113,6 +114,7 @@ describe('parseSshBashFrames stderr', () => {
 
   it('ignores a gap that falls before the command stderr start', () => {
     const diagnostic = `${MARKER}\ncommand err\n${NONCE}:end:0\n`;
+
     // The gap sits inside the marker line, so no command text follows it.
     const frames = parseSshBashFrames(
       Buffer.from(`${MARKER}\n`),
@@ -128,6 +130,7 @@ describe('parseSshBashFrames stderr', () => {
   it('ignores a gap that falls where the command stderr ends', () => {
     const diagnostic = `${MARKER}\ncommand err\n${NONCE}:end:0\n`;
     const end = diagnostic.indexOf(`${NONCE}:end:`);
+
     const frames = parseSshBashFrames(
       Buffer.from(`${MARKER}\n`),
       diagnostic,

@@ -67,14 +67,17 @@ function redactedFailure(
 ): object | string | undefined {
   if (!isFailureGraph(error)) return redactModelFailure(error, credentials);
   const memoized = memo.get(error);
+
   if (memoized !== undefined) return memoized;
   const redacted = redactModelFailure(error, credentials) ?? error;
   memo.set(error, redacted);
+
   if (redacted !== error) {
     logger.warn(
       'A model failure could not be rewritten in place; reporting a redacted replacement.',
     );
   }
+
   return redacted;
 }
 
@@ -120,10 +123,12 @@ function redactedChannels(
       ],
     ),
   );
+
   overrides.consumeStream = (target: ModelStreamResult) => ({
     value: (options?: ConsumeOptions) =>
       isRedactedRejection(target.consumeStream(options), credentials, memo),
   });
+
   return overrides;
 }
 
@@ -150,21 +155,28 @@ function redactingOnError(
     ) {
       return;
     }
+
     const redacted = redactedFailure(error, credentials, memo);
     const failure = redacted === undefined ? error : redacted;
+
     if (caller !== undefined) return caller({ error: failure });
+
     if (failure instanceof Error) {
       logger.error(`A model request failed: ${failure.message}`, failure.stack);
+
       return;
     }
+
     if (redacted !== undefined && !isString(redacted)) {
       // A structured failure has no `message` to interpolate: `String` would
       // collapse a Responses `error`/`response.failed` envelope to
       // `[object Object]`. Nest inspects an extra argument, so the redacted
       // `message`, `code`, and the fields around them stay readable.
       logger.error('A model request failed', redacted);
+
       return;
     }
+
     logger.error(`A model request failed: ${String(failure)}`);
   };
 }
@@ -188,6 +200,7 @@ export function withRedactedFailures(
 ): ModelClient {
   const memo: FailureMemo = new WeakMap();
   const channels = redactedChannels(credentials, memo);
+
   return new Proxy(client, {
     get(target, property, receiver) {
       if (property === 'streamText') {
@@ -205,8 +218,10 @@ export function withRedactedFailures(
             channels,
           );
       }
+
       if (property === 'generateObject') {
         if (target.generateObject === undefined) return undefined;
+
         return <OBJECT>(input: ModelObjectInput<OBJECT>) =>
           isRedactedRejection(
             target.generateObject?.(input),
@@ -214,6 +229,7 @@ export function withRedactedFailures(
             memo,
           );
       }
+
       // eslint-disable-next-line anti-slop/no-reflect-get, typescript/no-unsafe-return -- pass-through read of an untouched client member; the trap has no per-property type, and the receiver-correct rationale is owned by wrapStreamTextResult.
       return Reflect.get(target, property, receiver);
     },

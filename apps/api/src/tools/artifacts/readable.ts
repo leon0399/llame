@@ -41,6 +41,7 @@ export function readAdmitsArtifact(
   seq = 1,
 ): boolean {
   if (context.artifactReadable !== true) return false;
+
   // An `artifact://` path is already its own canonical projection, so the
   // `read` group matches the locator exactly as the reader submits it.
   const decision = admitPermission(context, (evaluate) =>
@@ -49,6 +50,7 @@ export function readAdmitsArtifact(
       args: { path: formatArtifactLocator(toolName, seq) },
     }),
   );
+
   return decision?.decision === 'allow';
 }
 
@@ -76,5 +78,6 @@ function bashGroupAdmits(context: ToolContext): boolean {
   const decision = admitPermission(context, (evaluate) =>
     evaluate({ toolId: 'bash', args: { command: '' } }),
   );
+
   return decision?.decision === 'allow';
 }

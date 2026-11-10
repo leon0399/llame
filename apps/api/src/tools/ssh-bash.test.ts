@@ -43,6 +43,7 @@ function remote(
   ),
 ): Remote {
   const runs: Array<SshRunRequest> = [];
+
   const client: SshClient = {
     resolve: () =>
       Promise.resolve({
@@ -51,15 +52,18 @@ function remote(
       }),
     run: (request) => {
       runs.push(request);
+
       const nonce =
         /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
           String(request.input),
         )?.[1] ?? '';
+
       return Promise.resolve(reply(nonce, request));
     },
     sshConfigText: () => undefined,
     dispose: () => undefined,
   };
+
   return { client, runs };
 }
 
@@ -97,6 +101,7 @@ function context(
   overrides: Partial<ToolContext> = {},
 ): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -119,6 +124,7 @@ function stubFence() {
   const begin = vi
     .spyOn(NativeFilesRepository.prototype, 'begin')
     .mockResolvedValue(undefined);
+
   const append = vi
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue({
@@ -128,6 +134,7 @@ function stubFence() {
       payload: null,
       createdAt: new Date(),
     });
+
   return { begin, append };
 }
 
@@ -230,10 +237,13 @@ describe('ssh bash execution', () => {
   it('reports the elapsed clock time as the wall time', async () => {
     let clock = 1000;
     vi.spyOn(performance, 'now').mockImplementation(() => clock);
+
     const remoteClient = remote((nonce) => {
       clock = 2240;
+
       return completed('command out\n', '', 0)(nonce);
     });
+
     stubFence();
 
     const result = await executeSshBash(context(remoteClient), {
@@ -284,6 +294,7 @@ describe('ssh bash execution', () => {
     const remoteClient = remote((nonce) =>
       ended(Buffer.alloc(0), `${nonce}:refuse:cwd\n${nonce}:end:0\n`),
     );
+
     stubFence();
 
     const result = await executeSshBash(context(remoteClient), {
@@ -325,6 +336,7 @@ describe('ssh bash execution', () => {
     const remoteClient = remote((nonce) =>
       ended(`${nonce}:start\n`, `${nonce}:start\n`),
     );
+
     stubFence();
 
     const result = await executeSshBash(context(remoteClient), {
@@ -342,6 +354,7 @@ describe('ssh bash execution', () => {
     const auth = remote(() =>
       ended('', 'box: Permission denied (publickey).', 255),
     );
+
     stubFence();
     await expect(
       executeSshBash(context(auth), { command: 'true', cwd: CWD }),
@@ -349,20 +362,24 @@ describe('ssh bash execution', () => {
       status: 'error',
       type: 'ssh_unavailable',
     });
+
     const authResult = await executeSshBash(context(auth), {
       command: 'true',
       cwd: CWD,
     });
+
     expect(authResult).toHaveProperty(
       'message',
       expect.stringContaining('auth_failed'),
     );
 
     const missingBash = remote(() => ended('', 'sh: 1: bash: not found', 127));
+
     const result = await executeSshBash(context(missingBash), {
       command: 'true',
       cwd: CWD,
     });
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'ssh_unsupported_host',
@@ -393,6 +410,7 @@ describe('ssh bash execution', () => {
     const toolContext = context(remoteClient);
     stubFence();
     const slot = reserveManagedProcessSlot(managedBashContext(toolContext));
+
     if ('type' in slot) throw new Error('Expected a slot');
 
     try {
@@ -429,6 +447,7 @@ describe('ssh bash execution', () => {
       context(remoteClient, { timeoutSignal: AbortSignal.abort() }),
       { command: 'true', cwd: CWD },
     );
+
     expect(timedOut).toMatchObject({ status: 'error', type: 'timed_out' });
   });
 
@@ -441,6 +460,7 @@ describe('ssh bash execution', () => {
     const controller = new AbortController();
     begin.mockImplementation(() => {
       controller.abort();
+
       return Promise.resolve(undefined);
     });
 
@@ -467,6 +487,7 @@ describe('ssh bash execution', () => {
     const controller = new AbortController();
     begin.mockImplementation(() => {
       controller.abort();
+
       return Promise.resolve(undefined);
     });
 

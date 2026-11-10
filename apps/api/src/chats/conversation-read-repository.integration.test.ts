@@ -20,11 +20,13 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { createCompactionCheckpointPart } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'conversation-read-repository.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
   );
 }
+
 type SqlClient = Sql;
 
 describe('conversation source repository lookup', () => {
@@ -42,6 +44,7 @@ describe('conversation source repository lookup', () => {
     tenantDb = new TenantDbService(db);
     ownerA = crypto.randomUUID();
     ownerB = crypto.randomUUID();
+
     for (const id of [ownerA, ownerB]) {
       await sqlClient`
         INSERT INTO users (id, name, email)
@@ -79,7 +82,9 @@ describe('conversation source repository lookup', () => {
         senderUserId: input.role === 'user' ? ownerUserId : null,
         parts: [{ type: 'text', text: input.text }],
       };
+
       if (input.usage !== undefined) values.usage = input.usage;
+
       return new MessagesRepository(tx).create(values);
     });
   }
@@ -94,59 +99,69 @@ describe('conversation source repository lookup', () => {
         role: 'user',
         text: 'first',
       });
+
       const interleaved = await createMessage(ownerA, {
         chatId: interleavedChat.id,
         role: 'user',
         text: 'independent local sequence',
       });
+
       const completed = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'assistant',
         text: 'completed',
         usage: { status: 'completed' },
       });
+
       const legacy = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'assistant',
         text: 'legacy',
         usage: {},
       });
+
       const retryableNull = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'assistant',
         text: 'retryable null',
         usage: { status: null },
       });
+
       const systemMessage = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'system',
         text: 'hidden system',
         usage: { status: 'completed' },
       });
+
       const toolMessage = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'tool',
         text: 'hidden tool',
         usage: { status: 'completed' },
       });
+
       const nextUser = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'user',
         text: 'next user',
         usage: { status: 'error' },
       });
+
       const retryableError = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'assistant',
         text: 'retryable error',
         usage: { status: 'error' },
       });
+
       const retryableAborted = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'assistant',
         text: 'retryable aborted',
         usage: { status: 'aborted' },
       });
+
       const legacyNull = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'assistant',
@@ -184,6 +199,7 @@ describe('conversation source repository lookup', () => {
           first.seq,
         ),
       );
+
       expect(firstRead?.previousMessageSeq).toBeUndefined();
       expect(firstRead?.nextMessageSeq).toBe(completed.seq);
 
@@ -194,6 +210,7 @@ describe('conversation source repository lookup', () => {
           nextUser.seq,
         ),
       );
+
       expect(lastRead?.previousMessageSeq).toBe(legacy.seq);
       expect(lastRead?.nextMessageSeq).toBe(legacyNull.seq);
 
@@ -204,6 +221,7 @@ describe('conversation source repository lookup', () => {
           legacyNull.seq,
         ),
       );
+
       expect(legacyNullRead?.usage).toBeNull();
       expect(legacyNullRead?.previousMessageSeq).toBe(nextUser.seq);
       expect(legacyNullRead?.nextMessageSeq).toBeUndefined();
@@ -244,12 +262,14 @@ describe('conversation source repository lookup', () => {
         role: 'user',
         text: 'before the checkpoint',
       });
+
       const assistant = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'assistant',
         text: 'answer',
         usage: { status: 'completed' },
       });
+
       const checkpoint = await tenantDb.runAs(ownerA, (tx) =>
         new MessagesRepository(tx).createCheckpoint({
           chatId: chat.id,
@@ -257,11 +277,13 @@ describe('conversation source repository lookup', () => {
           part: createCompactionCheckpointPart('PRIVATE_CHECKPOINT_SUMMARY'),
         }),
       );
+
       const trailingUser = await createMessage(ownerA, {
         chatId: chat.id,
         role: 'user',
         text: 'after the checkpoint',
       });
+
       const read = (seq: number) =>
         tenantDb.runAs(ownerA, (tx) =>
           new MessagesRepository(tx).findConversationMessage(
@@ -302,11 +324,13 @@ describe('conversation source repository lookup', () => {
         role: 'user',
         text: 'owner-only',
       });
+
       const otherMessage = await createMessage(ownerB, {
         chatId: otherChat.id,
         role: 'user',
         text: 'other-owner-only',
       });
+
       const deletedMessage = await createMessage(ownerA, {
         chatId: ownerChat.id,
         role: 'user',

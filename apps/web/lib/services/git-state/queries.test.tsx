@@ -83,9 +83,11 @@ describe("useChatGitStateQuery", () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse({ status: "unbound" }),
     );
+
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
     });
+
     const { result } = render(client, "/work/shop", true);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     focusManager.setFocused(false);

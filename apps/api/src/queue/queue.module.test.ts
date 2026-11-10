@@ -6,7 +6,9 @@ import { defineQueue, QUEUE, type Queue } from './queue';
 vi.hoisted(() => {
   process.env.LLAME_OPENAPI_GENERATION = '1';
 });
+
 import { QueueModule } from './queue.module';
+
 delete process.env.LLAME_OPENAPI_GENERATION;
 
 describe('QueueModule OpenAPI provider', () => {
@@ -14,6 +16,7 @@ describe('QueueModule OpenAPI provider', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [QueueModule],
     }).compile();
+
     const queue = moduleRef.get<Queue>(QUEUE);
     const definition = defineQueue<{ value: string }>({ name: 'test' });
 

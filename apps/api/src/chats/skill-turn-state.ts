@@ -89,6 +89,7 @@ export function resolveTurnSkillState(
   },
 ): SkillTurnState {
   const stored = input.chat.skillCatalogBaseline;
+
   if (
     stored !== null &&
     baselineMatchesEpoch(
@@ -107,12 +108,14 @@ export function resolveTurnSkillState(
       runId: input.runId,
       modelReferencesSkills: input.modelReferencesSkills,
     });
+
     return {
       baseline: stored,
       notice,
       ...(notice !== undefined && { told: notice.told }),
     };
   }
+
   return startSkillEpoch(deps, input);
 }
 
@@ -134,6 +137,7 @@ function startSkillEpoch(
 ): SkillTurnState {
   const catalog = deps.skillCatalog;
   const hasExtraSources = (deps.extraSources?.length ?? 0) > 0;
+
   if (
     catalog === undefined ||
     (deps.skillDirectories.length === 0 && !hasExtraSources)
@@ -142,6 +146,7 @@ function startSkillEpoch(
   }
 
   const snapshot = catalog.getSnapshot(deps.extraSources);
+
   // Unreadable, missing, or oversized sources are not an empty advertisement:
   // freezing one would bind an empty baseline to the chat for the whole epoch,
   // turning a transient read failure into a silently absent skill section.
@@ -151,10 +156,12 @@ function startSkillEpoch(
     (snapshot.directories.length === 0 && snapshot.entries.length === 0)
   ) {
     if (!snapshot.available) reportUnavailableCatalog(deps, catalog);
+
     return { baseline: undefined, notice: undefined };
   }
 
   const baseline = resolveSkillCatalogBaselineFromSnapshot(snapshot);
+
   return {
     baseline,
     notice: undefined,
@@ -186,12 +193,14 @@ function deriveCatalogNotice(input: {
   if (!input.modelReferencesSkills) return undefined;
 
   const advertised = resolveCurrentCatalogBaseline(input.deps);
+
   if (advertised === undefined) return undefined;
 
   const delta = deriveSkillCatalogDelta({
     advertised: advertised.entries,
     told: input.told,
   });
+
   if (delta === null) return undefined;
 
   if (skillCatalogDeltaFits(delta)) {
@@ -207,6 +216,7 @@ function deriveCatalogNotice(input: {
       told: delta.told,
     };
   }
+
   return supersedeCatalog(input.runId, advertised);
 }
 
@@ -229,16 +239,20 @@ function reportUnavailableCatalog(
   catalog: SkillCatalogPort,
 ): void {
   if (deps.reportUnavailable === undefined) return;
+
   // Longest first, so a nested source is replaced as a whole rather than
   // leaving its parent's remainder behind.
   const sources = [...deps.skillDirectories].sort(
     (left, right) => right.length - left.length,
   );
+
   let reasons = catalog.getSnapshot().diagnostics.join(' ');
+
   for (const source of sources) {
     if (source.length > 0)
       reasons = reasons.replaceAll(source, '<skill source>');
   }
+
   deps.reportUnavailable([reasons]);
 }
 
@@ -246,17 +260,20 @@ function resolveCurrentCatalogBaseline(
   deps: SkillTurnStateDeps,
 ): SkillCatalogBaseline | undefined {
   const catalog = deps.skillCatalog;
+
   // No catalog port means the advertisement is EMPTY, not that there is
   // nothing to say: a chat whose frozen baseline still lists names needs the
   // removals, or it keeps attempting stale reads for the rest of the epoch.
   if (catalog === undefined) return EMPTY_BASELINE;
 
   const baseline = resolveSkillCatalogBaseline(catalog, deps.extraSources);
+
   if (baseline !== undefined) return baseline;
 
   // An unreadable catalog is not an empty advertisement: diffing it would
   // announce removals that have not happened. Retry on the next turn.
   reportUnavailableCatalog(deps, catalog);
+
   return undefined;
 }
 

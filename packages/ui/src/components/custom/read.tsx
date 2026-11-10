@@ -97,8 +97,11 @@ const pdfOutputSchema = z.looseObject({
 });
 
 type ReadOutput = z.infer<typeof textOutputSchema>;
+
 type ImageReadOutput = z.infer<typeof imageOutputSchema>;
+
 type PdfReadOutput = z.infer<typeof pdfOutputSchema>;
+
 type LineRange = z.infer<typeof lineRangeSchema>;
 
 /** Props for the dedicated read tool row. */
@@ -132,7 +135,9 @@ function formatRanges(
   range: LineRange | null | undefined,
 ): string | undefined {
   const all = ranges ?? (range ? [range] : []);
+
   if (all.length === 0) return undefined;
+
   return all
     .map(({ startLine, endLine }) =>
       startLine === endLine ? `${startLine}` : `${startLine}–${endLine}`,
@@ -142,6 +147,7 @@ function formatRanges(
 
 function truncation(output: ReadOutput): string | undefined {
   if (!output.truncated) return undefined;
+
   // A directory's nextOffset counts entries, not lines.
   return output.kind === "file" && output.nextOffset !== undefined
     ? `continues at line ${output.nextOffset + 1}`
@@ -154,12 +160,15 @@ function methodLabel(
   output: ReadOutput | ImageReadOutput | PdfReadOutput,
 ): string | undefined {
   const { adapter, method } = output;
+
   if (!adapter) return method;
+
   const provenance = [
     adapter.id,
     adapter.route === "native" ? undefined : adapter.route,
     adapter.origin && `via ${adapter.origin}`,
   ].filter(Boolean);
+
   return `${method ?? "adapter"} (${provenance.join(", ")})`;
 }
 
@@ -197,6 +206,7 @@ function metadataRows(output: ReadOutput): Array<[string, string]> {
     ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
     ...envelopeRows(output, textOutputSchema),
   ];
+
   return rows.filter((row): row is [string, string] => row[1] !== undefined);
 }
 
@@ -210,6 +220,7 @@ function imageMetadataRows(output: ImageReadOutput): Array<[string, string]> {
     ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
     ...envelopeRows(output, imageOutputSchema),
   ];
+
   return rows.filter((row): row is [string, string] => row[1] !== undefined);
 }
 
@@ -223,12 +234,14 @@ function pdfMetadataRows(output: PdfReadOutput): Array<[string, string]> {
     ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
     ...envelopeRows(output, pdfOutputSchema),
   ];
+
   return rows.filter((row): row is [string, string] => row[1] !== undefined);
 }
 
 /** The original's page count and byte size, e.g. `15 pages · 2.1 MiB`. */
 function pdfSizeLabel({ pages, byteSize }: PdfReadOutput): string {
   let size: string;
+
   if (byteSize < 1024) {
     size = `${byteSize} B`;
   } else if (byteSize < 1024 * 1024) {
@@ -236,6 +249,7 @@ function pdfSizeLabel({ pages, byteSize }: PdfReadOutput): string {
   } else {
     size = `${(byteSize / (1024 * 1024)).toFixed(1)} MiB`;
   }
+
   return `${pages} ${pages === 1 ? "page" : "pages"} · ${size}`;
 }
 
@@ -249,6 +263,7 @@ function pdfName({ path, finalUrl }: PdfReadOutput): string {
   const locator = (finalUrl ?? path).replace(/^[a-z][a-z0-9+.-]*:\/\//iu, "");
   const pathOnly = locator.slice(locator.indexOf("/") + 1).split(/[?#]/u)[0];
   const segment = (pathOnly ?? "").split("/").filter(Boolean).at(-1);
+
   return segment ?? "document.pdf";
 }
 
@@ -286,11 +301,13 @@ function ReadContent({ output }: { output: ReadOutput }) {
   if (output.content === "") {
     return <p className="text-muted-foreground text-sm">No content.</p>;
   }
+
   if (output.kind === "file" && output.representation !== "raw") {
     // Web reads arrive as Markdown unless the URL names another type.
     const language =
       languageForPath(output.path) ??
       (output.finalUrl === undefined ? undefined : "markdown");
+
     return (
       <SourceLines
         lines={parseNumberedLines(output.content)}
@@ -299,6 +316,7 @@ function ReadContent({ output }: { output: ReadOutput }) {
       />
     );
   }
+
   // Cap height so a large read cannot inflate the transcript when expanded.
   return (
     <ScrollRegion label="File contents" className="rounded-md bg-muted/50">
@@ -340,22 +358,28 @@ function readImageSlide({
   mediaSources,
 }: ReadImageProps): { thumbnail: string; slide: MediaLightboxSlide } | null {
   const key = "image";
+
   if (output.media !== undefined) {
     const sources = mediaSources?.(output.media);
+
     if (!sources) return null;
     const caption = mediaCaption(output.media, output);
+
     return {
       thumbnail: sources.thumbnail,
       slide: { key, src: sources.original, alt: output.path, caption },
     };
   }
+
   // The thumbnail lives under `display`; parts stored before it moved keep it
   // at the top level.
   const inline = output.display?.thumbnail ?? output.thumbnail;
   const thumbnail = inlineThumbnailSchema.safeParse(inline).data;
+
   if (thumbnail === undefined) return null;
   const locator = submittedPathSchema.safeParse(input).data?.path;
   const caption = mediaCaption(locator ?? output.path, output);
+
   return {
     thumbnail,
     slide: { key, src: thumbnail, alt: output.path, caption },
@@ -367,6 +391,7 @@ function ReadImagePreview(props: ReadImageProps) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const preview = readImageSlide(props);
   const { width, height, mediaType } = props.output;
+
   if (preview === null) {
     return (
       <ImageDimensionsTile
@@ -376,6 +401,7 @@ function ReadImagePreview(props: ReadImageProps) {
       />
     );
   }
+
   return (
     <>
       <MediaThumbnail
@@ -425,6 +451,7 @@ function ReadPdfBody({
     output.media === undefined
       ? undefined
       : mediaSources?.(output.media)?.original;
+
   return (
     <div className="space-y-4">
       <ReadSource output={output} Markdown={Markdown} />
@@ -443,8 +470,10 @@ function ReadResult({
   mediaSources,
 }: Pick<ReadToolProps, "input" | "output" | "Markdown" | "mediaSources">) {
   const textOutput = textOutputSchema.safeParse(output).data;
+
   if (textOutput) return <ReadBody output={textOutput} Markdown={Markdown} />;
   const imageOutput = imageOutputSchema.safeParse(output).data;
+
   if (imageOutput) {
     return (
       <ReadImageBody
@@ -455,7 +484,9 @@ function ReadResult({
       />
     );
   }
+
   const pdfOutput = pdfOutputSchema.safeParse(output).data;
+
   if (pdfOutput) {
     return (
       <ReadPdfBody
@@ -465,6 +496,7 @@ function ReadResult({
       />
     );
   }
+
   return <ToolResultFallback output={output} pendingLabel="Reading…" />;
 }
 

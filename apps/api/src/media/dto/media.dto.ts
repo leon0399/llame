@@ -139,6 +139,7 @@ export class MediaPageResponse {
 export function toMediaDescriptor(media: MediaObject): MediaResponse {
   const { id, name, byteSize } = media;
   const locator = mediaLocator(id);
+
   // Only a PDF row has a page count (media_objects_shape).
   if (media.pageCount !== null) {
     return {
@@ -150,10 +151,13 @@ export function toMediaDescriptor(media: MediaObject): MediaResponse {
       pages: media.pageCount,
     };
   }
+
   const image = imageColumns(media);
+
   if (image === undefined) {
     throw new Error(`Media ${id} has neither the image nor the PDF shape`);
   }
+
   return {
     id,
     locator,

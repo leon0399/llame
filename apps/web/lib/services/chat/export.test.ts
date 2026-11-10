@@ -46,14 +46,17 @@ function routeFetch(
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname } = new URL(request.url);
+
     if (pathname === "/api/v1/models") {
       return modelsStatus.ok
         ? jsonResponse(modelsStatus.body)
         : jsonResponse({ message: "models unavailable" }, 503);
     }
+
     if (pathname.endsWith("/messages")) {
       return jsonResponse(messagesResponse);
     }
+
     throw new Error(`unexpected fetch to ${pathname}`);
   });
 }
@@ -85,6 +88,7 @@ describe("exportChatAsMarkdown", () => {
     const revokeObjectURL = vi.fn();
     URL.createObjectURL = createObjectURL;
     URL.revokeObjectURL = revokeObjectURL;
+
     const clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => {});
@@ -140,9 +144,11 @@ describe("exportChatAsMarkdown", () => {
     let exportedBlob: Blob | undefined;
     URL.createObjectURL = vi.fn((blob: Blob) => {
       exportedBlob = blob;
+
       return "blob:fake-url";
     });
     URL.revokeObjectURL = vi.fn();
+
     const clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => {});
@@ -150,9 +156,11 @@ describe("exportChatAsMarkdown", () => {
     await exportChatAsMarkdown("chat-1", "My Chat");
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
+
     const requestedPaths = fetchMock.mock.calls.map(
       (_, index) => new URL(requestFromCall(fetchMock, index).url).pathname,
     );
+
     expect(requestedPaths).toContain("/api/v1/models");
     await expect(exportedBlob?.text()).resolves.toContain(
       "**Assistant** · GPT-4o",

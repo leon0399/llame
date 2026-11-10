@@ -29,12 +29,15 @@ function useNewChatShortcut() {
   const router = useRouter();
   useEffect(() => {
     const isMac = detectPrimaryModifier() === "⌘";
+
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || !isNewChatShortcut(e, isMac)) return;
       e.preventDefault();
       router.push("/");
     };
+
     document.addEventListener("keydown", onKey);
+
     return () => document.removeEventListener("keydown", onKey);
   }, [router]);
 }

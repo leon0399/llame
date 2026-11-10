@@ -5,9 +5,11 @@ import { ENGINE_LIMITS, acceptsQuery, vendorCount } from './limits';
 import { recencyDate } from './query';
 
 export const DEEPSEEK_SEARCH_URL = 'https://api.deepseek.com/v1/tools/search';
+
 /** The vendor's bound on `ori_question`, in code points; the catalog states it. */
 export const ORI_QUESTION_MAX_CODE_POINTS = 128;
 const RECENCY_NOTE = 'recency not applied by deepseek';
+
 const DeepseekResultSchema = z.object({
   title: z.string(),
   url: z.string(),
@@ -15,14 +17,17 @@ const DeepseekResultSchema = z.object({
   summary: z.string().optional(),
   date: z.string().nullable().optional(),
 });
+
 const DeepseekPayloadSchema = z.object({ results: z.array(z.unknown()) });
 
 function mapDeepseekResult(value: unknown): Array<RawResult> {
   const parsed = DeepseekResultSchema.safeParse(value);
+
   if (!parsed.success) return [];
   const { data } = parsed;
   // `summary` is the longer, model-oriented field; a blank one falls back.
   const snippet = data.summary || data.snippet;
+
   return [
     {
       title: data.title,
@@ -42,6 +47,7 @@ function mapDeepseekResult(value: unknown): Array<RawResult> {
 function datedQuery(query: string, recency: EngineRequest['recency']) {
   if (recency === undefined) return { query, applied: true };
   const dated = `${query} after:${recencyDate(recency)}`;
+
   return acceptsQuery(ENGINE_LIMITS.deepseek, dated)
     ? { query: dated, applied: true }
     : { query, applied: false };
@@ -67,6 +73,7 @@ export function createDeepseekEngine(
   return async (request: EngineRequest) => {
     const dated = datedQuery(request.query, request.recency);
     const extra = dated.applied ? {} : { notes: [RECENCY_NOTE] };
+
     const payload = await fetchVendorJson(
       DEEPSEEK_SEARCH_URL,
       {
@@ -85,7 +92,9 @@ export function createDeepseekEngine(
       },
       DeepseekPayloadSchema,
     );
+
     const results = payload.results.flatMap(mapDeepseekResult);
+
     return results.length > 0
       ? { kind: 'results', results, ...extra }
       : { kind: 'empty', ...extra };

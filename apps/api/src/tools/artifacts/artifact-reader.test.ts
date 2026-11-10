@@ -25,6 +25,7 @@ const ASIDE = '00000000-0000-4000-8000-000000000002';
 function contextOf(chatId = CHAT_ID): ToolContext {
   const db = drizzle.mock({ schema });
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
+
   return {
     configuredCredentials: [],
     userId: USER_ID,
@@ -50,6 +51,7 @@ function contentOf(result: ToolResult): string {
   if (result.status !== 'success' || !isString(result['content'])) {
     throw new Error(`Expected a read success, got ${JSON.stringify(result)}`);
   }
+
   return result['content'];
 }
 
@@ -57,6 +59,7 @@ function countOf(result: ToolResult): number {
   if (result.status !== 'success' || !isNumber(result['entryCount'])) {
     throw new Error(`Expected a listing, got ${JSON.stringify(result)}`);
   }
+
   return result['entryCount'];
 }
 
@@ -81,6 +84,7 @@ describe('readArtifact', () => {
         await readArtifact(contextOf(), operation, 'artifact://grep-1'),
       ).toMatchObject({ status: 'error', type: 'invalid_path' });
     }
+
     expect(scripted.findParts).not.toHaveBeenCalled();
   });
 
@@ -166,6 +170,7 @@ describe('readArtifact', () => {
 
   it('refuses a comma listing selector instead of returning every entry', async () => {
     const scripted = scriptRepository();
+
     const rows = Array.from({ length: 3 }, (_, index) => ({
       seq: index + 1,
       toolName: 'grep',
@@ -173,6 +178,7 @@ describe('readArtifact', () => {
       lineCount: 1,
       byteSize: 1,
     }));
+
     scripted.listChat.mockResolvedValue(rows);
 
     const result = await readArtifact(
@@ -213,6 +219,7 @@ describe('readArtifact', () => {
 
     expect(countOf(first)).toBe(400);
     expect(first).toMatchObject({ truncated: true });
+
     if (first.status !== 'success' || !isNumber(first['nextOffset']))
       throw new Error('Expected a paged listing');
     const page = contentOf(first).trimEnd().split('\n');
@@ -220,11 +227,13 @@ describe('readArtifact', () => {
     expect(page.at(-1)).toContain(
       `artifact://mcp__docs__fetch-${first['nextOffset']} (`,
     );
+
     const next = await readArtifact(
       contextOf(),
       'read',
       `artifact://:${first['nextOffset'] + 1}-`,
     );
+
     expect(contentOf(next).split('\n')[1]).toContain(
       `artifact://mcp__docs__fetch-${first['nextOffset'] + 1} (`,
     );
@@ -239,6 +248,7 @@ describe('readArtifact', () => {
       'read',
       'artifact://grep-1/stdout:2',
     );
+
     expect(contentOf(ranged)).toBe('1: a\n2: b\n3: c\n');
 
     const raw = await readArtifact(
@@ -246,6 +256,7 @@ describe('readArtifact', () => {
       'read',
       'artifact://grep-1/stdout:raw',
     );
+
     expect(contentOf(raw)).toBe('a\nb\nc\nd\ne\nf\ng\n');
 
     const multi = await readArtifact(
@@ -253,6 +264,7 @@ describe('readArtifact', () => {
       'read',
       'artifact://grep-1/stdout:1,5',
     );
+
     // Each member keeps one context line, so lines 3 and 7 prove the gaps.
     expect(contentOf(multi)).toContain('5: e');
     expect(contentOf(multi)).not.toContain('3: c');
@@ -267,8 +279,10 @@ describe('readArtifact', () => {
 
   it('outlines a Markdown part without its later paragraphs', async () => {
     const scripted = scriptRepository();
+
     const markdown =
       '# File a\nfirst paragraph\n\nsecond paragraph\n## File b\nthird paragraph\n\nfourth paragraph\n';
+
     scripted.findParts.mockResolvedValue({
       createdAt: CREATED_AT,
       parts: [{ name: '', lineCount: 8, byteSize: markdown.length }],

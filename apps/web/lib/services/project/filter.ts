@@ -10,7 +10,9 @@ export function filterProjectsByName(
   query: string,
 ): Array<ProjectResponse> {
   const filterQuery = query.trim().toLowerCase();
+
   if (filterQuery === "") return projects;
+
   return projects.filter((project) =>
     project.name.toLowerCase().includes(filterQuery),
   );

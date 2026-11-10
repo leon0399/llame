@@ -32,6 +32,7 @@ describe('auth session cookies', () => {
     } else {
       process.env.NODE_ENV = originalNodeEnv;
     }
+
     if (originalCookieDomain === undefined) {
       delete process.env.SESSION_COOKIE_DOMAIN;
     } else {
@@ -49,6 +50,7 @@ describe('auth session cookies', () => {
       const expires = new Date('2030-01-01T00:00:00.000Z');
       const cookie = vi.fn();
       const clearCookie = vi.fn();
+
       const response: Pick<Response, 'cookie' | 'clearCookie'> = {
         cookie,
         clearCookie,
@@ -81,6 +83,7 @@ describe('auth session cookies', () => {
   it('fails closed in production when the session cookie domain is missing', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.SESSION_COOKIE_DOMAIN;
+
     const response: Pick<Response, 'cookie' | 'clearCookie'> = {
       cookie: vi.fn(),
       clearCookie: vi.fn(),
@@ -100,6 +103,7 @@ describe('AuthController forwarding', () => {
       getUserById: vi.fn(),
       createUser: vi.fn(),
     };
+
     const sessions: AuthSessionStore = {
       create: vi.fn(),
       findActiveAndTouch: vi.fn(),
@@ -111,22 +115,27 @@ describe('AuthController forwarding', () => {
       listForUser: vi.fn(),
       findByIdForUser: vi.fn(),
     };
+
     const password: AuthPasswordHasher = {
       hash: vi.fn(),
       compare: vi.fn(),
     };
+
     const authService = new AuthService(
       users,
       sessions,
       new SessionTokenService(),
       password,
     );
+
     const controller = new AuthController(authService);
+
     return { controller, authService };
   }
 
   it('forwards current-user and session reads using verified identities', async () => {
     const { controller, authService } = makeController();
+
     const publicUser = {
       id: 'user-1',
       name: 'Alice',
@@ -134,7 +143,9 @@ describe('AuthController forwarding', () => {
       emailVerified: null,
       image: null,
     };
+
     const sessions = { sessions: [] };
+
     const current = {
       id: 'session-1',
       userAgent: 'vitest-agent',
@@ -144,12 +155,15 @@ describe('AuthController forwarding', () => {
       expires: new Date('2026-09-01T00:00:00.000Z'),
       current: true,
     };
+
     const getCurrentUser = vi
       .spyOn(authService, 'getCurrentUser')
       .mockResolvedValue(publicUser);
+
     const listSessions = vi
       .spyOn(authService, 'listSessions')
       .mockResolvedValue(sessions);
+
     const getCurrentSession = vi
       .spyOn(authService, 'getCurrentSession')
       .mockResolvedValue(current);
@@ -170,9 +184,11 @@ describe('AuthController forwarding', () => {
     const { controller, authService } = makeController();
     const clearCookie = vi.fn();
     const response = responseWithClearCookie(clearCookie);
+
     const revokeSession = vi
       .spyOn(authService, 'revokeSession')
       .mockResolvedValue({ revokedCount: 1 });
+
     const revokeCurrentSession = vi
       .spyOn(authService, 'revokeCurrentSession')
       .mockResolvedValue(1);
@@ -195,6 +211,7 @@ describe('AuthController forwarding', () => {
     const { controller, authService } = makeController();
     const clearCookie = vi.fn();
     const response = responseWithClearCookie(clearCookie);
+
     const revokeSessions = vi
       .spyOn(authService, 'revokeSessions')
       .mockResolvedValue({ revokedCount: 2 });

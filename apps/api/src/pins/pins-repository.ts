@@ -19,6 +19,7 @@ import {
   type PinItemType,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+
 export { type Db } from '../db/tenant-db.service';
 
 // A hydrated pin: the pin metadata plus the item's per-type reference card.
@@ -40,6 +41,7 @@ export type PinnedRow =
     };
 
 export type PinOrderItem = { itemType: PinItemType; itemId: string };
+
 type PositionedPinOrderItem = PinOrderItem & { position: number };
 
 /** Thrown when reorder body is not exactly the caller's current pin set. */
@@ -66,18 +68,23 @@ export function planPinReorder(
   const existingKeys = new Set(
     existing.map((row) => pinKey(row.itemType, row.itemId)),
   );
+
   const seen = new Set<string>();
+
   for (const item of ordered) {
     const key = pinKey(item.itemType, item.itemId);
+
     if (!existingKeys.has(key) || seen.has(key)) {
       throw new PinReorderMismatchError();
     }
+
     seen.add(key);
   }
 
   const temporaryStart =
     existing.reduce((minimum, { position }) => Math.min(minimum, position), 0) -
     ordered.length;
+
   return [
     ...ordered.map((item, index) => ({
       ...item,
@@ -108,6 +115,7 @@ export class PinsRepository {
     const chatCardById = await this.chatCardsById(
       rows.filter((r) => r.itemType === 'chat').map((r) => r.itemId),
     );
+
     const projectCardById = await this.projectCardsById(
       rows.filter((r) => r.itemType === 'project').map((r) => r.itemId),
     );
@@ -127,6 +135,7 @@ export class PinsRepository {
     switch (row.itemType) {
       case 'chat': {
         const card = chatCardById.get(row.itemId);
+
         return (
           card && {
             itemType: 'chat',
@@ -136,8 +145,10 @@ export class PinsRepository {
           }
         );
       }
+
       case 'project': {
         const card = projectCardById.get(row.itemId);
+
         return (
           card && {
             itemType: 'project',
@@ -147,6 +158,7 @@ export class PinsRepository {
           }
         );
       }
+
       default: {
         // Exhaustiveness guard: a new PinItemType forces a compile error
         // until its hydration branch is added.
@@ -161,6 +173,7 @@ export class PinsRepository {
     ids: ReadonlyArray<string>,
   ): Promise<Map<string, { title: string | null; archivedAt: Date | null }>> {
     if (ids.length === 0) return new Map();
+
     const cards = await this.db
       .select({
         id: chats.id,
@@ -169,6 +182,7 @@ export class PinsRepository {
       })
       .from(chats)
       .where(inArray(chats.id, ids));
+
     return new Map(
       cards.map((c) => [c.id, { title: c.title, archivedAt: c.archivedAt }]),
     );
@@ -179,6 +193,7 @@ export class PinsRepository {
     ids: ReadonlyArray<string>,
   ): Promise<Map<string, { name: string; archivedAt: Date | null }>> {
     if (ids.length === 0) return new Map();
+
     const cards = await this.db
       .select({
         id: projects.id,
@@ -187,6 +202,7 @@ export class PinsRepository {
       })
       .from(projects)
       .where(inArray(projects.id, ids));
+
     return new Map(
       cards.map((p) => [p.id, { name: p.name, archivedAt: p.archivedAt }]),
     );
@@ -264,9 +280,11 @@ export class PinsRepository {
       .where(eq(pins.userId, userId));
 
     const hydratableKeys = await this.hydratablePinKeys(existing);
+
     const orphans = existing.filter(
       (row) => !hydratableKeys.has(pinKey(row.itemType, row.itemId)),
     );
+
     for (const orphan of orphans) {
       await this.unpin(userId, orphan.itemType, orphan.itemId);
     }
@@ -274,7 +292,9 @@ export class PinsRepository {
     const visible = existing.filter((row) =>
       hydratableKeys.has(pinKey(row.itemType, row.itemId)),
     );
+
     const assignments = planPinReorder(visible, ordered);
+
     for (const item of assignments) {
       await this.db
         .update(pins)
@@ -303,6 +323,7 @@ export class PinsRepository {
     const chatIds = rows.flatMap((r) =>
       r.itemType === 'chat' ? [r.itemId] : [],
     );
+
     const projectIds = rows.flatMap((r) =>
       r.itemType === 'project' ? [r.itemId] : [],
     );
@@ -313,6 +334,7 @@ export class PinsRepository {
           .from(chats)
           .where(inArray(chats.id, chatIds))
       : [];
+
     const projectCards = projectIds.length
       ? await this.db
           .select({ id: projects.id })
@@ -321,8 +343,11 @@ export class PinsRepository {
       : [];
 
     const keys = new Set<string>();
+
     for (const { id } of chatCards) keys.add(pinKey('chat', id));
+
     for (const { id } of projectCards) keys.add(pinKey('project', id));
+
     return keys;
   }
 
@@ -342,19 +367,26 @@ export class PinsRepository {
         ),
       )
       .limit(1);
+
     if (!pin) return undefined;
 
     switch (itemType) {
       case 'chat': {
         const card = (await this.chatCardsById([itemId])).get(itemId);
+
         if (!card) return undefined;
+
         return { itemType, itemId, pinnedAt: pin.pinnedAt, ...card };
       }
+
       case 'project': {
         const card = (await this.projectCardsById([itemId])).get(itemId);
+
         if (!card) return undefined;
+
         return { itemType, itemId, pinnedAt: pin.pinnedAt, ...card };
       }
+
       default: {
         // Exhaustiveness guard: a new PinItemType forces a compile error until
         // its card lookup is added.

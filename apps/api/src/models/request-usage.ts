@@ -14,6 +14,7 @@ function toLanguageModelUsage(usage: LanguageModelV3Usage): LanguageModelUsage {
     cacheRead,
     cacheWrite,
   } = usage.inputTokens;
+
   const { total: outputTokens, text, reasoning } = usage.outputTokens;
 
   return {
@@ -55,6 +56,7 @@ function opensGenerationWindow(part: LanguageModelV3StreamPart): boolean {
   ) {
     return part.delta.length > 0;
   }
+
   return false;
 }
 
@@ -72,12 +74,14 @@ function measureGenerationWindow(
   requestStartedAt: number,
 ): ReadableStream<LanguageModelV3StreamPart> {
   let firstOutputDeltaAt: number | undefined;
+
   return stream.pipeThrough(
     new TransformStream<LanguageModelV3StreamPart, LanguageModelV3StreamPart>({
       transform(part, controller) {
         if (opensGenerationWindow(part)) {
           firstOutputDeltaAt ??= performance.now();
         }
+
         if (part.type === 'finish') {
           onRequestUsage(
             toLanguageModelUsage(part.usage),
@@ -87,6 +91,7 @@ function measureGenerationWindow(
             performance.now() - (firstOutputDeltaAt ?? requestStartedAt),
           );
         }
+
         controller.enqueue(part);
       },
     }),
@@ -101,6 +106,7 @@ export function applyRequestUsageCallback(
   input: ModelStreamInput,
 ): void {
   const onRequestUsage = input.onRequestUsage;
+
   if (onRequestUsage === undefined) return;
 
   streamOptions.model = wrapLanguageModel({
@@ -110,6 +116,7 @@ export function applyRequestUsageCallback(
       wrapStream: async ({ doStream }) => {
         const requestStartedAt = performance.now();
         const result = await doStream();
+
         return {
           ...result,
           stream: measureGenerationWindow(

@@ -23,6 +23,7 @@ export const noReflectApplyRule = defineRule({
           node.callee.type === "V8IntrinsicExpression"
         )
           return;
+
         if (
           isGlobalReflectMethodCall(context.sourceCode, node.callee, "apply")
         ) {

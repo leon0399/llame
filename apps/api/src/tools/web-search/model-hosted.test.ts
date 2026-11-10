@@ -43,9 +43,11 @@ type HostedConfig = Extract<
   WebSearchEngineConfig,
   { readonly type: 'model-hosted' }
 >;
+
 type Wire = HostedConfig['wire'];
 
 const QUERY = 'latest llame release';
+
 const hostedConfig = (wire: Wire): HostedConfig => ({
   id: 'hosted',
   type: 'model-hosted',
@@ -53,6 +55,7 @@ const hostedConfig = (wire: Wire): HostedConfig => ({
   wire,
   timeoutSeconds: 60,
 });
+
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: QUERY,
   objective: undefined,
@@ -71,17 +74,21 @@ const cited = (url: string, title?: string): SourcePart =>
     ...(title !== undefined && { title }),
     providerMetadata: { anthropic: { citedText: 'the supporting passage' } },
   });
+
 const answering =
   (text: string, sources: ReadonlyArray<SourcePart>): HostedStreamScript =>
   () =>
     Promise.resolve(answerStream(text, sources));
+
 const GROUNDED = answering('A grounded answer.', [
   cited('https://example.test/a'),
 ]);
+
 const failing =
   (error: Error): HostedStreamScript =>
   () =>
     Promise.reject(error);
+
 const apiError = (statusCode: number): APICallError =>
   new APICallError({
     message: 'upstream refused secret-token',
@@ -94,12 +101,16 @@ const apiError = (statusCode: number): APICallError =>
 
 function hostedEngine(wire: Wire, script: HostedStreamScript) {
   const inputs: Array<ModelStreamInput> = [];
+
   const createClient = vi.fn<(modelId: string) => ModelClient>(() =>
     scriptedModelClient(script, inputs),
   );
+
   const hosted = createModelHostedEngine(hostedConfig(wire));
+
   const engine: Engine = (hostedRequest) =>
     hosted({ ...hostedRequest, modelClients: { createClient } });
+
   return { engine, inputs, createClient };
 }
 
@@ -107,6 +118,7 @@ function hostedEngine(wire: Wire, script: HostedStreamScript) {
 function hangingStream(markStarted: () => void): HostedStreamScript {
   return ({ abortSignal }) => {
     markStarted();
+
     const stream = new ReadableStream<LanguageModelV3StreamPart>({
       start(controller) {
         abortSignal?.addEventListener(
@@ -116,6 +128,7 @@ function hangingStream(markStarted: () => void): HostedStreamScript {
         );
       },
     });
+
     return Promise.resolve({ stream });
   };
 }
@@ -133,6 +146,7 @@ describe('the hosted request', () => {
         urlSourcePart('https://example.test/b'),
       ]),
     );
+
     const signal = new AbortController().signal;
 
     await expect(engine(request({ signal }))).resolves.toStrictEqual({
@@ -356,6 +370,7 @@ describe('citations', () => {
       mediaType: 'application/pdf',
       title: 'Report',
     };
+
     const { engine } = hostedEngine(
       'openai-responses',
       answering('Answer.', [
@@ -461,6 +476,7 @@ describe('provider failures', () => {
       reason: 'maxRetriesExceeded',
       errors: [apiError(500), apiError(429)],
     });
+
     const { engine } = hostedEngine('openai-responses', failing(retried));
 
     await expect(engine(request())).rejects.toMatchObject({
@@ -506,6 +522,7 @@ describe('provider failures', () => {
     const consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
+
     const { engine } = hostedEngine('openai-responses', failing(apiError(401)));
 
     const failure = await engine(request()).catch((error: unknown) => error);
@@ -523,6 +540,7 @@ describe('provider failures', () => {
     const createClient = vi.fn<(modelId: string) => ModelClient>(() => {
       throw new Error('Model search-model is not available.');
     });
+
     const engine = createModelHostedEngine(hostedConfig('openai-responses'));
 
     await expect(
@@ -546,6 +564,7 @@ describe('provider failures', () => {
 
 describe('provider failures through the real clients', () => {
   const secret = 'secret-token';
+
   const FAILURES = [
     [401, 'auth'],
     [403, 'auth'],
@@ -555,12 +574,14 @@ describe('provider failures through the real clients', () => {
 
   async function failureOf(wire: Wire, client: ModelClient): Promise<Error> {
     const engine = createModelHostedEngine(hostedConfig(wire));
+
     try {
       await engine(request({ modelClients: { createClient: () => client } }));
     } catch (error) {
       if (error instanceof Error) return error;
       throw error;
     }
+
     throw new Error('the hosted engine unexpectedly succeeded');
   }
 
@@ -593,7 +614,9 @@ describe('provider failures through the real clients', () => {
           }),
         ),
       );
+
       vi.stubGlobal('fetch', fetchMock);
+
       try {
         const failure = await failureOf(
           'openai-codex',
@@ -619,6 +642,7 @@ describe('provider failures through the real clients', () => {
 
   it("classifies a credential-bearing failure the factory client's wrapper reports", async () => {
     const key = 'CONFIGURED-KEY-CANARY-8b1f';
+
     const client: ModelClient = createModelClient(
       {
         provider: {
@@ -670,7 +694,9 @@ describe('provider failures through the real clients', () => {
     const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(new Response('unauthorized', { status: 401 })),
     );
+
     vi.stubGlobal('fetch', fetchMock);
+
     try {
       await failureOf(
         'openai-codex',
@@ -686,6 +712,7 @@ describe('provider failures through the real clients', () => {
       );
 
       const raw = fetchMock.mock.calls[0]?.[1]?.body;
+
       if (!isString(raw)) throw new Error('expected a JSON body');
       const body: unknown = JSON.parse(raw);
       expect(body).toMatchObject({ tool_choice: { type: 'web_search' } });
@@ -715,11 +742,14 @@ describe('provider failures through the real clients', () => {
       'data: {"type":"message_stop"}',
       '',
     ];
+
     // A regression that loops would otherwise spin forever: cut it off.
     let served = 0;
+
     const harness = buildHarness({
       respond: () => {
         served += 1;
+
         return served > 4
           ? new Response('stop', { status: 400 })
           : new Response(paused.join('\n') + '\n', {
@@ -740,9 +770,11 @@ describe('cancellation and deadlines', () => {
   it('rethrows call cancellation instead of classifying it', async () => {
     const controller = new AbortController();
     let markStarted = () => {};
+
     const started = new Promise<void>((resolve) => {
       markStarted = resolve;
     });
+
     const { engine } = hostedEngine(
       'openai-responses',
       hangingStream(markStarted),
@@ -763,6 +795,7 @@ describe('cancellation and deadlines', () => {
       engines: [{ ...hostedConfig('openai-responses'), timeoutSeconds: 0.05 }],
       chain: ['hosted'],
     };
+
     const { engine } = hostedEngine(
       'openai-responses',
       hangingStream(() => {}),

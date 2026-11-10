@@ -32,10 +32,14 @@ export function selectFieldValue(
   budget: SelectionBudget,
 ): SelectedPermissionValue | undefined {
   if (!isRecord(args)) return undefined;
+
   if (!Object.hasOwn(args, field)) return undefined;
   const value = args[field];
+
   if (!isString(value)) return undefined;
+
   if (!chargeString(value, budget)) return undefined;
+
   return { field, value };
 }
 
@@ -49,6 +53,7 @@ export function collectAllStringValues(
   budget: SelectionBudget,
 ): Array<SelectedPermissionValue> {
   if (!isRecord(args)) return [];
+
   return new StringValueCollector(budget).collect(args);
 }
 
@@ -64,6 +69,7 @@ class StringValueCollector {
     for (const [field, value] of Object.entries(args)) {
       this.visit(value, field, 0);
     }
+
     return this.collected;
   }
 
@@ -71,19 +77,26 @@ class StringValueCollector {
   private visit(value: unknown, topLevelField: string, depth: number): void {
     if (this.budget.exceeded) return;
     this.budget.visited += 1;
+
     if (this.budget.visited > PERMISSION_LIMITS.maxVisitedValues) {
       this.budget.exceeded = true;
+
       return;
     }
+
     if (isString(value)) {
       if (!chargeString(value, this.budget)) return;
       this.collected.push({ field: topLevelField, value });
+
       return;
     }
+
     if (Array.isArray(value)) {
       this.descend(value, topLevelField, depth);
+
       return;
     }
+
     if (isRecord(value)) {
       this.descend(Object.values(value), topLevelField, depth);
     }
@@ -96,8 +109,10 @@ class StringValueCollector {
   ): void {
     if (depth + 1 > PERMISSION_LIMITS.maxContainerDepth) {
       this.budget.exceeded = true;
+
       return;
     }
+
     for (const child of values) {
       this.visit(child, topLevelField, depth + 1);
     }
@@ -106,9 +121,12 @@ class StringValueCollector {
 
 function chargeString(value: string, budget: SelectionBudget): boolean {
   budget.bytes += Buffer.byteLength(value, 'utf8');
+
   if (budget.bytes > PERMISSION_LIMITS.maxSelectedContentBytes) {
     budget.exceeded = true;
+
     return false;
   }
+
   return true;
 }

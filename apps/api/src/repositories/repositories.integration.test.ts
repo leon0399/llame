@@ -31,11 +31,13 @@ const repositorySchema = z.looseObject({
   displayName: z.string(),
   canonicalRemote: z.string().nullable(),
 });
+
 const aliasSchema = z.looseObject({
   id: z.guid(),
   repositoryId: z.guid(),
   canonicalAlias: z.string(),
 });
+
 const failureSchema = z.looseObject({
   statusCode: z.number(),
   code: z.string(),
@@ -61,8 +63,10 @@ describe('/api/v1/repositories (HTTP)', () => {
         password: 'password123',
         name: `Owner ${cookieLabel}`,
       });
+
     const body: unknown = response.body;
     expectRegisteredUserId(body);
+
     return cookieOf(response);
   }
 
@@ -71,13 +75,16 @@ describe('/api/v1/repositories (HTTP)', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.listen(0);
     const server: unknown = app.getHttpServer();
+
     if (!isHttpServer(server)) {
       throw new Error('Expected Nest to expose a Node HTTP server');
     }
+
     http = server;
     cookieA = await register('a');
     cookieB = await register('b');
@@ -136,6 +143,7 @@ describe('/api/v1/repositories (HTTP)', () => {
       .set('Cookie', cookieA)
       .send({ remote: 'https://github.com/leon0399/llame-old.git' })
       .expect(201);
+
     expect(aliasSchema.parse(alias.body)).toMatchObject({
       repositoryId: created.id,
       canonicalAlias: 'github.com/leon0399/llame-old',
@@ -146,6 +154,7 @@ describe('/api/v1/repositories (HTTP)', () => {
       .set('Cookie', cookieA)
       .send({ remote: 'github.com/leon0399/llame-old' })
       .expect(409);
+
     expect(failureSchema.parse(duplicate.body).code).toBe('alias_taken');
 
     const foreign = await request(http)
@@ -153,6 +162,7 @@ describe('/api/v1/repositories (HTTP)', () => {
       .set('Cookie', cookieB)
       .send({ remote: 'github.com/leon0399/other' })
       .expect(404);
+
     expect(failureSchema.parse(foreign.body).code).toBe('not_found');
   });
 
@@ -173,6 +183,7 @@ describe('/api/v1/repositories (HTTP)', () => {
       .set('Cookie', cookieA)
       .send({ remote: 'https://github.com/leon0399/llame.git' })
       .expect(409);
+
     expect(failureSchema.parse(response.body).code).toBe('remote_taken');
   });
 
@@ -185,6 +196,7 @@ describe('/api/v1/repositories (HTTP)', () => {
         }).expect(201)
       ).body,
     );
+
     await request(http)
       .post(`/api/v1/repositories/${holder.id}/aliases`)
       .set('Cookie', cookieA)
@@ -196,10 +208,12 @@ describe('/api/v1/repositories (HTTP)', () => {
     const shadow = repositorySchema.parse(
       (await create(cookieA, { displayName: 'shadow' }).expect(201)).body,
     );
+
     const created = await create(cookieA, {
       displayName: 'shadow-created',
       remote: 'https://github.com/leon0399/alias-holder-renamed',
     }).expect(409);
+
     expect(failureSchema.parse(created.body).code).toBe('alias_taken');
 
     const patched = await request(http)
@@ -207,6 +221,7 @@ describe('/api/v1/repositories (HTTP)', () => {
       .set('Cookie', cookieA)
       .send({ remote: 'https://github.com/leon0399/alias-holder-renamed' })
       .expect(409);
+
     expect(failureSchema.parse(patched.body).code).toBe('alias_taken');
   });
 
@@ -220,6 +235,7 @@ describe('/api/v1/repositories (HTTP)', () => {
       .set('Cookie', cookieA)
       .send({ displayName: null })
       .expect(400);
+
     expect(response.body).toBeDefined();
   });
 
@@ -230,10 +246,12 @@ describe('/api/v1/repositories (HTTP)', () => {
       .get('/api/v1/repositories')
       .set('Cookie', cookieB)
       .expect(200);
+
     const names = z
       .array(repositorySchema)
       .parse(mine.body)
       .map((row) => row.displayName);
+
     expect(names).toContain('b-only');
     expect(names).not.toContain('llame');
   });
@@ -248,6 +266,7 @@ describe('/api/v1/repositories (HTTP)', () => {
       .set('Cookie', cookieA)
       .send({ displayName: 'renamed-temporary' })
       .expect(200);
+
     expect(repositorySchema.parse(renamed.body).displayName).toBe(
       'renamed-temporary',
     );
@@ -256,10 +275,12 @@ describe('/api/v1/repositories (HTTP)', () => {
       .delete(`/api/v1/repositories/${created.id}`)
       .set('Cookie', cookieA)
       .expect(204);
+
     const gone = await request(http)
       .delete(`/api/v1/repositories/${created.id}`)
       .set('Cookie', cookieA)
       .expect(404);
+
     expect(failureSchema.parse(gone.body).code).toBe('not_found');
   });
 

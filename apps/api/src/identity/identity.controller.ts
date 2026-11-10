@@ -73,6 +73,7 @@ export class IdentityController {
       name: input.name,
       ...(input.type && { type: input.type }),
     });
+
     return toOrgUnitResponse(unit);
   }
 
@@ -102,6 +103,7 @@ export class IdentityController {
       name: input.name,
       ...(input.type && { type: input.type }),
     });
+
     return toOrgUnitResponse(unit);
   }
 
@@ -113,6 +115,7 @@ export class IdentityController {
     @CurrentUser() userId: string,
   ): Promise<Array<OrgUnitResponse>> {
     const units = await this.identity.listOrgUnits(userId);
+
     return units.map(toOrgUnitResponse);
   }
 
@@ -127,6 +130,7 @@ export class IdentityController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<OrgUnitResponse> {
     const unit = await this.identity.getOrgUnit({ userId, orgUnitId: id });
+
     return toOrgUnitResponse(unit);
   }
 
@@ -164,10 +168,14 @@ export class IdentityController {
       userId,
       orgUnitId: id,
     };
+
     if (input.name !== undefined) updateInput.name = input.name;
+
     if (input.settings !== undefined) updateInput.settings = input.settings;
+
     if (input.parentId !== undefined) updateInput.parentId = input.parentId;
     const unit = await this.identity.updateOrgUnit(updateInput);
+
     return toOrgUnitResponse(unit);
   }
 
@@ -202,6 +210,7 @@ export class IdentityController {
     @Param('id', ParseUUIDPipe) orgUnitId: string,
   ): Promise<Array<MembershipResponse>> {
     const rows = await this.identity.listMemberships({ userId, orgUnitId });
+
     return rows.map(toMembershipResponse);
   }
 
@@ -261,6 +270,7 @@ export class IdentityController {
       orgUnitId,
       role: input.role,
     });
+
     return toMembershipResponse(membership);
   }
 
@@ -302,11 +312,13 @@ export class IdentityController {
     @Param('id', ParseUUIDPipe) orgUnitId: string,
   ): Promise<EffectiveRoleResponse> {
     const role = await this.identity.resolveRole({ userId, orgUnitId });
+
     if (!role) {
       throw new NotFoundException(
         `Org unit ${orgUnitId} not found, or you hold no role on its path`,
       );
     }
+
     return role;
   }
 }

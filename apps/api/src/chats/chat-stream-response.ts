@@ -35,11 +35,13 @@ function isAsyncIterable(
  */
 export function requestAbortSignal(response: ChatStreamResponse) {
   const controller = new AbortController();
+
   const abort = () => {
     if (!controller.signal.aborted) {
       controller.abort();
     }
   };
+
   const abortOnResponseClose = () => {
     if (!response.writableEnded) {
       abort();
@@ -56,6 +58,7 @@ export function requestAbortSignal(response: ChatStreamResponse) {
   if (response.destroyed) {
     abort();
   }
+
   response.on('close', abortOnResponseClose);
 
   return {
@@ -85,19 +88,23 @@ export async function writeWebResponse(
 
   if (!streamResponse.body) {
     response.end();
+
     return;
   }
 
   try {
     const body = streamResponse.body;
+
     if (!isAsyncIterable(body)) {
       throw new Error('Expected the response body to be async-iterable');
     }
+
     await pipeline(Readable.from(body), response);
   } catch (error) {
     if (abortSignal.aborted) {
       return;
     }
+
     // A mid-stream failure after the status+headers were flushed cannot be turned into
     // an HTTP error response — re-throwing would trigger ERR_HTTP_HEADERS_SENT. Log and
     // destroy the connection instead. (Pre-headers failures still throw → exception filter.)
@@ -109,8 +116,10 @@ export async function writeWebResponse(
       response.destroy(
         error instanceof Error ? error : new Error(String(error)),
       );
+
       return;
     }
+
     throw error;
   }
 }

@@ -57,12 +57,14 @@ describeIfDb('MessagesRepository running replies', () => {
   const seedTurn = () =>
     tenantDb.runAs(owner, async (tx) => {
       const chat = await new ChatsRepository(tx).create({ ownerUserId: owner });
+
       const user = await new MessagesRepository(tx).create({
         chatId: chat.id,
         role: 'user',
         senderUserId: owner,
         parts: [{ type: 'text', text: 'question' }],
       });
+
       return { chatId: chat.id, userId: user.id };
     });
 
@@ -103,6 +105,7 @@ describeIfDb('MessagesRepository running replies', () => {
 
   it('resets a reply that is not completed, in place', async () => {
     const turn = await seedTurn();
+
     const first = await withReplies(async (replies) => {
       const created = await replies.upsertRunningReply({
         chatId: turn.chatId,
@@ -110,14 +113,17 @@ describeIfDb('MessagesRepository running replies', () => {
         usage: runningUsage('attempt-a'),
         followUpAction: null,
       });
+
       await replies.updateRunningReplyParts({
         chatId: turn.chatId,
         inReplyTo: turn.userId,
         attemptId: 'attempt-a',
         parts: [{ type: 'text', text: 'attempt A output' }],
       });
+
       return created;
     });
+
     if (first === undefined) expect.unreachable('expected a running reply');
 
     const reset = await withReplies((replies) =>
@@ -160,6 +166,7 @@ describeIfDb('MessagesRepository running replies', () => {
 
   it('refuses to touch a completed reply', async () => {
     const turn = await seedTurn();
+
     const completed = await withMessages((messages) =>
       messages.createAssistantReplyIfAbsent({
         chatId: turn.chatId,
@@ -192,6 +199,7 @@ describeIfDb('MessagesRepository running replies', () => {
         followUpAction: null,
       }),
     );
+
     const write = (attemptId: string, text: string) =>
       withReplies((replies) =>
         replies.updateRunningReplyParts({
@@ -211,6 +219,7 @@ describeIfDb('MessagesRepository running replies', () => {
 
     // Once finalized, not even the producing attempt can write through.
     const reply = await replyTo(turn.chatId, turn.userId);
+
     if (reply === undefined) expect.unreachable('expected the reply');
     await withMessages((messages) =>
       messages.updateAssistantReply({
@@ -228,12 +237,14 @@ describeIfDb('MessagesRepository running replies', () => {
     const chatId = await tenantDb.runAs(owner, async (tx) => {
       const chat = await new ChatsRepository(tx).create({ ownerUserId: owner });
       const messages = new MessagesRepository(tx);
+
       const turns: Array<[string, unknown]> = [
         ['completed', { status: 'completed', modelId: 'model-old' }],
         ['failed', { status: 'failed', modelId: 'model-failed' }],
         ['bare', { status: 'completed' }],
         ['newest', runningUsage('attempt-x', 'model-running')],
       ];
+
       for (const [text, usage] of turns) {
         const user = await messages.create({
           chatId: chat.id,
@@ -241,6 +252,7 @@ describeIfDb('MessagesRepository running replies', () => {
           senderUserId: owner,
           parts: [{ type: 'text', text }],
         });
+
         await messages.create({
           chatId: chat.id,
           role: 'assistant',
@@ -249,13 +261,16 @@ describeIfDb('MessagesRepository running replies', () => {
           inReplyTo: user.id,
         });
       }
+
       await messages.createCheckpoint({
         chatId: chat.id,
         absorbedThroughSeq: 8,
         part: createCompactionCheckpointPart('Earlier turns.'),
       });
+
       return chat.id;
     });
+
     // seq: 1 U, 2 completed/model-old, 3 U, 4 failed/model-failed,
     //      5 U, 6 bare (no modelId), 7 U, 8 running/model-running,
     //      9 checkpoint absorbing 1-8.
@@ -272,6 +287,7 @@ describeIfDb('MessagesRepository running replies', () => {
 
   it('hides a running reply from history, fork source, previews and id lookup', async () => {
     const turn = await seedTurn();
+
     const reply = await withReplies((replies) =>
       replies.upsertRunningReply({
         chatId: turn.chatId,
@@ -280,6 +296,7 @@ describeIfDb('MessagesRepository running replies', () => {
         followUpAction: null,
       }),
     );
+
     if (reply === undefined) expect.unreachable('expected a running reply');
 
     const reads = await withMessages(async (messages) => ({
@@ -323,6 +340,7 @@ describeIfDb('MessagesRepository running replies', () => {
     const previews = await withMessages((messages) =>
       messages.findLatestPerOwnedChat(owner),
     );
+
     const previewOf = (chatId: string) =>
       previews.find((message) => message.chatId === chatId);
 

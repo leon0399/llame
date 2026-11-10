@@ -71,6 +71,7 @@ function NavMenuRow({
       </SidebarMenuButton>
     );
   }
+
   return (
     <DisabledMenuButton
       tooltip={
@@ -89,6 +90,7 @@ function NavMenuRow({
 export function AppSidebarNav() {
   const pathname = usePathname();
   const { isMobile } = useSidebar();
+
   // Chats owns "/" and the /chat/* routes; any future section matches its own prefix.
   const isItemActive = (href: string) =>
     href === "/"

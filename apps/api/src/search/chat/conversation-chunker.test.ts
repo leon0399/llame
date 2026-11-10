@@ -11,6 +11,7 @@ const text = (t: string) => [{ type: 'text', text: t }];
 function userMsg(id: string, t: string, n: number): ChunkerMessage {
   return { id, role: 'user', parts: text(t), createdAt: at(n) };
 }
+
 function assistantMsg(id: string, t: string, n: number): ChunkerMessage {
   return { id, role: 'assistant', parts: text(t), createdAt: at(n) };
 }
@@ -44,6 +45,7 @@ describe('chunkConversation', () => {
       userMsg('m1', 'How does search work?', 0),
       assistantMsg('m2', 'Full-text plus trigram.', 1),
     ]);
+
     expect(chunks).toHaveLength(1);
     expect(chunks[0].content).toBe(
       '[user] How does search work?\n\n[assistant] Full-text plus trigram.',
@@ -87,6 +89,7 @@ describe('chunkConversation', () => {
         createdAt: at(2),
       },
     ]);
+
     expect(chunks).toHaveLength(1);
     expect(chunks[0].content).toBe('[assistant] visible answer');
     expect(chunks[0].normalizedContent).not.toContain('secret');
@@ -116,9 +119,11 @@ describe('chunkConversation', () => {
       ],
       createdAt: at(0),
     };
+
     const reply = assistantMsg('a', 'seen', 1);
 
     const attached = chunkConversation([withFiles, reply]);
+
     const plain = chunkConversation([
       userMsg('u', 'look at this\nsecond line', 0),
       reply,
@@ -263,6 +268,7 @@ describe('chunkConversation', () => {
       },
       userMsg('u', 'real question', 1),
     ]);
+
     expect(chunks).toHaveLength(1);
     expect(chunks[0].firstMessageId).toBe('u');
   });
@@ -278,6 +284,7 @@ describe('chunkConversation', () => {
         createdAt: at(1),
       },
     ]);
+
     expect(chunks).toEqual([
       expect.objectContaining({
         firstMessageId: 'u',
@@ -295,11 +302,13 @@ describe('chunkConversation', () => {
 
   it('splits across chunks on the char budget with 1-message overlap', () => {
     const big = 'x'.repeat(CHUNK_MAX_CHARS - '[assistant] '.length);
+
     const chunks = chunkConversation([
       userMsg('m1', big, 0),
       assistantMsg('m2', big, 1),
       userMsg('m3', big, 2),
     ]);
+
     expect(chunks.length).toBeGreaterThan(1);
     // Overlap: chunk N's last message is chunk N+1's first.
     expect(chunks[0].lastMessageId).toBe(chunks[1].firstMessageId);
@@ -312,6 +321,7 @@ describe('chunkConversation', () => {
   it('uses the first and last block endpoints for an overlapped multi-message chunk', () => {
     const firstText = 'u'.repeat(CHUNK_MAX_CHARS - '[user] '.length - 10);
     const lastText = 'answer';
+
     const chunks = chunkConversation([
       userMsg('u1', firstText, 0),
       assistantMsg('a1', lastText, 1),
@@ -371,9 +381,11 @@ describe('chunkConversation — oversized messages (#517)', () => {
       userMsg('m3', 'ПРИВЕТ Café, any gotchas?', 2),
       assistantMsg('m4', 'None that I know of.', 3),
     ]);
+
     for (const chunk of chunks) {
       expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS);
     }
+
     // Everything fits in one chunk; the join is exactly the v2 shape — role
     // markers, `\n\n`-joined, no split/anchor machinery engaged at all.
     expect(chunks).toHaveLength(1);
@@ -390,6 +402,7 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const chunks = chunkConversation([userMsg('u1', big, 0)]);
 
     expect(chunks.length).toBeGreaterThan(1);
+
     for (const chunk of chunks) {
       expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS);
       expect(chunk.content).not.toContain('[context:');
@@ -405,6 +418,7 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const reconstructed = chunks
       .map((c) => c.content.replace(/^\[user\] /, ''))
       .join('');
+
     expect(reconstructed).toBe(big);
   });
 
@@ -419,6 +433,7 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const chunks = chunkConversation([userMsg('u1', big, 0)]);
 
     expect(chunks.length).toBeGreaterThan(1);
+
     for (const chunk of chunks) {
       expect(chunk.content.length).toBeLessThanOrEqual(CHUNK_MAX_CHARS);
     }
@@ -430,12 +445,14 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const reconstructed = chunks
       .map((c) => c.content.replace(/^\[user\] /, ''))
       .join('');
+
     expect(reconstructed).toBe(big);
   });
 
   it('anchors continuation slices of an oversized assistant message to the preceding user message', () => {
     const question = 'What should the migration plan be?';
     const answer = 'y'.repeat(CHUNK_MAX_CHARS + 500); // one boundary-free split
+
     const chunks = chunkConversation([
       userMsg('u1', question, 0),
       assistantMsg('a1', answer, 1),
@@ -460,14 +477,17 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const assistantChunks = chunks.filter((c) =>
       c.content.includes('[assistant]'),
     );
+
     expect(assistantChunks.length).toBeGreaterThan(1);
 
     // First slice: no anchor.
     expect(assistantChunks[0].content).not.toContain('[context:');
+
     // A later slice: anchor present, quoting the preceding user question.
     const anchored = assistantChunks.find((c) =>
       c.content.includes('[context:'),
     );
+
     expect(anchored).toBeDefined();
     expect(anchored!.content).toContain(`[context: ${question}] `);
     expect(
@@ -495,10 +515,12 @@ describe('chunkConversation — oversized messages (#517)', () => {
   it('uses the full anchor when the preceding user text is exactly at the anchor cap', () => {
     const question = 'q'.repeat(CHUNK_ANCHOR_MAX_CHARS);
     const answer = 'a'.repeat(CHUNK_MAX_CHARS + 500);
+
     const chunks = chunkConversation([
       userMsg('u1', question, 0),
       assistantMsg('a1', answer, 1),
     ]);
+
     const anchored = chunks.find((chunk) =>
       chunk.content.includes('[context:'),
     );
@@ -521,11 +543,13 @@ describe('chunkConversation — oversized messages (#517)', () => {
 
   it('anchors a later oversized assistant to the latest preceding user, not an assistant turn', () => {
     const answer = 'a'.repeat(CHUNK_MAX_CHARS + 500);
+
     const chunks = chunkConversation([
       userMsg('u1', 'the actual question', 0),
       assistantMsg('a0', 'short acknowledgement', 1),
       assistantMsg('a1', answer, 2),
     ]);
+
     const anchored = chunks.find((chunk) =>
       chunk.content.includes('[context:'),
     );
@@ -543,6 +567,7 @@ describe('chunkConversation — oversized messages (#517)', () => {
       userMsg('u0', 'first question', 0),
       userMsg('u1', 'z'.repeat(CHUNK_MAX_CHARS + 1000), 1),
     ]);
+
     for (const chunk of chunks) {
       expect(chunk.content).not.toContain('[context:');
     }
@@ -553,6 +578,7 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const chunks = chunkConversation([
       assistantMsg('a1', 'w'.repeat(CHUNK_MAX_CHARS + 1000), 0),
     ]);
+
     for (const chunk of chunks) {
       expect(chunk.content).not.toContain('[context:');
     }
@@ -562,9 +588,11 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const longQuestion = Array.from({ length: 100 }, (_, i) => `word${i}`).join(
       ' ',
     ); // well over CHUNK_ANCHOR_MAX_CHARS, plenty of word boundaries
+
     expect(longQuestion.length).toBeGreaterThan(CHUNK_ANCHOR_MAX_CHARS);
 
     const answer = 'v'.repeat(CHUNK_MAX_CHARS + 500);
+
     const chunks = chunkConversation([
       userMsg('u1', longQuestion, 0),
       assistantMsg('a1', answer, 1),
@@ -592,6 +620,7 @@ describe('chunkConversation — oversized messages (#517)', () => {
       userMsg('u1', 'question about the rollout', 0),
       assistantMsg('a1', 'p'.repeat(CHUNK_MAX_CHARS + 900), 1),
     ];
+
     expect(chunkConversation(convo)).toEqual(chunkConversation(convo));
   });
 
@@ -605,8 +634,10 @@ describe('chunkConversation — oversized messages (#517)', () => {
     const chunks = chunkConversation([userMsg('u1', big, 0)]);
 
     expect(chunks.length).toBeGreaterThan(1);
+
     const loneSurrogate =
       /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
     for (const chunk of chunks) {
       expect(loneSurrogate.test(chunk.content)).toBe(false);
     }

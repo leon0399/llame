@@ -168,9 +168,11 @@ describeIfDb('a Continue Run', () => {
     const sourceEvents = new RunEventsRepository(tx);
     const sourceRecorded: Array<ContinuedEvent> = [];
     const steps = options?.keptSteps ?? [];
+
     const inherited = new Set(
       Object.keys(options?.sourceContinued?.steps ?? {}),
     );
+
     if (options?.sourceContinued !== undefined) {
       // A master-era Continue's own log: the parts it inherited, without a
       // `step`, and their numbers in the retired `steps` map.
@@ -180,13 +182,18 @@ describeIfDb('a Continue Run', () => {
         steps: options.sourceContinued.steps,
       });
     }
+
     let callIndex = 0;
+
     for (const part of sourceParts) {
       const record = keptResultOf(part);
+
       if (record === undefined) continue;
+
       // An inherited call was requested by the earlier Run, so the source Run
       // recorded no request of its own for it.
       if (inherited.has(record.toolCallId)) continue;
+
       const requested = {
         toolCallId: record.toolCallId,
         toolName: 'read',
@@ -195,17 +202,21 @@ describeIfDb('a Continue Run', () => {
         // reply stored before parts recorded one keeps its boundaries (D5).
         stepNumber: steps[callIndex] ?? 0,
       };
+
       callIndex += 1;
       await sourceEvents.append(sourceRunId, 'tool.requested', requested);
       sourceRecorded.push({ eventType: 'tool.requested', payload: requested });
+
       const payload = {
         toolCallId: record.toolCallId,
         toolName: 'read',
         status: 'success',
         output: record.output,
       };
+
       await sourceEvents.append(sourceRunId, 'tool.completed', payload);
     }
+
     if (options?.chainedOwnCall === true) {
       const payload = {
         toolCallId: 'call-own',
@@ -213,18 +224,22 @@ describeIfDb('a Continue Run', () => {
         input: { path: '/tmp/second.txt' },
         stepNumber: 0,
       };
+
       await sourceEvents.append(sourceRunId, 'tool.requested', payload);
       sourceRecorded.push({ eventType: 'tool.requested', payload });
     }
+
     // SAFETY: the seeded reply parts are stored UI parts, and the projection
     // re-validates every part it reads.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     const keptParts = sourceParts as ReadonlyArray<MessagePart>;
+
     const sourceContinued = await sourceEvents.findFirstByType(
       sourceRunId,
       userId,
       'run.continued',
     );
+
     return continuedCallSteps({
       keptParts,
       ...(sourceContinued !== undefined && {
@@ -272,6 +287,7 @@ describeIfDb('a Continue Run', () => {
   }): Promise<ContinuedTurn> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
+
     return tenantDb.runAs(userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -281,6 +297,7 @@ describeIfDb('a Continue Run', () => {
         ownerUserId: userId,
         title: 'Continue Run',
       });
+
       if (options?.previousReplyModelId !== undefined) {
         const earlier = await messagesRepo.create({
           chatId,
@@ -288,6 +305,7 @@ describeIfDb('a Continue Run', () => {
           senderUserId: userId,
           parts: [{ type: 'text', text: 'An earlier turn' }],
         });
+
         await messagesRepo.createAssistantReplyIfAbsent({
           chatId,
           inReplyTo: earlier.id,
@@ -299,6 +317,7 @@ describeIfDb('a Continue Run', () => {
             modelId: options.previousReplyModelId,
           },
         });
+
         // A dispatched predecessor Run with its own record, so a baseline
         // lookup that ignored this message's earlier Run would read `[]` and
         // find no change (turn-actions D8).
@@ -308,18 +327,21 @@ describeIfDb('a Continue Run', () => {
           userId,
           modelId: options.previousReplyModelId,
         });
+
         await runsRepo.markFinished(previousRun.id, userId, 'completed');
         await tx
           .update(schema.runs)
           .set({ turnToolAvailability: [] })
           .where(eq(schema.runs.id, previousRun.id));
       }
+
       // The items an earlier Run of this turn stored on its trigger, which the
       // Continue Run must keep rather than author again (turn-actions D8). The
       // source Run's id is generated here because its items name it and the
       // trigger has to exist before the Run row can reference it.
       const sourceRunId = crypto.randomUUID();
       const storedItems: Array<MessagePart> = [];
+
       if (options?.temporalItem === true) {
         storedItems.push(
           createTemporalItem({
@@ -329,6 +351,7 @@ describeIfDb('a Continue Run', () => {
           }),
         );
       }
+
       if (options?.promptImportsItem === true) {
         storedItems.push({
           type: 'data-context',
@@ -341,6 +364,7 @@ describeIfDb('a Continue Run', () => {
           },
         });
       }
+
       if (options?.skillActivationItem !== undefined) {
         storedItems.push({
           type: 'data-context',
@@ -353,10 +377,12 @@ describeIfDb('a Continue Run', () => {
           },
         });
       }
+
       const text =
         options?.skillActivationItem === undefined
           ? USER_TEXT
           : `${USER_TEXT} $${options.skillActivationItem}`;
+
       const trigger = await messagesRepo.create({
         id: messageId,
         chatId,
@@ -364,6 +390,7 @@ describeIfDb('a Continue Run', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text }, ...storedItems],
       });
+
       const sourceRun = await runsRepo.create({
         id: sourceRunId,
         chatId,
@@ -371,13 +398,16 @@ describeIfDb('a Continue Run', () => {
         userId,
         modelId: MODEL_ID,
       });
+
       const sourceParts: Array<unknown> = options?.replyParts ?? keptParts;
+
       if (options?.sourceAvailability !== undefined) {
         await tx
           .update(schema.runs)
           .set({ turnToolAvailability: options.sourceAvailability })
           .where(eq(schema.runs.id, sourceRun.id));
       }
+
       await runsRepo.markFinished(sourceRun.id, userId, 'failed', {
         error: { message: 'the model dropped the stream' },
       });
@@ -393,17 +423,20 @@ describeIfDb('a Continue Run', () => {
           attemptId: crypto.randomUUID(),
         },
       });
+
       const records = await seedSourceRecords(
         tx,
         sourceRun.id,
         sourceParts,
         options,
       );
+
       // SAFETY: the seeded reply parts are stored UI parts, and admission
       // re-validates every part it reads.
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       const storedKeptParts = sourceParts as ReadonlyArray<MessagePart>;
       const numberedKeptParts = withKeptSteps(storedKeptParts, records);
+
       const { run } = await createRunForMessage(
         tx,
         {
@@ -422,6 +455,7 @@ describeIfDb('a Continue Run', () => {
         },
         trigger,
       );
+
       if (options?.masterAdmitted === true) {
         // Admission ran before the parts carried their own step: rewrite the
         // event the way master-era admission wrote it, so a rebuild or a
@@ -442,6 +476,7 @@ describeIfDb('a Continue Run', () => {
             ),
           );
       }
+
       return {
         chatId,
         messageId,
@@ -464,7 +499,9 @@ describeIfDb('a Continue Run', () => {
       userId,
       modelId: MODEL_ID,
     });
+
     const started = await runsRepo.markStarted(created.id, userId);
+
     return runsRepo.markFinished(created.id, userId, 'completed', {
       ...(started?.activeAttemptId !== null &&
         started?.activeAttemptId !== undefined && {
@@ -493,6 +530,7 @@ describeIfDb('a Continue Run', () => {
       client,
       followUpAction: 'continue',
     });
+
     await (result.consumeStream?.() ?? result.text);
   }
 
@@ -513,6 +551,7 @@ describeIfDb('a Continue Run', () => {
         userId,
         turn.messageId,
       );
+
       return turnState.assistantMessage;
     });
 
@@ -523,6 +562,7 @@ describeIfDb('a Continue Run', () => {
         userId,
         turn.messageId,
       );
+
       return (turnState.userMessage?.parts ?? []).filter(isContextItemPart);
     });
 
@@ -615,6 +655,7 @@ describeIfDb('a Continue Run', () => {
       output: { status: 'success', text: 'second body' },
       outcome: 'success',
     };
+
     const turn = await seedContinuedTurn({
       keptSteps: [0, 1],
       replyParts: [
@@ -624,6 +665,7 @@ describeIfDb('a Continue Run', () => {
         secondCall,
       ],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -640,6 +682,7 @@ describeIfDb('a Continue Run', () => {
       'assistant',
       'tool',
     ]);
+
     const callsPerMessage = sent
       .slice(-4)
       .map(({ role, content }) =>
@@ -649,6 +692,7 @@ describeIfDb('a Continue Run', () => {
             )
           : [],
       );
+
     expect(callsPerMessage).toEqual([[CALL_ID], [], ['call-second'], []]);
     expect(sent.at(-2)?.content).toEqual([
       { type: 'text', text: 'second read' },
@@ -670,6 +714,7 @@ describeIfDb('a Continue Run', () => {
       output: { status: 'success', text: 'second body' },
       outcome: 'success',
     };
+
     const ownCall = {
       type: 'tool-read',
       toolCallId: 'call-own',
@@ -678,6 +723,7 @@ describeIfDb('a Continue Run', () => {
       output: { status: 'success', text: 'own body' },
       outcome: 'success',
     };
+
     const turn = await seedContinuedTurn({
       replyParts: [keptParts[2], secondCall, ownCall],
       sourceContinued: {
@@ -685,6 +731,7 @@ describeIfDb('a Continue Run', () => {
         steps: { [CALL_ID]: 0, 'call-second': 1 },
       },
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -708,6 +755,7 @@ describeIfDb('a Continue Run', () => {
       'assistant',
       'tool',
     ]);
+
     const callsPerMessage = sent
       .slice(-6)
       .map(({ role, content }) =>
@@ -717,6 +765,7 @@ describeIfDb('a Continue Run', () => {
             )
           : [],
       );
+
     expect(callsPerMessage).toEqual([
       [CALL_ID],
       [],
@@ -725,6 +774,7 @@ describeIfDb('a Continue Run', () => {
       ['call-own'],
       [],
     ]);
+
     const resultIds = sent
       .slice(-6)
       .flatMap(({ role, content }) =>
@@ -734,11 +784,13 @@ describeIfDb('a Continue Run', () => {
             )
           : [],
       );
+
     expect(resultIds).toEqual([CALL_ID, 'call-second', 'call-own']);
   });
 
   it('replays the reasoning of a failed Run with its provider metadata', async () => {
     const metadata = { test: { signature: 'kept-reasoning' } };
+
     const turn = await seedContinuedTurn({
       replyParts: [
         { type: 'reasoning', text: 'kept thought', providerMetadata: metadata },
@@ -746,6 +798,7 @@ describeIfDb('a Continue Run', () => {
         keptParts[2],
       ],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -772,6 +825,7 @@ describeIfDb('a Continue Run', () => {
 
   it('replays a refused kept call with the SDK error text, as the live step sent it', async () => {
     const sdkErrorText = 'Invalid input for tool "read"';
+
     const turn = await seedContinuedTurn({
       replyParts: [
         keptParts[1],
@@ -786,6 +840,7 @@ describeIfDb('a Continue Run', () => {
         },
       ],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -816,6 +871,7 @@ describeIfDb('a Continue Run', () => {
         },
       ],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -835,12 +891,15 @@ describeIfDb('a Continue Run', () => {
         (part): part is ToolCallPart =>
           part.type === 'tool-call' && part.toolCallId === CALL_ID,
       );
+
     const jsonbOrder = '{"path":"/tmp/file.txt","offset":2}';
     expect(JSON.stringify(call?.input)).toBe(jsonbOrder);
     const reply = await replyOf(turn);
+
     const stored = (reply?.parts ?? []).find(
       (part) => isRecord(part) && part['toolCallId'] === CALL_ID,
     );
+
     expect(JSON.stringify(isRecord(stored) ? stored['input'] : null)).toBe(
       jsonbOrder,
     );
@@ -932,12 +991,14 @@ describeIfDb('a Continue Run', () => {
     expect(
       items.filter((item) => item.data.producer === 'model-switch'),
     ).toHaveLength(0);
+
     // The availability comparison runs against the earlier Run of this turn,
     // whose record named `read`, so its removal is appended after the items the
     // turn already stored.
     const availability = items.filter(
       (item) => item.data.producer === 'tool-availability',
     );
+
     expect(availability).toHaveLength(1);
     expect(items.at(-1)).toBe(availability[0]);
     expect(availability[0]?.data.runId).toBe(turn.runId);
@@ -985,6 +1046,7 @@ describeIfDb('a Continue Run', () => {
         },
       ],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -1001,6 +1063,7 @@ describeIfDb('a Continue Run', () => {
       'assistant',
       'tool',
     ]);
+
     // Both kept calls arrive, each in its own assistant turn.
     const callIds = sent.flatMap(({ role, content }) =>
       role === 'assistant' && Array.isArray(content)
@@ -1009,6 +1072,7 @@ describeIfDb('a Continue Run', () => {
           )
         : [],
     );
+
     expect(callIds).toEqual([CALL_ID, 'call-own']);
     // The inherited call replays the result its kept part stores, exactly as
     // the live loop sent it rather than through the later-turn renderer.
@@ -1034,6 +1098,7 @@ describeIfDb('a Continue Run', () => {
     // Two completed Runs answer one turn; the reply names the older, which is
     // the Run whose answer and receipts a later summary must reproduce.
     const chatId = crypto.randomUUID();
+
     const seeded = await tenantDb.runAs(userId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
       const runsRepo = new RunsRepository(tx);
@@ -1042,18 +1107,21 @@ describeIfDb('a Continue Run', () => {
         ownerUserId: userId,
         title: 'Previous completed Run',
       });
+
       const trigger = await messagesRepo.create({
         chatId,
         role: 'user',
         senderUserId: userId,
         parts: [{ type: 'text', text: USER_TEXT }],
       });
+
       // A completed Run records the attempt that produced its answer, which is
       // the link the previous-completed-Run lookup requires.
       const older = await completedRun(runsRepo, {
         chatId,
         messageId: trigger.id,
       });
+
       await messagesRepo.createAssistantReplyIfAbsent({
         chatId,
         inReplyTo: trigger.id,
@@ -1061,6 +1129,7 @@ describeIfDb('a Continue Run', () => {
         usage: { status: 'completed', complete: true, runId: older!.id },
       });
       await completedRun(runsRepo, { chatId, messageId: trigger.id });
+
       return { seq: trigger.seq, olderId: older!.id };
     });
 
@@ -1109,11 +1178,13 @@ describeIfDb('a Continue Run', () => {
         text: '<system-reminder producer="instructions">kept item</system-reminder>',
       },
     };
+
     // The kept boundary carries the item an earlier Run authored, so the
     // rebuild must not place a second copy of it.
     const turn = await seedContinuedTurn({
       replyParts: [...keptParts, keptItem],
     });
+
     const ownItem = {
       type: 'data-context',
       data: {
@@ -1124,12 +1195,14 @@ describeIfDb('a Continue Run', () => {
         text: '<system-reminder producer="instructions">own item</system-reminder>',
       },
     };
+
     // Attempt A dispatched and stored a part snapshot holding its own in-Run
     // item, then died without settling.
     await tenantDb.runAs(userId, async (tx) => {
       const runsRepo = new RunsRepository(tx);
       const started = await runsRepo.markStarted(turn.runId, userId);
       const attemptId = started?.activeAttemptId;
+
       if (!attemptId) throw new Error('Attempt A did not claim the Run.');
       const events = new RunEventsRepository(tx);
       await events.append(turn.runId, 'run.started');
@@ -1186,7 +1259,9 @@ describeIfDb('a Continue Run', () => {
         turn.runId,
         userId,
       );
+
       const attemptId = started?.activeAttemptId;
+
       if (!attemptId) throw new Error('Attempt A did not claim the Run.');
       const events = new RunEventsRepository(tx);
       await events.append(turn.runId, 'run.started');
@@ -1242,17 +1317,21 @@ describeIfDb('a Continue Run', () => {
       output: { status: 'success', text: 'second body' },
       outcome: 'success',
     };
+
     const turn = await seedContinuedTurn({
       masterAdmitted: true,
       keptSteps: [0, 1],
       replyParts: [keptParts[2], secondCall],
     });
+
     await tenantDb.runAs(userId, async (tx) => {
       const started = await new RunsRepository(tx).markStarted(
         turn.runId,
         userId,
       );
+
       const attemptId = started?.activeAttemptId;
+
       if (!attemptId) throw new Error('Attempt A did not claim the Run.');
       const events = new RunEventsRepository(tx);
       await events.append(turn.runId, 'run.started');
@@ -1323,6 +1402,7 @@ function keptResultOf(part: unknown):
   if (!isRecord(part)) return undefined;
   const toolCallId = part['toolCallId'];
   const output = part['output'];
+
   return isString(toolCallId) &&
     isRecord(output) &&
     output['status'] === 'success'

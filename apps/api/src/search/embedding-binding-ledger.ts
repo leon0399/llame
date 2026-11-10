@@ -40,6 +40,7 @@ export async function findEmbeddingBinding(tx: Db, modelKey: string) {
     .select()
     .from(embeddingModelBindings)
     .where(eq(embeddingModelBindings.modelKey, modelKey));
+
   return row;
 }
 
@@ -58,7 +59,9 @@ export async function listUndeclaredBindingKeys(
   const rows = await tx
     .select({ modelKey: embeddingModelBindings.modelKey })
     .from(embeddingModelBindings);
+
   const declared = new Set(declaredKeys);
+
   return rows.map((row) => row.modelKey).filter((key) => !declared.has(key));
 }
 

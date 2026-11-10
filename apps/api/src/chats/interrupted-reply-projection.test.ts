@@ -34,6 +34,7 @@ function stored(
     Partial<Pick<StoredMessage, 'usage'>>,
 ): StoredMessage {
   seq += 1;
+
   return {
     id: `message-${seq}`,
     chatId: 'chat-1',
@@ -62,6 +63,7 @@ function project(reply: StoredMessage, modelId = MODEL) {
     systemPrompt: 'prompt',
     modelId,
   });
+
   return replayedParts(messages);
 }
 
@@ -78,12 +80,15 @@ describe.each(WIRES)('an interrupted reply on the %s wire', (_wire, signed) => {
     text: 'first thought',
     providerMetadata: signed,
   };
+
   const text: MessagePart = { type: 'text', text: 'partial answer' };
+
   const second: MessagePart = {
     type: 'reasoning',
     text: 'second thought',
     providerMetadata: signed,
   };
+
   const cut: MessagePart = {
     type: 'reasoning',
     text: 'cut mid-thought',
@@ -210,12 +215,15 @@ describe('an interrupted reply that ends in reasoning', () => {
 
 describe('the edges of the interrupted-reply rule', () => {
   const signed = { anthropic: { signature: 'SIGNED' } };
+
   const thought: MessagePart = {
     type: 'reasoning',
     text: 'thought',
     providerMetadata: signed,
   };
+
   const text: MessagePart = { type: 'text', text: 'answer' };
+
   const rolesOf = (messages: Array<ModelMessage>) =>
     messages.map(({ role }) => role);
 
@@ -282,6 +290,7 @@ describe('the edges of the interrupted-reply rule', () => {
       classification: 'read_only',
       step: 0,
     };
+
     const { messages } = buildContext(
       [
         user(),

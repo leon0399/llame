@@ -8,6 +8,7 @@ const RETAINED_BYTES = 'A'.repeat(64 * 1024);
 describe('loggableError', () => {
   it('keeps the statement and the cause, without the bind values', () => {
     const cause = new Error('duplicate key value violates unique constraint');
+
     const error = new DrizzleQueryError(
       'insert into "messages" ("parts") values ($1)',
       [RETAINED_BYTES],

@@ -17,6 +17,7 @@ import { type ToolContext } from './types';
 export function managedBashContext(context: ToolContext): BashExecutorContext {
   const workingDirectory =
     context.workspaceRoot?.current() ?? bashWorkingDirectory();
+
   return {
     workingDirectory,
     // ponytail: alpha host claims; managed Sandbox must prove these for stronger isolation.

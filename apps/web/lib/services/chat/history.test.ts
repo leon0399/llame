@@ -38,6 +38,7 @@ describe("normalizeChatMessagesResponse", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   });
+
   const checkpointRow = (
     seq: number,
     absorbedThroughSeq: number,
@@ -307,6 +308,7 @@ describe("trusted model-context projection", () => {
 
   it("keeps metadata-only historical switch boundaries owner-visible", () => {
     const { v, producer, form, runId, payload } = switchPart.data;
+
     const metadataOnlyPart = {
       ...switchPart,
       data: { v, producer, form, runId, payload },
@@ -442,11 +444,14 @@ describe("trusted model-context projection", () => {
         text: '<system-reminder producer="interrupted" form="notice">The owner interrupted your previous step.</system-reminder>',
       },
     };
+
     const text = { type: "text" as const, text: "Change of plan" };
+
     const server = [
       { id: "user-2", role: "user" as const, parts: [notice, text] },
       { id: "assistant-3", role: "assistant" as const, parts: [notice, text] },
     ];
+
     const live = [
       { id: "user-2", role: "user" as const, parts: [text] },
       { id: "assistant-3", role: "assistant" as const, parts: [text] },
@@ -491,6 +496,7 @@ describe("trusted model-context projection", () => {
         },
       ],
     };
+
     const streamingTail: UIMessage = {
       id: "assistant-live",
       role: "assistant",
@@ -501,10 +507,12 @@ describe("trusted model-context projection", () => {
       [idleAssistant, streamingTail],
       [],
     );
+
     const nextTail: UIMessage = {
       ...streamingTail,
       parts: [{ type: "text", text: "Streaming… more" }],
     };
+
     const second = mergeTrustedModelContextParts([idleAssistant, nextTail], []);
 
     expect(first[0]).toBe(idleAssistant);
@@ -523,6 +531,7 @@ describe("trusted model-context projection", () => {
       role: "user",
       parts: [{ type: "text", text: "Continue" }],
     };
+
     const server: UIMessage = {
       id: "user-1",
       role: "user",
@@ -587,6 +596,7 @@ describe("instructions context items", () => {
 
   it("keeps metadata-only historical items owner-visible", () => {
     const { v, producer, form, runId, payload } = instructionsItem.data;
+
     const metadataOnly = {
       ...instructionsItem,
       data: { v, producer, form, runId, payload },
@@ -783,6 +793,7 @@ describe("instructions context items", () => {
         runId: "b7ea1c02-9f2d-4b7e-9b0e-1d2f3a4b5c6d",
       },
     };
+
     const messages = mergeTrustedModelContextParts(
       [
         {
@@ -900,12 +911,14 @@ describe("prompt-imports context items", () => {
       outcome: "imported" as const,
       media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
     };
+
     const item = withPayload({
       imports: [image, ...promptImportsItem.data.payload.imports],
       omitted: ["extra.md"],
     });
 
     expect(isPromptImportsPart(item)).toBe(true);
+
     if (!isPromptImportsPart(item)) return;
     expect(item.data.payload.imports.map((entry) => entry.outcome)).toEqual([
       "imported",
@@ -1000,6 +1013,7 @@ describe("prompt-imports context items", () => {
       byteSize: 2_215_244,
       media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
     };
+
     for (const bad of [
       { ...pdf, kind: "image" },
       {
@@ -1070,6 +1084,7 @@ describe("prompt-imports context items", () => {
       height: 900,
       mediaType: "image/png",
     };
+
     const withoutWidth = {
       locator: image.locator,
       outcome: image.outcome,
@@ -1077,6 +1092,7 @@ describe("prompt-imports context items", () => {
       height: image.height,
       mediaType: image.mediaType,
     };
+
     for (const bad of [
       { ...image, media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f" },
       { ...image, thumbnail: "data:image/png;base64,iVBORw0KGgo=" },
@@ -1121,6 +1137,7 @@ describe("prompt-imports context items", () => {
 
   it("rejects an unknown outcome or an untrustworthy field", () => {
     const entry = { locator: "a.md", outcome: "imported" };
+
     for (const bad of [
       { ...entry, outcome: "skipped" },
       { ...entry, locator: "  " },
@@ -1145,6 +1162,7 @@ describe("prompt-imports context items", () => {
     ]) {
       expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
     }
+
     expect(
       isPromptImportsPart(withPayload({ imports: [entry], omitted: [""] })),
     ).toBe(false);
@@ -1178,6 +1196,7 @@ describe("prompt-imports context items", () => {
       role,
       parts: [{ type: "text", text: "Read @docs/GUIDE.md" }],
     });
+
     const stored = (id: string, role: "user" | "assistant"): UIMessage => ({
       id,
       role,
@@ -1209,6 +1228,7 @@ describe("adoptServerHistory", () => {
     parts: [{ type: "text", text: id }],
     metadata: { seq },
   });
+
   const durableAssistant = (
     id: string,
     seq: number,
@@ -1219,11 +1239,13 @@ describe("adoptServerHistory", () => {
     parts: [{ type: "text", text: id }],
     metadata: runId === undefined ? { seq } : { seq, usage: { runId } },
   });
+
   const liveUser = (id: string): UIMessage => ({
     id,
     role: "user",
     parts: [{ type: "text", text: id }],
   });
+
   const liveAssistant = (id: string, runId?: string): UIMessage =>
     runId === undefined
       ? { id, role: "assistant", parts: [{ type: "text", text: id }] }
@@ -1233,11 +1255,13 @@ describe("adoptServerHistory", () => {
           parts: [{ type: "text", text: id }],
           metadata: { usage: { runId } },
         };
+
   /** No follow-up in flight: nothing is replacing a turn's reply. */
   const SETTLED: ReplacementContext = {
     streaming: false,
     pendingFollowUpMessageId: null,
   };
+
   const adopt = (
     status: string,
     serverMessages: ReadonlyArray<UIMessage>,
@@ -1269,6 +1293,7 @@ describe("adoptServerHistory", () => {
       durableUser("user-1", 1),
       durableAssistant("assistant-1", 2),
     ];
+
     const live = [durableUser("user-1", 1)];
 
     expect(adopt("streaming", server, live)).toBe(null);
@@ -1353,11 +1378,14 @@ describe("adoptServerHistory", () => {
       durableUser("user-1", 1),
       durableAssistant("durable-assistant-1", 2, LIVE_RUN_ID),
     ];
+
     const healed = adopt("ready", server, [
       durableUser("user-1", 1),
       liveAssistant(LIVE_RUN_ID),
     ]);
+
     expect(healed).not.toBe(null);
+
     if (healed === null) return;
     expect(adopt("ready", server, healed)).toBe(null);
   });
@@ -1465,6 +1493,7 @@ describe("adoptServerHistory", () => {
       durableUser("user-1", 1),
       durableAssistant("assistant-2", 2),
     ];
+
     const server = [
       durableUser("user-3", 3),
       durableAssistant("assistant-4", 4),
@@ -1492,10 +1521,12 @@ describe("adoptServerHistory", () => {
       durableUser("user-1", 1),
       durableAssistant("assistant-2", 2),
     ];
+
     const staleWindow = [
       durableUser("user-3", 3),
       durableAssistant("assistant-4", 4),
     ];
+
     const liveTail = [liveUser("optimistic-user"), liveAssistant(LIVE_RUN_ID)];
 
     expect(
@@ -1551,6 +1582,7 @@ describe("adoptServerHistory under a follow-up replacement", () => {
     parts: [{ type: "text", text: id }],
     metadata: { seq },
   });
+
   const durableAssistant = (
     id: string,
     seq: number,
@@ -1561,16 +1593,19 @@ describe("adoptServerHistory under a follow-up replacement", () => {
     parts: [{ type: "text", text: id }],
     metadata: { seq, usage: { runId } },
   });
+
   /** The empty assistant message the stream's `start` frame creates. */
   const placeholder = (runId: string): UIMessage => ({
     id: runId,
     role: "assistant",
     parts: [],
   });
+
   const SETTLED: ReplacementContext = {
     streaming: false,
     pendingFollowUpMessageId: null,
   };
+
   const adopt = (
     serverMessages: ReadonlyArray<UIMessage>,
     liveMessages: ReadonlyArray<UIMessage>,
@@ -1592,6 +1627,7 @@ describe("adoptServerHistory under a follow-up replacement", () => {
       durableUser("user-1", 1),
       durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
     ];
+
     const live = [durableUser("user-1", 1), placeholder(FOLLOW_UP_RUN_ID)];
 
     expect(adopt(preserved, live)).toEqual([...preserved, ...live.slice(1)]);
@@ -1602,6 +1638,7 @@ describe("adoptServerHistory under a follow-up replacement", () => {
       durableUser("user-1", 1),
       durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
     ];
+
     const live = [durableUser("user-1", 1), placeholder(FOLLOW_UP_RUN_ID)];
 
     expect(adopt(stale, live, { ...SETTLED, streaming: true })).toBe(null);
@@ -1619,6 +1656,7 @@ describe("adoptServerHistory under a follow-up replacement", () => {
       durableUser("user-1", 1),
       durableAssistant("assistant-1", 2, PREVIOUS_RUN_ID),
     ];
+
     const regenerated = [
       durableUser("user-1", 1),
       durableAssistant("assistant-1", 2, FOLLOW_UP_RUN_ID),
@@ -1697,17 +1735,20 @@ describe("supersededReplyIndexes", () => {
     role: "user",
     parts: [{ type: "text", text: id }],
   });
+
   const reply = (id: string, seq: number): UIMessage => ({
     id,
     role: "assistant",
     parts: [{ type: "text", text: id }],
     metadata: { seq, usage: { runId: "old-run" } },
   });
+
   const streamed = (id: string, text: string): UIMessage => ({
     id,
     role: "assistant",
     parts: text === "" ? [] : [{ type: "text", text }],
   });
+
   const REPLACING: ReplacementContext = {
     streaming: true,
     pendingFollowUpMessageId: null,

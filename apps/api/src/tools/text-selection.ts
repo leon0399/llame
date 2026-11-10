@@ -34,8 +34,10 @@ export async function selectInMemoryText({
     target.pending === undefined
       ? target
       : resolveEndRelativeSelector(target, lineCount);
+
   if (resolved.outline)
     return await outlineReader(mediaType)(splitSourceLines(text), resolved);
+
   return resolved.ranges === undefined
     ? selectSourceLines(text, resolved, mediaType)
     : selectMultiRangeLines(text, resolved, mediaType);
@@ -44,5 +46,6 @@ export async function selectInMemoryText({
 /** The error result a rendering helper threw, when it is a native refusal. */
 export function nativeErrorResult(error: unknown): ToolResult | undefined {
   if (!(error instanceof NativeFileError)) return undefined;
+
   return { status: 'error', type: error.type, message: error.message };
 }

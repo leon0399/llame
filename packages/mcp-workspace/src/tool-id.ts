@@ -38,11 +38,13 @@ export function createMcpToolId(
     .normalize('NFKC')
     .replace(UNSAFE_TOOL_NAME_RUN, '_')
     .replace(EDGE_UNDERSCORES, '');
+
   if (toolName.length === 0) {
     return { success: false, reason: 'empty_tool_name' };
   }
 
   const id = `${MCP_TOOL_ID_PREFIX}${serverId}${MCP_TOOL_ID_SEPARATOR}${toolName}`;
+
   if (id.length > MAX_TOOL_ID_LENGTH) {
     return { success: false, reason: 'overlength' };
   }
@@ -55,10 +57,12 @@ export function parseMcpToolId(id: string): ParsedMcpToolIdResult {
   if (!id.startsWith(MCP_TOOL_ID_PREFIX)) {
     return { success: false, reason: 'invalid_format' };
   }
+
   const separatorIndex = id.indexOf(
     MCP_TOOL_ID_SEPARATOR,
     MCP_TOOL_ID_PREFIX.length,
   );
+
   if (separatorIndex === -1) {
     return { success: false, reason: 'invalid_format' };
   }
@@ -66,10 +70,13 @@ export function parseMcpToolId(id: string): ParsedMcpToolIdResult {
   const serverId = id.slice(MCP_TOOL_ID_PREFIX.length, separatorIndex);
   const toolName = id.slice(separatorIndex + MCP_TOOL_ID_SEPARATOR.length);
   const generated = createMcpToolId(serverId, toolName);
+
   if (!generated.success) return generated;
+
   if (generated.id !== id) {
     return { success: false, reason: 'noncanonical' };
   }
+
   return { success: true, id, serverId, toolName };
 }
 
@@ -77,6 +84,7 @@ export function findAsciiCaseFoldedCollisionIndexes(
   ids: ReadonlyArray<string>,
 ): ReadonlySet<number> {
   const counts = new Map<string, number>();
+
   for (const id of ids) {
     const folded = asciiCaseFold(id);
     counts.set(folded, (counts.get(folded) ?? 0) + 1);
@@ -88,5 +96,6 @@ export function findAsciiCaseFoldedCollisionIndexes(
       collisions.add(index);
     }
   });
+
   return collisions;
 }

@@ -116,6 +116,7 @@ describe('parseSkillLocator', () => {
   ])('reports %s as an invalid selector', (rest, spelling) => {
     const parsed = parseSkillLocator(rest);
     expect(parsed).toMatchObject({ type: 'invalid_selector' });
+
     if (spelling !== undefined) {
       expect(parsed).toHaveProperty(
         'message',
@@ -206,6 +207,7 @@ describe('formatSkillLocator', () => {
   it('round-trips a written locator to one canonical spelling', () => {
     const written = 'skill://pdf/references/a%20b.md:raw';
     const parsed = parseSkillLocator(written.slice('skill://'.length));
+
     if ('type' in parsed) throw new Error('the written locator should parse');
     expect(parsed).toStrictEqual({
       name: 'pdf',

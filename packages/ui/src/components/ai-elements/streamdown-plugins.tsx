@@ -165,6 +165,7 @@ const rewriteTextChild = (
   raw: string | undefined,
 ): ChildRewrite => {
   const expanded = raw === undefined ? undefined : expandLatexDelimiters(raw);
+
   return expanded
     ? { nodes: expanded, changed: true }
     : { nodes: [child], changed: false };
@@ -183,6 +184,7 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
   for (const child of children) {
     const start = child.position?.start.offset;
     const end = child.position?.end.offset;
+
     const raw =
       start === undefined || end === undefined
         ? undefined
@@ -217,6 +219,7 @@ const rewriteMathNodes = (node: MathNode, source: string): void => {
   // instead of keeping an inline formula wrapped in a `<p>`.
   if (node.type === "paragraph" && only?.wasDisplayDelimited && only.value) {
     Object.assign(node, displayMathNode(only.value));
+
     return;
   }
 
@@ -282,12 +285,15 @@ function advanceQuotedCharacter(
   if (state.escaped) {
     return { ...state, escaped: false };
   }
+
   if (character === "\\") {
     return { ...state, escaped: true };
   }
+
   if (character === state.quote) {
     return { ...state, quote: undefined };
   }
+
   return state;
 }
 
@@ -334,6 +340,7 @@ const hasMermaidImageAttribute = (source: string) => {
 
 export const assertSafeMermaidSource = (source: string) => {
   const sourceWithoutComments = source.replaceAll(/^\s*%%(?!\{).*$/gm, "");
+
   if (
     hasMermaidImageAttribute(sourceWithoutComments) ||
     mermaidImageSource.test(sourceWithoutComments)
@@ -351,6 +358,7 @@ const mermaid = {
       ...instance,
       render: (id: string, source: string) => {
         assertSafeMermaidSource(source);
+
         return instance.render(id, source);
       },
     };

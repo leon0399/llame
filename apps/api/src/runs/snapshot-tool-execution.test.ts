@@ -52,6 +52,7 @@ function makeJsonSchemaTool(
 async function makeDeclaration(tool: Tool): Promise<ModelToolDeclaration> {
   const { resolveJsonSchema } = await import('../tools/schema-utils.js');
   const { canonicalJson } = await import('./effective-context-resolver.js');
+
   const declaration: unknown = JSON.parse(
     canonicalJson({
       id: tool.id,
@@ -59,7 +60,9 @@ async function makeDeclaration(tool: Tool): Promise<ModelToolDeclaration> {
       inputSchema: await resolveJsonSchema(tool.inputSchema),
     }),
   );
+
   assertModelToolDeclaration(declaration);
+
   return declaration;
 }
 
@@ -73,6 +76,7 @@ describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
       },
       required: ['query'],
     };
+
     const tool = makeJsonSchemaTool(schema);
     const declaration = await makeDeclaration(tool);
     const registry = new Map([[tool.id, tool]]);
@@ -91,6 +95,7 @@ describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
       },
       required: ['query'],
     };
+
     const tool = makeJsonSchemaTool(schema);
     const declaration = await makeDeclaration(tool);
 
@@ -102,6 +107,7 @@ describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
       },
       type: 'object',
     };
+
     const reorderedTool = makeJsonSchemaTool(reorderedSchema);
     const registry = new Map([[reorderedTool.id, reorderedTool]]);
 
@@ -115,6 +121,7 @@ describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
       properties: { query: { type: 'string' } },
       required: ['query'],
     };
+
     const tool = makeJsonSchemaTool(schema);
     const declaration = await makeDeclaration(tool);
 
@@ -126,6 +133,7 @@ describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
       },
       required: ['query'],
     };
+
     const changedTool = makeJsonSchemaTool(changedSchema);
     const registry = new Map([[changedTool.id, changedTool]]);
 
@@ -148,6 +156,7 @@ describe('resolveBoundExecutableTools — JSON-Schema tools', () => {
       $schema: 'https://schemas.example.invalid/unknown',
       type: 'object',
     });
+
     const declaration = await makeDeclaration(tool);
 
     await expect(
@@ -191,7 +200,9 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
       },
       { id: 'mcp__web__search', classification: 'unverified' },
     );
+
     const declaration = await makeDeclaration(tool);
+
     const resolver = {
       resolveDynamicTool: vi.fn(() => ({
         state: 'available' as const,
@@ -226,10 +237,12 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
     'preserves the snapshot contract and binds not_available on %s',
     async (_case, resolution) => {
       const liveExecute = vi.fn(() => ({ status: 'success' as const }));
+
       const tool = makeTool({
         id: 'mcp__web__search',
         execute: liveExecute,
       });
+
       const declaration = await makeDeclaration(tool);
 
       const [bound] = await resolveBoundExecutableTools(
@@ -302,6 +315,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
     async (_case, executorOverrides) => {
       const tool = makeTool({ id: 'mcp__web__search' });
       const declaration = await makeDeclaration(tool);
+
       const resolver = {
         resolveDynamicTool: () => ({
           state: 'available' as const,
@@ -315,6 +329,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
         new Map(),
         resolver,
       );
+
       expect(bound.executor.id).toBe(declaration.id);
       expect(
         await bound.executor.execute(
@@ -333,6 +348,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
   it('keeps a code-owned schema mismatch Run-fatal even with a dynamic resolver', async () => {
     const snapshotted = makeTool();
     const declaration = await makeDeclaration(snapshotted);
+
     const changed = makeTool({
       inputSchema: z.object({ query: z.number() }),
     });
@@ -377,10 +393,12 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
   it('keeps a registered mcp-shaped code-owned declaration on the strict integrity path', async () => {
     const snapshotted = makeTool({ id: 'mcp__code__owned' });
     const declaration = await makeDeclaration(snapshotted);
+
     const changed = makeTool({
       id: snapshotted.id,
       inputSchema: z.object({ query: z.number() }),
     });
+
     const resolveDynamicTool = vi.fn(() => ({
       state: 'unavailable' as const,
     }));

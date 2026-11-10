@@ -80,6 +80,7 @@ function bashBudgetMs(
   executorContext: BashExecutorContext,
 ): number {
   const remaining = context.timeoutMs;
+
   return remaining === undefined
     ? executorContext.durationMs
     : Math.max(1, Math.min(remaining, executorContext.durationMs));
@@ -130,18 +131,23 @@ const FOUR_BYTE_LIMIT = 0xf4;
  */
 function completeSequenceEnd(bytes: Buffer): number {
   const lead = leadIndex(bytes);
+
   if (lead === undefined) return bytes.length;
   const expected = expectedSequenceLength(bytes[lead]);
+
   if (expected === 0) return bytes.length;
+
   return bytes.length - lead < expected ? lead : bytes.length;
 }
 
 /** The lead byte of the trailing sequence, or undefined when none is within four bytes. */
 function leadIndex(bytes: Buffer): number | undefined {
   const earliest = Math.max(0, bytes.length - 4);
+
   for (let index = bytes.length - 1; index >= earliest; index -= 1) {
     if (!isContinuation(bytes[index])) return index;
   }
+
   return undefined;
 }
 
@@ -152,8 +158,11 @@ function isContinuation(byte: number): boolean {
 /** How many bytes a valid UTF-8 lead promises; zero for anything invalid. */
 function expectedSequenceLength(lead: number): number {
   if (lead >= TWO_BYTE_LEAD && lead <= 0xdf) return 2;
+
   if (lead >= THREE_BYTE_LEAD && lead <= 0xef) return 3;
+
   if (lead >= FOUR_BYTE_LEAD && lead <= FOUR_BYTE_LIMIT) return 4;
+
   return 0;
 }
 
@@ -165,6 +174,7 @@ async function knownResult(
   wallTimeMs: number,
 ): Promise<ToolResult> {
   const status = frames.status ?? 0;
+
   return spillBashResult(
     request.context,
     sanitizeKnownResult(
@@ -220,7 +230,9 @@ async function commandResult(
       ? toToolResult(unusableWorkingDirectory(request.input.cwd))
       : sshOutcomeUnknownResult();
   const verdict = classifySshBashOutcome(outcome, frames);
+
   if (verdict.kind !== 'complete') return verdictResult(verdict);
+
   // The classifier reports complete only for an ended process; a failed one
   // cannot carry a trailer to trust.
   return outcome.outcome === 'ended'
@@ -234,6 +246,7 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
   // Spawn to settlement of the remote command: the SSH client is spawned
   // inside `run`, and its answer is the settlement.
   const startedAtMs = performance.now();
+
   const outcome = await client.run({
     destination: binding.destination,
     resolved: binding,
@@ -256,6 +269,7 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
     stderrTailBytes: streamOutputBound(request.executorContext).limit,
     ...(context.abortSignal !== undefined && { signal: context.abortSignal }),
   });
+
   return commandResult(
     request,
     outcome,
@@ -268,6 +282,7 @@ async function runRemoteCommand(request: RemoteCommand): Promise<ToolResult> {
     Math.round(performance.now() - startedAtMs),
   );
 }
+
 /** The Run identity the unbound attempt and its result are recorded under. */
 type AttemptIdentity = {
   readonly runId: string;
@@ -277,6 +292,7 @@ type AttemptIdentity = {
 
 function attemptIdentity(context: ToolContext): AttemptIdentity | undefined {
   const { runId, userId, toolCallId } = context;
+
   return runId === undefined || toolCallId === undefined
     ? undefined
     : { runId, userId, toolCallId };
@@ -323,6 +339,7 @@ async function fencedRemoteCommand(
   command: FencedCommand,
 ): Promise<ToolResult> {
   const prior = await beginAttempt(context, identity, command.locator);
+
   if (prior) return prior;
   // The attempt write is durable, but a cancellation or deadline that fired
   // while it was awaited must not still start SSH: the known pre-start result
@@ -334,6 +351,7 @@ async function fencedRemoteCommand(
       result: settled,
     });
   });
+
   return settled;
 }
 
@@ -350,6 +368,7 @@ function remoteTarget(
   input: SshBashInput,
 ): RemoteTarget | ToolResult {
   const parsed = parseSshLocator(input.cwd);
+
   if (parsed.kind !== 'path' || parsed.selector !== undefined)
     return {
       status: 'error',
@@ -358,6 +377,7 @@ function remoteTarget(
         'An ssh:// working directory is one absolute path without a selector.',
     };
   const { sshClient: client, sshBinding: binding } = context;
+
   return client === undefined || binding === undefined
     ? {
         status: 'error',
@@ -381,6 +401,7 @@ function preStartResult(
       stderr: '',
       truncated: false,
     });
+
   return context.abortSignal?.aborted === true
     ? CANCELLED_BEFORE_START
     : undefined;
@@ -395,17 +416,22 @@ async function runWithSlot(
 ): Promise<ToolResult> {
   const budgetMs = bashBudgetMs(context, executorContext);
   const slot = reserveManagedProcessSlot(executorContext);
+
   if ('type' in slot) return toToolResult(slot);
+
   try {
     const preStart = preStartResult(context, budgetMs);
+
     if (preStart !== undefined) return preStart;
     const identity = attemptIdentity(context);
+
     if (identity === undefined)
       return {
         status: 'error',
         type: 'executor_unavailable',
         message: 'Native host authority is unavailable.',
       };
+
     return await fencedRemoteCommand(context, identity, {
       locator: target.binding.locator,
       preStart: () => preStartResult(context, budgetMs),
@@ -436,8 +462,10 @@ export async function executeSshBash(
   input: SshBashInput,
 ): Promise<ToolResult> {
   const target = remoteTarget(context, input);
+
   if ('status' in target) return target;
   const executorContext = managedBashContext(context);
+
   // The bound measures what a local call measures, and it governs the model's
   // text the same way: the command, its fixed argv, the directory, and each
   // addition. The quoting the generated script adds is not part of it.
@@ -457,5 +485,6 @@ export async function executeSshBash(
       type: 'unavailable',
       message: 'Command input exceeds the managed input bound.',
     };
+
   return runWithSlot(context, input, target, executorContext);
 }

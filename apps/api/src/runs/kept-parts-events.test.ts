@@ -42,12 +42,14 @@ describe('keptPartEvents', () => {
         payload: { text: 'second', partId: 'kept-reasoning-1' },
       },
     ]);
+
     // Distinct ids are what keeps the two parts apart in the UI stream.
     const ids = events.flatMap(({ payload }) =>
       isRecord(payload) && isString(payload['partId'])
         ? [payload['partId']]
         : [],
     );
+
     expect(ids).toEqual(['kept-reasoning-0', 'kept-reasoning-1']);
   });
 

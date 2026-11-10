@@ -110,6 +110,7 @@ function useReconcileWithdrawnMode(
   const selectedMode = getPermissionMode(chatId);
   React.useEffect(() => {
     if (modes === undefined || selectedMode === "default") return;
+
     if (!modes.some(({ value }) => value === selectedMode)) {
       setPermissionMode(chatId, "default");
     }
@@ -160,6 +161,7 @@ export function PermissionModeSelector({
         >
           {modes.map(({ value }) => {
             if (!isPermissionMode(value)) return null;
+
             return <PermissionModeItem key={value} mode={value} />;
           })}
         </DropdownMenuRadioGroup>

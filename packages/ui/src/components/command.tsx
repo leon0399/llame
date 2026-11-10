@@ -121,6 +121,7 @@ function CommandInput({
       />
     );
   }
+
   return (
     <div
       data-slot="command-input-wrapper"

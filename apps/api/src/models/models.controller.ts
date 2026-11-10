@@ -46,6 +46,7 @@ export class ModelsController {
   listModels(): ModelsResponse {
     try {
       const response = this.models.getAvailableModels();
+
       return {
         defaultModelId: response.defaultModelId,
         models: response.models.map(toAvailableModelResponse),
@@ -62,6 +63,7 @@ export class ModelsController {
           HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
+
       throw error;
     }
   }

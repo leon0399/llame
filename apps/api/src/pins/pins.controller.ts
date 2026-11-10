@@ -58,6 +58,7 @@ export class PinsController {
     @CurrentUser() userId: string,
   ): Promise<Array<PinnedItemResponse>> {
     const rows = await this.pinsService.listPins(userId);
+
     return rows.map(toPinnedItemResponse);
   }
 
@@ -79,6 +80,7 @@ export class PinsController {
     @Body() body: ReorderPinsDto,
   ): Promise<Array<PinnedItemResponse>> {
     const rows = await this.pinsService.reorderPins(userId, body.items);
+
     return rows.map(toPinnedItemResponse);
   }
 
@@ -102,6 +104,7 @@ export class PinsController {
     @Param('itemId', ParseUUIDPipe) itemId: string,
   ): Promise<PinnedItemResponse> {
     const row = await this.pinsService.pin(userId, itemType, itemId);
+
     return toPinnedItemResponse(row);
   }
 

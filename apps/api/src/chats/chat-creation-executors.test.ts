@@ -158,12 +158,15 @@ describe('executorTarget', () => {
 describe('creationLocationSource', () => {
   function source(rows: ReadonlyArray<Checkout>, online: Array<string>) {
     const db: Db = drizzle.mock({ schema });
+
     const listMainCheckouts = vi
       .spyOn(ProjectLinksRepository.prototype, 'listMainCheckouts')
       .mockResolvedValue([...rows]);
+
     const locationSource = creationLocationSource(db, (executorId) =>
       online.includes(executorId),
     );
+
     return { locationSource, listMainCheckouts };
   }
 
@@ -197,17 +200,21 @@ describe('creationLocationSource', () => {
       REPOSITORY_ID,
       'machine:attic',
     );
+
     expect(rows.map((row) => row.id)).toEqual(['offline']);
   });
 
   it('forwards every other read to the link repository unchanged', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const listLinks = vi
       .spyOn(ProjectLinksRepository.prototype, 'listLinks')
       .mockResolvedValue([]);
+
     const findCheckout = vi
       .spyOn(ProjectLinksRepository.prototype, 'findCheckout')
       .mockResolvedValue(undefined);
+
     const locationSource = creationLocationSource(db, () => true);
 
     await expect(locationSource.listLinks(OWNER, 'project-1')).resolves.toEqual(

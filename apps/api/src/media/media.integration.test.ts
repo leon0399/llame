@@ -82,8 +82,10 @@ describe('/api/v1/media (HTTP)', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password: 'password123', name });
+
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
@@ -106,6 +108,7 @@ describe('/api/v1/media (HTTP)', () => {
   /** Objects the owner holds with this content's digest. */
   const countOwned = async (userId: string, bytes: Buffer) => {
     const sha256 = createHash('sha256').update(bytes).digest('hex');
+
     return tenantDb.runAs(
       userId,
       async (tx) =>
@@ -120,6 +123,7 @@ describe('/api/v1/media (HTTP)', () => {
 
   beforeAll(async () => {
     models.register(MODEL, { kind: 'complete', text: 'ok' });
+
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
@@ -247,6 +251,7 @@ describe('/api/v1/media (HTTP)', () => {
       const svg = Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" data-t="${tag}"/>`,
       );
+
       const res = await upload(cookieA, svg, 'a.svg', 'image/svg+xml').expect(
         415,
       );
@@ -278,6 +283,7 @@ describe('/api/v1/media (HTTP)', () => {
         await randomPng(),
         Buffer.alloc(21 * 1024 * 1024),
       ]);
+
       const tooBig = await upload(cookieA, big).expect(413);
 
       expect(tooBig.body).toEqual({
@@ -295,6 +301,7 @@ describe('/api/v1/media (HTTP)', () => {
       })
         .png()
         .toBuffer();
+
       header.writeUInt32BE(8000, 16);
       header.writeUInt32BE(5125, 20);
       header.writeUInt32BE(crc32(header.subarray(12, 29)), 29);
@@ -360,6 +367,7 @@ describe('/api/v1/media (HTTP)', () => {
         .get(`/api/v1/media/${media.id}`)
         .set('Cookie', cookieA)
         .expect(200);
+
       expect(descriptorSchema.parse(res.body)).toEqual(media);
     });
 
@@ -403,6 +411,7 @@ describe('/api/v1/media (HTTP)', () => {
         .get(`/api/v1/media/${media.id}/model`)
         .set('Cookie', cookieA)
         .expect(200);
+
       const etag = z.string().parse(first.headers['etag']);
 
       const again = await request(http)
@@ -410,6 +419,7 @@ describe('/api/v1/media (HTTP)', () => {
         .set('Cookie', cookieA)
         .set('If-None-Match', etag)
         .expect(304);
+
       expect(again.headers['content-type']).toBeUndefined();
       expect(again.headers['etag']).toBe(etag);
       expect(again.headers['cache-control']).toBe('private, no-cache');
@@ -434,6 +444,7 @@ describe('/api/v1/media (HTTP)', () => {
         .get(`/api/v1/media/${media.id}/original`)
         .set('Cookie', cookieA)
         .expect(200);
+
       const etag = z.string().parse(original.headers['etag']);
 
       for (const suffix of ['', '/original', '/model']) {
@@ -447,6 +458,7 @@ describe('/api/v1/media (HTTP)', () => {
                 .set('If-None-Match', etag),
           ),
         );
+
         for (const res of responses) {
           expect(res.status).toBe(404);
           expect(res.body).toEqual(responses[1]?.body);
@@ -461,6 +473,7 @@ describe('/api/v1/media (HTTP)', () => {
         const res = await request(http)
           .get(`/api/v1/media/${media.id}${suffix}`)
           .expect(401);
+
         expect(res.headers['content-type']).not.toMatch(/^image\//u);
       }
     });
@@ -482,26 +495,33 @@ describe('/api/v1/media (HTTP)', () => {
 
     it('serves another media request while a PDF parser is stalled', async () => {
       const original = preparation.preparePdf;
+
       // Real HTTP and child deadlines: fake time cannot prove concurrent request availability.
       const child = preparation.pdfParseChild(
         ['-e', 'setTimeout(() => undefined, 60000)'],
         5000,
       );
+
       let entered = false;
       let finished = false;
+
       const parse = vi
         .spyOn(preparation, 'preparePdf')
         .mockImplementation((bytes) => {
           entered = true;
+
           return original(bytes, child);
         });
+
       const pending = uploadPdf(
         cookieA,
         Buffer.from('%PDF- stalled parser fixture'),
       ).then((response) => {
         finished = true;
+
         return response;
       });
+
       try {
         await vi.waitFor(() => expect(entered).toBe(true), { timeout: 2000 });
         await request(http)
@@ -526,10 +546,12 @@ describe('/api/v1/media (HTTP)', () => {
         byteSize: onePage.length,
         pages: 1,
       });
+
       const res = await request(http)
         .get(`/api/v1/media/${pdf.id}`)
         .set('Cookie', cookieA)
         .expect(200);
+
       expect(pdfDescriptorSchema.parse(res.body)).toEqual(pdf);
 
       const variants = await tenantDb.runAs(userAId, (tx) =>
@@ -538,6 +560,7 @@ describe('/api/v1/media (HTTP)', () => {
           .from(mediaBlobs)
           .where(eq(mediaBlobs.mediaId, pdf.id)),
       );
+
       expect(variants).toEqual([{ variant: 'original' }]);
     });
 
@@ -573,6 +596,7 @@ describe('/api/v1/media (HTTP)', () => {
 
     it('answers /model of a PDF with the 404 of an unknown id, never 304', async () => {
       const sha256 = createHash('sha256').update(onePage).digest('hex');
+
       const unknown = await request(http)
         .get(`/api/v1/media/${UNKNOWN_ID}/model`)
         .set('Cookie', cookieA)
@@ -582,12 +606,14 @@ describe('/api/v1/media (HTTP)', () => {
         {},
         { 'If-None-Match': `"${sha256}-model"` },
       ];
+
       for (const headers of cases) {
         const res = await request(http)
           .get(`/api/v1/media/${pdf.id}/model`)
           .set('Cookie', cookieA)
           .set(headers)
           .expect(404);
+
         expect(res.body).toEqual(unknown.body);
         // Express sets its own body ETag on a 404; the variant validator is never set.
         expect(res.headers['etag']).toBe(unknown.headers['etag']);
@@ -600,6 +626,7 @@ describe('/api/v1/media (HTTP)', () => {
           .get(`/api/v1/media/${pdf.id}${suffix}`)
           .set('Cookie', cookieB)
           .expect(404);
+
         expect(res.headers['content-type']).not.toMatch(/^application\/pdf/u);
       }
     });
@@ -655,6 +682,7 @@ describe('/api/v1/media (HTTP)', () => {
       const messages = await tenantDb.runAs(userAId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userAId),
       );
+
       expectMessageParts(messages.find((m) => m.role === 'user')?.parts ?? [], [
         { type: 'text', text: 'summarize' },
         {
@@ -695,6 +723,7 @@ describe('/api/v1/media (HTTP)', () => {
       const res = await request(http)
         .delete(`/api/v1/media/${media.id}`)
         .set('Cookie', cookieA);
+
       expect(res.status).toBe(404);
 
       await request(http)

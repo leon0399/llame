@@ -23,6 +23,7 @@ describe("classifyOrgUnitsError", () => {
     const result = await classifyOrgUnitsError(
       protocolError(404, { message: "Org unit abc-123 not found" }),
     );
+
     expect(result.kind).toBe("not-found");
     expect(result.message).not.toMatch(/abc-123/);
   });
@@ -36,6 +37,7 @@ describe("classifyOrgUnitsError", () => {
         code: "LAST_OWNER",
       }),
     );
+
     expect(result.kind).toBe("last-owner");
     expect(result.message).toMatch(/transfer ownership/i);
   });
@@ -49,6 +51,7 @@ describe("classifyOrgUnitsError", () => {
         code: "DUPLICATE_MEMBERSHIP",
       }),
     );
+
     expect(result.kind).toBe("duplicate-membership");
     expect(result.message).toMatch(/already a member/i);
   });
@@ -62,6 +65,7 @@ describe("classifyOrgUnitsError", () => {
         code: "HAS_CHILDREN",
       }),
     );
+
     expect(result.kind).toBe("validation");
   });
 
@@ -74,6 +78,7 @@ describe("classifyOrgUnitsError", () => {
         code: "CONCURRENT_TREE_CHANGE",
       }),
     );
+
     expect(result.kind).toBe("concurrent-change");
   });
 
@@ -81,6 +86,7 @@ describe("classifyOrgUnitsError", () => {
     const result = await classifyOrgUnitsError(
       protocolError(409, { unexpected: "shape" }),
     );
+
     expect(result.kind).toBe("concurrent-change");
     expect(result.message).toMatch(/tree changed/i);
   });
@@ -99,6 +105,7 @@ describe("classifyOrgUnitsError", () => {
         code: "MOVE_INTO_OWN_SUBTREE",
       }),
     );
+
     expect(result.kind).toBe("validation");
     expect(result.message).toBe("Cannot move into own subtree");
   });
@@ -107,6 +114,7 @@ describe("classifyOrgUnitsError", () => {
     const result = await classifyOrgUnitsError(
       protocolError(500, { secret: "should not become UI copy" }),
     );
+
     expect(result.kind).toBe("unknown");
     expect(result.message).toBe("Something went wrong. Please try again.");
   });

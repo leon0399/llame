@@ -66,6 +66,7 @@ describe('KnowledgeToolCandidateResolver', () => {
     const resolver = new KnowledgeToolCandidateResolver(
       makeConfig('/srv/knowledge'),
     );
+
     const candidates = await makeInput(resolver, {
       allowedToolRules: ['read', 'edit', 'write', 'bash'],
       codeOwnedTools: [
@@ -75,6 +76,7 @@ describe('KnowledgeToolCandidateResolver', () => {
         bashTool,
       ],
     });
+
     expect(
       candidates.map((candidate) =>
         candidate.state === 'available' ? candidate.tool.id : candidate.id,
@@ -86,6 +88,7 @@ describe('KnowledgeToolCandidateResolver', () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },
     });
+
     expect(
       await makeInput(resolver, {
         allowedToolRules: ['read', 'edit', 'write'],
@@ -107,10 +110,12 @@ describe('KnowledgeToolCandidateResolver', () => {
         tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
       },
     });
+
     const candidates = await makeInput(resolver, {
       allowedToolRules: ['read', 'edit', 'write'],
       codeOwnedTools: [nativeReadTool, nativeEditTool, nativeWriteTool],
     });
+
     expect(candidates).toEqual([
       {
         source: { type: 'code_owned' },
@@ -140,6 +145,7 @@ describe('KnowledgeToolCandidateResolver', () => {
         },
       },
     });
+
     const candidates = await makeInput(resolver, {
       allowedToolRules: ['read', 'edit', 'write', 'bash'],
       codeOwnedTools: [
@@ -149,6 +155,7 @@ describe('KnowledgeToolCandidateResolver', () => {
         bashTool,
       ],
     });
+
     expect(
       candidates.map((candidate) =>
         candidate.state === 'available' ? candidate.tool.id : candidate.id,
@@ -205,6 +212,7 @@ describe('KnowledgeToolCandidateResolver', () => {
       KnowledgeSpaceRepository.prototype,
       'findForOwnerForBinding',
     );
+
     const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
 
     const candidates = await makeInput(resolver);
@@ -254,6 +262,7 @@ describe('KnowledgeToolCandidateResolver', () => {
       KnowledgeSpaceRepository.prototype,
       'findForOwnerForBinding',
     );
+
     const resolver = new KnowledgeToolCandidateResolver(
       makeConfig('/path/that/does/not/exist'),
     );
@@ -273,6 +282,7 @@ describe('KnowledgeToolCandidateResolver', () => {
       KnowledgeSpaceRepository.prototype,
       'findForOwnerForBinding',
     );
+
     const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
 
     const candidates = await makeInput(resolver, {
@@ -314,6 +324,7 @@ describe('KnowledgeToolCandidateResolver', () => {
       KnowledgeSpaceRepository.prototype,
       'findForOwnerForBinding',
     );
+
     const resolver = new KnowledgeToolCandidateResolver(
       makeConfig('/srv/knowledge'),
     );
@@ -331,6 +342,7 @@ describe('KnowledgeToolCandidateResolver', () => {
     const resolver = new KnowledgeToolCandidateResolver(
       makeConfig('/srv/knowledge'),
     );
+
     expect(
       await makeInput(resolver, {
         allowedToolRules: ['grep'],
@@ -352,6 +364,7 @@ describe('KnowledgeToolCandidateResolver', () => {
         tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
       },
     });
+
     expect(
       await makeInput(resolver, {
         allowedToolRules: ['grep'],
@@ -373,6 +386,7 @@ describe('KnowledgeToolCandidateResolver', () => {
         skills: { directories: ['/srv/skills'] },
       },
     });
+
     expect(
       await makeInput(resolver, {
         allowedToolRules: ['grep'],
@@ -395,6 +409,7 @@ describe('KnowledgeToolCandidateResolver', () => {
         skills: { directories: [] },
       },
     });
+
     expect(
       await makeInput(resolver, {
         allowedToolRules: ['grep'],
@@ -419,6 +434,7 @@ describe('KnowledgeToolCandidateResolver', () => {
         },
       },
     });
+
     expect(
       await makeInput(resolver, {
         allowedToolRules: ['grep'],
@@ -437,6 +453,7 @@ describe('KnowledgeToolCandidateResolver', () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },
     });
+
     expect(
       await makeInput(resolver, {
         allowedToolRules: ['grep'],
@@ -447,6 +464,7 @@ describe('KnowledgeToolCandidateResolver', () => {
 
   it('does not mutate the static registry while resolving candidates', async () => {
     const before = [...TOOL_REGISTRY.entries()];
+
     const resolver = new KnowledgeToolCandidateResolver(
       makeConfig('/srv/knowledge'),
     );

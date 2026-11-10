@@ -49,11 +49,13 @@ function createPackage(name: string, body: string): string {
     path.join(directory, 'SKILL.md'),
     `---\nname: ${name}\ndescription: ${name}\n---\n${body}`,
   );
+
   return directory;
 }
 
 function harness(policy = compileTestPermissionPolicy()) {
   const audit: Array<AuditRecord> = [];
+
   const context: ToolContext = {
     configuredCredentials: [],
     userId: 'owner',
@@ -64,6 +66,7 @@ function harness(policy = compileTestPermissionPolicy()) {
     timeoutMs: 5000,
     tenantDb: { runAs: () => Promise.reject(new Error('no database in test')) },
   };
+
   return {
     audit,
     context,
@@ -84,6 +87,7 @@ function harness(policy = compileTestPermissionPolicy()) {
 
 function run(text: string, policy = compileTestPermissionPolicy()) {
   const h = harness(policy);
+
   return activateSkills({
     mentions: parseSkillMentions(text),
     runId: RUN_ID,
@@ -104,6 +108,7 @@ describe('activated package imports', () => {
       'research',
       'Use @references/checklist.md.\n',
     );
+
     mkdirSync(path.join(directory, 'references'));
     writeFileSync(
       path.join(directory, 'references', 'checklist.md'),
@@ -177,6 +182,7 @@ describe('activated package imports', () => {
       { length: SKILL_MAX_PATH_COMPONENTS },
       () => 'nested',
     ).join('/')}/leaf.md`;
+
     const tooLong = `${'a'.repeat(SKILL_MAX_PATH_BYTES)}/x.md`;
     createPackage('research', `@${tooDeep} @${tooLong}\n`);
 
@@ -224,6 +230,7 @@ describe('activated package imports', () => {
   it('silently skips a denied import while recording its audited read', async () => {
     createPackage('research', 'Body @secret.md\n');
     writeFileSync(path.join(source, 'research', 'secret.md'), 'private\n');
+
     const policy = compileToolPermissionMap(
       {
         read: {
@@ -246,6 +253,7 @@ describe('activated package imports', () => {
   });
   it('loads each cycle member once and stops after five hops', async () => {
     const directory = createPackage('research', '@a.md @c.md');
+
     for (const [name, body] of [
       ['a.md', '@b.md'],
       ['b.md', '@a.md'],
@@ -282,22 +290,28 @@ describe('activated package imports', () => {
   it('bounds output with the exact omitted import list and loaded prefix', async () => {
     const total = 40;
     const names = Array.from({ length: total }, (_, index) => `part-${index}`);
+
     const directory = createPackage(
       'research',
       names.map((name) => `@${name}.md`).join(' '),
     );
+
     const large = 'x\n'.repeat(5000);
+
     for (const name of names) {
       writeFileSync(path.join(directory, `${name}.md`), large);
     }
 
     const { outcome, audit } = await run('$research');
+
     const activation = outcome.items.find(
       (item) => item.data.payload['kind'] === 'activation',
     );
+
     const omission = outcome.items.find(
       (item) => item.data.payload['kind'] === 'omission',
     );
+
     const loadedImports = activation?.data.payload['imports'];
     const loadedCount = Array.isArray(loadedImports) ? loadedImports.length : 0;
     const locators = names.map((name) => `skill://research/${name}.md`);
@@ -330,11 +344,14 @@ describe('activated package imports', () => {
 
   it('stops expanding once the Run is aborted', async () => {
     const directory = createPackage('research', '@a.md @b.md @c.md\n');
+
     for (const name of ['a', 'b', 'c']) {
       writeFileSync(path.join(directory, `${name}.md`), `${name}\n`);
     }
+
     const h = harness();
     const controller = new AbortController();
+
     const expansion = await expandSkillImports({
       skill: 'research',
       runId: RUN_ID,
@@ -366,6 +383,7 @@ describe('activated package imports', () => {
 
   it('names every import when the work deadline is already exhausted', async () => {
     const h = harness();
+
     const expansion = await expandSkillImports({
       skill: 'research',
       runId: RUN_ID,
@@ -400,6 +418,7 @@ describe('activated package imports', () => {
     });
 
     const retry = harness();
+
     const outcome = await activateSkills({
       mentions: parseSkillMentions('$research'),
       runId: RUN_ID,
@@ -409,6 +428,7 @@ describe('activated package imports', () => {
       activity: retry.activity,
       resolved: new Set(['research']),
     });
+
     expect(retry.audit).toEqual([]);
     expect(outcome.items).toEqual([]);
   });

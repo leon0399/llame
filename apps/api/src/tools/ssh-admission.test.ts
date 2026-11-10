@@ -57,6 +57,7 @@ function fakeSsh(
   const resolve = vi.fn<SshClient['resolve']>(() =>
     Promise.resolve(resolution),
   );
+
   const run = vi.fn<SshClient['run']>(() =>
     Promise.resolve({
       outcome: 'failed',
@@ -64,12 +65,14 @@ function fakeSsh(
       diagnostic: 'ssh is not installed',
     }),
   );
+
   const client: SshClient = {
     resolve,
     run,
     sshConfigText: () => undefined,
     dispose: () => undefined,
   };
+
   return { client, resolve, run };
 }
 
@@ -82,6 +85,7 @@ function readProbe() {
       binding: executionContext.sshBinding,
     }),
   );
+
   const tool: Tool<{ path: string }> = {
     id: 'read',
     description: 'reads a locator',
@@ -89,6 +93,7 @@ function readProbe() {
     inputSchema: z.strictObject({ path: z.string() }),
     execute,
   };
+
   return { tool, execute };
 }
 
@@ -99,6 +104,7 @@ async function runRead(
 ) {
   const probe = readProbe();
   const decisions: Array<unknown> = [];
+
   const result = await runTool(
     probe.tool,
     { path },
@@ -108,12 +114,14 @@ async function runRead(
     }),
     5,
   );
+
   return { result, execute: probe.execute, decisions };
 }
 
 describe('ssh read admission', () => {
   it('refuses a submitted-text reject without resolving the destination', async () => {
     const { client, resolve } = fakeSsh();
+
     const { result, execute } = await runRead(
       'ssh://prod/etc/hosts',
       {
@@ -138,6 +146,7 @@ describe('ssh read admission', () => {
       outcome: 'resolved',
       destination: { user: 'root', host: '10.0.0.5', port: 22 },
     });
+
     const { result, execute } = await runRead(
       'ssh://prod/etc/hosts',
       {
@@ -165,6 +174,7 @@ describe('ssh read admission', () => {
       outcome: 'resolved',
       destination: { user: 'root', host: '10.0.0.5', port: 22 },
     });
+
     const { result, execute } = await runRead(
       'ssh://prod/etc/hosts',
       {
@@ -188,6 +198,7 @@ describe('ssh read admission', () => {
       outcome: 'resolved',
       destination: { user: 'deploy', host: 'edge-2.lan', port: 22 },
     });
+
     const { result, execute } = await runRead(
       'ssh://deploy@edge-2.lan/var/log/syslog',
       {
@@ -212,6 +223,7 @@ describe('ssh read admission', () => {
 
   it('does not let a local allow admit a remote path', async () => {
     const { client } = fakeSsh();
+
     const { result, execute } = await runRead(
       'ssh://box/var/log/syslog',
       { read: { allow: [{ field: 'path', regex: '^/var/log/' }] } },
@@ -227,6 +239,7 @@ describe('ssh read admission', () => {
 
   it('cannot let a %2E spelling go around a .ssh reject', async () => {
     const { client } = fakeSsh();
+
     const { result, execute } = await runRead(
       'ssh://box/root/%2Essh/id_ed25519',
       {
@@ -247,6 +260,7 @@ describe('ssh read admission', () => {
 
   it('keeps dot segments and binds execution to the resolved address', async () => {
     const { client, resolve } = fakeSsh();
+
     const { result, execute, decisions } = await runRead(
       'ssh://box/var/log/../../etc/shadow',
       {
@@ -280,6 +294,7 @@ describe('ssh read admission', () => {
 
   it('resolves in bypass mode so execution can bind the address', async () => {
     const { client, resolve } = fakeSsh();
+
     const { result, execute } = await runRead(
       'ssh://box/etc/hostname',
       { read: { allow: true, reject: true } },
@@ -300,6 +315,7 @@ describe('ssh read admission', () => {
       reason: 'config',
       diagnostic: 'Bad configuration option',
     });
+
     const { result, execute } = await runRead(
       'ssh://box/etc/hostname',
       { read: { allow: true } },
@@ -317,6 +333,7 @@ describe('ssh read admission', () => {
   it('passes the call signal to resolution and reports cancellation', async () => {
     const { client, resolve } = fakeSsh({ outcome: 'cancelled' });
     const controller = new AbortController();
+
     const { result, execute } = await runRead(
       'ssh://box/etc/hostname',
       { read: { allow: true } },
@@ -335,6 +352,7 @@ describe('ssh read admission', () => {
 
   it('resolves only the destination fields the locator wrote', async () => {
     const { client, resolve } = fakeSsh();
+
     const admission = await admitSshRead(
       { path: 'ssh://box/etc/hostname' },
       context({ read: { allow: true } }, { sshClient: client }),
@@ -347,6 +365,7 @@ describe('ssh read admission', () => {
   it('passes the written user, port, and signal to resolution', async () => {
     const { client, resolve } = fakeSsh();
     const controller = new AbortController();
+
     const admission = await admitSshRead(
       { path: 'ssh://deploy@box:2222/etc/hostname' },
       context(
@@ -366,6 +385,7 @@ describe('ssh read admission', () => {
 
   it('resolves an uppercase host under its lowercase spelling', async () => {
     const { client, resolve } = fakeSsh();
+
     const admission = await admitSshRead(
       { path: 'ssh://BOX/etc/hostname' },
       context({ read: { allow: true } }, { sshClient: client }),
@@ -378,6 +398,7 @@ describe('ssh read admission', () => {
   it('reports no canonical decision for a locator that is already canonical', async () => {
     const { client } = fakeSsh();
     const decisions: Array<unknown> = [];
+
     const admission = await admitSshRead(
       { path: 'ssh://box@box:22/etc/hostname' },
       context(
@@ -395,6 +416,7 @@ describe('ssh read admission', () => {
 
   it('admits nothing without a trusted policy, even with the ssh section', async () => {
     const { client, resolve } = fakeSsh();
+
     const admission = await admitSshRead(
       { path: 'ssh://box/etc/hostname' },
       context(
@@ -431,6 +453,7 @@ describe('ssh read admission', () => {
     const execute = vi.fn((toolContext: ToolContext, args: { path: string }) =>
       nativeReadTool.execute(toolContext, args),
     );
+
     const result = await runTool(
       { ...nativeReadTool, execute },
       { path: 'ssh://box/etc/hostname' },
@@ -451,6 +474,7 @@ describe('ssh read admission', () => {
 
   it('runs an admitted read through the resolved binding and its client', async () => {
     const { client, run } = fakeSsh();
+
     const result = await runTool(
       nativeReadTool,
       { path: 'ssh://box/etc/hostname' },
@@ -480,6 +504,7 @@ describe('ssh read admission', () => {
 
   it('returns invalid_path for a malformed locator before resolving', async () => {
     const { client, resolve } = fakeSsh();
+
     const result = await runTool(
       nativeReadTool,
       { path: 'ssh://-oProxyCommand=id/etc/hostname' },
@@ -501,6 +526,7 @@ function bashProbe() {
       binding: executionContext.sshBinding,
     }),
   );
+
   const tool: Tool<{ command: string; cwd: string }> = {
     id: 'bash',
     description: 'runs a command',
@@ -508,6 +534,7 @@ function bashProbe() {
     inputSchema: z.strictObject({ command: z.string(), cwd: z.string() }),
     execute,
   };
+
   return { tool, execute };
 }
 
@@ -517,18 +544,21 @@ async function runBash(
   overrides: Partial<ToolContext> = {},
 ) {
   const probe = bashProbe();
+
   const result = await runTool(
     probe.tool,
     { command: 'pwd', cwd },
     context(map, overrides),
     5,
   );
+
   return { result, execute: probe.execute };
 }
 
 describe('ssh bash admission', () => {
   it('refuses a submitted-cwd reject without resolving the destination', async () => {
     const { client, resolve } = fakeSsh();
+
     const { result, execute } = await runBash(
       'ssh://prod/srv',
       {
@@ -553,6 +583,7 @@ describe('ssh bash admission', () => {
       outcome: 'resolved',
       destination: { user: 'root', host: '10.0.0.5', port: 22 },
     });
+
     const { result, execute } = await runBash(
       'ssh://prod/srv',
       {
@@ -574,6 +605,7 @@ describe('ssh bash admission', () => {
 
   it('binds the resolved directory the allow matched', async () => {
     const { client } = fakeSsh();
+
     const { result, execute } = await runBash(
       'ssh://box/srv/app',
       { bash: { allow: [{ field: 'cwd', regex: '^ssh://box@box:22/srv/' }] } },
@@ -593,6 +625,7 @@ describe('ssh bash admission', () => {
 
   it('refuses a selector on the cwd before resolving', async () => {
     const { client, resolve } = fakeSsh();
+
     const { result, execute } = await runBash(
       'ssh://box/tmp:1-2',
       { bash: { allow: true } },
@@ -644,6 +677,7 @@ describe('ssh mutations and Workspace entry', () => {
     async (_label, tool, args) => {
       const { client, resolve, run } = fakeSsh();
       const map: ToolPermissionMap = { [tool.id]: { allow: true } };
+
       const result = await runTool(
         tool,
         args,
@@ -666,6 +700,7 @@ describe('ssh mutations and Workspace entry', () => {
 
   it('keeps an unknown scheme unknown for a mutation that carries the ssh section', async () => {
     const { client, run } = fakeSsh();
+
     const result = await runTool(
       nativeWriteTool,
       { path: 'vault://box/tmp/x.txt', content: 'x' },
@@ -684,6 +719,7 @@ describe('ssh mutations and Workspace entry', () => {
   it('refuses ssh:// as a Workspace root and leaves the Chat outside it', async () => {
     const workspaceRoot: WorkspaceRootCell & { beginStep(): void } =
       createWorkspaceRootCell(undefined);
+
     const result = await runTool(
       enterWorkspaceTool,
       { path: 'ssh://box/srv/app' },

@@ -28,6 +28,7 @@ const registered = new Set(
 );
 
 const missing = ruleFiles.filter((id) => !registered.has(id));
+
 assert.deepEqual(
   missing,
   [],
@@ -35,6 +36,7 @@ assert.deepEqual(
 );
 
 const orphaned = [...registered].filter((id) => !ruleFiles.includes(id));
+
 assert.deepEqual(
   orphaned,
   [],
@@ -53,9 +55,11 @@ process.stdout.write(
 // with a stack trace.
 const loaded = (await import("./index.ts")).default;
 const exported = Object.keys(loaded.rules ?? {});
+
 assert.deepEqual(
   exported.toSorted(),
   ruleFiles.toSorted(),
   `the loaded plugin exposes different rules than rules/ holds: ${exported.join(", ")}`,
 );
+
 process.stdout.write(`plugin loads: ${exported.length} rules exposed\n`);

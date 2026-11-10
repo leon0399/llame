@@ -16,7 +16,9 @@ import {
  *  follow-up (the api tells the two apart by `action`). */
 function sendBody(options: ChatTransportRequestOptions): ChatSendBody {
   const { body } = prepareSendMessagesRequest(options);
+
   if ("action" in body) throw new Error("expected a chat-send body");
+
   return body;
 }
 
@@ -54,6 +56,7 @@ describe("prepareSendMessagesRequest", () => {
         { id: "m2", role: "user", parts: [{ type: "text", text: "new" }] },
       ],
     } as never);
+
     expect(body.modelId).toBe("system:openai:gpt-5.4-mini");
     expect(body.message.id).toBe("m2");
     expect(body.message.parts).toEqual([{ type: "text", text: "new" }]);
@@ -69,6 +72,7 @@ describe("prepareSendMessagesRequest", () => {
       effort: "xhigh",
       messages: [{ id: "m1", role: "user", parts: [] }],
     } as never);
+
     expect(body.effort).toBe("xhigh");
   });
 
@@ -83,6 +87,7 @@ describe("prepareSendMessagesRequest", () => {
       effort,
       messages: [{ id: "m1", role: "user", parts: [] }],
     } as never);
+
     expect(body).not.toHaveProperty("effort");
   });
 
@@ -97,6 +102,7 @@ describe("prepareSendMessagesRequest", () => {
         permissionMode,
         messages: [{ id: "m1", role: "user", parts: [] }],
       } as never);
+
       expect(body.permissionMode).toBe(permissionMode);
     },
   );
@@ -112,6 +118,7 @@ describe("prepareSendMessagesRequest", () => {
         permissionMode,
         messages: [{ id: "m1", role: "user", parts: [] }],
       } as never);
+
       expect(body).not.toHaveProperty("permissionMode");
     },
   );
@@ -167,6 +174,7 @@ describe("follow-up requests", () => {
         effort: "high",
         messages: [USER_MESSAGE],
       });
+
       expect(request.api).toMatch(
         /\/api\/v1\/chats\/chat-1\/messages\/user-1\/runs$/,
       );
@@ -189,6 +197,7 @@ describe("follow-up requests", () => {
         modelId: "system:openai:composer-model",
         messages: [USER_MESSAGE],
       });
+
       expect(request.body).toEqual({ action: "continue" });
     },
   );
@@ -210,6 +219,7 @@ describe("follow-up requests", () => {
         effort: "high",
         messages: [USER_MESSAGE],
       });
+
       expect(request.body).toEqual({
         action: "regenerate",
         modelId: "system:openai:previous",
@@ -231,6 +241,7 @@ describe("follow-up requests", () => {
         // message the SDK hands the transport.
       ],
     });
+
     expect(request.api).toMatch(/\/messages\/user-1\/runs$/);
     expect(request.body).toEqual({
       action: "regenerate",

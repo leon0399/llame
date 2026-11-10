@@ -23,6 +23,7 @@ export function compileToolPermissionMap(
   policyId: string,
 ): CompiledPolicy {
   const entries = Object.entries(map);
+
   if (entries.length > PERMISSION_LIMITS.maxGroups) {
     throw new PermissionCompileError(
       'tools.permissions',
@@ -32,6 +33,7 @@ export function compileToolPermissionMap(
 
   const groups = new Map<string, CompiledPermissionGroup>();
   let clauseCount = 0;
+
   for (const [toolId, group] of entries) {
     const path = `tools.permissions.${toolId}`;
     const compiled = compileGroup(path, toolId, group);
@@ -40,14 +42,17 @@ export function compileToolPermissionMap(
       compiled.rejectClauses.length +
       (compiled.allowWholeTool ? 1 : 0) +
       (compiled.rejectWholeTool ? 1 : 0);
+
     if (clauseCount > PERMISSION_LIMITS.maxClauses) {
       throw new PermissionCompileError(
         path,
         `at most ${PERMISSION_LIMITS.maxClauses} clauses are supported`,
       );
     }
+
     groups.set(toolId, compiled);
   }
+
   return { id: policyId, groups };
 }
 
@@ -58,6 +63,7 @@ function compileGroup(
 ): CompiledPermissionGroup {
   const allow = compileMatcher(path, groupId, 'allow', group.allow);
   const reject = compileMatcher(path, groupId, 'reject', group.reject);
+
   return {
     allowWholeTool: allow.wholeTool,
     rejectWholeTool: reject.wholeTool,
@@ -73,7 +79,9 @@ function compileMatcher(
   matcher: PermissionMatcher | undefined,
 ) {
   if (matcher === undefined) return { wholeTool: false, clauses: [] };
+
   if (matcher === true) return { wholeTool: true, clauses: [] };
+
   return {
     wholeTool: false,
     clauses: matcher.map((clause, index) =>
@@ -99,6 +107,7 @@ function compileClause(input: ClauseInput): CompiledPermissionClause {
   const allFields = 'allFields' in clause ? clause.allFields : undefined;
 
   const matcher = compileMatcherPattern(clausePath, literal, regex);
+
   if (allFields === true) {
     if (list === 'allow') {
       throw new PermissionCompileError(
@@ -106,14 +115,17 @@ function compileClause(input: ClauseInput): CompiledPermissionClause {
         'allFields is valid only for reject',
       );
     }
+
     return { groupId, list, clauseIndex, target: { allFields: true }, matcher };
   }
+
   if (!isString(field) || field.length === 0) {
     throw new PermissionCompileError(
       clausePath,
       'clause must target exactly one non-empty field or allFields',
     );
   }
+
   return { groupId, list, clauseIndex, target: { field }, matcher };
 }
 
@@ -124,17 +136,21 @@ function compileMatcherPattern(
 ): CompiledValueMatcher {
   const hasLiteral = isString(literal) && literal.length > 0;
   const hasRegex = isString(regex) && regex.length > 0;
+
   if (hasLiteral === hasRegex) {
     throw new PermissionCompileError(
       path,
       'clause must set exactly one non-empty literal or regex',
     );
   }
+
   if (isString(literal) && literal.length > 0) {
     return compileLiteralMatcher(literal, path);
   }
+
   if (isString(regex) && regex.length > 0) {
     return compileRegexMatcher(regex, path);
   }
+
   throw new PermissionCompileError(path, 'clause has no matcher');
 }

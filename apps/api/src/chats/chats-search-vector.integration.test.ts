@@ -57,6 +57,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
         ownerUserId: owner,
         title: title ?? undefined,
       });
+
       for (const m of msgs) {
         await messages.create({
           chatId: id,
@@ -67,6 +68,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
       }
     });
     await indexService.reindexChat(id, owner);
+
     return id;
   }
 
@@ -83,9 +85,11 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     const { modelKey, staleHash = false } = opts;
     const inputVersion = opts.inputVersion ?? EMBED_INPUT_VERSION;
     const vecLiteral = JSON.stringify(Array.from(vector));
+
     const hashExpr = staleHash
       ? sql`'stale-hash-does-not-match'`
       : sql`content_hash`;
+
     await tenantDb.runAs(owner, (tx) =>
       tx.execute(sql`
         UPDATE search_chat_documents
@@ -108,6 +112,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     indexService = new SearchIndexService(tenantDb);
     userA = crypto.randomUUID();
     userB = crypto.randomUUID();
+
     for (const id of [userA, userB]) {
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'T', ${`t-${id}@test.com`})`;
     }
@@ -122,13 +127,16 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
       { role: 'user', text: 'subatomic particle entanglement observations' },
       { role: 'assistant', text: 'quantum mechanics is fascinating' },
     ]);
+
     await plantVector(userA, chatId, [1, 0, 0, 0], { modelKey: MODEL_KEY });
 
     const queryVector = [1, 0.1, 0, 0];
+
     const withVector = await search(userA, 'xylophoneuniquekeyword', 10, {
       queryVector,
       modelKey: MODEL_KEY,
     });
+
     const withoutVector = await search(userA, 'xylophoneuniquekeyword', 10);
 
     expect(withVector.some((r) => r.id === chatId)).toBe(true);
@@ -139,6 +147,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     const chatId = await seedChat(userA, 'Stale model test', [
       { role: 'user', text: 'completely unrelated content for stale test' },
     ]);
+
     await plantVector(userA, chatId, [1, 0, 0, 0], {
       modelKey: SUPERSEDED_KEY,
     });
@@ -147,6 +156,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
       queryVector: [1, 0, 0, 0],
       modelKey: MODEL_KEY,
     });
+
     expect(results.some((r) => r.id === chatId)).toBe(false);
   });
 
@@ -154,6 +164,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     const chatId = await seedChat(userA, 'Stale hash test', [
       { role: 'user', text: 'completely unrelated content for hash test' },
     ]);
+
     await plantVector(userA, chatId, [1, 0, 0, 0], {
       modelKey: MODEL_KEY,
       staleHash: true,
@@ -163,6 +174,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
       queryVector: [1, 0, 0, 0],
       modelKey: MODEL_KEY,
     });
+
     expect(results.some((r) => r.id === chatId)).toBe(false);
   });
 
@@ -170,6 +182,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     const chatId = await seedChat(userA, 'Stale version test', [
       { role: 'user', text: 'completely unrelated content for version test' },
     ]);
+
     await plantVector(userA, chatId, [1, 0, 0, 0], {
       modelKey: MODEL_KEY,
       inputVersion: EMBED_INPUT_VERSION - 1,
@@ -179,6 +192,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
       queryVector: [1, 0, 0, 0],
       modelKey: MODEL_KEY,
     });
+
     expect(results.some((r) => r.id === chatId)).toBe(false);
   });
 
@@ -187,6 +201,7 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
       { role: 'user', text: 'content for dimension test' },
       { role: 'assistant', text: 'dimension response' },
     ]);
+
     await plantVector(userA, chatId, [1, 0, 0, 0, 0, 0, 0, 0], {
       modelKey: MODEL_KEY,
     });
@@ -203,12 +218,14 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     const chatId = await seedChat(userA, 'Private vector test', [
       { role: 'user', text: 'extremely private vector content' },
     ]);
+
     await plantVector(userA, chatId, [1, 0, 0, 0], { modelKey: MODEL_KEY });
 
     const results = await search(userB, 'abcdefuniquekeyword', 10, {
       queryVector: [1, 0, 0, 0],
       modelKey: MODEL_KEY,
     });
+
     expect(results.some((r) => r.id === chatId)).toBe(false);
   });
 
@@ -216,12 +233,14 @@ describeIfDb('chat search — vector leg (hybrid-vector-retrieval #197)', () => 
     const chatId = await seedChat(userA, 'Score leak test', [
       { role: 'user', text: 'content for score leak test' },
     ]);
+
     await plantVector(userA, chatId, [1, 0, 0, 0], { modelKey: MODEL_KEY });
 
     const results = await search(userA, 'content for score leak test', 10, {
       queryVector: [1, 0, 0, 0],
       modelKey: MODEL_KEY,
     });
+
     const hit = results.find((r) => r.id === chatId);
     expect(hit).toBeDefined();
     const keys = Object.keys(hit!);

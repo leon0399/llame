@@ -18,10 +18,12 @@ describe('ListMediaQueryDto', () => {
     forbidNonWhitelisted: true,
     transform: true,
   });
+
   const metadata: ArgumentMetadata = {
     type: 'query',
     metatype: ListMediaQueryDto,
   };
+
   const ID = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e';
 
   it('defaults the page to 48 with no cursor', async () => {

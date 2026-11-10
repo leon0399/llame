@@ -63,6 +63,7 @@ export function permissionDeniedResult(
 export function rejectedHopUrl(locator: string): string {
   // Strip first: the bound then counts the characters the model will read.
   const cleaned = locator.replace(CONTROL_CHARACTERS, '');
+
   return originAndPath(cleaned).slice(0, REJECTED_URL_BOUND);
 }
 
@@ -81,8 +82,10 @@ export function isRejectedHopUrl(value: unknown): value is string {
   ) {
     return false;
   }
+
   try {
     const url = new URL(value);
+
     return (
       (url.protocol === 'http:' || url.protocol === 'https:') &&
       url.username === '' &&
@@ -99,6 +102,7 @@ export function isRejectedHopUrl(value: unknown): value is string {
 function originAndPath(locator: string): string {
   try {
     const url = new URL(locator);
+
     return `${url.origin}${url.pathname}`;
   } catch {
     // A hop locator is always a serialized WHATWG href; anything else still

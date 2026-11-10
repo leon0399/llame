@@ -232,9 +232,11 @@ export function buildSshBashScript(request: {
   readonly command: string;
 }): string {
   const nonce = shellQuote(request.nonce);
+
   const exports = Object.entries(request.env).map(
     ([key, value]) => `export ${key}=${shellQuote(value)}; `,
   );
+
   return [
     '{',
     `  p=${shellQuote(request.cwd)}`,
@@ -260,8 +262,10 @@ export function parseSshTrailer(
 ): number | undefined {
   const marker = `${nonce}:end:`;
   const index = stderr.lastIndexOf(marker);
+
   if (index === -1) return undefined;
   const digits = /^[0-9]{1,3}/u.exec(stderr.slice(index + marker.length))?.[0];
+
   return digits === undefined ? undefined : Number(digits);
 }
 
@@ -272,15 +276,18 @@ export function parseSshRefusal(
 ): string | undefined {
   const marker = `${nonce}:refuse:`;
   const index = stderr.indexOf(marker);
+
   if (index === -1) return undefined;
   const rest = stderr.slice(index + marker.length);
   const end = rest.search(/[\r\n]/u);
+
   return end === -1 ? rest : rest.slice(0, end);
 }
 
 /** The kind a marker suffix names; a suffix from another revision is unknown. */
 function markerKind(suffix: string): SshReadKind | undefined {
   if (suffix === '' || suffix === ':file') return 'file';
+
   return suffix === ':dir' ? 'dir' : undefined;
 }
 
@@ -297,6 +304,7 @@ export function parseSshReadFrames(
   const marker = Buffer.from(sshStartMarker(nonce));
   const index = stdout.indexOf(marker);
   const refusal = parseSshRefusal(stderr, nonce);
+
   if (index === -1)
     return {
       // A process that failed before it closed (a deadline, a cancellation)
@@ -308,11 +316,14 @@ export function parseSshReadFrames(
       ...(refusal !== undefined && { refusal }),
     };
   const lineEnd = stdout.indexOf(0x0a, index + marker.length);
+
   const suffix = stdout
     .subarray(index + marker.length, lineEnd === -1 ? undefined : lineEnd)
     .toString('latin1');
+
   const kind = markerKind(suffix);
   const status = parseSshTrailer(stderr, nonce);
+
   return {
     started: true,
     ...(kind !== undefined && { kind }),
@@ -342,15 +353,18 @@ function commandStderr(
   diagnosticGap: number | undefined,
 ): CommandStderr {
   const index = stderr.indexOf(marker);
+
   if (index === -1) return { text: '' };
   const lineEnd = stderr.indexOf('\n', index + marker.length);
   const start = lineEnd === -1 ? stderr.length : lineEnd + 1;
   const trailer = stderr.lastIndexOf(`${nonce}:end:`);
   const end = trailer < start ? stderr.length : trailer;
+
   const gapAt =
     diagnosticGap !== undefined && diagnosticGap >= start && diagnosticGap < end
       ? diagnosticGap - start
       : undefined;
+
   return {
     text: stderr.slice(start, end),
     ...(gapAt !== undefined && { gapAt }),
@@ -374,11 +388,14 @@ export function parseSshBashFrames(
   const started = index !== -1 || stderr.includes(marker);
   const refusal = parseSshRefusal(stderr, nonce);
   const status = started ? parseSshTrailer(stderr, nonce) : undefined;
+
   const lineEnd =
     index === -1 ? -1 : stdout.indexOf(0x0a, index + marker.length);
+
   const command: CommandStderr = started
     ? commandStderr(stderr, marker, nonce, diagnosticGap)
     : { text: '' };
+
   return {
     started,
     stdout: lineEnd === -1 ? Buffer.alloc(0) : stdout.subarray(lineEnd + 1),
@@ -422,11 +439,14 @@ export type SshDirectoryListing = {
 export function parseSshDirectoryEntries(content: Buffer): SshDirectoryListing {
   const fields = content.toString('utf8').split('\0');
   const entries: Array<SshDirectoryEntry> = [];
+
   // The last field is the empty string after the final NUL.
   for (let index = 0; index + 1 < fields.length; index += 2) {
     const kind = entryKind(fields[index]);
+
     if (kind === undefined) continue;
     entries.push({ name: fields[index + 1], kind });
   }
+
   return { entries, more: entries.length > SSH_LIST_MAX_ENTRIES };
 }

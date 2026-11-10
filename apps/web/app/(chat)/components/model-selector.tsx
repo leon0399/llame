@@ -102,6 +102,7 @@ function ModelSelectorTrigger({
 
 function ModelSkeletonRow({ index }: { index: number }) {
   const cycle = index % SKELETON_LINE_WIDTH_CYCLE;
+
   // A ternary over literal widths, not an index into an array of them: the
   // class has to be statically readable (shadcn/require-static-classes).
   const lineWidth =
@@ -190,6 +191,7 @@ function useDefaultModelSeed(
 ): void {
   React.useEffect(() => {
     if (!data || models.length === 0) return;
+
     if (!hasModelId(models, value)) {
       setValue(data.defaultModelId);
     }
@@ -234,7 +236,9 @@ function resolveSelectedLabel(
   models: Array<AvailableModel>,
 ): string {
   if (isError) return "Models unavailable";
+
   if (!effectiveValue) return "Select a model";
+
   return modelDisplayName(effectiveValue, models);
 }
 
@@ -266,6 +270,7 @@ function ModelCommandResults({
   onHover,
 }: ModelCommandResultsProps) {
   if (isPending) return <ModelListSkeleton />;
+
   return (
     <>
       <CommandEmpty>

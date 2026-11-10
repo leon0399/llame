@@ -16,6 +16,7 @@ import {
 } from "./source-lines";
 
 type PassageLine = { index: number; record: MarkdownLineRecord };
+
 type Passage = {
   range: { offset: number; limit: number };
   firstRequested: number;
@@ -23,10 +24,12 @@ type Passage = {
   oversizedAt?: number;
   cut?: boolean;
 };
+
 type MultiState = {
   result: MultiReadSuccess;
   emittedLines: Set<number>;
 };
+
 type PassageContext = {
   passage: Passage;
   selected: Map<number, MarkdownLineRecord>;
@@ -35,6 +38,7 @@ type PassageContext = {
   target: ReadTarget;
   passageIndex: number;
 };
+
 type MultiSnapshot = {
   content: string;
   shownRanges: MultiReadSuccess["shownRanges"];
@@ -56,6 +60,7 @@ function firstRequested(
 
 function mandatoryLines(passage: Passage): Array<NativeEntry> {
   const lines: Array<NativeEntry> = [];
+
   for (const { index, record } of passage.lines) {
     if (
       (index === passage.firstRequested - 1 ||
@@ -64,6 +69,7 @@ function mandatoryLines(passage: Passage): Array<NativeEntry> {
     )
       lines.push({ line: index + 1, text: record.rendered });
   }
+
   return lines;
 }
 
@@ -91,6 +97,7 @@ function appendChain(
       return false;
     state.emittedLines.add(entry.line);
   }
+
   return true;
 }
 
@@ -99,9 +106,12 @@ function emitPassageLines(
   saved: MultiSnapshot,
 ): boolean {
   const { state, passage, passageIndex, target } = context;
+
   if (passage.oversizedAt !== undefined) state.result.truncated = true;
+
   for (const { index, record } of passage.lines) {
     if (state.emittedLines.has(index + 1)) continue;
+
     if (
       state.emittedLines.size >= MAX_READ_LINES ||
       record.rendered === undefined ||
@@ -115,27 +125,35 @@ function emitPassageLines(
           : state.emittedLines.size === 0
             ? index + 1
             : index;
+
       return false;
     }
+
     state.emittedLines.add(index + 1);
   }
+
   return true;
 }
 
 function emitPassage(context: PassageContext): boolean {
   const { passage, selected, tracker, state, target, passageIndex } = context;
   const saved = snapshot(state);
+
   if (passage.cut && passageIndex > 0) {
     restore(state, saved);
     state.result.truncated = true;
     state.result.nextOffset = passage.range.offset;
+
     return false;
   }
+
   const shown = new Set([
     ...state.emittedLines,
     ...passage.lines.map(({ index }) => index + 1),
   ]);
+
   const mandatory = mandatoryLines(passage);
+
   const chain = admitAncestorChain({
     units: tracker.ancestorsFor(passage.firstRequested + 1),
     selected,
@@ -156,12 +174,15 @@ function emitPassage(context: PassageContext): boolean {
     firstRequested: passage.firstRequested,
     firstShownLine: mandatory[0]?.line ?? passage.firstRequested + 1,
   });
+
   if (!appendChain(state, chain, target)) {
     restore(state, saved);
     state.result.truncated = true;
     state.result.nextOffset = passage.range.offset;
+
     return false;
   }
+
   return emitPassageLines(context, saved);
 }
 
@@ -176,19 +197,25 @@ type MultiRenderContext = {
 function renderMulti(context: MultiRenderContext): MultiReadSuccess {
   const { passages, selected, count, tracker, target } = context;
   const result = emptyMultiReadResult(target);
+
   if (target.offset >= count && (count > 0 || target.offset !== 0))
     throw new NativeFileError("invalid_selector");
+
   if (count === 0) {
     result.requestedRanges = [];
+
     return result;
   }
+
   const state: MultiState = { result, emittedLines: new Set() };
+
   for (const [passageIndex, passage] of passages.entries()) {
     if (
       !emitPassage({ passage, selected, tracker, state, target, passageIndex })
     )
       return result;
   }
+
   return result;
 }
 
@@ -224,29 +251,36 @@ export class MultiCollector {
     line: MarkdownLineRecord,
   ): boolean {
     if (line.rendered === undefined) return true;
+
     if (this.retainedLines >= MAX_READ_LINES) {
       passage.cut = true;
       this.haltedAt = index;
       this.stopped = true;
+
       return false;
     }
+
     passage.lines.push({ index, record: line });
     this.selected.set(index, line);
     this.retainedLines += 1;
     this.retainedCodeUnits += renderSourceLine(line.rendered, index).length;
+
     if (
       this.retainedCodeUnits >
       MAX_RESULT_CODE_UNITS - (this.target.reserveCodeUnits ?? 0)
     ) {
       passage.cut = true;
       this.stopped = true;
+
       return false;
     }
+
     return true;
   }
   push(index: number, line: MarkdownLineRecord): boolean {
     if (this.stopped) return false;
     this.scanner.push(line.scanned);
+
     while (
       this.activePassage < this.passages.length &&
       index >=
@@ -255,6 +289,7 @@ export class MultiCollector {
     )
       this.activePassage += 1;
     const passage = this.passages[this.activePassage];
+
     if (passage !== undefined && index >= passage.range.offset) {
       if (line.rendered === undefined) passage.oversizedAt ??= index;
       else if (
@@ -262,19 +297,23 @@ export class MultiCollector {
         !this.retainSelectedLine(passage, index, line)
       )
         return false;
+
       if (
         this.activePassage === this.passages.length - 1 &&
         index >= passage.range.offset + passage.range.limit - 1
       ) {
         this.stopped = true;
+
         return false;
       }
     }
+
     return true;
   }
 
   finish(count: number): MultiReadSuccess {
     this.scanner.end();
+
     const result = renderMulti({
       passages: this.passages,
       selected: this.selected,
@@ -282,10 +321,12 @@ export class MultiCollector {
       tracker: this.tracker,
       target: this.target,
     });
+
     if (this.haltedAt !== undefined && result.nextOffset === undefined) {
       result.truncated = true;
       result.nextOffset = this.haltedAt;
     }
+
     return result;
   }
 }

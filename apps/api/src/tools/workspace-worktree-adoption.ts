@@ -44,8 +44,11 @@ export async function adoptSource(
     adoption.executorId,
     adoption.mainClone,
   );
+
   const adopted = await resolveAdoption(catalog, adoption, recorded);
+
   if (adopted.repository === undefined) return undefined;
+
   const main =
     recorded ??
     (await adoptRow(catalog, {
@@ -57,15 +60,20 @@ export async function adoptSource(
       parentCheckoutId: null,
       branch: null,
     }));
+
   if (main === undefined || main.kind !== 'main') return undefined;
+
   const repository = await repositoryOfMain(catalog, adoption, main, {
     repository: adopted.repository,
     created: adopted.created,
   });
+
   if (repository === undefined) return undefined;
+
   if (adoption.inspection.linked) {
     await adoptLinkedSource(catalog, adoption, main, repository);
   }
+
   return { main, repository };
 }
 
@@ -79,6 +87,7 @@ async function resolveAdoption(
   readonly created: boolean;
 }> {
   if (recorded === undefined) return adoptRepository(catalog, adoption);
+
   return {
     repository: await catalog.findRepository(
       adoption.ownerUserId,
@@ -101,13 +110,16 @@ async function repositoryOfMain(
   adopted: { readonly repository: Repository; readonly created: boolean },
 ): Promise<Repository | undefined> {
   if (main.repositoryId === adopted.repository.id) return adopted.repository;
+
   const winner = await catalog.findRepository(
     adoption.ownerUserId,
     main.repositoryId,
   );
+
   if (winner !== undefined && adopted.created) {
     await catalog.deleteRepository(adoption.ownerUserId, adopted.repository.id);
   }
+
   return winner;
 }
 
@@ -150,18 +162,23 @@ async function adoptRepository(
   readonly created: boolean;
 }> {
   const remote = canonicalOrigin(adoption.inspection.remotes);
+
   if (remote !== null) {
     const existing =
       (await catalog.findRepositoryByRemote(adoption.ownerUserId, remote)) ??
       (await catalog.findRepositoryByAlias(adoption.ownerUserId, remote));
+
     if (existing !== undefined) return { repository: existing, created: false };
   }
+
   const created = await catalog.createRepository({
     ownerUserId: adoption.ownerUserId,
     displayName: derivedDisplayName(remote, adoption.mainPath),
     canonicalRemote: remote,
   });
+
   if (created !== undefined) return { repository: created, created: true };
+
   return {
     repository:
       remote === null

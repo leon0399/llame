@@ -40,9 +40,11 @@ d('head spill', () => {
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
     owner = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'A', ${`a-${owner}@t.com`})`;
+
     const chat = await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: owner, title: 'Main' }),
     );
+
     chatId = chat.id;
   });
 
@@ -69,6 +71,7 @@ d('head spill', () => {
 
   it('reads a long JSON text value by lines with a continuation', async () => {
     const longText = 'x'.repeat(400_000);
+
     const spilled = await capHeadResult(context(), 'mcp__docs__fetch', {
       status: 'success',
       text: longText,
@@ -96,5 +99,6 @@ function contentOf(result: ToolResult): string {
   if (result.status !== 'success' || !isString(result.content)) {
     throw new Error(`Expected a read success, got ${JSON.stringify(result)}`);
   }
+
   return result.content;
 }

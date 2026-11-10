@@ -29,9 +29,11 @@ const ReasoningContext = createContext<ReasoningContextValue | null>(null);
 
 export const useReasoning = () => {
   const context = useContext(ReasoningContext);
+
   if (!context) {
     throw new Error("Reasoning components must be used within Reasoning");
   }
+
   return context;
 };
 
@@ -92,6 +94,7 @@ export const Reasoning = memo(
       defaultProp: defaultOpen,
       onChange: onOpenChange,
     });
+
     const [duration, setDuration] = useControllableState({
       prop: durationProp,
       defaultProp: undefined,
@@ -167,9 +170,11 @@ const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
   if (isStreaming || duration === 0) {
     return <Shimmer duration={1}>Thinking...</Shimmer>;
   }
+
   if (duration === undefined) {
     return <p>Thought for a few seconds</p>;
   }
+
   return <p>Thought for {duration} seconds</p>;
 };
 
@@ -214,4 +219,5 @@ export const ReasoningTrigger = memo(
 );
 
 Reasoning.displayName = "Reasoning";
+
 ReasoningTrigger.displayName = "ReasoningTrigger";

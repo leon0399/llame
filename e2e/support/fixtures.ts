@@ -14,6 +14,7 @@ import {
 } from "./auth-helpers";
 
 export * from "@playwright/test";
+
 export * from "./auth-helpers";
 
 type Fixtures = {
@@ -52,9 +53,11 @@ export function revokeKnowledgeSpaceFixtureAccess(
 ): void {
   const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
   const dbPort = process.env.E2E_DB_PORT ?? "55433";
+
   const databaseUrl =
     process.env.POSTGRES_URL ??
     `postgres://app:app@localhost:${dbPort}/llame_e2e`;
+
   const databaseName = new URL(databaseUrl).pathname.replace(/^\//, "");
   const escape = (value: string) => value.replaceAll("'", "''");
   const statement = `BEGIN; SELECT set_config('app.current_user_id', '${escape(ownerUserId)}', true); DELETE FROM knowledge_spaces WHERE knowledge_space_id = '${escape(knowledgeSpaceId)}'; COMMIT;`;
@@ -65,6 +68,7 @@ export function revokeKnowledgeSpaceFixtureAccess(
       [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", statement],
       { stdio: "inherit" },
     );
+
     return;
   }
 
@@ -156,9 +160,11 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
     // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright statically requires fixture callbacks to destructure their first parameter.
     async ({}, provide) => {
       const root = process.env.E2E_KNOWLEDGE_ROOT;
+
       if (!root) {
         throw new Error("E2E_KNOWLEDGE_ROOT is required for Knowledge tests");
       }
+
       fs.mkdirSync(root, { recursive: true });
       await provide(root);
     },
@@ -177,12 +183,15 @@ export const test = baseTest.extend<Fixtures, WorkerFixtures>({
             data: { name: "Personal" },
           },
         );
+
         if (!response.ok()) {
           throw new Error(
             `Failed to provision the worker Knowledge Space: ${response.status()} ${await response.text()}`,
           );
         }
+
         const body: unknown = await response.json();
+
         if (!hasStableId(body)) {
           throw new Error(
             "Worker Knowledge provisioning returned no stable ID",

@@ -88,6 +88,7 @@ export function parentKey(key: string, root: string): string {
   // A cut at or before the first separator, and no cut at all, both mean the
   // key has no directory of its own: the empty prefix is the world root.
   const cut = key.lastIndexOf('/');
+
   return cut <= 0 ? root : key.slice(0, cut);
 }
 
@@ -106,11 +107,13 @@ export function parentKey(key: string, root: string): string {
 export function walkFrom(root: string, key: string): Array<string> {
   const directories = [root];
   let current = '';
+
   for (const segment of relativeKey(root, key).split('/')) {
     if (segment === '') continue;
     current = current === '' ? segment : `${current}/${segment}`;
     directories.push(joinKey(root, current));
   }
+
   return directories;
 }
 
@@ -124,6 +127,7 @@ export function walkFrom(root: string, key: string): Array<string> {
 function relativeKey(root: string, key: string): string {
   if (key === root) return '';
   const prefix = `${root}/`;
+
   return key.startsWith(prefix) ? key.slice(prefix.length) : key;
 }
 
@@ -156,6 +160,7 @@ export async function touchedPath(
   key: string,
 ): Promise<TouchedPath> {
   const probe = await scope.probe(key);
+
   return {
     directory: probe.kind === 'directory' ? key : parentKey(key, scope.root),
     canonicalPath: probe.kind === 'file' ? probe.canonicalPath : undefined,
@@ -199,11 +204,13 @@ export async function selectCandidates(
 ): Promise<Array<InstructionCandidate>> {
   const listed = await scope.list(key);
   const candidates: Array<InstructionCandidate> = [];
+
   for (const chain of [BASE_CHAIN, LOCAL_CHAIN]) {
     for (const name of chain) {
       if (!listed.includes(name)) continue;
       const entry = joinKey(key, name);
       const probe = await scope.probe(entry);
+
       if (probe.kind !== 'file') continue;
       candidates.push({
         path: scope.label(entry),
@@ -213,6 +220,7 @@ export async function selectCandidates(
       break;
     }
   }
+
   return candidates;
 }
 
@@ -234,6 +242,7 @@ export type InstructionFileRead =
 /** The longest prefix of `value` whose UTF-8 encoding fits `limit` bytes. */
 function cutToByteLimit(value: string, limit: number): string {
   const buffer = new Uint8Array(limit);
+
   return value.slice(0, new TextEncoder().encodeInto(value, buffer).read);
 }
 
@@ -245,6 +254,7 @@ function loaded(
     0,
     candidate.size - Buffer.byteLength(content, 'utf8'),
   );
+
   return { kind: 'loaded', content, truncated: omittedBytes > 0, omittedBytes };
 }
 
@@ -266,26 +276,36 @@ export async function readInstructionFile(
 ): Promise<InstructionFileRead> {
   let content = '';
   let lines = 0;
+
   for (;;) {
     const selectorPath = `${candidate.path}:raw:${lines + 1}-${lines + MAX_READ_LINES}`;
+
     const result = await readPage(
       selectorPath,
       lines === 0 ? canonicalPath : undefined,
     );
+
     if (result.status === 'error') {
       if (result.type === 'permission_denied') return { kind: 'denied' };
+
       if (result.type === 'invalid_selector' && lines > 0) break;
+
       return { kind: 'failed' };
     }
+
     if (!isString(result.content)) return { kind: 'failed' };
+
     if (result.content === '') break;
     content += result.content;
+
     if (Buffer.byteLength(content, 'utf8') >= INSTRUCTION_FILE_BYTE_LIMIT) {
       const cut = cutToByteLimit(content, INSTRUCTION_FILE_BYTE_LIMIT);
+
       // Dropping collected bytes is a truncation even when the probed size is
       // stale (a file that grew after the probe); a file of exactly the limit
       // loses nothing and falls back to the probed size.
       if (cut.length === content.length) return loaded(candidate, cut);
+
       return {
         kind: 'loaded',
         content: cut,
@@ -296,9 +316,12 @@ export async function readInstructionFile(
         ),
       };
     }
+
     const added = result.content.split('\n').length - 1;
+
     if (!isNumber(result.nextOffset) || added === 0) break;
     lines += added;
   }
+
   return loaded(candidate, content);
 }

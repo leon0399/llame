@@ -330,6 +330,7 @@ export const ScrollableContent: Story = {
     const dialog = await screen.findByRole("dialog", {
       name: "Scrollable Content",
     });
+
     await expect(dialog).toHaveAccessibleDescription(
       "This is a dialog with scrollable content.",
     );

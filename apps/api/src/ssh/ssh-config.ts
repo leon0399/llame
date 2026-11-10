@@ -74,8 +74,10 @@ function safetyBlock(options: SshSafetyOptions): ReadonlyArray<string> {
     '  ServerAliveInterval 15',
     '  ServerAliveCountMax 3',
   ];
+
   if (options.identityFile !== undefined)
     lines.push(`  IdentityFile ${quote(options.identityFile)}`);
+
   return lines;
 }
 
@@ -88,6 +90,7 @@ function quote(value: string): string {
   const escaped = value
     .replaceAll(BACKSLASH, ESCAPED_BACKSLASH)
     .replaceAll('"', ESCAPED_QUOTE);
+
   return `"${escaped}"`;
 }
 
@@ -111,11 +114,13 @@ export function createSshConfigFile(options: SshSafetyOptions): SshConfigFile {
   const directory = mkdtempSync(join(tmpdir(), 'llame-ssh-'), {
     encoding: 'utf8',
   });
+
   try {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const path = join(directory, 'ssh_config');
     const text = renderSshConfig(options);
     writeFileSync(path, text, { encoding: 'utf8', mode: 0o600 });
+
     return {
       path,
       text,

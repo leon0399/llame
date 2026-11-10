@@ -28,7 +28,9 @@ export function messageBoundaries(params: MessageBoundariesParams) {
     availableModels,
     onInspectContext,
   } = params;
+
   const switchPart = message.role === "user" ? modelSwitchPart(message) : null;
+
   const boundary =
     compaction && index === compactionIndex ? (
       <div
@@ -38,6 +40,7 @@ export function messageBoundaries(params: MessageBoundariesParams) {
         <CompactionBoundary compaction={compaction} models={availableModels} />
       </div>
     ) : null;
+
   const modelBoundary = switchPart ? (
     <div className="mx-auto w-full max-w-3xl md:px-6">
       <ModelSwitchBoundary
@@ -47,5 +50,6 @@ export function messageBoundaries(params: MessageBoundariesParams) {
       />
     </div>
   ) : null;
+
   return { boundary, modelBoundary };
 }

@@ -71,6 +71,7 @@ describe('PermissionModesController', () => {
         { provide: APP_GUARD, useClass: SessionAuthGuard },
       ],
     }).compile();
+
     const app: INestApplication<Server> = moduleRef.createNestApplication();
 
     try {

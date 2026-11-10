@@ -243,6 +243,7 @@ describe('a delta too large to render', () => {
     const entries = Array.from({ length: 100 }, (_, index) =>
       entry(`skill-${index}`),
     );
+
     const told = Array.from({ length: 200 }, (_, index) => `gone-${index}`);
 
     const state = resolve(
@@ -325,6 +326,7 @@ describe('the frozen skill-catalog baseline', () => {
 
   it('freezes an empty baseline for an effective source with no entries', () => {
     const reported: Array<ReadonlyArray<string>> = [];
+
     const state = resolve(
       deps({
         skillCatalog: {
@@ -375,11 +377,13 @@ describe('the frozen skill-catalog baseline', () => {
 
   it('freezes Workspace-only skills for a bound Chat', () => {
     const requested: Array<ReadonlyArray<string> | undefined> = [];
+
     const state = resolve(
       deps({
         skillCatalog: {
           getSnapshot: (extraSources) => {
             requested.push(extraSources);
+
             return snapshot({
               entries: [entry('workspace-only', 'Workspace skill')],
             });
@@ -406,6 +410,7 @@ describe('the frozen skill-catalog baseline', () => {
 
   it('does not freeze a baseline when all Workspace sources are missing', () => {
     const reported: Array<ReadonlyArray<string>> = [];
+
     const state = resolve(
       deps({
         skillDirectories: [],
@@ -624,6 +629,7 @@ describe('the skill-catalog notice', () => {
         skillCatalog: {
           getSnapshot: (extraSources) => {
             expect(extraSources).toEqual(['/work/.claude/skills']);
+
             return snapshot({
               entries: [
                 entry('pdf', 'Extract text'),

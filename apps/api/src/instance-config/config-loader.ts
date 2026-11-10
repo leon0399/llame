@@ -125,16 +125,21 @@ export function resolveConfigPath(
   baseDir = process.cwd(),
 ): string {
   const override = env.LLAME_CONFIG_PATH?.trim();
+
   if (override && override.length > 0) return path.resolve(baseDir, override);
+
   const found = CONFIG_EXTENSIONS.flatMap((ext) => {
     const candidate = path.resolve(baseDir, `llame.config${ext}`);
+
     return existsSync(candidate) ? [candidate] : [];
   });
+
   if (found.length > 1) {
     throw new InstanceConfigError(
       `Found multiple config files: ${found.join(', ')}; keep one or set LLAME_CONFIG_PATH.`,
     );
   }
+
   return found[0] ?? path.resolve(baseDir, DEFAULT_CONFIG_FILENAME);
 }
 
@@ -150,11 +155,13 @@ function resolveDefaults(
     ...readLeaf(raw, 'defaults', 'modelId'),
     env,
   });
+
   const titleGenerationModelId = resolveNullableString({
     configPath: 'defaults.titleGenerationModelId',
     ...readLeaf(raw, 'defaults', 'titleGenerationModelId'),
     env,
   });
+
   assertReferencesCatalog('defaults.modelId', modelId, modelIds, 'models[].id');
   assertReferencesCatalog(
     'defaults.titleGenerationModelId',
@@ -162,6 +169,7 @@ function resolveDefaults(
     modelIds,
     'models[].id',
   );
+
   return { modelId, titleGenerationModelId };
 }
 
@@ -247,6 +255,7 @@ function resolveToolsConfig(
     ...readLeaf(raw, 'tools', 'nativeExecutorId'),
     env,
   });
+
   // A Machine Workspace binds `workspace_executor_id = machine:<name>` (D5), so
   // a local executor identity wearing that prefix would be indistinguishable
   // from a Machine binding — the two columns could agree while naming
@@ -258,6 +267,7 @@ function resolveToolsConfig(
       'tools.nativeExecutorId: must not begin with "machine:" — that prefix names a Machine Workspace binding',
     );
   }
+
   const tools: LlameConfig['tools'] = {
     allowed: resolveToolAllowlist({
       configPath: 'tools.allowed',
@@ -278,7 +288,9 @@ function resolveToolsConfig(
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, { env, credentials }),
   };
+
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
+
   return tools;
 }
 
@@ -328,7 +340,9 @@ function resolveGrepBounds(
   decisionModelIds: ReadonlySet<string>,
 ): LlameConfig['tools']['grep'] {
   const bounds = raw?.tools?.grep;
+
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.grep;
+
   const resolve = (
     key: Exclude<keyof LlameConfig['tools']['grep'], 'rerank'>,
   ) =>
@@ -340,12 +354,14 @@ function resolveGrepBounds(
       nullable: true,
       env,
     });
+
   const rerank = resolveToolRerank(
     bounds.rerank,
     'tools.grep.rerank',
     env,
     decisionModelIds,
   );
+
   return {
     maxFilesExamined: resolve('maxFilesExamined'),
     maxEntriesListed: resolve('maxEntriesListed'),
@@ -371,11 +387,13 @@ function resolveToolRerank(
 ): ToolRerankConfig | undefined {
   if (rerank === undefined || rerank === null) return undefined;
   const model = requireNonBlankString(`${configPath}.model`, rerank.model, env);
+
   if (!decisionModelIds.has(model)) {
     throw new InstanceConfigError(
       `${configPath}.model: does not reference any configured decisionModels[].id or rerankModels[].id`,
     );
   }
+
   return { model };
 }
 
@@ -391,7 +409,9 @@ function resolveArtifactBounds(
   env: NodeJS.ProcessEnv,
 ): LlameConfig['tools']['artifacts'] {
   const bounds = raw?.tools?.artifacts;
+
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.artifacts;
+
   return {
     maxBytes: requireResolvedNumber(
       resolveNumeric({
@@ -414,13 +434,16 @@ function resolveWebAdaptersConfig(
   { env, credentials }: LoaderContext,
 ): ReadonlyArray<WebAdapterConfig> {
   const value = raw?.tools?.webAdapters;
+
   if (value === undefined) return BUILT_IN_DEFAULTS.tools.webAdapters;
 
   const resolved = new Array<WebAdapterConfig>();
   const seenIds = new Set<string>();
+
   for (const entry of value) {
     resolved.push(resolveWebAdapterEntry(entry, seenIds, { env, credentials }));
   }
+
   return resolved;
 }
 
@@ -432,9 +455,11 @@ function resolveWebAdapterEntry(
   const { id } = value;
   const entryPath = `tools.webAdapters[${id}]`;
   assertAdapterFieldLiteral(id, `${entryPath}.id`);
+
   if (seenIds.has(id)) {
     throw new InstanceConfigError(`${entryPath}.id: duplicate adapter id`);
   }
+
   seenIds.add(id);
 
   switch (value.use) {
@@ -443,10 +468,12 @@ function resolveWebAdapterEntry(
         env,
         credentials,
       });
+
       return token === undefined
         ? { id, use: 'github' }
         : { id, use: 'github', token };
     }
+
     case 'discourse':
       return {
         id,
@@ -467,14 +494,18 @@ function resolveRewriteEntry(
   entryPath: string,
 ): WebAdapterConfig {
   const hosts = resolveWebAdapterHosts(value.hosts, entryPath);
+
   const pathPattern = resolveWebAdapterPathPattern(
     value.pathPattern,
     `${entryPath}.pathPattern`,
   );
+
   const target = resolveWebAdapterTarget(value.target, `${entryPath}.target`);
+
   if (pathPattern === undefined) {
     return { id, use: 'rewrite', hosts, target };
   }
+
   return { id, use: 'rewrite', hosts, pathPattern, target };
 }
 
@@ -484,19 +515,24 @@ function resolveGithubToken(
   { env, credentials }: LoaderContext,
 ): string | undefined {
   if (token === undefined) return undefined;
+
   if (!WHOLE_VALUE_TOKEN_PATTERN.test(token)) {
     throw new InstanceConfigError(
       `${configPath}: must be a whole-value {env:}/{path:} token`,
     );
   }
+
   const result = resolveInterpolatedWithSubstitutions(token, configPath, env);
   const resolved = result.value.trim();
+
   if (resolved === '') {
     throw new InstanceConfigError(
       `${configPath}: must resolve to a nonblank string`,
     );
   }
+
   credentials.addSecret(result);
+
   return resolved;
 }
 
@@ -516,17 +552,20 @@ function resolveWebAdapterHosts(
     const hostPath = `${entryPath}.hosts[${index}]`;
     assertAdapterFieldLiteral(host, hostPath);
     let canonicalHost = '';
+
     try {
       canonicalHost = new URL(`https://${host}`).hostname;
     } catch {
       // The shared error below names the operator field without echoing parser details.
     }
+
     if (host.endsWith('.') || canonicalHost !== host) {
       throw new InstanceConfigError(
         `${hostPath}: must be a canonical lowercase hostname without a port`,
       );
     }
   }
+
   return value;
 }
 
@@ -536,6 +575,7 @@ function resolveWebAdapterPathPattern(
 ): string | undefined {
   if (value === undefined) return undefined;
   assertAdapterFieldLiteral(value, configPath);
+
   try {
     compileRegexMatcher(value, configPath);
   } catch (error) {
@@ -543,15 +583,18 @@ function resolveWebAdapterPathPattern(
       error instanceof Error ? error.message : String(error),
     );
   }
+
   return value;
 }
 
 function resolveWebAdapterTarget(value: string, configPath: string): string {
   assertAdapterFieldLiteral(value, configPath);
   const parsedTarget = parseRewriteTarget(value);
+
   if ('error' in parsedTarget) {
     throw new InstanceConfigError(`${configPath}: ${parsedTarget.error}`);
   }
+
   return value;
 }
 
@@ -564,25 +607,32 @@ function resolveWebAdapterTarget(value: string, configPath: string): string {
  */
 function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
   const { present, raw: leaf } = readLeaf(raw, 'tools', 'promptFiles');
+
   if (!present) return {};
+
   if (!isRecord(leaf)) {
     throw new InstanceConfigError('tools.promptFiles: must be an object');
   }
+
   // The config schema enforces non-empty tool ids and string/null values; the
   // guard here narrows the untyped record without resolving host paths.
   const files: Record<string, string | null> = {};
+
   for (const [toolId, value] of Object.entries(leaf)) {
     if (value === null) {
       files[toolId] = null;
       continue;
     }
+
     if (!isString(value)) {
       throw new InstanceConfigError(
         `tools.promptFiles.${toolId}: must be a file path string or null`,
       );
     }
+
     files[toolId] = value;
   }
+
   return files;
 }
 
@@ -593,7 +643,9 @@ function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
 function readValidatedConfig(env: NodeJS.ProcessEnv) {
   const configPath = resolveConfigPath(env);
   const raw = readRawConfig(configPath);
+
   if (raw !== undefined) assertValidRaw(raw, configPath);
+
   return { configPath, raw };
 }
 
@@ -604,15 +656,18 @@ export function loadInstanceConfig(
   const { configPath, raw } = readValidatedConfig(env);
 
   const credentials = new ConfiguredCredentialCollector(env);
+
   const { providers, providersById, models } = resolveProviderCatalog(
     raw,
     { env, credentials },
     configPath,
   );
+
   const mcpServers = resolveMcpServers(raw, { env, credentials });
   // The catalogue resolves first: `tools.grep.rerank` and `webSearch.rerank`
   // name a catalogue id, and that reference is checked while resolving them.
   const decisionModels = resolveDecisionModels(raw, env, providersById);
+
   const { embeddingModels, rerankModels, search, webSearch, tools } =
     resolveSearchSettings(
       raw,
@@ -635,7 +690,9 @@ export function loadInstanceConfig(
     search,
     ...(webSearch !== undefined && { webSearch }),
   };
+
   recordConfiguredCredentials(config, credentials.snapshot());
+
   return config;
 }
 
@@ -663,12 +720,15 @@ function resolveProviderCatalog(
   configPath: string,
 ) {
   const providers = resolveProviders(raw, { env, credentials });
+
   const providersById = new Map(
     providers.map((provider) => [provider.id, provider]),
   );
+
   const promptLoader = createModelPromptLoader({ configPath });
   const models = resolveModels(raw, env, providersById, promptLoader);
   promptLoader.validateProjectDefault();
+
   return { providers, providersById, models };
 }
 
@@ -685,16 +745,19 @@ function resolveSearchSettings(
     providersById,
     decisionModels,
   );
+
   // A tool's `rerank.model` names an id of either rank catalogue.
   const decisionModelIds = new Set(
     [...(decisionModels ?? []), ...(rerankModels ?? [])].map(
       (entry) => entry.id,
     ),
   );
+
   const tools = resolveToolsConfig(raw, { env, credentials }, decisionModelIds);
   const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
   const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
   const search = resolveSearchConfig(raw, env, embeddingModelIds);
+
   const webSearch = resolveWebSearch(
     raw,
     { env, credentials },
@@ -703,6 +766,7 @@ function resolveSearchSettings(
     providersById,
     decisionModelIds,
   );
+
   return { embeddingModels, rerankModels, search, webSearch, tools };
 }
 
@@ -721,19 +785,24 @@ function resolveDecisionModels(
   providersById: ReadonlyMap<string, ProviderConfig>,
 ): ReadonlyArray<DecisionModelConfig> | undefined {
   const entries = raw?.decisionModels;
+
   if (entries === undefined) return undefined;
 
   const indexById = new Map<string, number>();
+
   return entries.map((entry, index) => {
     const base = `decisionModels[${index}]`;
     const id = requireNonBlankString(`${base}.id`, entry.id, env);
     const firstIndex = indexById.get(id);
+
     if (firstIndex !== undefined) {
       throw new InstanceConfigError(
         `decisionModels[${firstIndex}].id and ${base}.id: duplicate decision model id`,
       );
     }
+
     indexById.set(id, index);
+
     return resolveRankModel(
       entry,
       { id, base },
@@ -754,23 +823,29 @@ function resolveRankModel(
 ): RerankModelConfig {
   const { id, base } = position;
   const { providerType, env, providersById } = catalogue;
+
   const providerId = requireNonBlankString(
     `${base}.provider`,
     entry.provider,
     env,
   );
+
   const provider = providersById.get(providerId);
+
   if (provider === undefined) {
     throw new InstanceConfigError(
       `${base}.provider: does not reference any configured providers[].id`,
     );
   }
+
   if (provider.type !== providerType) {
     throw new InstanceConfigError(
       `${base}.provider: provider has type "${provider.type}", not "${providerType}"`,
     );
   }
+
   const model = requireNonBlankString(`${base}.model`, entry.model, env);
+
   return { id, provider: providerId, model };
 }
 
@@ -788,6 +863,7 @@ function resolveRerankModels(
   decisionModels: ReadonlyArray<DecisionModelConfig> | undefined,
 ): ReadonlyArray<RerankModelConfig> | undefined {
   const entries = raw?.rerankModels;
+
   if (entries === undefined) return undefined;
 
   const pathById = new Map(
@@ -796,16 +872,20 @@ function resolveRerankModels(
       `decisionModels[${index}].id`,
     ]),
   );
+
   return entries.map((entry, index) => {
     const base = `rerankModels[${index}]`;
     const id = requireNonBlankString(`${base}.id`, entry.id, env);
     const firstPath = pathById.get(id);
+
     if (firstPath !== undefined) {
       throw new InstanceConfigError(
         `${firstPath} and ${base}.id: duplicate rank model id`,
       );
     }
+
     pathById.set(id, `${base}.id`);
+
     return resolveRankModel(
       entry,
       { id, base },
@@ -819,9 +899,11 @@ function resolveKnowledge(
   env: NodeJS.ProcessEnv,
 ): KnowledgeConfig {
   const root = raw?.knowledge?.root;
+
   if (root === undefined) {
     return BUILT_IN_DEFAULTS.knowledge;
   }
+
   if (!isString(root)) {
     throw new InstanceConfigError('knowledge.root: must be a string');
   }
@@ -831,11 +913,13 @@ function resolveKnowledge(
     'knowledge.root',
     env,
   ).trim();
+
   if (!path.isAbsolute(resolved)) {
     throw new InstanceConfigError(
       'knowledge.root: must resolve to an absolute path',
     );
   }
+
   return { root: resolved };
 }
 
@@ -849,28 +933,35 @@ function resolveWebSearch(
   decisionModelIds: ReadonlySet<string>,
 ): WebSearchConfig | undefined {
   const section = raw?.webSearch;
+
   if (section === undefined) {
     if (allowed.includes('web_search')) {
       throw new InstanceConfigError(
         'webSearch.chain: required when tools.allowed contains web_search',
       );
     }
+
     return undefined;
   }
+
   const modelsById = new Map(models.map((model) => [model.id, model]));
+
   const engines = resolveWebSearchEngines(
     section.engines,
     { env, credentials },
     modelsById,
     providersById,
   );
+
   assertWebSearchChain(section.chain, engines);
+
   const rerank = resolveToolRerank(
     section.rerank,
     'webSearch.rerank',
     env,
     decisionModelIds,
   );
+
   return {
     engines,
     chain: section.chain,
@@ -885,6 +976,7 @@ function resolveWebSearchTimeout(
   env: NodeJS.ProcessEnv,
 ): number {
   const timeoutPath = `${entryPath}.timeoutSeconds`;
+
   return requireResolvedNumber(
     resolveNumeric({
       configPath: timeoutPath,
@@ -914,6 +1006,7 @@ function hasLineBreak(value: string): boolean {
   for (const character of value) {
     if (LINE_BREAK_CODE_POINTS.has(character.codePointAt(0)!)) return true;
   }
+
   return false;
 }
 
@@ -928,16 +1021,20 @@ function resolveWebSearchDescription(
   entryPath: string,
 ): string | undefined {
   const description = entry.description;
+
   if (description === undefined) return undefined;
   const descriptionPath = `${entryPath}.description`;
+
   if (INTERPOLATION_TOKEN_SYNTAX.test(description)) {
     throw new InstanceConfigError(
       `${descriptionPath}: engine descriptions are literal text and do not support interpolation`,
     );
   }
+
   if (hasLineBreak(description)) {
     throw new InstanceConfigError(`${descriptionPath}: must be one line`);
   }
+
   return description;
 }
 
@@ -951,6 +1048,7 @@ function assertWebSearchEngineId(id: string, idPath: string): void {
   if (hasLineBreak(id)) {
     throw new InstanceConfigError(`${idPath}: must be one line`);
   }
+
   if (/[<>]/u.test(id)) {
     throw new InstanceConfigError(`${idPath}: must not contain angle brackets`);
   }
@@ -963,17 +1061,21 @@ function resolveWebSearchEngines(
   providersById: ReadonlyMap<string, ProviderConfig>,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
+
   const engines = entries.map((entry, index) => {
     assertWebSearchEngineId(entry.id, `webSearch.engines[${index}].id`);
+
     if (seenEngineIds.has(entry.id)) {
       throw new InstanceConfigError(
         `webSearch.engines: duplicate engine id "${entry.id}"`,
       );
     }
+
     seenEngineIds.add(entry.id);
 
     const entryPath = `webSearch.engines[${entry.id}]`;
     const description = resolveWebSearchDescription(entry, entryPath);
+
     if (entry.type === 'aggregate')
       return {
         id: entry.id,
@@ -982,6 +1084,7 @@ function resolveWebSearchEngines(
         ...(description !== undefined && { description }),
       };
     const timeoutSeconds = resolveWebSearchTimeout(entry, entryPath, env);
+
     return {
       ...resolveWebSearchEngine(
         entry,
@@ -994,7 +1097,9 @@ function resolveWebSearchEngines(
       ...(description !== undefined && { description }),
     };
   });
+
   assertAggregateChildren(engines);
+
   return engines;
 }
 
@@ -1002,18 +1107,23 @@ function assertAggregateChildren(
   engines: ReadonlyArray<WebSearchEngineConfig>,
 ): void {
   const enginesById = new Map(engines.map((engine) => [engine.id, engine]));
+
   for (const engine of engines) {
     if (engine.type !== 'aggregate') {
       continue;
     }
+
     const childrenPath = `webSearch.engines[${engine.id}].engines`;
+
     for (const childId of engine.engines) {
       const child = enginesById.get(childId);
+
       if (child === undefined) {
         throw new InstanceConfigError(
           `${childrenPath}: unknown engine id "${childId}"`,
         );
       }
+
       if (child.type === 'aggregate') {
         throw new InstanceConfigError(
           `${childrenPath}: child "${childId}" must not be an aggregate`,
@@ -1032,12 +1142,15 @@ function resolveModelHostedEngine(
 ): WebSearchEngineConfig {
   const modelPath = `${entryPath}.model`;
   const model = modelsById.get(entry.model);
+
   if (model === undefined) {
     throw new InstanceConfigError(
       `${modelPath}: unknown model id "${entry.model}"`,
     );
   }
+
   const wire = providersById.get(model.provider)?.type;
+
   if (
     wire !== 'openai-responses' &&
     wire !== 'openai-codex' &&
@@ -1047,6 +1160,7 @@ function resolveModelHostedEngine(
       `${modelPath}: unsupported provider type "${wire ?? 'unknown'}"`,
     );
   }
+
   return {
     id: entry.id,
     type: entry.type,
@@ -1065,6 +1179,7 @@ function resolveWebSearchEngine(
   providersById: ReadonlyMap<string, ProviderConfig>,
 ): WebSearchEngineConfig {
   const base = { id: entry.id, timeoutSeconds };
+
   if (entry.type === 'model-hosted') {
     return resolveModelHostedEngine(
       entry,
@@ -1074,6 +1189,7 @@ function resolveWebSearchEngine(
       providersById,
     );
   }
+
   return resolveWebSearchResultEngine(entry, entryPath, base, {
     env,
     credentials,
@@ -1100,6 +1216,7 @@ function resolveWebSearchResultEngine(
       ),
     };
   }
+
   if (entry.type === 'exa-mcp') {
     const key =
       resolveNullableString({
@@ -1109,14 +1226,18 @@ function resolveWebSearchResultEngine(
         env,
         onResolved: credentials.onSecret,
       }) ?? undefined;
+
     return { ...base, type: entry.type, key };
   }
+
   if (entry.type === 'duckduckgo' || entry.type === 'parallel-mcp') {
     return { ...base, type: entry.type };
   }
+
   if (entry.type === 'yandex') {
     return resolveYandexEngine(entry, entryPath, base, { env, credentials });
   }
+
   return resolveKeyedEngine(entry, entryPath, base, { env, credentials });
 }
 
@@ -1132,6 +1253,7 @@ function resolveYandexEngine(
     env,
     credentials.onSecret,
   );
+
   const folderId =
     resolveNullableString({
       configPath: `${entryPath}.folderId`,
@@ -1139,6 +1261,7 @@ function resolveYandexEngine(
       raw: entry.folderId,
       env,
     }) ?? undefined;
+
   return {
     ...base,
     type: entry.type,
@@ -1163,7 +1286,9 @@ function resolveKeyedEngine(
     env,
     credentials.onSecret,
   );
+
   if (entry.type !== 'parallel') return { ...base, type: entry.type, key };
+
   return { ...base, type: entry.type, key, mode: entry.mode ?? 'fast' };
 }
 
@@ -1174,6 +1299,7 @@ function resolveSearxngBaseUrl(
 ): string {
   const resolved = requireNonBlankString(configPath, raw, env);
   const parsedUrl = URL.parse(resolved);
+
   if (
     parsedUrl === null ||
     (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') ||
@@ -1186,6 +1312,7 @@ function resolveSearxngBaseUrl(
       `${configPath}: must be an absolute http or https URL without userinfo, query, or fragment`,
     );
   }
+
   return resolved;
 }
 
@@ -1194,6 +1321,7 @@ function assertWebSearchChain(
   engines: ReadonlyArray<WebSearchEngineConfig>,
 ): void {
   const engineIds = new Set(engines.map((entry) => entry.id));
+
   for (const id of chain) {
     if (!engineIds.has(id)) {
       throw new InstanceConfigError(
@@ -1218,9 +1346,11 @@ function resolveSkillsConfig(
   configPath: string,
 ): SkillsConfig {
   const directories = raw?.skills?.directories;
+
   if (directories === undefined) {
     return BUILT_IN_DEFAULTS.skills;
   }
+
   if (!Array.isArray(directories)) {
     throw new InstanceConfigError(
       'skills.directories: must be an array of directory paths',
@@ -1228,6 +1358,7 @@ function resolveSkillsConfig(
   }
 
   const configDirectory = path.dirname(configPath);
+
   return {
     directories: directories.map((entry, index) =>
       resolveSkillDirectory(entry, index, configDirectory),
@@ -1244,16 +1375,19 @@ function resolveSkillDirectory(
   configDirectory: string,
 ): string {
   const configPath = `skills.directories[${index}]`;
+
   if (!isString(entry) || entry.length === 0) {
     throw new InstanceConfigError(
       `${configPath}: must be a non-empty directory path`,
     );
   }
+
   if (INTERPOLATION_TOKEN_SYNTAX.test(entry)) {
     throw new InstanceConfigError(
       `${configPath}: skill source directories are literal paths and do not support interpolation`,
     );
   }
+
   if (entry.includes('\0')) {
     throw new InstanceConfigError(
       `${configPath}: must not contain a NUL character`,
@@ -1263,6 +1397,7 @@ function resolveSkillDirectory(
   const expanded = entry.startsWith('~/')
     ? path.join(homedir(), entry.slice(2))
     : entry;
+
   return path.resolve(configDirectory, expanded);
 }
 
@@ -1295,6 +1430,7 @@ function resolveRemoteSections(
   const configDirectory = path.dirname(configPath);
   const machines = raw?.machines;
   const ssh = raw?.ssh;
+
   return {
     ...(machines !== undefined && {
       machines: {
@@ -1327,6 +1463,7 @@ function resolveSshFiles(
     identityFile,
     configFile,
   } = ssh ?? {};
+
   return {
     knownHostsFile: resolveSshPath(
       knownHostsFile,
@@ -1371,34 +1508,41 @@ function resolveMachineHosts(
   hosts: Record<string, MachineHostConfig> | undefined,
 ) {
   const resolved: Record<string, MachineHostConfig> = {};
+
   for (const [name, host] of Object.entries(hosts ?? {})) {
     if (!MACHINE_NAME_PATTERN.test(name)) {
       throw new InstanceConfigError(
         `machines.hosts.${name}: machine names must match [a-z0-9-]{1,63}`,
       );
     }
+
     resolved[name] = {
       destination: resolveMachineDestination(name, host.destination),
     };
   }
+
   return resolved;
 }
 
 function resolveMachineDestination(name: string, destination: string): string {
   const configPath = `machines.hosts.${name}.destination`;
+
   if (INTERPOLATION_TOKEN_SYNTAX.test(destination)) {
     throw new InstanceConfigError(
       `${configPath}: must not contain interpolation`,
     );
   }
+
   if (destination.startsWith('-')) {
     throw new InstanceConfigError(`${configPath}: must not begin with "-"`);
   }
+
   if (!MACHINE_DESTINATION_PATTERN.test(destination)) {
     throw new InstanceConfigError(
       `${configPath}: must be an ssh host alias or [user@]host[:port]`,
     );
   }
+
   return destination;
 }
 
@@ -1421,6 +1565,7 @@ function resolveSshPath(
       `${configPath}: file paths are literal and do not support interpolation`,
     );
   }
+
   if (value.includes('\0')) {
     throw new InstanceConfigError(
       `${configPath}: must not contain a NUL character`,
@@ -1430,6 +1575,7 @@ function resolveSshPath(
   const expanded = value.startsWith('~/')
     ? path.join(homedir(), value.slice(2))
     : value;
+
   return path.resolve(configDirectory, expanded);
 }
 
@@ -1459,23 +1605,27 @@ function detectConfigFormat(configPath: string): ConfigFormat {
 
 function readRawConfig(configPath: string): UnknownRecord | undefined {
   let text: string;
+
   try {
     text = readFileSync(configPath, 'utf8');
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return undefined;
     }
+
     throw new InstanceConfigError(
       `Failed to read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
   const result: unknown = parseConfigText(text, configPath);
+
   if (!isRecord(result)) {
     throw new InstanceConfigError(
       `Invalid ${configPath}: top-level value must be a mapping`,
     );
   }
+
   return result;
 }
 
@@ -1490,15 +1640,19 @@ export function parseConfigText(
   configPath: string,
 ): UnknownRecord | undefined {
   const format = detectConfigFormat(configPath);
+
   if (format === 'jsonc') {
     assertNoDuplicateProperties(text, configPath);
 
     const errors: Array<ParseError> = [];
+
     const tree = parseJsoncTree(text, errors, {
       allowTrailingComma: true,
       disallowComments: false,
     });
+
     const result: unknown = tree === undefined ? undefined : getNodeValue(tree);
+
     if (errors.length > 0) {
       const first = errors[0];
       const { line, column } = offsetToLineColumn(text, first.offset);
@@ -1506,10 +1660,12 @@ export function parseConfigText(
         `Malformed JSONC in ${configPath} at line ${line}, column ${column}: ${printParseErrorCode(first.error)}`,
       );
     }
+
     return isRecord(result) ? result : undefined;
   }
 
   let result: unknown;
+
   try {
     result =
       format === 'yaml'
@@ -1522,6 +1678,7 @@ export function parseConfigText(
       `Malformed ${format === 'yaml' ? 'YAML' : 'TOML'} in ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+
   return isRecord(result) ? result : undefined;
 }
 
@@ -1537,14 +1694,18 @@ function assertNoDuplicateProperties(text: string, configPath: string): void {
         const objectPath = getPath();
         const objectKey = JSON.stringify(objectPath);
         let properties = propertiesByObject.get(objectKey);
+
         if (properties === undefined) {
           properties = new Set<string>();
           propertiesByObject.set(objectKey, properties);
         }
+
         if (properties.has(property)) {
           duplicatePath = [...objectPath, property];
+
           return;
         }
+
         properties.add(property);
       },
     },
@@ -1574,6 +1735,7 @@ function formatConfigPath(
 
 function offsetToLineColumn(text: string, offset: number) {
   const upToOffset = text.slice(0, offset);
+
   // `lastIndexOf` returns -1 when the offset is on the first line, so
   // `length - -1` is the 1-based column with no separate case. Measured
   // against the CLAMPED prefix, since an offset past the end slices short.
@@ -1590,12 +1752,14 @@ function assertValidRaw(
   configPath: string,
 ): asserts raw is RawInstanceConfig {
   const validate = getConfigValidator();
+
   if (validate(raw)) {
     return;
   }
 
   const messages = (validate.errors ?? []).map((e) => {
     const instancePath = describeInstancePath(e.instancePath, raw);
+
     if (e.keyword === 'additionalProperties') {
       // SAFETY: ajv's ErrorObject['params'] isn't discriminated by
       // e.keyword — its type stays a generic union regardless of the
@@ -1603,9 +1767,12 @@ function assertValidRaw(
       // additionalProperties keyword's params always carries this shape.
       const extra = (e.params as { additionalProperty?: string })
         .additionalProperty;
+
       return `${instancePath}/${extra ?? '?'}: unrecognized key`;
     }
+
     const providerTypeMatch = /^\/providers\/(\d+)\/type$/.exec(e.instancePath);
+
     if (e.keyword === 'enum' && providerTypeMatch) {
       // The one schema failure whose message must name the rejected literal
       // as well as the entry: an operator migrating off the deleted `openai`
@@ -1617,12 +1784,16 @@ function assertValidRaw(
       // changes.
       const allowed: unknown = e.params.allowedValues;
       const providers: unknown = raw.providers;
+
       const entry: unknown = Array.isArray(providers)
         ? providers[Number(providerTypeMatch[1])]
         : undefined;
+
       const value = isRecord(entry) ? entry.type : undefined;
+
       return `${instancePath}: ${JSON.stringify(value)} is not one of ${JSON.stringify(allowed)}`;
     }
+
     return `${instancePath || '/'}: ${e.message ?? 'is invalid'}`;
   });
 
@@ -1653,18 +1824,23 @@ function describeInstancePath(
     /^\/(?<collection>models|providers)\/(?<index>\d+)(?<rest>\/.*)?$/.exec(
       instancePath,
     );
+
   if (!match) {
     return instancePath;
   }
+
   const collection: unknown =
     match.groups?.collection === 'providers' ? raw.providers : raw.models;
+
   if (!Array.isArray(collection)) {
     return instancePath;
   }
+
   // Annotated `unknown`, not inferred: `Array.isArray` narrows to `any[]`, so
   // indexing it would hand the rest of this function an unchecked `any`.
   const entry: unknown = collection[Number(match.groups?.index)];
   const id = isRecord(entry) ? entry.id : undefined;
+
   return isString(id) && id.length > 0
     ? `/${match.groups?.collection}[${id}]${match.groups?.rest ?? ''}`
     : instancePath;
@@ -1682,13 +1858,17 @@ function readLeaf(
   if (!raw) {
     return { present: false, raw: undefined };
   }
+
   const groupValue = raw[group];
+
   if (!isRecord(groupValue)) {
     return { present: false, raw: undefined };
   }
+
   if (!Object.hasOwn(groupValue, key)) {
     return { present: false, raw: undefined };
   }
+
   return { present: true, raw: groupValue[key] };
 }
 
@@ -1718,8 +1898,10 @@ function resolveInterpolatedWithSubstitutions(
       if (error.message.startsWith('JSON pointer ')) {
         throw new InstanceConfigError(`${configPath}: interpolation failed`);
       }
+
       throw new InstanceConfigError(`${configPath}: ${error.message}`);
     }
+
     throw error;
   }
 }
@@ -1733,21 +1915,26 @@ function resolveNullableString(opts: {
   onResolved?: (result: InterpolationResult) => void;
 }): string | null {
   const { configPath, present, raw, env, onResolved } = opts;
+
   if (!present || raw === null) {
     // Absent (or explicit null) = unset. The environment reaches config ONLY
     // through {env:...} interpolation tokens in the file — there is no bare
     // env-var fallback (D5).
     return null;
   }
+
   if (!isString(raw)) {
     throw new InstanceConfigError(`${configPath}: must be a string`);
   }
+
   const result = resolveInterpolatedWithSubstitutions(raw, configPath, env);
   const resolved = result.value.trim();
+
   // Empty (or whitespace-only) resolution on a nullable key means unset.
   // Trimmed so InstanceConfigService.config hands out one normalized shape.
   if (resolved === '') return null;
   onResolved?.(result);
+
   return resolved;
 }
 
@@ -1790,10 +1977,13 @@ function resolveNumeric(opts: {
         `${configPath}: must not be null (not a nullable setting)`,
       );
     }
+
     return null;
   }
+
   if (isNumber(raw)) {
     assertPositiveInteger(raw, configPath, min, max);
+
     return raw;
   }
 
@@ -1805,6 +1995,7 @@ function resolveNumeric(opts: {
       `${configPath}: must be a number or a {env:}/{path:} token string`,
     );
   }
+
   return resolveNumericFromToken(raw, { configPath, env, nullable, min, max });
 }
 
@@ -1823,21 +2014,27 @@ function resolveNumericFromToken(
 ): number | null {
   const { configPath, env, nullable, min, max } = opts;
   const resolved = resolveInterpolatedString(raw, configPath, env);
+
   if (resolved.trim() === '') {
     if (nullable) {
       return null;
     }
+
     throw new InstanceConfigError(
       `${configPath}: resolved to an empty value, which is not a valid number`,
     );
   }
+
   const n = Number(resolved);
+
   if (!Number.isFinite(n)) {
     throw new InstanceConfigError(
       `${configPath}: interpolated value does not resolve to a valid number`,
     );
   }
+
   assertPositiveInteger(n, configPath, min, max);
+
   return n;
 }
 
@@ -1858,6 +2055,7 @@ function requireResolvedNumber(
       `${configPath}: internal error — expected a resolved number`,
     );
   }
+
   return value;
 }
 
@@ -1875,6 +2073,7 @@ function requireBudgetUnderExecutionCeiling(
       `runs.timeoutSeconds: must be below ${RUN_EXECUTION_CEILING_SECONDS} (the Run execution ceiling)`,
     );
   }
+
   return value;
 }
 
@@ -1900,6 +2099,7 @@ function assertPositiveInteger(
         `${configPath}: must be an integer <= ${max}`,
       );
     }
+
     throw new InstanceConfigError(
       min === 1
         ? `${configPath}: must be a positive integer`
@@ -1918,22 +2118,28 @@ function assertValidAllowlistId(
 ): void {
   if (id.includes('*')) {
     const match = /^mcp__([A-Za-z0-9_-]+)__\*$/u.exec(id);
+
     if (match === null || !createMcpToolId(match[1], 'x').success) {
       throw new InstanceConfigError(
         `${configPath}: invalid MCP namespace wildcard "${id}"`,
       );
     }
+
     return;
   }
+
   if (id.startsWith('mcp__')) {
     const parsed = parseMcpToolId(id);
+
     if (!parsed.success) {
       throw new InstanceConfigError(
         `${configPath}: invalid MCP tool id "${id}"`,
       );
     }
+
     return;
   }
+
   if (!registered.has(id)) {
     throw new InstanceConfigError(
       `${configPath}: unknown tool id "${id}" (not registered)`,
@@ -1956,16 +2162,21 @@ function resolveToolAllowlist(opts: {
   raw: unknown;
 }): ReadonlyArray<string> {
   const { configPath, present, raw } = opts;
+
   if (!present) {
     return BUILT_IN_DEFAULTS.tools.allowed;
   }
+
   if (!isStringArray(raw)) {
     throw new InstanceConfigError(`${configPath}: must be an array of strings`);
   }
+
   const registered = new Set(getRegisteredToolIds());
+
   for (const id of raw) {
     assertValidAllowlistId(id, configPath, registered);
   }
+
   return raw;
 }
 
@@ -1975,38 +2186,47 @@ export function resolvePermissionModes(opts: {
   raw: unknown;
 }): ReadonlyArray<PermissionMode> {
   const { configPath, present, raw } = opts;
+
   if (!present) {
     return BUILT_IN_DEFAULTS.tools.permissionModes;
   }
+
   if (!isStringArray(raw)) {
     throw new InstanceConfigError(`${configPath}: must be an array of strings`);
   }
+
   if (raw.length === 0) {
     throw new InstanceConfigError(`${configPath}: must not be empty`);
   }
 
   const modes: Array<PermissionMode> = [];
   const seen = new Set<string>();
+
   for (const mode of raw) {
     const known = PERMISSION_MODES.find((candidate) => candidate === mode);
+
     if (known === undefined) {
       throw new InstanceConfigError(
         `${configPath}: unknown permission mode "${mode}"`,
       );
     }
+
     if (seen.has(known)) {
       throw new InstanceConfigError(
         `${configPath}: duplicate permission mode "${mode}"`,
       );
     }
+
     seen.add(known);
     modes.push(known);
   }
+
   if (!seen.has(DEFAULT_PERMISSION_MODE)) {
     throw new InstanceConfigError(
       `${configPath}: must include "${DEFAULT_PERMISSION_MODE}"`,
     );
   }
+
   return modes;
 }
 
@@ -2024,11 +2244,15 @@ function resolveToolPermissions(opts: {
   env: NodeJS.ProcessEnv;
 }): ToolPermissionMap {
   const { configPath, present, raw, env } = opts;
+
   if (!present) return BUILT_IN_DEFAULTS.tools.permissions;
+
   if (!isRecord(raw)) {
     throw new InstanceConfigError(`${configPath}: must be an object`);
   }
+
   const resolved: Record<string, PermissionGroup> = {};
+
   for (const [toolId, group] of Object.entries(raw)) {
     resolved[toolId] = resolvePermissionGroup(
       `${configPath}.${toolId}`,
@@ -2036,6 +2260,7 @@ function resolveToolPermissions(opts: {
       env,
     );
   }
+
   return resolved;
 }
 
@@ -2047,15 +2272,21 @@ function resolvePermissionGroup(
   if (!isRecord(raw)) {
     throw new InstanceConfigError(`${path}: must be an object`);
   }
+
   const allow = Object.hasOwn(raw, 'allow')
     ? resolvePermissionMatcher(`${path}.allow`, raw['allow'], env, 'allow')
     : undefined;
+
   const reject = Object.hasOwn(raw, 'reject')
     ? resolvePermissionMatcher(`${path}.reject`, raw['reject'], env, 'reject')
     : undefined;
+
   const group: MutablePermissionGroup = {};
+
   if (allow !== undefined) group.allow = allow;
+
   if (reject !== undefined) group.reject = reject;
+
   return group;
 }
 
@@ -2072,11 +2303,13 @@ function resolvePermissionMatcher(
   list: 'allow' | 'reject',
 ): PermissionMatcher {
   if (raw === true) return true;
+
   if (!Array.isArray(raw)) {
     throw new InstanceConfigError(
       `${path}: must be true or an array of clauses`,
     );
   }
+
   return raw.map((clause, index) =>
     resolvePermissionClause(`${path}[${index}]`, clause, env, list),
   );
@@ -2096,6 +2329,7 @@ function resolvePermissionClause(
   if (!isRecord(raw)) {
     throw new InstanceConfigError(`${path}: must be an object`);
   }
+
   return resolveClauseTarget(
     path,
     raw,
@@ -2113,20 +2347,26 @@ function resolveClauseMatcher(
   const regex = raw['regex'];
   const hasLiteral = isString(literal);
   const hasRegex = isString(regex);
+
   if (hasLiteral === hasRegex) {
     throw new InstanceConfigError(
       `${path}: must set exactly one of literal or regex`,
     );
   }
+
   const kind = hasLiteral ? 'literal' : 'regex';
   const rawPattern = hasLiteral ? literal : regex;
+
   if (!isString(rawPattern)) {
     throw new InstanceConfigError(`${path}: matcher must be a string`);
   }
+
   const pattern = resolveInterpolatedString(rawPattern, `${path}.${kind}`, env);
+
   if (pattern.length === 0) {
     throw new InstanceConfigError(`${path}.${kind}: must not be empty`);
   }
+
   return { kind, pattern };
 }
 
@@ -2138,24 +2378,29 @@ function resolveClauseTarget(
 ): PermissionClause {
   const field = raw['field'];
   const allFields = raw['allFields'];
+
   if (allFields !== undefined && allFields !== true) {
     throw new InstanceConfigError(`${path}: allFields must be true when set`);
   }
+
   if (allFields === true) {
     if (list === 'allow') {
       throw new InstanceConfigError(
         `${path}: allFields is valid only for reject`,
       );
     }
+
     return matcher.kind === 'literal'
       ? { allFields: true, literal: matcher.pattern }
       : { allFields: true, regex: matcher.pattern };
   }
+
   if (!isString(field) || field.length === 0) {
     throw new InstanceConfigError(
       `${path}: must target exactly one non-empty field or allFields`,
     );
   }
+
   return matcher.kind === 'literal'
     ? { field, literal: matcher.pattern }
     : { field, regex: matcher.pattern };
@@ -2175,6 +2420,7 @@ function asciiCaseFold(value: string): string {
 
 function assertRemoteMcpUrl(urlPath: string, value: string): void {
   let parsedUrl: URL;
+
   try {
     parsedUrl = new URL(value);
   } catch {
@@ -2182,6 +2428,7 @@ function assertRemoteMcpUrl(urlPath: string, value: string): void {
       `${urlPath}: must be an absolute http or https URL without userinfo`,
     );
   }
+
   if (
     (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') ||
     parsedUrl.username !== '' ||
@@ -2217,17 +2464,21 @@ function resolveRemoteMcpServer(
     protectedValues,
     { env, credentials },
   );
+
   const remoteConfig: McpRemoteServerConfig = {
     type: 'streamable-http',
     url: resolvedUrl,
   };
+
   if (headers !== undefined) {
     remoteConfig.headers = headers;
     protectedValues.push(...credentialHeaderValues(headers));
   }
+
   if (protectedValues.length > 0) {
     remoteConfig.protectedValues = Object.freeze([...new Set(protectedValues)]);
   }
+
   return remoteConfig;
 }
 
@@ -2241,6 +2492,7 @@ function resolveMcpServers(
   for (const [serverId, entry] of Object.entries(entries)) {
     const serverPath = `mcpServers.${serverId}`;
     const serverProbe = createMcpToolId(serverId, 'x');
+
     if (!serverProbe.success) {
       throw new InstanceConfigError(`${serverPath}: invalid server name`);
     }
@@ -2272,6 +2524,7 @@ function resolvePrivateMcpValue(
       // partially resolved secret into an operator log.
       throw new InstanceConfigError(`${configPath}: interpolation failed`);
     }
+
     throw error;
   }
 }
@@ -2289,10 +2542,13 @@ function resolveStdioServer(
   { env, credentials }: LoaderContext,
 ): McpStdioServerConfig {
   const protectedValues: Array<string> = [];
+
   const read = (raw: string, configPath: string, collect: boolean) => {
     const result = resolvePrivateMcpValue(raw, configPath, env);
     protectedValues.push(...result.substituted.map((token) => token.value));
+
     if (collect) credentials.addSubstitutions(result);
+
     return result.value;
   };
 
@@ -2302,6 +2558,7 @@ function resolveStdioServer(
   // empty, which it never gets to observe.
   const commandPath = `${serverPath}.command`;
   const command = read(entry.command, commandPath, false);
+
   if (command.length === 0) {
     throw new InstanceConfigError(`${commandPath}: must be a non-empty string`);
   }
@@ -2311,6 +2568,7 @@ function resolveStdioServer(
   );
 
   let childEnv: Record<string, string> | undefined;
+
   if (entry.env !== undefined) {
     // Null-prototype, as the header path is: the schema accepts any non-empty
     // variable name, and assigning `__proto__` into a normal object hits
@@ -2321,18 +2579,24 @@ function resolveStdioServer(
     // `Object.create`'s single-argument overload as `any`.
     childEnv = {};
     Object.setPrototypeOf(childEnv, null);
+
     for (const [name, raw] of Object.entries(entry.env)) {
       childEnv[name] = read(raw, `${serverPath}.env.${name}`, true);
     }
   }
 
   const config: McpStdioServerConfig = { type: 'stdio', command };
+
   if (args !== undefined) config.args = Object.freeze(args);
+
   if (childEnv !== undefined) config.env = Object.freeze(childEnv);
+
   if (entry.cwd !== undefined) config.cwd = entry.cwd;
+
   if (protectedValues.length > 0) {
     config.protectedValues = Object.freeze([...new Set(protectedValues)]);
   }
+
   return config;
 }
 
@@ -2341,20 +2605,24 @@ function assertMcpHeaderNames(
   rawHeaders: Record<string, string>,
 ): void {
   const namesByFold = new Map<string, string>();
+
   for (const name of Object.keys(rawHeaders)) {
     const headerPath = `${serverPath}.headers.${name}`;
     const folded = asciiCaseFold(name);
     const prior = namesByFold.get(folded);
+
     if (prior !== undefined) {
       throw new InstanceConfigError(
         `${serverPath}.headers.${prior} and ${headerPath}: header names collide under ASCII case-folding`,
       );
     }
+
     if (TRANSPORT_OWNED_MCP_HEADERS.has(folded)) {
       throw new InstanceConfigError(
         `${headerPath}: transport-owned header cannot be configured`,
       );
     }
+
     namesByFold.set(folded, name);
   }
 }
@@ -2371,6 +2639,7 @@ function resolveMcpHeaders(
   // Same null-prototype construction as `resolveStdioServer`'s `childEnv`.
   const headers: Record<string, string> = {};
   Object.setPrototypeOf(headers, null);
+
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
     const headerPath = `${serverPath}.headers.${name}`;
     const result = resolvePrivateMcpValue(rawValue, headerPath, env);
@@ -2379,13 +2648,16 @@ function resolveMcpHeaders(
     // of the untrimmed one, so redacting it covers both spellings.
     protectedValues.push(...substituted.map((secret) => secret.value.trim()));
     credentials.addSubstitutions(result);
+
     if (value.trim() === '') {
       throw new InstanceConfigError(
         `${headerPath}: must resolve to a non-empty string`,
       );
     }
+
     headers[name] = value;
   }
+
   return headers;
 }
 
@@ -2406,13 +2678,17 @@ function resolveMcpHeaders(
  */
 function resolveWorkerProfiles(raw: RawInstanceConfig | undefined) {
   const fileWorkers = raw?.workers;
+
   if (!fileWorkers) {
     return BUILT_IN_DEFAULTS.workers;
   }
+
   const merged = { ...BUILT_IN_DEFAULTS.workers };
+
   for (const [name, groups] of Object.entries(fileWorkers)) {
     merged[name] = { ...BUILT_IN_DEFAULTS.workers[name], ...groups };
   }
+
   return merged;
 }
 
@@ -2459,6 +2735,7 @@ function assertKnownProviderHeaderTokens(
   for (const match of raw.matchAll(PROVIDER_HEADER_TOKEN_PATTERN)) {
     const name = match[1];
     const body = match[2];
+
     if (
       name === 'env' ||
       name === 'path' ||
@@ -2466,6 +2743,7 @@ function assertKnownProviderHeaderTokens(
     ) {
       continue;
     }
+
     throw new InstanceConfigError(
       `${configPath}: unsupported interpolation token`,
     );
@@ -2477,16 +2755,19 @@ function assertProviderHeaderNames(
   headersPath: string,
 ): void {
   const namesByFold = new Map<string, string>();
+
   for (const name of Object.keys(rawHeaders)) {
     const headerPath = `${headersPath}.${name}`;
     assertValidProviderHeaderName(name, headerPath);
     const folded = asciiCaseFold(name);
     const prior = namesByFold.get(folded);
+
     if (prior !== undefined) {
       throw new InstanceConfigError(
         `${headersPath}.${prior} and ${headerPath}: header names collide under ASCII case-folding`,
       );
     }
+
     namesByFold.set(folded, name);
   }
 }
@@ -2499,12 +2780,15 @@ function resolveProviderHeaderValue(
 ): ReadonlyArray<string> {
   assertKnownProviderHeaderTokens(rawValue, configPath);
   const parts = rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN);
+
   const results = parts.map((part) =>
     resolveInterpolatedWithSubstitutions(part, configPath, env),
   );
+
   return results.map((result) => {
     credentials.addSubstitutions(result);
     const value = result.value;
+
     try {
       new Headers([[name, value]]);
     } catch {
@@ -2512,6 +2796,7 @@ function resolveProviderHeaderValue(
         `${configPath}: resolved value is not a valid header value`,
       );
     }
+
     return value;
   });
 }
@@ -2533,6 +2818,7 @@ function resolveProviderHeaders(
   const operatorNames = new Set(
     Object.keys(rawHeaders ?? {}).map(asciiCaseFold),
   );
+
   for (const [name, value] of Object.entries(DEFAULT_PROVIDER_HEADERS[type])) {
     if (!operatorNames.has(asciiCaseFold(name))) {
       headers[name] = value;
@@ -2540,9 +2826,11 @@ function resolveProviderHeaders(
   }
 
   if (rawHeaders === undefined) return headers;
+
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
     if (rawValue === null) continue;
     const configPath = `${headersPath}.${name}`;
+
     if (
       (type === 'system-one' || type === 'cohere-rerank') &&
       rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN).length > 1
@@ -2551,6 +2839,7 @@ function resolveProviderHeaders(
         `${configPath}: a ${type} provider has no Chat session, so {session:id} is not allowed`,
       );
     }
+
     headers[name] = resolveProviderHeaderValue(rawValue, name, configPath, {
       env,
       credentials,
@@ -2573,6 +2862,7 @@ function resolveProviders(
         `providers: duplicate provider id "${entry.id}"`,
       );
     }
+
     seenIds.add(entry.id);
 
     switch (entry.type) {
@@ -2806,6 +3096,7 @@ function resolveCohereRerankProvider(
     raw: entry.baseUrl,
     env,
   });
+
   const key = resolveNullableString({
     configPath: `providers[${entry.id}].key`,
     present: entry.key !== undefined,
@@ -2813,11 +3104,13 @@ function resolveCohereRerankProvider(
     env,
     onResolved: credentials.onSecret,
   });
+
   if (key === null && baseUrl === null) {
     throw new InstanceConfigError(
       `providers[${entry.id}].key: must resolve to a nonblank string unless baseUrl is set`,
     );
   }
+
   return {
     id: entry.id,
     type: entry.type,
@@ -2850,11 +3143,13 @@ function requireNonBlankString(
     env,
     onResolved,
   });
+
   if (value === null) {
     throw new InstanceConfigError(
       `${configPath}: must resolve to a nonblank string`,
     );
   }
+
   return value;
 }
 
@@ -2874,12 +3169,15 @@ function resolveOptionalNonBlankString(opts: {
   onResolved?: (result: InterpolationResult) => void;
 }): string | null {
   const { configPath, raw, env, onResolved } = opts;
+
   if (raw === undefined || raw === null) {
     return null;
   }
+
   if (!isString(raw)) {
     throw new InstanceConfigError(`${configPath}: must be a string`);
   }
+
   return requireNonBlankString(configPath, raw, env, onResolved);
 }
 
@@ -2923,8 +3221,10 @@ function resolveOptionalModelNumber(
   env: NodeJS.ProcessEnv,
 ): number | undefined {
   const raw = entry[field];
+
   if (raw === undefined) return undefined;
   const configPath = `models[${entry.id}].${field}`;
+
   return requireResolvedNumber(
     resolveNumeric({
       configPath,
@@ -2953,12 +3253,16 @@ function resolveProviderOptions(
   entry: RawModelEntry,
 ): ProviderOptionRecord | undefined {
   const raw = entry.providerOptions;
+
   if (raw === undefined) return undefined;
   const configPath = `models[${entry.id}].providerOptions`;
+
   if (!isProviderOptionRecord(raw)) {
     throw new InstanceConfigError(`${configPath}: must be a JSON object`);
   }
+
   assertNoInterpolationSyntax(raw, configPath);
+
   return raw;
 }
 
@@ -2974,14 +3278,18 @@ function assertNoInterpolationSyntax(value: unknown, configPath: string): void {
         `${configPath}: provider options must not contain {env:...}/{path:...} interpolation syntax`,
       );
     }
+
     return;
   }
+
   if (Array.isArray(value)) {
     for (const item of value) {
       assertNoInterpolationSyntax(item, configPath);
     }
+
     return;
   }
+
   if (isRecord(value)) {
     for (const nested of Object.values(value)) {
       assertNoInterpolationSyntax(nested, configPath);
@@ -2994,24 +3302,30 @@ function assertValidModelEntry(
   context: ModelResolutionContext,
 ): ProviderConfig {
   const { providersById, seenIds } = context;
+
   if (seenIds.has(entry.id)) {
     throw new InstanceConfigError(`models: duplicate model id "${entry.id}"`);
   }
+
   seenIds.add(entry.id);
 
   const provider = providersById.get(entry.provider);
+
   if (!provider) {
     throw new InstanceConfigError(
       `models[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
     );
   }
+
   if (provider.type === 'system-one' || provider.type === 'cohere-rerank') {
     const serves =
       provider.type === 'cohere-rerank' ? 'rerankModels[]' : 'decisionModels[]';
+
     throw new InstanceConfigError(
       `models[${entry.id}].provider: provider "${entry.provider}" has type "${provider.type}", which serves ${serves} only`,
     );
   }
+
   return provider;
 }
 
@@ -3088,12 +3402,14 @@ function buildModelCatalogEntry(
   provider: ProviderConfig,
 ): SystemModelCatalogEntry {
   const { env, promptLoader } = context;
+
   const {
     reasoning,
     contextWindowTokens,
     compactionThresholdTokens,
     maxOutputTokens,
   } = resolveModelScalars(entry, env);
+
   const prompt = promptLoader.resolve({
     id: entry.id,
     ...(entry.name !== undefined && { name: entry.name }),
@@ -3148,12 +3464,14 @@ function resolveModels(
   promptLoader: ReturnType<typeof createModelPromptLoader>,
 ): Array<SystemModelCatalogEntry> {
   const entries = raw?.models ?? [];
+
   const context: ModelResolutionContext = {
     env,
     providersById,
     promptLoader,
     seenIds: new Set<string>(),
   };
+
   return entries.map((entry) => resolveModelEntry(entry, context));
 }
 
@@ -3177,17 +3495,21 @@ function resolveEffortLevel(
       `models[${modelId}].reasoning.effortLevels[${index}]: must not be blank`,
     );
   }
+
   if (label !== undefined && label.trim() === '') {
     throw new InstanceConfigError(
       `models[${modelId}].reasoning.effortLevels[${index}].label: must not be blank`,
     );
   }
+
   if (seen.has(value)) {
     throw new InstanceConfigError(
       `models[${modelId}].reasoning.effortLevels[${index}]: duplicate value "${value}"`,
     );
   }
+
   seen.add(value);
+
   return isString(item)
     ? { value: item }
     : { value: item.value, label: item.label };
@@ -3212,6 +3534,7 @@ function resolveModelReasoning(
   }
 
   const seen = new Set<string>();
+
   const effortLevels = raw.effortLevels.map((item, index) =>
     resolveEffortLevel(modelId, index, item, seen),
   );
@@ -3251,14 +3574,17 @@ function resolveEmbeddingModels(
         `embeddingModels: duplicate embedding model id "${entry.id}"`,
       );
     }
+
     seenIds.add(entry.id);
 
     const provider = providersById.get(entry.provider);
+
     if (!provider) {
       throw new InstanceConfigError(
         `embeddingModels[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
       );
     }
+
     if (
       provider.type !== 'openai-responses' &&
       provider.type !== 'openai-completions'
@@ -3296,12 +3622,14 @@ function resolveSearchConfig(
     ...readLeaf(raw?.search, 'chats', 'embeddingModelId'),
     env,
   });
+
   assertReferencesCatalog(
     'search.chats.embeddingModelId',
     chatsEmbeddingModelId,
     embeddingModelIds,
     'embeddingModels[].id',
   );
+
   return {
     chats: { embeddingModelId: chatsEmbeddingModelId },
   };

@@ -29,20 +29,25 @@ export class RepositoriesService {
     input: { readonly displayName: string; readonly remote?: string | null },
   ): Promise<Repository> {
     const problem = displayNameProblem(input.displayName);
+
     if (problem !== null) throw invalidDisplayName(problem);
     const canonicalRemote = normalizeRemote(input.remote ?? '') || null;
+
     const created = await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
       await this.claimRemote(repository, ownerUserId, canonicalRemote);
+
       return repository.createRepository({
         ownerUserId,
         displayName: input.displayName,
         canonicalRemote,
       });
     });
+
     // The unique key decides, so a concurrent claim of the same remote lands
     // here as the same conflict as a sequential one.
     if (created === undefined) throw remoteTaken(canonicalRemote);
+
     return created;
   }
 
@@ -62,7 +67,9 @@ export class RepositoriesService {
     // An omitted remote is not part of the patch at all: nothing to claim.
     if (canonicalRemote === undefined) return;
     await repository.lockRemoteClaim(ownerUserId, canonicalRemote);
+
     if (canonicalRemote === null) return;
+
     if (
       (await repository.findRepositoryByAlias(ownerUserId, canonicalRemote)) !==
       undefined
@@ -78,17 +85,22 @@ export class RepositoriesService {
   ): Promise<Repository> {
     if (patch.displayName !== undefined) {
       const problem = displayNameProblem(patch.displayName);
+
       if (problem !== null) throw invalidDisplayName(problem);
     }
+
     const canonicalRemote =
       patch.remote === undefined
         ? undefined
         : normalizeRemote(patch.remote ?? '') || null;
+
     let updated: Repository | undefined;
+
     try {
       updated = await this.tenantDb.runAs(ownerUserId, async (tx) => {
         const repository = new RepositoriesRepository(tx);
         await this.claimRemote(repository, ownerUserId, canonicalRemote);
+
         return repository.updateRepository(ownerUserId, repositoryId, {
           ...(patch.displayName !== undefined && {
             displayName: patch.displayName,
@@ -101,7 +113,9 @@ export class RepositoriesService {
         throw remoteTaken(canonicalRemote ?? null);
       throw error;
     }
+
     if (updated === undefined) throw notFound();
+
     return updated;
   }
 
@@ -111,6 +125,7 @@ export class RepositoriesService {
   ): Promise<void> {
     await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
+
       // The rows point at directories that only the guarded worktree removal
       // may delete, so a cascade here would leave them unreachable.
       if (
@@ -118,10 +133,12 @@ export class RepositoriesService {
       ) {
         throw worktreesPresent();
       }
+
       const deleted = await repository.deleteRepository(
         ownerUserId,
         repositoryId,
       );
+
       if (!deleted) throw notFound();
     });
   }
@@ -132,21 +149,25 @@ export class RepositoriesService {
     remote: string,
   ): Promise<RepositoryAlias> {
     const canonicalAlias = normalizeRemote(remote);
+
     if (canonicalAlias === '') {
       throw repositoryFailure(
         'invalid_remote',
         'A repository alias must be a remote.',
       );
     }
+
     const alias = await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
       await repository.lockRemoteClaim(ownerUserId, canonicalAlias);
+
       if (
         (await repository.findRepository(ownerUserId, repositoryId)) ===
         undefined
       ) {
         throw notFound();
       }
+
       // A canonical remote already names its repository, so no alias may name
       // that remote: the readers resolve a canonical remote first, and the
       // declared alias would select nothing.
@@ -158,13 +179,16 @@ export class RepositoriesService {
       ) {
         throw remoteTaken(canonicalAlias);
       }
+
       return repository.declareAlias({
         ownerUserId,
         repositoryId,
         canonicalAlias,
       });
     });
+
     if (alias === undefined) throw aliasTaken();
+
     return alias;
   }
 }

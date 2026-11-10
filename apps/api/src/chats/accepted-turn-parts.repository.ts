@@ -48,19 +48,25 @@ export class AcceptedTurnPartsRepository {
     removeModelSwitch: boolean;
   }): Promise<{ applied: boolean }> {
     const parts = await lockParts(this.db, input);
+
     if (parts === undefined) return { applied: false };
+
     const kept = input.removeModelSwitch
       ? parts.filter((part) => !isModelSwitchItem(part))
       : parts;
+
     if (kept.length === parts.length && input.items.length === 0) {
       return { applied: true };
     }
+
     const placed = placeAcceptedTurnItems(kept, input.items, input.placement);
+
     const [updated] = await this.db
       .update(messages)
       .set({ parts: placed })
       .where(messageOwner(input))
       .returning({ id: messages.id });
+
     return { applied: updated !== undefined };
   }
 }
@@ -91,15 +97,20 @@ export function placeAcceptedTurnItems(
   placement: AcceptedTurnPlacement,
 ): Array<unknown> {
   const placed: Array<unknown> = [...parts];
+
   if (placement === 'append') {
     placed.splice(placed.findLastIndex(isContextItemPart) + 1, 0, ...items);
+
     return placed;
   }
+
   for (const item of items) {
     const rank = CONTEXT_ITEM_PRODUCERS.findIndex(
       (known) => known === item.data.producer,
     );
+
     placed.splice(railInsertionIndex(placed, rank), 0, item);
   }
+
   return placed;
 }

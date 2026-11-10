@@ -10,8 +10,10 @@ import {
 import { createDevtoAdapter } from './adapter';
 
 const adapter = createDevtoAdapter({ id: 'devto', use: 'devto' });
+
 const ARTICLE_URL =
   'https://dev.to/lydiahallie/javascript-visualized-promises-5gke';
+
 const API_URL =
   'https://dev.to/api/articles/lydiahallie/javascript-visualized-promises-5gke';
 
@@ -37,6 +39,7 @@ async function read(
 ) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
@@ -131,6 +134,7 @@ describe('dev.to adapter read', () => {
       body_markdown: 'Text',
       user: { name: 'Lydia Hallie' },
     };
+
     const content = [
       '# Bare',
       '',
@@ -143,6 +147,7 @@ describe('dev.to adapter read', () => {
     const nulls = await read([
       [API_URL, response({ ...bare, description: null, published_at: null })],
     ]);
+
     const blanks = await read([
       [API_URL, response({ ...bare, description: ' \n ', tags: [] })],
     ]);
@@ -157,6 +162,7 @@ describe('dev.to adapter read', () => {
       message: 'HTTP 404',
       httpStatus: 404,
     };
+
     const throttled: WebFetchFailure = {
       type: 'http_status',
       message: 'HTTP 429',

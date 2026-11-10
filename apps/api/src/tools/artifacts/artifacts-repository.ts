@@ -88,6 +88,7 @@ export class ArtifactsRepository {
       .set({ artifactSeq: sql`${chats.artifactSeq} + 1` })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning({ seq: chats.artifactSeq });
+
     return row?.seq;
   }
 
@@ -98,6 +99,7 @@ export class ArtifactsRepository {
       .insert(toolArtifacts)
       .values(artifact)
       .returning({ id: toolArtifacts.id, createdAt: toolArtifacts.createdAt });
+
     return row;
   }
 
@@ -163,8 +165,11 @@ export class ArtifactsRepository {
         ),
       )
       .orderBy(asc(toolArtifactParts.name));
+
     const [first] = rows;
+
     if (first === undefined) return undefined;
+
     return {
       createdAt: first.createdAt,
       parts: rows.map(({ name, lineCount, byteSize }) => ({
@@ -202,6 +207,7 @@ export class ArtifactsRepository {
           eq(toolArtifactParts.name, name),
         ),
       );
+
     return row;
   }
 

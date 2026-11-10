@@ -63,6 +63,7 @@ export function stubArtifactWrites() {
     id: 'artifact-1',
     createdAt: new Date('2026-11-05T00:00:00.000Z'),
   });
+
   return vi
     .spyOn(ArtifactsRepository.prototype, 'insertParts')
     .mockResolvedValue(undefined);
@@ -74,6 +75,7 @@ export function expectRedacted(
   members: ReadonlyArray<string>,
 ): void {
   expect(text).toContain('[REDACTED]');
+
   for (const member of members) expect(text).not.toContain(member);
 }
 
@@ -95,10 +97,13 @@ export function asDouble<T>(value: object): T {
 /** Extracts the llame session cookie pair from a response, or '' when absent. */
 export const cookieOf = (res: request.Response): string => {
   const set = res.get('Set-Cookie') ?? [];
+
   for (const c of set) {
     const m = /llame_session=([^;]+)/.exec(c);
+
     if (m) return `llame_session=${m[1]}`;
   }
+
   return '';
 };
 
@@ -156,12 +161,16 @@ export async function waitFor<T>(
   what: string,
 ): Promise<T> {
   const started = Date.now();
+
   for (;;) {
     const value = await poll();
+
     if (value !== undefined) return value;
+
     if (Date.now() - started > timeoutMs) {
       throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}`);
     }
+
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
@@ -213,16 +222,20 @@ function collectSseFrames(
     trailing += chunk;
     const complete = trailing.split('\n\n');
     trailing = complete.pop() ?? '';
+
     for (const frame of complete) {
       frames.push(...parseSseEvents(`${frame}\n\n`));
     }
   });
+
   const markEnded = () => {
     ended = true;
   };
+
   res.on('end', markEnded);
   res.on('close', markEnded);
   res.on('error', markEnded);
+
   return () => ended;
 }
 
@@ -234,6 +247,7 @@ function readSseFrames(
   const frames: Array<unknown> = [];
   const hasEnded = collectSseFrames(res, frames);
   let returned = 0;
+
   return {
     status: res.statusCode ?? 0,
     nextFrame: (what, timeoutMs = 15_000) =>
@@ -242,9 +256,11 @@ function readSseFrames(
           if (returned < frames.length) {
             return uiStreamFrame.parse(frames[returned++]);
           }
+
           if (hasEnded()) {
             throw new Error(`SSE stream ended before ${what}`);
           }
+
           return undefined;
         },
         timeoutMs,
@@ -270,11 +286,14 @@ export function openSseStream(options: {
   body?: UnknownRecord;
 }): Promise<IncrementalSseResponse> {
   const address = options.server.address();
+
   if (address === null || isString(address)) {
     throw new Error('openSseStream needs a TCP-listening server');
   }
+
   const payload =
     options.body === undefined ? undefined : JSON.stringify(options.body);
+
   return new Promise((resolve, reject) => {
     const req = httpRequest({
       host: '127.0.0.1',
@@ -290,11 +309,14 @@ export function openSseStream(options: {
         }),
       },
     });
+
     req.on('error', reject);
     req.on('response', (res) => resolve(readSseFrames(req, res)));
+
     if (payload !== undefined) {
       req.write(payload);
     }
+
     req.end();
   });
 }
@@ -322,12 +344,14 @@ export function expectTemporalRow(
   const rows = parts
     .filter(isContextItemPart)
     .filter((part) => part.data.producer === 'temporal');
+
   expect(rows).toHaveLength(1);
   expect(isTemporalPayload(rows[0].data.payload)).toBe(true);
   expect(rows[0].data.form).toBe('snapshot');
   expect(rows[0].data.text).toMatch(
     /^<system-reminder producer="temporal" form="snapshot">[\s\S]+<\/system-reminder>$/u,
   );
+
   if (runId !== undefined) expect(rows[0].data.runId).toBe(runId);
 }
 
@@ -338,6 +362,7 @@ function parseMessagePartAssertions(
     if (!isRecord(part)) {
       throw new TypeError('Expected a message part object');
     }
+
     return part;
   });
 }
@@ -345,6 +370,7 @@ function parseMessagePartAssertions(
 function withoutContextText(part: UnknownRecord): UnknownRecord {
   if (!isContextItemPart(part) || part.data.text === undefined) return part;
   const { text: _text, ...data } = part.data;
+
   return { ...part, data };
 }
 
@@ -371,6 +397,7 @@ export function contentBlockTexts(
   content: ModelMessage['content'],
 ): Array<string> {
   if (isString(content)) return [content];
+
   return content.map((block) =>
     isRecord(block) && isString(block['text']) ? block['text'] : '',
   );

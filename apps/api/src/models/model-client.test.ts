@@ -36,6 +36,7 @@ import { createAssistantPartCollector } from '../runs/assistant-transcript';
 const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
   partial: true,
 });
+
 const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
   partial: true,
 });
@@ -103,6 +104,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     // The Responses client calls the provider itself (openai(model)) — its
     // Responses entry point. No Chat Completions path exists here.
     const openaiProvider = responsesProviderMock(providerModel);
@@ -112,6 +114,7 @@ describe('ModelClient', () => {
     const credential = await resolveModelCredential('user-1', (userId) =>
       userId === 'user-1' ? 'sk-user-supplied' : null,
     );
+
     const client = createOpenAIModelClient(
       {
         credential,
@@ -166,6 +169,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-local',
     });
+
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
@@ -180,6 +184,7 @@ describe('ModelClient', () => {
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
+
     client.streamText({ chat: CHAT, messages });
 
     expect(client).toMatchObject({
@@ -209,6 +214,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     // The Responses wire is served at the entry's baseUrl (design D1). The
     // Chat Completions entry point returns its own model, so a request
     // rerouted through it is observable in what `streamText` receives.
@@ -221,6 +227,7 @@ describe('ModelClient', () => {
           }),
       ),
     });
+
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
@@ -236,6 +243,7 @@ describe('ModelClient', () => {
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
+
     client.streamText({ chat: CHAT, messages });
 
     expect(client).toMatchObject({
@@ -258,6 +266,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
@@ -267,6 +276,7 @@ describe('ModelClient', () => {
       cachedInputUsdPer1M: 0.25,
       outputUsdPer1M: 4,
     };
+
     const client = createOpenAIModelClient(
       {
         credential: 'sk-user-supplied',
@@ -297,6 +307,7 @@ describe('ModelClient', () => {
           }),
         ),
       );
+
       return createOpenAIModelClient(
         {
           credential: 'sk-user-supplied',
@@ -325,6 +336,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
@@ -340,6 +352,7 @@ describe('ModelClient', () => {
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
+
     client.streamText({ chat: CHAT, messages });
 
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
@@ -358,6 +371,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     // `onChunk` is called for deltas alone, so it never sees a part's start or
@@ -393,6 +407,7 @@ describe('ModelClient', () => {
     });
 
     const onReasoningDelta = vi.fn();
+
     const client = createOpenAIModelClient(
       {
         credential: 'sk-user-supplied',
@@ -404,6 +419,7 @@ describe('ModelClient', () => {
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
+
     client.streamText({ chat: CHAT, messages, onReasoningDelta });
 
     await vi.waitFor(() => expect(onReasoningDelta).toHaveBeenCalledTimes(3));
@@ -430,6 +446,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     // Two Responses `message` items and one function call, exactly as the
@@ -473,6 +490,7 @@ describe('ModelClient', () => {
 
     const collector = createAssistantPartCollector();
     const onToolCallMetadata = vi.fn();
+
     const client = createOpenAIModelClient(
       {
         credential: 'sk-user-supplied',
@@ -484,6 +502,7 @@ describe('ModelClient', () => {
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
+
     client.streamText({
       chat: CHAT,
       messages,
@@ -518,6 +537,7 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     // A reasoning item with no summary delta: its start and end are the whole
@@ -548,6 +568,7 @@ describe('ModelClient', () => {
     });
 
     const collector = createAssistantPartCollector();
+
     const client = createOpenAIModelClient(
       {
         credential: 'sk-user-supplied',
@@ -559,6 +580,7 @@ describe('ModelClient', () => {
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
+
     client.streamText({
       chat: CHAT,
       messages,
@@ -590,9 +612,11 @@ describe('ModelClient', () => {
         provider: 'openai.responses',
         modelId: 'gpt-test',
       });
+
       const openaiProvider = responsesProviderMock(providerModel);
       createOpenAIMock.mockReturnValue(openaiProvider);
       streamTextMock.mockReturnValue({});
+
       return createOpenAIModelClient(
         {
           credential: 'sk-user-supplied',
@@ -672,9 +696,11 @@ describe('ModelClient', () => {
         provider: 'openai.responses',
         modelId: 'gpt-test',
       });
+
       const openaiProvider = responsesProviderMock(providerModel);
       createOpenAIMock.mockReturnValue(openaiProvider);
       streamTextMock.mockReturnValue({});
+
       return createOpenAIModelClient(
         {
           credential: 'sk-user-supplied',
@@ -693,6 +719,7 @@ describe('ModelClient', () => {
       const client = build({
         providerOptions: { reasoningSummary: 'concise' },
       });
+
       client.streamText({ chat: CHAT, messages });
 
       expect(streamTextMock).toHaveBeenCalledWith(
@@ -712,6 +739,7 @@ describe('ModelClient', () => {
         reasoningDeclared: true,
         providerOptions: { forceReasoning: false },
       });
+
       client.streamText({ chat: CHAT, messages });
 
       expect(streamTextMock).toHaveBeenCalledWith(
@@ -809,6 +837,7 @@ describe('ModelClient', () => {
         const client = build({
           providerOptions: { [key]: value, vendorNote: 'kept' },
         });
+
         client.streamText({ chat: CHAT, messages });
 
         expect(streamTextMock).toHaveBeenCalledWith(
@@ -851,7 +880,9 @@ describe('ModelClient', () => {
             { headers: { 'content-type': 'text/event-stream' } },
           ),
         );
+
       const onError = vi.fn<StreamTextOnErrorCallback>();
+
       const client = createOpenAIModelClient({
         credential: 'sk-user-supplied',
         providerModelId: 'gpt-test',
@@ -916,9 +947,11 @@ describe('ModelClient', () => {
               warnings: [],
             }),
         });
+
         const openaiProvider = responsesProviderMock(providerModel);
         createOpenAIMock.mockReturnValue(openaiProvider);
         streamTextMock.mockReturnValue({});
+
         const client = createOpenAIModelClient(
           {
             credential: 'sk-user-supplied',
@@ -931,6 +964,7 @@ describe('ModelClient', () => {
           },
           { createOpenAI: createOpenAIMock, streamText: streamTextMock },
         );
+
         return { providerModel, client };
       }
 
@@ -940,6 +974,7 @@ describe('ModelClient', () => {
         overrides: Partial<Parameters<typeof createOpenAIModelClient>[0]> = {},
       ) {
         const { providerModel, client } = objectClient(overrides);
+
         if (!client.generateObject) {
           throw new Error(
             'the Responses model client must expose generateObject',
@@ -953,6 +988,7 @@ describe('ModelClient', () => {
             schema: z.object({ title: z.string() }),
           }),
         ).resolves.toEqual({ title: 'A title' });
+
         return providerModel.doGenerateCalls[0];
       }
 
@@ -1063,6 +1099,7 @@ describe('ModelClient', () => {
             ),
           ),
         );
+
         const client = createOpenAIModelClient({
           credential: 'sk-test',
           providerModelId: 'gpt-test',
@@ -1072,6 +1109,7 @@ describe('ModelClient', () => {
           requestHeaders: {},
           fetch: fetchMock,
         });
+
         if (!client.generateObject) {
           throw new Error(
             'the Responses model client must expose generateObject',
@@ -1087,7 +1125,9 @@ describe('ModelClient', () => {
         ).resolves.toEqual({ title: 'A title' });
 
         const [request, init] = fetchMock.mock.calls[0] ?? [];
+
         if (request === undefined) throw new Error('no request was sent');
+
         const body: unknown = JSON.parse(
           await new Request(request, init).text(),
         );
@@ -1132,6 +1172,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
       .mockImplementation(() => Promise.resolve(responsesStream()));
+
     const client = createOpenAIModelClient({
       credential: 'sk-test',
       providerModelId: 'gpt-test',
@@ -1141,6 +1182,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
       requestHeaders,
       fetch: fetchMock,
     });
+
     return { client, fetchMock };
   }
 
@@ -1177,12 +1219,15 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
           warnings: [],
         }),
     });
+
     // The same partial DI mock the suite uses elsewhere: a bare callable is
     // not assignable to the SDK's full provider type.
     const createOpenAIStub = vi.mocked(vi.fn<typeof createOpenAI>(), {
       partial: true,
     });
+
     createOpenAIStub.mockReturnValue(responsesProviderMock(providerModel));
+
     const client = createOpenAIModelClient(
       {
         credential: 'sk-test',
@@ -1194,6 +1239,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
       },
       { createOpenAI: createOpenAIStub, streamText },
     );
+
     if (!client.generateObject) {
       throw new Error('the Responses model client must expose generateObject');
     }
@@ -1284,6 +1330,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
       body: init?.body,
       headers: Object.fromEntries(new Headers(init?.headers).entries()),
     }));
+
     expect(requests).toHaveLength(2);
     expect(requests[0]).toEqual(requests[1]);
     expect(JSON.stringify(requests)).not.toContain(chatId);
@@ -1299,6 +1346,7 @@ describe('model-client input contracts — the Chat identity is required (design
   it('omitting the Chat identity does not compile on either input contract', () => {
     // @ts-expect-error — `chat` is a required field on ModelStreamInput.
     const streamInput: ModelStreamInput = { messages };
+
     // @ts-expect-error — `chat` is a required field on ModelObjectInput.
     const objectInput: ModelObjectInput<{ title: string }> = {
       messages,

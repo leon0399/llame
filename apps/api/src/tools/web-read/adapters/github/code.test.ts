@@ -26,7 +26,9 @@ function failure(
     message: `The server answered HTTP ${httpStatus}.`,
     httpStatus,
   };
+
   if (rateLimit !== undefined) return { ...result, rateLimit };
+
   return result;
 }
 
@@ -34,6 +36,7 @@ function blobResponse(content: string, size?: number): WebResponse {
   const bytes = Buffer.from(content);
   const encoded = bytes.toString('base64');
   const wrapped = encoded.match(/.{1,60}/gu)?.join('\n') ?? '';
+
   return response({
     content: wrapped,
     encoding: 'base64',
@@ -44,6 +47,7 @@ function blobResponse(content: string, size?: number): WebResponse {
 function treeResponse(entries: ReadonlyArray<JsonObject>): WebResponse {
   return response({ tree: entries });
 }
+
 function changedFile(index: number): JsonObject {
   return {
     filename: `src/file-${index}.ts`,
@@ -70,20 +74,26 @@ async function readGithub(
   routes: ReadonlyMap<string, ReadonlyArray<Reply>>,
 ) {
   const run = scriptedIo(routes);
+
   const outcome = await createGithubAdapter(config(), {
     apiOrigin: API_ORIGIN,
   }).read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map(({ url }) => url) };
 }
+
 function renderedContent(
   outcome: Awaited<ReturnType<ReturnType<typeof createGithubAdapter>['read']>>,
 ): string {
   if (outcome.kind !== 'rendered') throw new Error('expected rendered outcome');
+
   return outcome.content;
 }
+
 describe('GitHub code adapter', () => {
   it('fetches a Markdown blob once and preserves exact UTF-8 text', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/README.md?ref=main`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/main/README.md',
       new Map([[url, [blobResponse('one\ntwo\n')]]]),
@@ -121,7 +131,9 @@ describe('GitHub code adapter', () => {
         size === undefined
           ? { content, encoding }
           : { content, encoding, size };
+
       const url = `${API_ORIGIN}/repos/acme/project/contents/file.bin?ref=main`;
+
       const { outcome } = await readGithub(
         'https://github.com/acme/project/blob/main/file.bin',
         new Map([[url, [response(payload)]]]),
@@ -133,6 +145,7 @@ describe('GitHub code adapter', () => {
 
   it('classifies a declared oversized blob before decoding', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/large.bin?ref=main`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/blob/main/large.bin',
       new Map([
@@ -192,6 +205,7 @@ describe('GitHub code adapter', () => {
   it('does not fetch after a request context has halted', async () => {
     const halted = failure(500);
     const fetch = vi.fn(() => Promise.resolve(response({})));
+
     const result = await requestJson('https://api.github.test', {
       io: { fetch },
       init: {},
@@ -206,6 +220,7 @@ describe('GitHub code adapter', () => {
 
   it('accepts a blob declared exactly at the document size bound', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/file.ts?ref=main`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/blob/main/file.ts',
       new Map([
@@ -227,6 +242,7 @@ describe('GitHub code adapter', () => {
 
   it('accepts an empty zero-sized blob', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/empty.ts?ref=main`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/blob/main/empty.ts',
       new Map([
@@ -243,6 +259,7 @@ describe('GitHub code adapter', () => {
     { label: 'invalid suffix', content: 'QUJD!!' },
   ])('rejects base64 with an $label', async ({ content }) => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/file.bin?ref=main`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/blob/main/file.bin',
       new Map([[url, [response({ content, encoding: 'base64' })]]]),
@@ -252,6 +269,7 @@ describe('GitHub code adapter', () => {
   });
   it('ignores whitespace while decoding base64', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/file.ts?ref=main`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/blob/main/file.ts',
       new Map([[url, [response({ content: 'QU\nJD', encoding: 'base64' })]]]),
@@ -264,6 +282,7 @@ describe('GitHub code adapter', () => {
     const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
     const lookup = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/feature/foo/src/a.ts',
       new Map([
@@ -290,6 +309,7 @@ describe('GitHub code adapter', () => {
     const heads = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const tags = `${API_ORIGIN}/repos/acme/project/git/matching-refs/tags/feature`;
     const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/feature/foo/src/a.ts',
       new Map([
@@ -308,6 +328,7 @@ describe('GitHub code adapter', () => {
     const heads = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const tags = `${API_ORIGIN}/repos/acme/project/git/matching-refs/tags/feature`;
     const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/feature/foo/src/a.ts',
       new Map([
@@ -326,6 +347,7 @@ describe('GitHub code adapter', () => {
     const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
     const lookup = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/feature/foo/src/a.ts',
       new Map([
@@ -350,6 +372,7 @@ describe('GitHub code adapter', () => {
     const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
     const lookup = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/feature/foo/src/a.ts',
       new Map([
@@ -375,6 +398,7 @@ describe('GitHub code adapter', () => {
     const initial = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature`;
     const heads = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const tags = `${API_ORIGIN}/repos/acme/project/git/matching-refs/tags/feature`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/feature/src/a.ts',
       new Map([
@@ -390,6 +414,7 @@ describe('GitHub code adapter', () => {
 
   it('keeps the first successful ref when a tag shadows a branch', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/x/README.md?ref=v1`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/blob/v1/x/README.md',
       new Map([[url, [blobResponse('tag wins')]]]),
@@ -402,6 +427,7 @@ describe('GitHub code adapter', () => {
   it('uses a forty-character SHA without matching-ref lookups', async () => {
     const sha = '0123456789abcdef0123456789abcdef01234567';
     const url = `${API_ORIGIN}/repos/acme/project/contents/file.ts?ref=${sha}`;
+
     const { outcome, urls } = await readGithub(
       `https://github.com/acme/project/blob/${sha}/file.ts`,
       new Map([[url, [blobResponse('sha')]]]),
@@ -413,6 +439,7 @@ describe('GitHub code adapter', () => {
 
   it('returns status when a tree ref has no path left to split', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main?recursive=1`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/tree/main',
       new Map([[url, [failure(404)]]]),
@@ -423,6 +450,7 @@ describe('GitHub code adapter', () => {
 
   it('fetches a tree once and passes relative entries to the renderer', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/tree/main/apps',
       new Map([
@@ -459,6 +487,7 @@ describe('GitHub code adapter', () => {
   });
   it('returns parse when a tree response has no tree array', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/tree/main/apps',
       new Map([[url, [response({})]]]),
@@ -470,10 +499,12 @@ describe('GitHub code adapter', () => {
   it('renders a tree with more than the traversal budget', async () => {
     const source = 'https://github.com/acme/project/tree/main/apps';
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
+
     const entries = Array.from(
       { length: DIRECTORY_TRAVERSAL_BUDGET + 1 },
       (_, index) => ({ path: `file-${index}`, type: 'blob' }),
     );
+
     const { outcome } = await readGithub(
       source,
       new Map([[url, [treeResponse(entries)]]]),
@@ -482,6 +513,7 @@ describe('GitHub code adapter', () => {
     if (outcome.kind !== 'rendered' || outcome.directory === undefined) {
       throw new Error('expected rendered directory');
     }
+
     expect(outcome.directory.displayPath).toBe(source);
     expect(outcome.directory.entries).toHaveLength(
       DIRECTORY_TRAVERSAL_BUDGET + 1,
@@ -498,6 +530,7 @@ describe('GitHub code adapter', () => {
 
   it('encodes each tree path segment while preserving separators', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:src/nested?recursive=1`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project/tree/main/src/nested',
       new Map([[url, [treeResponse([])]]]),
@@ -512,6 +545,7 @@ describe('GitHub code adapter', () => {
 
   it('falls through when the tree response exceeds the body bound', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main?recursive=1`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project/tree/main',
       new Map([
@@ -533,6 +567,7 @@ describe('GitHub code adapter', () => {
     const repository = `${API_ORIGIN}/repos/acme/project`;
     const tree = `${repository}/git/trees/main?recursive=1`;
     const readme = `${repository}/readme`;
+
     const { outcome, urls } = await readGithub(
       'https://github.com/acme/project',
       new Map([
@@ -576,10 +611,12 @@ describe('GitHub code adapter', () => {
     const repository = `${API_ORIGIN}/repos/acme/project`;
     const tree = `${repository}/git/trees/main?recursive=1`;
     const readme = `${repository}/readme`;
+
     const entries = Array.from({ length: 10_001 }, (_, index) => ({
       path: `file-${index}`,
       type: 'blob',
     }));
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project',
       new Map([
@@ -612,6 +649,7 @@ describe('GitHub code adapter', () => {
     const repository = `${API_ORIGIN}/repos/acme/project`;
     const tree = `${repository}/git/trees/main?recursive=1`;
     const readme = `${repository}/readme`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project',
       new Map([
@@ -643,6 +681,7 @@ describe('GitHub code adapter', () => {
     const repository = `${API_ORIGIN}/repos/acme/project`;
     const tree = `${repository}/git/trees/main?recursive=1`;
     const readme = `${repository}/readme`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project',
       new Map([
@@ -672,6 +711,7 @@ describe('GitHub code adapter', () => {
     const repository = `${API_ORIGIN}/repos/acme/project`;
     const tree = `${repository}/git/trees/main?recursive=1`;
     const readme = `${repository}/readme`;
+
     const { outcome } = await readGithub(
       'https://github.com/acme/project',
       new Map([
@@ -707,6 +747,7 @@ describe('GitHub code adapter', () => {
   it('does not request another page for a short first commit page', async () => {
     const sha = 'c91b31c0';
     const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
+
     const { outcome, urls } = await readGithub(
       `https://github.com/acme/project/commit/${sha}`,
       new Map([[firstUrl, [response(commitPayload([changedFile(1)]))]]]),
@@ -718,16 +759,20 @@ describe('GitHub code adapter', () => {
 
   it('continues commit pagination after full pages until a short page', async () => {
     const sha = 'c91b31c0';
+
     const urls = [1, 2, 3].map(
       (page) =>
         `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=${page}`,
     );
+
     const firstFiles = Array.from({ length: 100 }, (_, index) =>
       changedFile(index),
     );
+
     const secondFiles = Array.from({ length: 100 }, (_, index) =>
       changedFile(index + 100),
     );
+
     const { outcome, urls: requested } = await readGithub(
       `https://github.com/acme/project/commit/${sha}`,
       new Map([
@@ -745,6 +790,7 @@ describe('GitHub code adapter', () => {
     const sha = 'c91b31c0';
     const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
     const secondUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=2`;
+
     const { outcome } = await readGithub(
       `https://github.com/acme/project/commit/${sha}`,
       new Map([
@@ -771,11 +817,14 @@ describe('GitHub code adapter', () => {
   it('caps a commit at the maximum file count', async () => {
     const sha = 'c91b31c0';
     const urls = new Map<string, ReadonlyArray<Reply>>();
+
     for (let page = 1; page <= 30; page += 1) {
       const pageUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=${page}`;
+
       const files = Array.from({ length: 100 }, (_, index) =>
         changedFile((page - 1) * 100 + index),
       );
+
       urls.set(
         pageUrl,
         page === 1 ? [response(commitPayload(files))] : [response({ files })],
@@ -797,12 +846,15 @@ describe('GitHub code adapter', () => {
   it('truncates files when a page crosses the maximum count', async () => {
     const sha = 'c91b31c0';
     const urls = new Map<string, ReadonlyArray<Reply>>();
+
     for (let page = 1; page <= 30; page += 1) {
       const pageUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=${page}`;
       const count = page === 30 ? 101 : 100;
+
       const files = Array.from({ length: count }, (_, index) =>
         changedFile((page - 1) * 100 + index),
       );
+
       urls.set(
         pageUrl,
         page === 1 ? [response(commitPayload(files))] : [response({ files })],
@@ -824,6 +876,7 @@ describe('GitHub code adapter', () => {
 
   it('rejects a code target without a ref segment', async () => {
     const fetch = vi.fn(() => Promise.resolve(response({})));
+
     const outcome = await readGithubCode(
       { kind: 'blob', owner: 'acme', repo: 'project', segments: [] },
       {
@@ -842,6 +895,7 @@ describe('GitHub code adapter', () => {
     const sha = 'c91b31c0';
     const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
     const secondUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=2`;
+
     const firstFiles = Array.from({ length: 100 }, (_, index) => ({
       filename: `src/a-${index}.ts`,
       status: 'modified',
@@ -849,6 +903,7 @@ describe('GitHub code adapter', () => {
       deletions: 1,
       patch: '@@ hidden patch',
     }));
+
     const run = scriptedIo(
       new Map([
         [
@@ -905,6 +960,7 @@ describe('GitHub code adapter', () => {
     const sha = 'c91b31c0';
     const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
     const secondUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=2`;
+
     const run = scriptedIo(
       new Map([
         [
@@ -942,6 +998,7 @@ describe('GitHub code adapter', () => {
 
   it('classifies a primary rate limit and carries its reset', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/file.ts?ref=main`;
+
     const run = scriptedIo(
       new Map([[url, [failure(403, { remaining: '0', reset: '123' })]]]),
     );

@@ -73,6 +73,7 @@ function resultLocator(
       PATH_NOT_REGISTERED_MESSAGE,
     );
   }
+
   return `${options.displayPrefix}${path}`;
 }
 
@@ -82,6 +83,7 @@ function renderFailure(
   options: NativeDisplayOptions,
 ): GitFailure {
   if (failure.type === "invalid_input") return failure;
+
   return {
     ...failure,
     stderr: rewriteRootPrefixes(
@@ -103,14 +105,18 @@ export async function inspectOperation(
     "path",
   ]);
   const options = requireDisplayOptions(source, GIT_INSPECT_METHOD);
+
   const guarded = await context.guard.resolvePath(
     requireString(source, "path", GIT_INSPECT_METHOD),
   );
+
   const result = await inspectRepository(
     { path: guarded.canonical },
     { signal: context.signal },
   );
+
   if (result.status === "error") return renderFailure(result, context, options);
+
   return {
     ...result,
     toplevel: resultLocator(options, context, result.toplevel),
@@ -140,9 +146,11 @@ export async function locateOperation(
   const source = paramRecord(params, GIT_LOCATE_METHOD);
   refuseUnknownKeys(source, GIT_LOCATE_METHOD, ["envelope", "options", "path"]);
   const options = requireDisplayOptions(source, GIT_LOCATE_METHOD);
+
   const guarded = await context.guard.resolvePath(
     requireString(source, "path", GIT_LOCATE_METHOD),
   );
+
   const result = await locateRepository(
     {
       path: guarded.canonical,
@@ -150,7 +158,9 @@ export async function locateOperation(
     },
     { signal: context.signal },
   );
+
   if (result.status === "error") return renderFailure(result, context, options);
+
   return {
     ...result,
     gitEntry: resultLocator(options, context, result.gitEntry),
@@ -165,14 +175,17 @@ function readStateBounds(
   | { readonly limit: number; readonly submodules: "skip" | "check" }
   | GitFailure {
   const { limit, submodules } = source;
+
   if (!isIntegerValue(limit) || limit < 0 || limit > MAXIMUM_STATE_LIMIT) {
     return invalidInput(
       `limit must be a whole number from 0 to ${String(MAXIMUM_STATE_LIMIT)}`,
     );
   }
+
   if (submodules !== "skip" && submodules !== "check") {
     return invalidInput('submodules must be "skip" or "check"');
   }
+
   return { limit, submodules };
 }
 
@@ -194,10 +207,12 @@ export async function stateOperation(
   const path = requireString(source, "path", GIT_STATE_METHOD);
   const gitEntry = requireString(source, "gitEntry", GIT_STATE_METHOD);
   const bounds = readStateBounds(source);
+
   if ("status" in bounds) return bounds;
   const timeoutMs = optionalInteger(source, "timeoutMs", GIT_STATE_METHOD, 1);
   const guarded = await context.guard.resolvePath(path);
   const entry = await context.guard.resolvePath(gitEntry);
+
   const result = await stateRepository(
     {
       path: guarded.canonical,
@@ -209,7 +224,9 @@ export async function stateOperation(
     },
     { signal: context.signal, timeoutMs },
   );
+
   if (result.status === "error") return renderFailure(result, context, options);
+
   return {
     ...result,
     toplevel: resultLocator(options, context, result.toplevel),
@@ -230,14 +247,17 @@ export async function worktreeAddOperation(
     "directory",
   ]);
   const options = requireDisplayOptions(source, GIT_WORKTREE_ADD_METHOD);
+
   // Both paths are decided before git starts: the source clone and the
   // directory the worktree would occupy.
   const from = await context.guard.resolvePath(
     requireString(source, "source", GIT_WORKTREE_ADD_METHOD),
   );
+
   const directory = await context.guard.resolvePath(
     requireString(source, "directory", GIT_WORKTREE_ADD_METHOD),
   );
+
   const result = await addWorktree(
     {
       source: from.canonical,
@@ -247,7 +267,9 @@ export async function worktreeAddOperation(
     },
     { signal: context.signal },
   );
+
   if (result.status === "error") return renderFailure(result, context, options);
+
   return { ...result, path: resultLocator(options, context, result.path) };
 }
 
@@ -262,14 +284,18 @@ export async function worktreeListOperation(
     "source",
   ]);
   const options = requireDisplayOptions(source, GIT_WORKTREE_LIST_METHOD);
+
   const guarded = await context.guard.resolvePath(
     requireString(source, "source", GIT_WORKTREE_LIST_METHOD),
   );
+
   const result = await listWorktrees(
     { path: guarded.canonical },
     { signal: context.signal },
   );
+
   if (result.status === "error") return renderFailure(result, context, options);
+
   return {
     status: "ok",
     worktrees: result.worktrees.map((entry): GitWorktreeEntry => ({
@@ -290,13 +316,16 @@ export async function worktreeRemoveOperation(
     "path",
   ]);
   const options = requireDisplayOptions(source, GIT_WORKTREE_REMOVE_METHOD);
+
   const guarded = await context.guard.resolvePath(
     requireString(source, "path", GIT_WORKTREE_REMOVE_METHOD),
   );
+
   const result = await removeWorktree(
     { path: guarded.canonical },
     { signal: context.signal },
   );
+
   return result.status === "error"
     ? renderFailure(result, context, options)
     : result;

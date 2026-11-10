@@ -29,6 +29,7 @@ type DeliverySet = Partial<ChatDelivery>;
 function withoutStamp(sets: Array<DeliverySet>) {
   return sets.map(({ updatedAt, ...written }) => {
     expect(updatedAt).toBeInstanceOf(Date);
+
     return written;
   });
 }
@@ -39,17 +40,21 @@ function makeDb() {
   const sets: Array<DeliverySet> = [];
   vi.spyOn(db, 'update').mockImplementation(() => {
     const where = () => Promise.resolve([]);
+
     const set = (values: DeliverySet) => {
       sets.push(values);
+
       return Object.assign(Promise.resolve([]), {
         where,
         returning: where,
       });
     };
+
     // SAFETY: the double implements only the fluent members these methods use.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     return { set } as never;
   });
+
   return { db, sets };
 }
 
@@ -60,12 +65,15 @@ function spyPauseReads(options: {
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(asDouble<Chat>({ id: chatId }));
+
   const lockPendingSteering = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
     .mockResolvedValue(options.moving);
+
   const firstPendingQueueItem = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
     .mockResolvedValue(options.head);
+
   return { lock, lockPendingSteering, firstPendingQueueItem };
 }
 
@@ -76,6 +84,7 @@ afterEach(() => {
 describe('ChatDeliveriesRepository.pauseBehind', () => {
   it('leaves the steering items to a Run that completed without a recorded cancellation', async () => {
     const { db, sets } = makeDb();
+
     const reads = spyPauseReads({
       moving: [chatDeliveryRow({ mode: 'steer' })],
     });
@@ -96,6 +105,7 @@ describe('ChatDeliveriesRepository.pauseBehind', () => {
     'moves the steering items behind a Run that %s',
     async (_name, status, cancelRequestedAt) => {
       const { db, sets } = makeDb();
+
       const reads = spyPauseReads({
         moving: [chatDeliveryRow({ mode: 'steer' })],
       });
@@ -157,10 +167,13 @@ describe('ChatDeliveriesRepository.changePendingMode', () => {
     const sets: Array<DeliverySet> = [];
     vi.spyOn(db, 'update').mockImplementation(() => {
       const returning = () => Promise.resolve([changed]);
+
       const set = (values: DeliverySet) => {
         sets.push(values);
+
         return { where: () => ({ returning }) };
       };
+
       // SAFETY: the double implements only the fluent members this method uses.
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       return { set } as never;
@@ -184,16 +197,20 @@ describe('ChatDeliveriesRepository.hasPendingInterrupt', () => {
   function repositoryAnswering(rows: Array<{ id: string }>) {
     const real: Db = drizzle.mock({ schema });
     const queries: Array<{ sql: string; params: Array<unknown> }> = [];
+
     // Builds the real query, but stops it at the end of the chain.
     const select = (fields: { id: typeof schema.chatDeliveries.id }) => ({
       from: (table: typeof schema.chatDeliveries) => {
         const base = real.select(fields).from(table).$dynamic();
+
         return {
           where: (condition: SQL | undefined) => {
             const filtered = base.where(condition);
+
             return {
               limit: (count: number) => {
                 queries.push(filtered.limit(count).toSQL());
+
                 return Promise.resolve(rows);
               },
             };
@@ -201,6 +218,7 @@ describe('ChatDeliveriesRepository.hasPendingInterrupt', () => {
         };
       },
     });
+
     return {
       repository: new ChatDeliveriesRepository(asDouble<Db>({ select })),
       queries,

@@ -52,6 +52,7 @@ import { MediaService } from '../media/media.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 function hasStringText(value: unknown): value is { text: string } {
@@ -61,6 +62,7 @@ function hasStringText(value: unknown): value is { text: string } {
 const textOf = (parts: Array<unknown>): string | undefined => {
   if (!Array.isArray(parts)) return undefined;
   const text = parts.find(hasStringText);
+
   return text?.text;
 };
 
@@ -90,6 +92,7 @@ const DIGEST_BASELINE: NonNullable<Chat['recencyDigestBaseline']> = {
   recentTotal: 1,
   compiledOn: '2026-07-31',
 };
+
 const DIGEST_TOLD: NonNullable<Chat['recencyDigestTold']> = [
   {
     chatId: '11111111-1111-4111-8111-111111111111',
@@ -97,6 +100,7 @@ const DIGEST_TOLD: NonNullable<Chat['recencyDigestTold']> = [
     title: 'Digest source',
   },
 ];
+
 const SKILL_BASELINE: NonNullable<Chat['skillCatalogBaseline']> = {
   entries: [{ name: 'research', description: 'Plan research' }],
   omitted: 0,
@@ -145,6 +149,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     );
     a = crypto.randomUUID();
     b = crypto.randomUUID();
+
     for (const id of [a, b]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'F', ${`f-${id}@t.com`})`;
     }
@@ -162,10 +167,12 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     return tenantDb.runAs(owner, async (tx) => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
+
       const chat = await chats.create({
         ownerUserId: owner,
         title: 'Original',
       });
+
       const user1 = await messages.create({
         chatId: chat.id,
         role: 'user',
@@ -187,6 +194,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           { type: 'text', text: 'q1' },
         ],
       });
+
       const asst1 = await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -195,12 +203,14 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         usage: { costUsd: 0.5, model: 'gpt-x' },
         inReplyTo: user1.id,
       });
+
       const user2 = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: owner,
         parts: [{ type: 'text', text: 'q2' }],
       });
+
       await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -208,6 +218,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         parts: [{ type: 'text', text: 'a2' }],
         inReplyTo: user2.id,
       });
+
       return { chatId: chat.id, user1Id: user1.id, asst1Id: asst1.id };
     });
   };
@@ -223,8 +234,10 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     options: { visibility?: 'private' | 'public'; bindMarkers?: boolean } = {},
   ) => {
     const { bindMarkers = true } = options;
+
     return tenantDb.runAs(a, async (tx) => {
       const messages = new MessagesRepository(tx);
+
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: a,
         title: 'Compacted source',
@@ -235,6 +248,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         skillCatalogBaseline: SKILL_BASELINE,
         skillCatalogTold: ['research'],
       });
+
       const checkpoint = async (
         summary: string,
         absorbedThroughSeq: number,
@@ -247,9 +261,11 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           part: createCompactionCheckpointPart(summary),
           usage: { model: 'gpt-x', inputTokens },
         });
+
         await tx.execute(
           dsql`UPDATE messages SET created_at = ${createdAt.toISOString()}::timestamptz WHERE id = ${row.id}`,
         );
+
         return { ...row, createdAt };
       };
 
@@ -279,6 +295,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           },
         ],
       });
+
       const a1 = await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -308,12 +325,14 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         usage: { costUsd: 0.25, model: 'gpt-x', runId: 'run-1' },
         inReplyTo: q1.id,
       });
+
       const q2 = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: a,
         parts: [{ type: 'text', text: 'q2' }],
       });
+
       // A row no fork copies, so the later boundary has to move.
       await messages.create({
         chatId: chat.id,
@@ -321,12 +340,14 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         senderUserId: null,
         parts: [{ type: 'text', text: 'internal presentation row' }],
       });
+
       const first = await checkpoint(
         'Checkpoint 1',
         a1.seq,
         FIRST_CHECKPOINT_CREATED_AT,
         10,
       );
+
       const a2 = await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -335,18 +356,21 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         usage: { costUsd: 0.75, model: 'gpt-x', runId: 'run-2' },
         inReplyTo: q2.id,
       });
+
       const q3 = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: a,
         parts: [{ type: 'text', text: 'q3' }],
       });
+
       const latest = await checkpoint(
         'Checkpoint 2',
         a2.seq,
         LATEST_CHECKPOINT_CREATED_AT,
         20,
       );
+
       const a3 = await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -384,7 +408,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           WHERE id = ${chat.id} AND owner_user_id = ${a}
         `);
       }
+
       const bound = await new ChatsRepository(tx).findById(chat.id, a);
+
       if (bound === undefined) expect.unreachable('expected the seeded chat');
 
       return {
@@ -405,12 +431,15 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   const replayWindow = (chatId: string) =>
     tenantDb.runAs(a, async (tx) => {
       const messages = new MessagesRepository(tx);
+
       const checkpoint = await messages.findActiveCheckpoint(chatId, a, {
         beforeSeq: Number.MAX_SAFE_INTEGER,
       });
+
       const history = await messages.findByChatId(chatId, a, {
         sinceSeq: checkpoint?.absorbedThroughSeq,
       });
+
       return { checkpoint, history };
     });
 
@@ -461,6 +490,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const copied = await tenantDb.runAs(a, (tx) =>
       new MessagesRepository(tx).findByChatId(forked.id, a),
     );
+
     // Only up to + including asst1 (2 of the 4 source messages), in order.
     expect(copied.map((m) => textOf(m.parts))).toEqual(['q1', 'a1']);
     // A turn's temporal row travels with it: the copy records when the
@@ -511,6 +541,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const copied = await tenantDb.runAs(a, (tx) =>
       new MessagesRepository(tx).findByChatId(forked.id, a),
     );
+
     // All 4 source messages, not just a prefix.
     expect(copied.map((m) => textOf(m.parts))).toEqual([
       'q1',
@@ -540,6 +571,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const { chatId } = await seedChat(a);
     await tenantDb.runAs(a, async (tx) => {
       const deliveries = new ChatDeliveriesRepository(tx);
+
       for (const text of ['queued one', 'queued two']) {
         await deliveries.insertPending({
           id: crypto.randomUUID(),
@@ -556,11 +588,13 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     const [forkPending, sourcePending] = await tenantDb.runAs(a, (tx) => {
       const deliveries = new ChatDeliveriesRepository(tx);
+
       return Promise.all([
         deliveries.listPending(forked.id, a),
         deliveries.listPending(chatId, a),
       ]);
     });
+
     expect(forkPending).toEqual([]);
     expect(sourcePending).toHaveLength(2);
   });
@@ -569,15 +603,19 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   // reply is `running`, with partial output and a stored in-Run item.
   const seedInFlightRun = async () => {
     const seeded = await seedChat(a);
+
     return tenantDb.runAs(a, async (tx) => {
       const messages = new MessagesRepository(tx);
+
       const user3 = await messages.create({
         chatId: seeded.chatId,
         role: 'user',
         senderUserId: a,
         parts: [{ type: 'text', text: 'q3' }],
       });
+
       const replies = new RunningReplyRepository(tx);
+
       const reply = await replies.upsertRunningReply({
         chatId: seeded.chatId,
         inReplyTo: user3.id,
@@ -590,7 +628,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         },
         followUpAction: null,
       });
+
       if (reply === undefined) expect.unreachable('expected a running reply');
+
       const stored = await replies.updateRunningReplyParts({
         chatId: seeded.chatId,
         inReplyTo: user3.id,
@@ -610,7 +650,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           { type: 'text', text: 'PARTIAL_OUTPUT' },
         ],
       });
+
       expect(stored).toBe(true);
+
       return { ...seeded, user3Id: user3.id, replyId: reply.id };
     });
   };
@@ -623,6 +665,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const copied = await tenantDb.runAs(a, (tx) =>
       new MessagesRepository(tx).findByChatId(forked.id, a),
     );
+
     expect(copied.map((m) => textOf(m.parts))).toEqual([
       'q1',
       'a1',
@@ -630,6 +673,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       'a2',
       'q3',
     ]);
+
     // Not merely hidden on read: the destination holds no assistant row for U3.
     const destinationRows = await tenantDb.runAs(a, (tx) =>
       tx
@@ -638,6 +682,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         .where(eq(schema.messages.chatId, forked.id))
         .orderBy(asc(schema.messages.seq)),
     );
+
     expect(destinationRows.map(({ role }) => role)).toEqual([
       'user',
       'assistant',
@@ -658,10 +703,12 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         usage: { status: 'completed', modelId: 'model-a' },
       }),
     );
+
     const [sourceAfter, forkAfter] = await tenantDb.runAs(a, async (tx) => [
       await new MessagesRepository(tx).findByChatId(source.chatId, a),
       await new MessagesRepository(tx).findByChatId(forked.id, a),
     ]);
+
     expect(sourceAfter.map((m) => textOf(m.parts)).at(-1)).toBe('a3');
     expect(forkAfter.map((m) => textOf(m.parts))).toEqual([
       'q1',
@@ -674,6 +721,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
   it('an anchor naming a running reply is not found and creates nothing', async () => {
     const source = await seedInFlightRun();
+
     const readSource = () =>
       tenantDb.runAs(a, async (tx) => ({
         ownedChats: await tx
@@ -686,6 +734,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           .where(eq(schema.messages.chatId, source.chatId))
           .orderBy(asc(schema.messages.seq)),
       }));
+
     const before = await readSource();
 
     await expect(
@@ -699,6 +748,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const chat = await tenantDb.runAs(a, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: a }),
     );
+
     const message = await tenantDb.runAs(a, (tx) =>
       new MessagesRepository(tx).create({
         chatId: chat.id,
@@ -718,6 +768,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     // 500-row bulk-insert chunk size, so this exercises both removals in one
     // go: no length rejection, and correct ordering/remapping across chunks.
     const MESSAGE_COUNT = 1200;
+
     const { chatId, lastId } = await tenantDb.runAs(a, async (tx) => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
@@ -746,14 +797,18 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         attachments: [],
         inReplyTo: null,
       }));
+
       // Link each assistant reply to the user turn immediately before it.
       for (let i = 1; i < rows.length; i += 2) {
         rows[i].inReplyTo = rows[i - 1].id;
       }
+
       await messages.createMany(rows);
 
       const lastRow = rows.at(-1);
+
       if (lastRow === undefined) expect.unreachable('expected seeded rows');
+
       return { chatId: chat.id, lastId: lastRow.id };
     });
 
@@ -772,6 +827,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     expect(copied.map((m) => textOf(m.parts))).toEqual(
       Array.from({ length: MESSAGE_COUNT }, (_, i) => `m${i}`),
     );
+
     // in_reply_to remapped to the COPIED predecessor's new id at every link,
     // never the source chat's original id.
     for (let i = 1; i < copied.length; i += 2) {
@@ -786,9 +842,11 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     const copiedMessages = await readMessages(forked.id);
     expect(copiedMessages).toHaveLength(source.rows.length);
+
     const copiedIdBySourceId = new Map(
       source.rows.map((row, index) => [row.id, copiedMessages[index].id]),
     );
+
     copiedMessages.forEach((copied, index) => {
       const original = source.rows[index];
       // Dense sequences from 1 in copied order, every stored value verbatim —
@@ -818,9 +876,11 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const copiedCheckpoints = copiedMessages.filter(
       (message) => message.role === 'checkpoint',
     );
+
     expect(source.checkpoints.map((c) => c.absorbedThroughSeq)).toEqual([2, 6]);
     expect(copiedCheckpoints.map((c) => c.absorbedThroughSeq)).toEqual([2, 5]);
     const copiedLatest = copiedCheckpoints.at(-1);
+
     if (copiedLatest === undefined) {
       expect.unreachable('expected copied checkpoints');
     }
@@ -856,10 +916,12 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       service.getChatMessages(source.chat.id, a, { limit: 50 }),
       service.getChatMessages(forked.id, a, { limit: 50 }),
     ]);
+
     const absorbedCounts = (read: typeof sourceRead) =>
       read?.messages
         .filter((message) => message.role === 'checkpoint')
         .map((message) => message.absorbedMessageCount);
+
     expect(absorbedCounts(sourceRead)).toEqual([2, 2]);
     expect(absorbedCounts(forkRead)).toEqual(absorbedCounts(sourceRead));
 
@@ -867,12 +929,14 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       replayWindow(source.chat.id),
       replayWindow(forked.id),
     ]);
+
     if (
       sourceWindow.checkpoint === undefined ||
       forkWindow.checkpoint === undefined
     ) {
       expect.unreachable('expected an active checkpoint on both sides');
     }
+
     expect(sourceWindow.checkpoint.id).toBe(source.checkpoints[1].id);
     expect(forkWindow.checkpoint.id).toBe(copiedLatest.id);
     expect(
@@ -892,6 +956,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       parts: [{ type: 'text', text: 'what should I do next?' }],
       attachments: [],
     };
+
     const sourceInput: StoredMessage = {
       ...nextInput,
       id: crypto.randomUUID(),
@@ -899,6 +964,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       seq: (sourceWindow.history.at(-1)?.seq ?? 0) + 1,
       createdAt: new Date(),
     };
+
     const forkInput: StoredMessage = {
       ...nextInput,
       id: crypto.randomUUID(),
@@ -920,6 +986,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         checkpoint: toContextCheckpoint(sourceWindow.checkpoint),
       },
     );
+
     const forkContext = buildContext(
       [...toStoredMessages(forkWindow.history), forkInput],
       {
@@ -1012,6 +1079,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const forked = await service.forkChat(source.chat.id, a);
     const { checkpoint: active } = await replayWindow(forked.id);
     const sourceLatest = source.checkpoints.at(-1);
+
     if (active === undefined || sourceLatest === undefined) {
       expect.unreachable('expected a checkpoint on both sides');
     }
@@ -1102,11 +1170,13 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     );
 
     const shared = await service.getSharedChat(source.chat.id);
+
     if (shared === undefined) expect.unreachable('expected a public chat');
     const sharedResponse = toSharedChatResponse(shared.chat, shared.messages);
     expect(sharedResponse).not.toHaveProperty('workspaceRoot');
     expect(JSON.stringify(sharedResponse)).not.toContain('/work/public');
     const forked = await service.forkSharedChat(source.chat.id, b);
+
     if (forked === undefined) expect.unreachable('expected a public fork');
     // A new PRIVATE chat: sharing the source must never share the visitor's
     // own fork of it.
@@ -1164,11 +1234,13 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           .from(schema.mediaObjects)
           .where(eq(schema.mediaObjects.ownerUserId, owner)),
       );
+
       return rows.map(({ id }) => id).sort();
     };
 
     const ingestTwo = async () => {
       const media = new MediaService(tenantDb);
+
       const ingest = async (source: string) =>
         (
           await media.ingest(a, {
@@ -1176,6 +1248,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
             source,
           })
         ).media.id;
+
       return [await ingest('shot.png'), await ingest('plan.png')] as const;
     };
 
@@ -1188,24 +1261,29 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     it('an owner fork copies file parts verbatim and creates no media object', async () => {
       const [shot, plan] = await ingestTwo();
+
       const userParts = [
         { type: 'text', text: 'compare these' },
         filePart(shot, 'shot.png'),
         filePart(plan),
       ];
+
       const chatId = await tenantDb.runAs(a, async (tx) => {
         const chat = await new ChatsRepository(tx).create({
           ownerUserId: a,
           title: 'Attachments',
         });
+
         await new MessagesRepository(tx).create({
           chatId: chat.id,
           role: 'user',
           senderUserId: a,
           parts: userParts,
         });
+
         return chat.id;
       });
+
       const mediaBefore = await mediaIdsOf(a);
 
       const forked = await service.forkChat(chatId, a);
@@ -1217,13 +1295,16 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     it('a shared fork copies text parts only, drops image-only rows, and confers no media access', async () => {
       const [shot, plan] = await ingestTwo();
+
       const chatId = await tenantDb.runAs(a, async (tx) => {
         const messages = new MessagesRepository(tx);
+
         const chat = await new ChatsRepository(tx).create({
           ownerUserId: a,
           title: 'Public attachments',
           visibility: 'public',
         });
+
         const u1 = await messages.create({
           chatId: chat.id,
           role: 'user',
@@ -1233,6 +1314,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
             filePart(shot, 'shot.png'),
           ],
         });
+
         await messages.create({
           chatId: chat.id,
           role: 'assistant',
@@ -1240,12 +1322,14 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           parts: [{ type: 'text', text: 'a1' }],
           inReplyTo: u1.id,
         });
+
         const u2 = await messages.create({
           chatId: chat.id,
           role: 'user',
           senderUserId: a,
           parts: [filePart(plan)],
         });
+
         await messages.create({
           chatId: chat.id,
           role: 'assistant',
@@ -1253,19 +1337,24 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           parts: [{ type: 'text', text: 'a2' }],
           inReplyTo: u2.id,
         });
+
         return chat.id;
       });
+
       const sourceMediaBefore = await mediaIdsOf(a);
 
       const forked = await service.forkSharedChat(chatId, b);
+
       if (forked === undefined) expect.unreachable('expected a public fork');
 
       const copied = await readMessages(forked.id, b);
+
       const projected = copied.map(({ seq, role, parts }) => ({
         seq,
         role,
         parts,
       }));
+
       expect(projected).toEqual([
         { seq: 1, role: 'user', parts: [{ type: 'text', text: 'see this' }] },
         { seq: 2, role: 'assistant', parts: [{ type: 'text', text: 'a1' }] },
@@ -1283,12 +1372,15 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       expect(await mediaIdsOf(b)).toEqual([]);
       expect(await mediaIdsOf(a)).toEqual(sourceMediaBefore);
       const media = new MediaService(tenantDb);
+
       for (const id of [shot, plan]) {
         await expect(media.findOwned(b, id)).resolves.toBeUndefined();
       }
+
       const descriptors = await tenantDb.runAs(b, (tx) =>
         loadMediaDescriptors(tx, b, [shot, plan]),
       );
+
       expect(descriptors.size).toBe(0);
     });
   });

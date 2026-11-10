@@ -124,12 +124,15 @@ describe('assertBindingConsistent — redefinition', () => {
 describe('assertDeclaredBindingsConsistent', () => {
   it('issues no lookup at all when no models are declared', async () => {
     let calls = 0;
+
     const ledger: EmbeddingBindingLookup = {
       findBinding: () => {
         calls += 1;
+
         return Promise.resolve(undefined);
       },
     };
+
     await assertDeclaredBindingsConsistent([], ledger);
     expect(calls).toBe(0);
   });
@@ -141,6 +144,7 @@ describe('assertDeclaredBindingsConsistent', () => {
           modelKey === 'e' ? binding({ dimensions: 999 }) : undefined,
         ),
     };
+
     await expect(
       assertDeclaredBindingsConsistent([declared({ id: 'e' })], ledger),
     ).rejects.toThrow(/embeddingModels\[e\]\.dimensions/);
@@ -153,6 +157,7 @@ describe('assertDeclaredBindingsConsistent', () => {
           modelKey === 'bound' ? binding({ modelKey }) : undefined,
         ),
     };
+
     await expect(
       assertDeclaredBindingsConsistent(
         [declared({ id: 'bound' }), declared({ id: 'unbound' })],

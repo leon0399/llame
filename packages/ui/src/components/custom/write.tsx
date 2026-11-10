@@ -48,6 +48,7 @@ function WriteContent({
 }) {
   const lines = numberLines(input.content);
   const count = lineCount ?? lines.length;
+
   return (
     <ToolSection
       label={input.replace ? "Replace contents" : "New file"}
@@ -81,6 +82,7 @@ export function WriteTool({
 }: WriteToolProps): ReactElement {
   const write = inputSchema.safeParse(input).data;
   const result = outputSchema.safeParse(output).data;
+
   return (
     <ToolRow
       name="write"

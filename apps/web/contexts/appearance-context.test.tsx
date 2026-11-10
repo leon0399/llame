@@ -28,6 +28,7 @@ function Consumer() {
     setFontSize,
     setFontStyle,
   } = useAppearance();
+
   return (
     <div>
       <span data-testid="theme">{theme}</span>
@@ -96,9 +97,11 @@ describe("AppearanceProvider", () => {
 
     expect(screen.getByTestId("font-style").textContent).toBe("roboto");
     expect(Cookies.get("font-style")).toBe("roboto");
+
     const robotoVar = fontStyleOptions.find(
       (f) => f.value === "roboto",
     )!.cssVar;
+
     expect(document.documentElement.style.getPropertyValue("--font-sans")).toBe(
       robotoVar,
     );

@@ -5,6 +5,7 @@ import { memorySettings } from './index';
 describe('memory settings schema', () => {
   it('exports owner-scoped memory settings with RLS enabled', () => {
     const config = getTableConfig(memorySettings);
+
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column]),
     );
@@ -40,6 +41,7 @@ describe('memory settings schema', () => {
       );
 
       expect(clauses.length).toBeGreaterThan(0);
+
       for (const clause of clauses) {
         expect(clause).toContain('app.current_user_id');
       }

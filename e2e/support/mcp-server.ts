@@ -17,6 +17,7 @@ const port = Number(process.env.E2E_MCP_PORT ?? "4304");
 
 const TOOL_NAME = "search";
 const SESSION_ID = "llame-e2e-session";
+
 const FIXTURE_RESULT = [
   "FIXTURE_EVIDENCE_SENTINEL",
   "Current fixture evidence: deterministic operator MCP search succeeded.",
@@ -66,16 +67,21 @@ function isToolCallParams(value: unknown): value is ToolCallParams {
 
 async function readJson(request: IncomingMessage): Promise<JsonRpcRequest> {
   const chunks: Array<Uint8Array> = [];
+
   for await (const chunk of request) {
     if (!(chunk instanceof Uint8Array)) {
       throw new TypeError("request body is not binary");
     }
+
     chunks.push(chunk);
   }
+
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+
   if (!isJsonRpcRequest(parsed)) {
     throw new TypeError("request body is not a JSON-RPC object");
   }
+
   return parsed;
 }
 
@@ -104,10 +110,12 @@ async function handleMcpRequest(
   response: ServerResponse,
 ): Promise<void> {
   let rpc: JsonRpcRequest;
+
   try {
     rpc = await readJson(request);
   } catch {
     response.writeHead(400).end("invalid request");
+
     return;
   }
 
@@ -125,17 +133,21 @@ async function handleMcpRequest(
       },
       { "mcp-session-id": SESSION_ID },
     );
+
     return;
   }
 
   if (request.headers["mcp-session-id"] !== SESSION_ID) {
     response.writeHead(404).end("invalid session");
+
     return;
   }
+
   sessionBoundRequests += 1;
 
   if (rpc.method === "notifications/initialized") {
     response.writeHead(204).end();
+
     return;
   }
 
@@ -158,6 +170,7 @@ async function handleMcpRequest(
         ],
       },
     });
+
     return;
   }
 
@@ -168,6 +181,7 @@ async function handleMcpRequest(
         id: rpc.id,
         error: { code: -32_602, message: "unknown fixture tool" },
       });
+
       return;
     }
 
@@ -179,6 +193,7 @@ async function handleMcpRequest(
         content: [{ type: "text", text: FIXTURE_RESULT }],
       },
     });
+
     return;
   }
 
@@ -192,11 +207,13 @@ async function handleMcpRequest(
 const server = http.createServer((request, response) => {
   if (request.method === "GET" && request.url === "/ready") {
     response.writeHead(200).end("ok");
+
     return;
   }
 
   if (request.method === "GET" && request.url === "/stats") {
     sendJson(response, { toolCalls, sessionBoundRequests });
+
     return;
   }
 
@@ -205,11 +222,13 @@ const server = http.createServer((request, response) => {
   // keeps the request-local connection closed without withdrawing the server.
   if (request.method === "GET" && request.url === "/mcp") {
     response.writeHead(405).end();
+
     return;
   }
 
   if (request.method === "POST" && request.url === "/mcp") {
     void handleMcpRequest(request, response);
+
     return;
   }
 

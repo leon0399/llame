@@ -416,12 +416,15 @@ export const Checkboxes: Story = {
     await userEvent.click(triggerButton);
 
     const dropdown = await screen.findByRole("menu");
+
     const statusBarItem = within(dropdown).getByRole("menuitemcheckbox", {
       name: "Status Bar",
     });
+
     const activityBarItem = within(dropdown).getByRole("menuitemcheckbox", {
       name: "Activity Bar",
     });
+
     await expect(activityBarItem).toBeInTheDocument();
     await expect(activityBarItem).toHaveAttribute("aria-disabled", "true");
 
@@ -430,10 +433,12 @@ export const Checkboxes: Story = {
 
     await userEvent.click(triggerButton);
     const reopenedDropdown = await screen.findByRole("menu");
+
     const reopenedPanelItem = within(reopenedDropdown).getByRole(
       "menuitemcheckbox",
       { name: "Panel" },
     );
+
     // Base UI blocks pointer events on the popup during its brief re-open
     // animation; a real user clicks after it settles. pointerEventsCheck off.
     const user = userEventFactory.setup({ pointerEventsCheck: 0 });
@@ -511,9 +516,11 @@ export const CheckboxesIcons: Story = {
     await userEvent.click(triggerButton);
 
     const dropdown = await screen.findByRole("menu");
+
     const emailItem = within(dropdown).getByRole("menuitemcheckbox", {
       name: /email notifications/i,
     });
+
     await expect(emailItem).toBeChecked();
 
     await userEvent.click(emailItem);
@@ -569,12 +576,15 @@ export const RadioGroup: Story = {
     await userEvent.click(triggerButton);
 
     const dropdown = await screen.findByRole("menu");
+
     const topItem = within(dropdown).getByRole("menuitemradio", {
       name: "Top",
     });
+
     const bottomItem = within(dropdown).getByRole("menuitemradio", {
       name: "Bottom",
     });
+
     const rightItem = within(dropdown).getByRole("menuitemradio", {
       name: "Right",
     });
@@ -586,22 +596,26 @@ export const RadioGroup: Story = {
 
     await userEvent.click(triggerButton);
     const reopenedDropdown = await screen.findByRole("menu");
+
     const reopenedTopItem = within(reopenedDropdown).getByRole(
       "menuitemradio",
       {
         name: "Top",
       },
     );
+
     const reopenedBottomItem = within(reopenedDropdown).getByRole(
       "menuitemradio",
       { name: "Bottom" },
     );
+
     const reopenedRightItem = within(reopenedDropdown).getByRole(
       "menuitemradio",
       {
         name: "Right",
       },
     );
+
     // Base UI blocks pointer events on the popup during its brief re-open
     // animation; a real user clicks after it settles. pointerEventsCheck off.
     const user = userEventFactory.setup({ pointerEventsCheck: 0 });
@@ -664,12 +678,15 @@ export const RadioIcons: Story = {
     await userEvent.click(triggerButton);
 
     const dropdown = await screen.findByRole("menu");
+
     const cardItem = within(dropdown).getByRole("menuitemradio", {
       name: /credit card/i,
     });
+
     const paypalItem = within(dropdown).getByRole("menuitemradio", {
       name: /paypal/i,
     });
+
     await expect(cardItem).toBeChecked();
 
     await userEvent.click(paypalItem);
@@ -721,9 +738,11 @@ export const Destructive: Story = {
     await userEvent.click(triggerButton);
 
     const dropdown = await screen.findByRole("menu");
+
     const deleteItem = within(dropdown).getByRole("menuitem", {
       name: /delete/i,
     });
+
     await expect(deleteItem).toBeInTheDocument();
     await expect(deleteItem).toHaveAttribute("data-variant", "destructive");
   },
@@ -819,6 +838,7 @@ export const Complex: Story = {
       sms: false,
       push: true,
     });
+
     const [theme, setTheme] = React.useState("light");
 
     return (
@@ -1075,6 +1095,7 @@ export const Complex: Story = {
     const lightOption = await screen.findByRole("menuitemradio", {
       name: /light/i,
     });
+
     await waitFor(() => expect(lightOption).toBeVisible());
     await expect(lightOption).toBeChecked();
   },

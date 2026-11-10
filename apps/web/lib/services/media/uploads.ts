@@ -40,7 +40,9 @@ export async function fetchMediaDescriptor(
   locator: string,
 ): Promise<MediaDescriptor | null> {
   const id = mediaIdFromLocator(locator);
+
   if (id === null) return null;
+
   return getMedia(
     id,
     undefined,

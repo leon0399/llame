@@ -19,6 +19,7 @@ const model = {
   id: 'built-runtime-contract',
   name: 'Built runtime contract',
 };
+
 const resolved = prompt.resolve(model);
 
 const contractAnchor = {
@@ -53,6 +54,7 @@ import {
 
 for (const id of TOOL_PROMPT_IDS) {
   const description = loadPackagedToolDescription(id);
+
   if (description.trim().length === 0) {
     throw new Error(
       `Built runtime failed to load packaged tool description: ${id}`,

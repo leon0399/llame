@@ -29,9 +29,11 @@ describe("root enforcement", () => {
     const absent = await guard
       .resolvePath(`${fixture.outside}/missing.txt`)
       .catch((error: unknown) => error);
+
     const existing = await guard
       .resolvePath(fixture.secret)
       .catch((error: unknown) => error);
+
     expect(absent).toMatchObject(refusal());
     expect(existing).toEqual(absent);
   });

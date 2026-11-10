@@ -36,6 +36,7 @@ async function typeAssertions(): Promise<void> {
   await queue.consume(RUNS_QUEUE, (data) => {
     // Payload type flows into the handler from the definition alone.
     void data.userMessage;
+
     return Promise.resolve();
   });
 

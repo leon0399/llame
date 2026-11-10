@@ -58,6 +58,7 @@ function sqlFile(relativePath: string): string {
  */
 async function createRolesAndDatabase(superuserUri: string): Promise<void> {
   const asSuperuser = postgres(superuserUri, { max: 1 });
+
   try {
     await asSuperuser.unsafe(
       `CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`,
@@ -85,6 +86,7 @@ async function prepareTestDatabase(
   appUrl: string,
 ): Promise<void> {
   const superuserOnTestDb = postgres(superuserOnTestDbUri, { max: 1 });
+
   try {
     await superuserOnTestDb.unsafe(
       sqlFile('../../docker/postgres/initdb/02-app-rls-role.sql'),
@@ -100,6 +102,7 @@ async function prepareTestDatabase(
     await superuserOnTestDb.unsafe(`ALTER SCHEMA public OWNER TO app`);
 
     const asApp = postgres(appUrl, { max: 1 });
+
     try {
       await migrate(drizzle(asApp), {
         migrationsFolder: path.resolve(
@@ -155,10 +158,12 @@ async function provision(
  */
 async function dropRunSchemas(url: string, prefix: string): Promise<void> {
   const sql = postgres(url, { max: 1 });
+
   try {
     const schemas = await sql<Array<{ nspname: string }>>`
       SELECT nspname FROM pg_namespace WHERE nspname LIKE ${prefix + '%'}
     `;
+
     for (const { nspname } of schemas) {
       // Identifier interpolation, not string concatenation: a schema name is
       // data here, and `"` inside one would otherwise close the quote.
@@ -192,6 +197,7 @@ async function cloneWorkerDatabases(
   count: number,
 ): Promise<void> {
   const asSuperuser = postgres(superuserUri, { max: 1 });
+
   try {
     // provision() closed its own pools, but be explicit: any surviving session
     // on the template fails CREATE DATABASE. This connection is on the
@@ -200,6 +206,7 @@ async function cloneWorkerDatabases(
       SELECT pg_terminate_backend(pid) FROM pg_stat_activity
       WHERE datname = 'llame_test'
     `;
+
     for (let worker = 1; worker <= count; worker++) {
       await asSuperuser.unsafe(
         `CREATE DATABASE llame_test_${worker} TEMPLATE llame_test OWNER app`,
@@ -219,6 +226,7 @@ async function provisionCluster(
   project: TestProject,
 ): Promise<() => Promise<void>> {
   const container = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
+
   try {
     const { appUrl, unprivilegedUrl } = await provision(
       container.getConnectionUri(),
@@ -228,11 +236,13 @@ async function provisionCluster(
     // project, so this is how many databases the setup file may ask for. Not
     // a restated constant — `--maxWorkers` has to be honoured here.
     const workerCount = project.config.maxWorkers;
+
     if (!Number.isInteger(workerCount) || workerCount < 1) {
       throw new Error(
         `Integration databases are provisioned per worker, but the project resolved maxWorkers to '${workerCount}'.`,
       );
     }
+
     await cloneWorkerDatabases(container.getConnectionUri(), workerCount);
 
     process.env.TEST_DATABASE_URL = appUrl;
@@ -270,6 +280,7 @@ export default async function setup(
   if (process.env.TEST_DATABASE_URL) {
     const externalUrl = process.env.TEST_DATABASE_URL;
     process.env.POSTGRES_URL = externalUrl;
+
     // A throwaway container takes its schemas away with it; a caller-supplied
     // database would accumulate a set per run forever, so drop ours on exit.
     return async () => {

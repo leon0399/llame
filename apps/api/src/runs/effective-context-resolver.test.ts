@@ -73,13 +73,17 @@ describe('effective context resolver', () => {
       Object.keys(catalog.declarations[0].inputSchema).sort(),
     );
     const properties = catalog.declarations[0].inputSchema.properties;
+
     if (!isRecord(properties) || !isRecord(properties.nested)) {
       throw new Error('Expected nested JSON Schema properties');
     }
+
     const nestedProperties = properties.nested.properties;
+
     if (!isRecord(nestedProperties)) {
       throw new Error('Expected nested JSON Schema properties object');
     }
+
     expect(Object.keys(nestedProperties)).toEqual(['a', 'z']);
     expect(catalog.admittedIds).toEqual(['a_tool', 'z_tool']);
   });
@@ -168,6 +172,7 @@ describe('effective context resolver', () => {
 
   it('returns a system-only receipt input and a domain-separated prompt hash', async () => {
     const prompt = model().systemPromptTemplate;
+
     const receipt = await resolveEffectiveContext({
       systemPrompt: prompt,
       model: model(),
@@ -191,6 +196,7 @@ describe('effective context resolver', () => {
     expect(receipt.promptHash).toBe(
       '8d6073494aa6d69d68f40b6bebe9c5888c2a006978de925c92e52fae8185a2f7',
     );
+
     const repeated = await resolveEffectiveContext({
       model: model({ providerModelId: 'other-provider-id' }),
       systemPrompt: prompt,
@@ -198,6 +204,7 @@ describe('effective context resolver', () => {
       allowedToolRules: [],
       candidates: [],
     });
+
     expect(repeated.promptHash).toBe(receipt.promptHash);
     expect(repeated.systemPrompt).toBe(receipt.systemPrompt);
   });
@@ -208,6 +215,7 @@ describe('effective context resolver', () => {
       allowedToolRules: ['tool'],
       candidates: [tool('tool', z.object({ value: z.string() }))],
     });
+
     const receipt = finalizeEffectiveContext({
       model: model(),
       systemPrompt: 'A later prompt.\n',
@@ -250,11 +258,13 @@ describe('effective context resolver', () => {
     vi.spyOn(Logger.prototype, 'warn').mockImplementation((message) => {
       warnings.push(String(message));
     });
+
     const validJsonSchema = {
       $schema: 'https://json-schema.org/draft-07/schema#',
       type: 'object',
       properties: { value: { type: 'string' } },
     };
+
     const catalog = await composeAttemptToolCatalog({
       callTimeoutSeconds: 15,
       allowedToolRules: ['valid_json', 'valid_zod', 'malformed', 'unsupported'],

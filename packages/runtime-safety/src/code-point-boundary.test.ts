@@ -12,6 +12,7 @@ describe("cutStringAtCodePointBoundary", () => {
    * never enters this range and only an unpaired one does.
    */
   const LONE_SURROGATE_PATTERN = /[\uD800-\uDFFF]/u;
+
   function isWellFormed(value: string): boolean {
     return !LONE_SURROGATE_PATTERN.test(value);
   }

@@ -14,11 +14,13 @@ import {
 
 /** The public npm registry; version documents and dist-tags need no key. */
 export const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org';
+
 /** The npm-mirroring CDN that serves a published version's files; unlike
  *  unpkg it keeps a legacy mixed-case name's case. */
 export const NPM_FILES_ORIGIN = 'https://cdn.jsdelivr.net/npm';
 
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
+
 const README_INIT: WebRequestInit = {
   accept: 'text/markdown, text/plain;q=0.9',
 };
@@ -27,19 +29,23 @@ type NpmTarget = { readonly name: string; readonly version?: string };
 
 /** npm's package-name charset, optionally scoped, at most 214 characters. */
 const NAME = String.raw`(?:@[a-z0-9~-][a-z0-9._~-]*/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*`;
+
 const PACKAGE_PATH = new RegExp(
   `^/package/(${NAME})(?:/v/([0-9A-Za-z][0-9A-Za-z.+-]{0,255}))?$`,
   'u',
 );
+
 const MAX_NAME_LENGTH = 214;
 
 /** Skips a value of an unexpected shape, so one legacy or malformed field
  *  never costs the whole manifest. */
 const SKIPPED = z.unknown().transform(() => undefined);
+
 const PERSON = z
   .string()
   .or(z.object({ name: z.string() }).transform(({ name }) => name))
   .or(SKIPPED);
+
 const DEPENDENCIES = z.record(z.string(), z.string()).or(SKIPPED).optional();
 const TEXT = z.string().or(SKIPPED).optional();
 
@@ -76,6 +82,7 @@ const VERSION_DOCUMENT = z.object({
     .optional(),
   dist: z.object({ tarball: z.string() }).or(SKIPPED).optional(),
 });
+
 type VersionDocument = z.infer<typeof VERSION_DOCUMENT>;
 
 const DIST_TAGS = z.record(z.string(), z.string());
@@ -88,13 +95,17 @@ export function parseNpmUrl(source: URL): NpmTarget | undefined {
   ) {
     return undefined;
   }
+
   // `encodeURIComponent`-built links spell a scope's `@` and `/` escaped.
   const match = PACKAGE_PATH.exec(
     source.pathname.replaceAll(/%40/giu, '@').replaceAll(/%2F/giu, '/'),
   );
+
   const name = match?.[1];
+
   if (name === undefined || name.length > MAX_NAME_LENGTH) return undefined;
   const version = match?.[2];
+
   return version === undefined ? { name } : { name, version };
 }
 
@@ -110,6 +121,7 @@ export function createNpmAdapter(
     registry: options.registryOrigin ?? NPM_REGISTRY_ORIGIN,
     files: options.filesOrigin ?? NPM_FILES_ORIGIN,
   };
+
   return {
     id: config.id,
     route: 'native',
@@ -129,26 +141,33 @@ async function readPackage(
     `${origins.registry}/${target.name}/${target.version ?? 'latest'}`,
     JSON_INIT,
   );
+
   if ('type' in fetched) return primaryFailure(fetched);
   const manifest = parseJsonBody(fetched.body, VERSION_DOCUMENT);
+
   if (manifest === undefined) return { kind: 'failed', failure: 'parse' };
 
   const notes: Array<string> = [];
   const tagsUrl = `${origins.registry}/-/package/${manifest.name}/dist-tags`;
+
   const tags = await loadSection(
     'dist-tags',
     io.fetch(tagsUrl, JSON_INIT),
     notes,
   );
+
   if ('fatal' in tags) return primaryFailure(tags.fatal);
   // A spent call deadline cannot be beaten by another request, so the README
   // is skipped with the note its own timed-out request would leave.
   const readmeUrl = `${origins.files}/${manifest.name}@${manifest.version}/README.md`;
+
   if (tags.spent !== undefined) notes.push(omissionNote('readme', tags.spent));
+
   const readme =
     tags.spent === undefined
       ? await loadSection('readme', io.fetch(readmeUrl, README_INIT), notes)
       : {};
+
   if ('fatal' in readme) return primaryFailure(readme.fatal);
 
   return {
@@ -169,7 +188,9 @@ function parseDistTags(
 ): Readonly<Record<string, string>> | undefined {
   if (body === undefined) return undefined;
   const tags = parseJsonBody(body, DIST_TAGS);
+
   if (tags === undefined) notes.push('dist-tags omitted: parse');
+
   return tags;
 }
 
@@ -180,6 +201,7 @@ function renderPackage(
 ): string {
   const lines = [`# ${manifest.name}@${manifest.version}`, ''];
   const description = manifest.description?.trim();
+
   if (description) lines.push(description, '');
 
   const fields: Array<[string, string | undefined]> = [
@@ -194,13 +216,17 @@ function renderPackage(
     ['Maintainers', manifest.maintainers?.join(', ')],
     ['Tarball', manifest.dist?.tarball],
   ];
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   lines.push(
     `URL: https://www.npmjs.com/package/${manifest.name}/v/${manifest.version}`,
   );
+
   if (readme?.trim()) lines.push('', '## README', '', readme.trim());
+
   return lines.join('\n');
 }
 
@@ -209,6 +235,7 @@ function dependencyList(
 ): string | undefined {
   if (dependencies === undefined) return undefined;
   const count = Object.keys(dependencies).length;
+
   return count === 0 ? undefined : `(${count}) ${entries(dependencies, '@')}`;
 }
 

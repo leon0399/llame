@@ -22,13 +22,17 @@ const repository: Repository = {
 // service call happens with exactly that pair.
 function makeController() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   const service = new RepositoriesService(tenantDb);
+
   const deleteRepository = vi
     .spyOn(service, 'deleteRepository')
     .mockResolvedValue(undefined);
+
   return {
     controller: new RepositoriesController(service),
     deleteRepository,

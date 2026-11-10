@@ -15,6 +15,7 @@ function echo(log: Array<string>) {
     inputSchema: z.strictObject({ value: z.string() }),
     execute: ({ value }) => {
       log.push(`execute:${value}`);
+
       return value;
     },
   });
@@ -33,6 +34,7 @@ describe('gateToolExecution', () => {
       { value: 'x' },
       OPTIONS,
     );
+
     await Promise.resolve();
     expect(log).toEqual([]);
 
@@ -69,10 +71,12 @@ describe('refuseUnavailableToolCalls', () => {
   it('reports the SDK’s own error text and input for an unknown tool', async () => {
     const report = vi.fn();
     const repair = refuseUnavailableToolCalls(report, createToolCallGate());
+
     const error = new NoSuchToolError({
       toolName: 'fetch_page',
       availableTools: ['read'],
     });
+
     const input = '{"url":"https://example.test/"}';
 
     await expect(
@@ -135,6 +139,7 @@ describe('refuseUnavailableToolCalls', () => {
   it('records an unparsable input as the empty object the SDK sends', async () => {
     const report = vi.fn();
     const repair = refuseUnavailableToolCalls(report, createToolCallGate());
+
     const error = new InvalidToolInputError({
       toolName: 'read',
       toolInput: 'not valid json{{{',

@@ -86,9 +86,11 @@ function rethrowMembershipWriteError(
 ): never {
   if (err instanceof HttpException) throw err;
   const code = pgErrorCode(err);
+
   if (code === '42501') {
     throw new ForbiddenException(forbiddenMessage);
   }
+
   // D2's last-owner trigger — demoting/revoking/leaving the sole owner of a
   // root unit.
   if (code === 'OW001') {
@@ -99,6 +101,7 @@ function rethrowMembershipWriteError(
       ),
     );
   }
+
   throw err;
 }
 
@@ -108,6 +111,7 @@ function rethrowChildCreateError(error: unknown): never {
   if (error instanceof NotFoundException) {
     throw error;
   }
+
   // The deferred path-integrity constraint trigger (D1) raises 23514 when a
   // commit would leave this unit's path inconsistent with its parent's
   // current path — the backstop behind the FOR UPDATE lock, for whatever
@@ -120,6 +124,7 @@ function rethrowChildCreateError(error: unknown): never {
       ),
     );
   }
+
   // RLS `org_units_insert` refuses a caller without admin tier on the
   // parent's path (#1260 F4) — a denial, not a server error.
   if (pgErrorCode(error) === '42501') {
@@ -127,6 +132,7 @@ function rethrowChildCreateError(error: unknown): never {
       'Not permitted to create a child under this org unit',
     );
   }
+
   throw error;
 }
 
@@ -136,6 +142,7 @@ function rethrowOrgUnitDeleteError(error: unknown): never {
   if (error instanceof HttpException) {
     throw error;
   }
+
   if (isConcurrentTreeChange(error)) {
     throw new ConflictException(
       conflictBody(
@@ -144,6 +151,7 @@ function rethrowOrgUnitDeleteError(error: unknown): never {
       ),
     );
   }
+
   // FK RESTRICT on parent_id — the unit still has children.
   if (pgErrorCode(error) === '23503') {
     throw new ConflictException(
@@ -153,6 +161,7 @@ function rethrowOrgUnitDeleteError(error: unknown): never {
       ),
     );
   }
+
   throw error;
 }
 
@@ -162,6 +171,7 @@ function rethrowOrgUnitUpdateError(error: unknown): never {
   if (error instanceof HttpException) {
     throw error;
   }
+
   // Move-into-own-subtree (repository guard) is a validation error, not an
   // authorization or integrity outcome — 422 (spec: "Move into own subtree
   // is rejected").
@@ -173,6 +183,7 @@ function rethrowOrgUnitUpdateError(error: unknown): never {
       code: ORG_UNITS_ERROR_CODES.moveIntoOwnSubtree,
     });
   }
+
   if (isConcurrentTreeChange(error)) {
     throw new ConflictException(
       conflictBody(
@@ -181,11 +192,13 @@ function rethrowOrgUnitUpdateError(error: unknown): never {
       ),
     );
   }
+
   // RLS, or the move-authority trigger: moving a unit out of its tree needs
   // an `owner` of the source tree's root (#1260).
   if (pgErrorCode(error) === '42501') {
     throw new ForbiddenException('Not permitted to update this org unit');
   }
+
   // A unit promoted to root must have an `owner` membership at commit
   // (#1260) — the same no-ownerless-root invariant as the last-owner guard.
   if (pgErrorCode(error) === 'OW001') {
@@ -196,6 +209,7 @@ function rethrowOrgUnitUpdateError(error: unknown): never {
       ),
     );
   }
+
   throw error;
 }
 
@@ -234,6 +248,7 @@ export class IdentityService {
     const summaries = await new MembershipsRepository(tx).summarize(userId, [
       unit.id,
     ]);
+
     return enrich(unit, summaries);
   }
 
@@ -253,11 +268,13 @@ export class IdentityService {
         ...(input.type && { type: input.type }),
         createdBy: input.userId,
       });
+
       await new MembershipsRepository(tx).grant({
         userId: input.userId,
         orgUnitId: unit.id,
         role: 'owner',
       });
+
       return this.withSummary(tx, input.userId, unit);
     });
   }
@@ -279,15 +296,18 @@ export class IdentityService {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
         const repo = new OrgUnitsRepository(tx);
         const parent = await repo.findByIdInLockedTree(input.parentId);
+
         if (!parent) {
           throw new NotFoundException(`Org unit ${input.parentId} not found`);
         }
+
         const unit = await repo.createChild({
           parent,
           name: input.name,
           ...(input.type && { type: input.type }),
           createdBy: input.userId,
         });
+
         // No membership row is granted on a fresh child (unlike root
         // bootstrap) — memberCount/directRole legitimately read 0/null.
         return this.withSummary(tx, input.userId, unit);
@@ -310,13 +330,16 @@ export class IdentityService {
   }): Promise<EffectiveRole | null> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).findById(input.orgUnitId);
+
       if (!unit) {
         return null;
       }
+
       const onPath = await new MembershipsRepository(tx).findByUserOnUnits(
         input.userId,
         pathIds(unit.path),
       );
+
       return resolveEffectiveRole(unit.path, onPath);
     });
   }
@@ -330,10 +353,12 @@ export class IdentityService {
   async listOrgUnits(userId: string): Promise<Array<OrgUnitWithSummary>> {
     return this.tenantDb.runAs(userId, async (tx) => {
       const units = await new OrgUnitsRepository(tx).listVisible();
+
       const summaries = await new MembershipsRepository(tx).summarize(
         userId,
         units.map((u) => u.id),
       );
+
       return units.map((unit) => enrich(unit, summaries));
     });
   }
@@ -345,9 +370,11 @@ export class IdentityService {
   }): Promise<OrgUnitWithSummary> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).findById(input.orgUnitId);
+
       if (!unit) {
         throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
       }
+
       return this.withSummary(tx, input.userId, unit);
     });
   }
@@ -396,6 +423,7 @@ export class IdentityService {
   ): Promise<OrgUnitWithSummary> {
     const repo = new OrgUnitsRepository(tx);
     const existing = await repo.findById(input.orgUnitId);
+
     if (!existing) {
       throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
     }
@@ -417,9 +445,11 @@ export class IdentityService {
     }
 
     const result = await repo.findById(input.orgUnitId);
+
     if (!result) {
       throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
     }
+
     return this.withSummary(tx, input.userId, result);
   }
 
@@ -436,9 +466,11 @@ export class IdentityService {
       );
     } else if (input.parentId !== undefined) {
       const newParent = await repo.findById(input.parentId);
+
       if (!newParent) {
         throw new NotFoundException(`Org unit ${input.parentId} not found`);
       }
+
       assertOrgUnitWritten(
         await repo.move({ id: input.orgUnitId }, newParent),
         'Not permitted to move this org unit',
@@ -459,10 +491,13 @@ export class IdentityService {
       await this.tenantDb.runAs(input.userId, async (tx) => {
         const repo = new OrgUnitsRepository(tx);
         const existing = await repo.findById(input.orgUnitId);
+
         if (!existing) {
           throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
         }
+
         const deleted = await repo.delete(input.orgUnitId);
+
         if (!deleted) {
           throw new ForbiddenException(
             'Owner-tier required to delete this org unit',
@@ -488,9 +523,11 @@ export class IdentityService {
   }): Promise<Array<Membership>> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const unit = await new OrgUnitsRepository(tx).findById(input.orgUnitId);
+
       if (!unit) {
         throw new NotFoundException(`Org unit ${input.orgUnitId} not found`);
       }
+
       return new MembershipsRepository(tx).listByUnit(input.orgUnitId);
     });
   }
@@ -511,23 +548,28 @@ export class IdentityService {
     try {
       return await this.tenantDb.runAs(input.callerId, async (tx) => {
         const repo = new MembershipsRepository(tx);
+
         const existing = await repo.findByUserAndUnit(
           input.userId,
           input.orgUnitId,
         );
+
         if (!existing) {
           throw new NotFoundException('Membership not found');
         }
+
         const updated = await repo.changeRole(
           input.userId,
           input.orgUnitId,
           input.role,
         );
+
         if (!updated) {
           throw new ForbiddenException(
             'Not permitted to change this membership’s role',
           );
         }
+
         return updated;
       });
     } catch (error) {
@@ -550,14 +592,18 @@ export class IdentityService {
     try {
       await this.tenantDb.runAs(input.callerId, async (tx) => {
         const repo = new MembershipsRepository(tx);
+
         const existing = await repo.findByUserAndUnit(
           input.userId,
           input.orgUnitId,
         );
+
         if (!existing) {
           throw new NotFoundException('Membership not found');
         }
+
         const revoked = await repo.revoke(input.userId, input.orgUnitId);
+
         if (!revoked) {
           throw new ForbiddenException(
             'Not permitted to revoke this membership',
@@ -595,6 +641,7 @@ export class IdentityService {
       // Drizzle wraps the driver error, so the SQLSTATE can be on `.code` OR the
       // wrapped `.cause.code`.
       const code = pgErrorCode(error);
+
       if (code === '23505') {
         throw new ConflictException(
           conflictBody(
@@ -603,10 +650,12 @@ export class IdentityService {
           ),
         );
       }
+
       // FK violation → the target user (or unit) doesn't exist. 404, not a 500.
       if (code === '23503') {
         throw new NotFoundException('User or org unit not found');
       }
+
       // RLS WITH CHECK rejected the insert (not owner/admin on an ancestor,
       // or a cross-tenant orgUnitId) — a normal authorization outcome, not a
       // server error.
@@ -615,6 +664,7 @@ export class IdentityService {
           'Not permitted to grant membership on this org unit',
         );
       }
+
       throw error;
     }
   }

@@ -1,5 +1,21 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-10
+
+- Reconcile the vendored anti-slop Oxlint plugin with upstream
+  `dmmulroy/anti-slop` `13909c9`. The only upstream change since `c44ef22`
+  keeps runs of single-line bindings grouped in `require-readable-spacing`, so
+  llame now adopts that rule, which it had left out, and enables it at error.
+  Its autofix inserts 32,713 blank lines across 1,634 files in one mechanical
+  commit. After rebasing a branch that conflicts with it, run `pnpm lint:fix`
+  instead of merging blank lines by hand. Provenance is in
+  `packages/oxlint-plugin-anti-slop/UPSTREAM.md`.
+
+- The pull-request mutation gate ignores hunks that only add or remove blank
+  lines. Such a hunk holds no mutant, and merging nearby blank-line hunks had
+  widened the scope to the untouched code between them, so a spacing-only
+  change could time out every API mutation shard.
+
 # 2026-11-08
 
 - **Steer a Run from the composer.** While a Run is active, Send becomes a

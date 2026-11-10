@@ -48,6 +48,7 @@ describe('createOpenAICodexModelClient', () => {
             { headers: { 'content-type': 'text/event-stream' } },
           ),
         );
+
       const previousFetch = globalThis.fetch;
       globalThis.fetch = fetchMock;
 
@@ -100,6 +101,7 @@ describe('createOpenAICodexModelClient', () => {
           { headers: { 'content-type': 'text/event-stream' } },
         ),
       );
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
@@ -144,6 +146,7 @@ describe('createOpenAICodexModelClient', () => {
           { headers: { 'content-type': 'text/event-stream' } },
         ),
       );
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
@@ -157,6 +160,7 @@ describe('createOpenAICodexModelClient', () => {
         userAgent: USER_AGENT,
         requestHeaders: {},
       });
+
       const replayedMessages: Array<ModelMessage> = [
         { role: 'user', content: 'Find the answer.' },
         {
@@ -221,6 +225,7 @@ describe('createOpenAICodexModelClient', () => {
           { headers: { 'content-type': 'text/event-stream' } },
         ),
       );
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
@@ -234,6 +239,7 @@ describe('createOpenAICodexModelClient', () => {
         userAgent: USER_AGENT,
         requestHeaders: {},
       });
+
       const onReasoningDelta = vi.fn();
       const collector = createAssistantPartCollector();
 
@@ -303,6 +309,7 @@ describe('createOpenAICodexModelClient', () => {
           { headers: { 'content-type': 'text/event-stream' } },
         ),
       );
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
@@ -352,24 +359,32 @@ describe('createOpenAICodexModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const chat = vi.fn(() => providerModel);
+
     const provider = Object.assign(
       vi.fn(() => providerModel),
       {
         chat,
       },
     );
+
     const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
       partial: true,
     });
+
     createOpenAIMock.mockReturnValue(provider);
+
     const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
       partial: true,
     });
+
     streamTextMock.mockReturnValue({});
+
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValue(new Response(null, { status: 302 }));
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
@@ -424,6 +439,7 @@ describe('createOpenAICodexModelClient', () => {
 
       const [createOptions] = createOpenAIMock.mock.calls.at(0) ?? [];
       const transportFetch = createOptions?.fetch;
+
       if (!transportFetch)
         throw new Error('expected a transport fetch wrapper');
       await transportFetch('https://redirect.example.test', {
@@ -443,22 +459,28 @@ describe('createOpenAICodexModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const provider = Object.assign(
       vi.fn(() => providerModel),
       {
         chat: vi.fn(() => providerModel),
       },
     );
+
     const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
       partial: true,
     });
+
     createOpenAIMock.mockReturnValue(provider);
+
     const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
       partial: true,
     });
+
     streamTextMock.mockReturnValue({});
     const onError = vi.fn();
     const secret = 'codex-access-token-canary';
+
     const client = createOpenAICodexModelClient(
       {
         credential: secret,
@@ -474,10 +496,12 @@ describe('createOpenAICodexModelClient', () => {
 
     client.streamText({ chat: CHAT, messages, onError });
     const [options] = streamTextMock.mock.calls.at(0) ?? [];
+
     const upstreamError = Object.assign(
       new Error(`401 unauthorized: Bearer ${secret}`),
       { statusCode: 401 },
     );
+
     await options?.onError?.({ error: upstreamError });
 
     expect(onError).toHaveBeenCalledWith({
@@ -496,22 +520,28 @@ describe('createOpenAICodexModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const provider = Object.assign(
       vi.fn(() => providerModel),
       {
         chat: vi.fn(() => providerModel),
       },
     );
+
     const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
       partial: true,
     });
+
     createOpenAIMock.mockReturnValue(provider);
+
     const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
       partial: true,
     });
+
     streamTextMock.mockReturnValue({});
     const onError = vi.fn();
     const secret = 'codex-quota-canary';
+
     const client = createOpenAICodexModelClient(
       {
         credential: 'access-token',
@@ -547,23 +577,29 @@ describe('createOpenAICodexModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const provider = Object.assign(
       vi.fn(() => providerModel),
       {
         chat: vi.fn(() => providerModel),
       },
     );
+
     const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
       partial: true,
     });
+
     createOpenAIMock.mockReturnValue(provider);
+
     const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
       partial: true,
     });
+
     const secret = 'codex-result-error-canary';
     streamTextMock.mockReturnValue({
       text: Promise.reject(new Error(`provider failure: ${secret}`)),
     });
+
     const client = createOpenAICodexModelClient(
       {
         credential: 'access-token',
@@ -593,22 +629,28 @@ describe('createOpenAICodexModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+
     const provider = Object.assign(
       vi.fn(() => providerModel),
       {
         chat: vi.fn(() => providerModel),
       },
     );
+
     const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
       partial: true,
     });
+
     createOpenAIMock.mockReturnValue(provider);
+
     const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
       partial: true,
     });
+
     streamTextMock.mockReturnValue({});
     const onError = vi.fn();
     const secret = 'codex-retry-quota-canary';
+
     const client = createOpenAICodexModelClient(
       {
         credential: 'access-token',
@@ -653,20 +695,26 @@ describe('createOpenAICodexModelClient', () => {
         provider: 'openai.responses',
         modelId: 'gpt-test',
       });
+
       const provider = Object.assign(
         vi.fn(() => providerModel),
         {
           chat: vi.fn(() => providerModel),
         },
       );
+
       const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
         partial: true,
       });
+
       createOpenAIMock.mockReturnValue(provider);
+
       const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
         partial: true,
       });
+
       streamTextMock.mockReturnValue({});
+
       const client = createOpenAICodexModelClient(
         {
           credential: 'access-token',
@@ -680,6 +728,7 @@ describe('createOpenAICodexModelClient', () => {
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
       );
+
       return { client, streamTextMock };
     }
 
@@ -810,6 +859,7 @@ describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', ()
         { headers: { 'content-type': 'text/event-stream' } },
       ),
     );
+
     const client = createOpenAICodexModelClient({
       credential: 'access-token',
       accountId: 'account-id',
@@ -819,6 +869,7 @@ describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', ()
       userAgent: USER_AGENT,
       requestHeaders: {},
     });
+
     const reported: Array<unknown> = [];
 
     const result = client.streamText({
@@ -828,6 +879,7 @@ describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', ()
         reported.push(error);
       },
     });
+
     // The SDK streams nothing until a result accessor is read.
     const drained = result.fullStream.pipeTo(new WritableStream());
     await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);

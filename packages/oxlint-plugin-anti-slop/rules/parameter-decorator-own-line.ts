@@ -14,15 +14,18 @@ function bindingOf(parameter: Parameter): ESTree.Node {
 /** The decorator's own name, for the message; falls back when it is not a plain call. */
 function decoratorName(decorator: ESTree.Decorator): string {
   const { expression } = decorator;
+
   if (
     expression.type === "CallExpression" &&
     expression.callee.type === "Identifier"
   ) {
     return expression.callee.name;
   }
+
   if (expression.type === "Identifier") {
     return expression.name;
   }
+
   return "decorator";
 }
 
@@ -55,15 +58,19 @@ export const parameterDecoratorOwnLineRule = defineRule({
           parameter.type === "TSParameterProperty"
             ? parameter.decorators
             : undefined;
+
         const own = decorators ?? [];
+
         if (own.length === 0) continue;
 
         const binding = bindingOf(parameter);
+
         for (const [index, decorator] of own.entries()) {
           // Compare against whatever comes next: the following decorator
           // when one exists, otherwise the parameter's own binding. Both
           // must start on a later line than this decorator ends on.
           const next: ESTree.Node = own[index + 1] ?? binding;
+
           if (decorator.loc.end.line === next.loc.start.line) {
             context.report({
               node: decorator,

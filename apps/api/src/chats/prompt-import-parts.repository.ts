@@ -72,16 +72,21 @@ export class PromptImportPartsRepository {
       .select({ parts: messages.parts })
       .from(messages)
       .where(messageOwner(input));
+
     const parts: ReadonlyArray<unknown> = Array.isArray(row?.parts)
       ? row.parts
       : [];
+
     const stored = parts.find((part): part is ContextItemPart =>
       input.runId === undefined
         ? isPromptImportsEnvelope(part)
         : isRunPromptImportsEnvelope(part, input.runId),
     );
+
     if (stored === undefined) return undefined;
+
     if (isPromptImportsPartPayload(stored)) return stored;
+
     return { ...stored, data: { ...stored.data, payload: undefined } };
   }
 
@@ -95,6 +100,7 @@ export class PromptImportPartsRepository {
       .select({ parts: messages.parts })
       .from(messages)
       .where(messageOwner(input));
+
     return Array.isArray(row?.parts) ? retainedPartsBase64(row.parts) : 0;
   }
 
@@ -115,16 +121,20 @@ export class PromptImportPartsRepository {
     item: AuthoredContextItemPart;
   }): Promise<{ readonly applied: boolean }> {
     const parts = await lockParts(this.db, input);
+
     if (parts === undefined) return { applied: false };
+
     const stored = parts.some(
       (part) =>
         isContextItemPart(part) &&
         part.data.producer === PROMPT_IMPORTS_PRODUCER &&
         part.data.runId === input.runId,
     );
+
     if (stored) return { applied: false };
 
     const index = railInsertionIndex(parts, PROMPT_IMPORTS_RANK);
+
     const [updated] = await this.db
       .update(messages)
       .set({
@@ -132,6 +142,7 @@ export class PromptImportPartsRepository {
       })
       .where(messageOwner(input))
       .returning({ id: messages.id });
+
     return { applied: updated !== undefined };
   }
 }

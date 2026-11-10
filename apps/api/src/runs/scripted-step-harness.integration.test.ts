@@ -57,13 +57,16 @@ function partsOf(
 /** A stored part's identity in transcript order: its text, call id, or type. */
 function partIdentity(part: UnknownRecord): string {
   const text = part['text'];
+
   if (
     (part['type'] === 'reasoning' || part['type'] === 'text') &&
     isString(text)
   ) {
     return text;
   }
+
   const toolCallId = part['toolCallId'];
+
   return isString(toolCallId) ? toolCallId : String(part['type']);
 }
 
@@ -105,6 +108,7 @@ describeIfDb('whole-step scripted model client', () => {
         const run = await harness.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(runId, userId),
         );
+
         return run && isTerminalRunStatus(run.status) ? run : undefined;
       },
       30_000,
@@ -115,9 +119,12 @@ describeIfDb('whole-step scripted model client', () => {
     const messages = await harness.tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     const assistant = messages.find((message) => message.role === 'assistant');
+
     if (assistant === undefined)
       throw new Error('The Run stored no assistant message.');
+
     return assistant.parts.filter((part): part is UnknownRecord =>
       isRecord(part),
     );
@@ -125,6 +132,7 @@ describeIfDb('whole-step scripted model client', () => {
 
   it('stores each scripted step through the production seams and feeds its response to the next step', async () => {
     const modelId = `step-script-${randomUUID()}`;
+
     const behavior: ScriptedBehavior = {
       kind: 'step-script',
       steps: [
@@ -182,6 +190,7 @@ describeIfDb('whole-step scripted model client', () => {
         ],
       ],
     };
+
     harness.models.register(modelId, behavior);
     const promptCount = harness.models.prompts.length;
 
@@ -260,6 +269,7 @@ describeIfDb('whole-step scripted model client', () => {
       providerMetadata: UNKNOWN_CALL_METADATA,
     });
     const unknownRefusal = unknownPart?.['sdkRefusal'];
+
     if (!isRecord(unknownRefusal))
       throw new Error('The unknown call stored no SDK refusal.');
     expect(unknownRefusal['input']).toEqual({});
@@ -273,6 +283,7 @@ describeIfDb('whole-step scripted model client', () => {
       providerMetadata: INVALID_CALL_METADATA,
     });
     const invalidRefusal = invalidPart?.['sdkRefusal'];
+
     if (!isRecord(invalidRefusal))
       throw new Error('The invalid call stored no SDK refusal.');
     expect(invalidRefusal['input']).toEqual({});
@@ -284,11 +295,14 @@ describeIfDb('whole-step scripted model client', () => {
     // results so the model can answer from them.
     const prompts = harness.models.prompts.slice(promptCount);
     const secondPrompt = prompts[1];
+
     if (secondPrompt === undefined)
       throw new Error('The Run made no second provider request.');
+
     const assistantMessage = secondPrompt.find(
       (message) => message.role === 'assistant',
     );
+
     if (assistantMessage?.role !== 'assistant')
       throw new Error('Step 2 carried no assistant message.');
     expect(assistantMessage.content).toContainEqual(
@@ -311,9 +325,11 @@ describeIfDb('whole-step scripted model client', () => {
         text: 'Both requested. ',
       }),
     );
+
     const readCall = assistantMessage.content.find(
       (part) => part.type === 'tool-call' && part.toolCallId === 'call-read',
     );
+
     expect(readCall).toMatchObject({
       toolName: 'read',
       input: { path: filePath },
@@ -325,11 +341,13 @@ describeIfDb('whole-step scripted model client', () => {
           part.type === 'tool-call' && part.toolCallId === 'call-unknown',
       ),
     ).toBe(true);
+
     const toolResults = secondPrompt.flatMap((message) =>
       message.role === 'tool'
         ? message.content.filter((part) => part.type === 'tool-result')
         : [],
     );
+
     expect(toolResults.map((part) => part.toolCallId)).toEqual(
       expect.arrayContaining(['call-read', 'call-unknown']),
     );
@@ -376,6 +394,7 @@ describeIfDb('whole-step scripted model client', () => {
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     expect(
       reconstructDurableAssistant(events)
         .collector.parts()

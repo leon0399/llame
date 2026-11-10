@@ -68,8 +68,10 @@ function watched(model: LanguageModelV3, input: ModelStreamInput) {
     abortSignal: input.abortSignal,
     onError: input.onError,
   };
+
   applyStreamIdleWatchdog(streamOptions, input);
   const result = streamText(streamOptions);
+
   // The SDK rejects every accessor of a stream that ended without output.
   // Only `text` is read below, so the rest are drained here.
   for (const accessor of [
@@ -80,6 +82,7 @@ function watched(model: LanguageModelV3, input: ModelStreamInput) {
   ]) {
     void Promise.resolve(accessor).catch(() => undefined);
   }
+
   return result;
 }
 
@@ -106,6 +109,7 @@ describe('applyStreamIdleWatchdog', () => {
       'stalled-headers',
       () => new Promise<never>(() => undefined),
     );
+
     const onError = vi.fn<StreamTextOnErrorCallback>();
     const input: ModelStreamInput = { chat: CHAT, messages, onError };
 
@@ -114,6 +118,7 @@ describe('applyStreamIdleWatchdog', () => {
     const settled = Promise.resolve(watched(stalled, input).text).catch(
       (error: unknown) => error,
     );
+
     await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
 
     // The provider's own read is cancelled, so nothing hangs behind the
@@ -135,6 +140,7 @@ describe('applyStreamIdleWatchdog', () => {
         ]),
       }),
     );
+
     const onError = vi.fn<StreamTextOnErrorCallback>();
 
     const result = watched(stalled, { chat: CHAT, messages, onError });
@@ -175,12 +181,14 @@ describe('applyStreamIdleWatchdog', () => {
     // would fail it a full window later.
     const hanging = model('aborted', () => new Promise<never>(() => undefined));
     const onError = vi.fn<StreamTextOnErrorCallback>();
+
     const result = watched(hanging, {
       chat: CHAT,
       messages,
       abortSignal: abort.signal,
       onError,
     });
+
     void Promise.resolve(result.text).catch(() => undefined);
 
     await vi.advanceTimersByTimeAsync(0);
@@ -192,8 +200,10 @@ describe('applyStreamIdleWatchdog', () => {
 
   it('does not count a long tool between two requests as provider silence', async () => {
     let request = 0;
+
     const scripted = model('long-tool', () => {
       request += 1;
+
       return Promise.resolve({
         stream: simulateReadableStream({
           chunks:
@@ -219,19 +229,23 @@ describe('applyStreamIdleWatchdog', () => {
         }),
       });
     });
+
     const slowTool = tool({
       inputSchema: z.object({}),
       execute: async () => {
         await vi.advanceTimersByTimeAsync(400_000);
+
         return 'tool result';
       },
     });
+
     const input: ModelStreamInput = {
       chat: CHAT,
       messages,
       tools: { wait: slowTool },
       maxSteps: null,
     };
+
     const streamOptions = { model: scripted, messages };
     applyToolCallingOptions(streamOptions, input, createToolCallGate());
     applyStreamIdleWatchdog(streamOptions, input);
@@ -248,18 +262,23 @@ describe('applyStreamIdleWatchdog', () => {
       'call-signal',
       () => new Promise<never>(() => undefined),
     );
+
     // The call carries its own abort (a per-call timeout, say) while the Run
     // has none: the provider request must still see the call's abort.
     const call = new AbortController();
+
     const streamOptions = {
       model: stalled,
       messages,
       abortSignal: call.signal,
     };
+
     applyStreamIdleWatchdog(streamOptions, { chat: CHAT, messages });
+
     const settled = Promise.resolve(streamText(streamOptions).text).catch(
       (error: unknown) => error,
     );
+
     await vi.advanceTimersByTimeAsync(0);
 
     call.abort();

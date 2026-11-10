@@ -61,6 +61,7 @@ describe('Knowledge filesystem validation', () => {
 
   it('rejects absolute, traversal, and control-character paths', () => {
     expect(validatePath('nested/note.md')).toEqual(['nested', 'note.md']);
+
     for (const unsafe of [
       '',
       '/absolute.md',
@@ -84,6 +85,7 @@ describe('Knowledge filesystem validation', () => {
       ...Array.from({ length: KNOWLEDGE_MAX_PATH_COMPONENTS - 1 }, () => 'a'),
       'note.md',
     ];
+
     expect(validatePath(maxComponents.join('/'))).toEqual(maxComponents);
   });
 

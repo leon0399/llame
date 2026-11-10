@@ -106,6 +106,7 @@ function useReordering(): ReorderingState {
   const [active, setActive] = useState(false);
   const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(settle.current), []);
+
   return {
     active,
     start: () => {

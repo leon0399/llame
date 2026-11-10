@@ -126,12 +126,14 @@ let links: Array<ProjectRepositoryLinkWithDefaultsResponse>;
 let checkouts: Array<CheckoutResponse>;
 let machines: Array<MachineResponse>;
 let previewByQuery = new Map<string, StartLocationResponse>();
+
 // What `POST /api/v1/checkouts` answers: a registered row, or a refusal.
 let registered: () => Response;
 
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
   const url = new URL(request.url);
+
   return `${request.method} ${url.pathname}${url.search}`;
 }
 
@@ -139,23 +141,32 @@ function routeFetch() {
   fetchMock = stubFetch();
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
+
     if (key === LINKS_ROUTE) return Promise.resolve(jsonResponse(links));
+
     if (key === REPOSITORIES_ROUTE) {
       return Promise.resolve(jsonResponse([repository("repo-1", "llame")]));
     }
+
     if (key === CHECKOUTS_ROUTE) {
       return Promise.resolve(jsonResponse(checkouts));
     }
+
     if (key === REGISTER_ROUTE) return Promise.resolve(registered());
+
     if (key.startsWith(`GET ${PREVIEW_PATH}`)) {
       const query = key.slice(`GET ${PREVIEW_PATH}`.length).replace("?", "");
+
       const body =
         previewByQuery.get(query) ??
         namedCheckoutPreview(query) ??
         previewByQuery.get("");
+
       if (body === undefined) throw new Error(`unrouted preview: ${query}`);
+
       return Promise.resolve(jsonResponse(body));
     }
+
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -166,7 +177,9 @@ function namedCheckoutPreview(query: string) {
   const named = checkouts.find(
     (row) => row.id === new URLSearchParams(query).get("checkoutId"),
   );
+
   if (named === undefined) return undefined;
+
   return preview({
     repositoryId: named.repositoryId,
     executorId: named.executorId,
@@ -191,6 +204,7 @@ function setMachines(next: Array<MachineResponse>) {
 function PillHarness({ failed = null }: { failed?: WorkspaceFailure | null }) {
   const location = useComposerLocation({ projectId: "p1", failed });
   const [otherFolder, setOtherFolder] = useState(false);
+
   return (
     <>
       <ComposerLocationPill
@@ -217,6 +231,7 @@ const meta = {
     registered = () => jsonResponse({ message: "unrouted" }, 500);
     setMachines([machine("nas")]);
     routeFetch();
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -224,6 +239,7 @@ const meta = {
 } satisfies Meta<typeof PillHarness>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 function cell(canvasElement: HTMLElement, name: RegExp) {
@@ -390,9 +406,11 @@ async function typeOtherFolder(
   await userEvent.click(
     await screen.findByRole("menuitem", { name: "Other folder…" }),
   );
+
   const dialog = await screen.findByRole("dialog", {
     name: "Working directory",
   });
+
   await userEvent.click(
     within(dialog).getByRole("combobox", { name: "Machine" }),
   );
@@ -400,6 +418,7 @@ async function typeOtherFolder(
     await screen.findByRole("option", { name: machineName }),
   );
   await userEvent.type(within(dialog).getByLabelText("Folder"), path);
+
   return dialog;
 }
 
@@ -426,6 +445,7 @@ export const OtherFolderMatchesCheckout: Story = {
       "nas",
       "/srv/src/notes/",
     );
+
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Use folder" }),
     );
@@ -453,7 +473,9 @@ export const OtherFolderRegisters: Story = {
         repositoryId: "repo-3",
         path: "machine://nas/srv/src/c%23",
       });
+
       checkouts = [...checkouts, row];
+
       return jsonResponse(row, 201);
     };
   },
@@ -492,6 +514,7 @@ export const OtherFolderRefused: Story = {
       "This server",
       "/tmp/plain",
     );
+
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Use folder" }),
     );

@@ -16,6 +16,7 @@ const SOURCE = 'https://github.com/acme/project/actions/runs/70/job/90';
 const JOB_URL = `${API_ORIGIN}/repos/acme/project/actions/jobs/90`;
 const LOGS_URL = `${JOB_URL}/logs`;
 const RUN_URL = 'https://github.com/acme/project/actions/runs/70';
+
 const TOKEN_INIT = {
   accept: 'application/vnd.github+json',
   authorization: { origin: API_ORIGIN, value: 'Bearer secret-value' },
@@ -72,6 +73,7 @@ function failure(
     message: `HTTP ${httpStatus}`,
     httpStatus,
   };
+
   return rateLimit === undefined ? result : { ...result, rateLimit };
 }
 
@@ -86,16 +88,20 @@ async function readJob(
   token: string | null = 'secret-value',
 ) {
   const routes = new Map<string, ReadonlyArray<Reply>>([[JOB_URL, [primary]]]);
+
   if (logs !== undefined) routes.set(LOGS_URL, [logs]);
   const run = scriptedIo(routes);
+
   const outcome = await createGithubAdapter(config(token ?? undefined), {
     apiOrigin: API_ORIGIN,
   }).read(new URL(SOURCE), run.io);
+
   return { outcome, requests: run.requests };
 }
 
 function contentOf(outcome: WebAdapterOutcome): string {
   if (outcome.kind !== 'rendered') throw new Error('expected a render');
+
   return outcome.content;
 }
 
@@ -343,6 +349,7 @@ describe('GitHub job adapter', () => {
       undefined,
       null,
     );
+
     const running = await readJob(
       response(
         job({

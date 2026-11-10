@@ -207,6 +207,7 @@ export class ChatLoopService {
     // Validate BEFORE any database work: a rejected message must not cost a
     // transaction, and input that was invalid anyway stays a 400.
     const turn = await this.validateTurn(input);
+
     const admitted = await this.persistUserMessageAndRun({
       chatId: input.chatId,
       userId: input.userId,
@@ -215,7 +216,9 @@ export class ChatLoopService {
       targetRunId: randomUUID(),
       takeCreationLock: true,
     });
+
     if ('delivery' in admitted) return admitted;
+
     return this.finalizeAcceptedRun({
       ...admitted,
       chatId: input.chatId,
@@ -242,7 +245,9 @@ export class ChatLoopService {
       this.instanceConfig.config.tools.permissionModes,
       input,
     );
+
     const message = this.sanitizeAndValidateMessage(input.message);
+
     return {
       modelId: input.modelId,
       effort,
@@ -275,11 +280,13 @@ export class ChatLoopService {
       targetRunId: randomUUID(),
       takeCreationLock: false,
     });
+
     // The Chat of a create request is new, so no item of it can exist; an id
     // of another Chat's item is refused in admission. This is the same refusal.
     if ('delivery' in admitted) {
       throw new ConflictException('Message id already exists');
     }
+
     const { runId, userMessage } = admitted;
     await this.dispatch.dispatch({
       runId,
@@ -288,6 +295,7 @@ export class ChatLoopService {
       modelId: input.turn.modelId,
       userMessage,
     });
+
     return { runId };
   }
 
@@ -298,9 +306,11 @@ export class ChatLoopService {
       id: message.id,
       parts: sanitizeClientMessageParts(message.parts),
     };
+
     if (sanitized.parts.length === 0) {
       throw new BadRequestException('Message must contain a text or file part');
     }
+
     return sanitized;
   }
 
@@ -326,6 +336,7 @@ export class ChatLoopService {
       userId: input.userId,
       abortSignal: input.abortSignal,
     });
+
     // The controller consumes only this one-method stream surface; the
     // bridge's Response satisfies it without claiming a full streamText result.
     return {
@@ -354,7 +365,9 @@ export class ChatLoopService {
 
       const { chat, createdByUs } = await this.resolveChat(chatsRepo, input);
       const item = await this.findStoredItem(tx, chatsRepo, input, createdByUs);
+
       if (item) return { delivery: item };
+
       const admittedMessage = await this.admitTurn(
         chat,
         createdByUs,
@@ -362,7 +375,9 @@ export class ChatLoopService {
         messagesRepo,
         input,
       );
+
       const pending = await this.admitToSlot(tx, input);
+
       if (pending) return pending;
 
       // The user message is persisted with only the caller's sanitized text
@@ -410,15 +425,20 @@ export class ChatLoopService {
       dispatch: this.dispatch,
       instanceConfig: this.instanceConfig,
     };
+
     if (input.delivery === undefined) {
       await clearActiveRunSlot(slot);
+
       return undefined;
     }
+
     if ((await claimActiveRunSlot(slot)) === 'free') return undefined;
     const deliveries = new ChatDeliveriesRepository(tx);
+
     if (await deliveries.messageIdTaken(input.message.id, input.userId)) {
       throw new ConflictException('Message id already exists');
     }
+
     const created = await deliveries.insertPending({
       id: input.message.id,
       chatId: input.chatId,
@@ -431,10 +451,13 @@ export class ChatLoopService {
         permissionMode: input.permissionMode,
       },
     });
+
     if (!created) throw new ConflictException('Message id already exists');
+
     if (input.delivery === 'interrupt') {
       await notifyLiveRunInterrupt(tx, input);
     }
+
     return { delivery: created };
   }
 
@@ -469,16 +492,20 @@ export class ChatLoopService {
     input: PersistUserMessageAndRunInput,
   ): Promise<{ chat: Chat; createdByUs: boolean }> {
     let chat = await chatsRepo.findById(input.chatId, input.userId);
+
     if (chat) return { chat, createdByUs: false };
     chat = await chatsRepo.createIfAbsent({
       id: input.chatId,
       ownerUserId: input.userId,
     });
+
     if (chat) return { chat, createdByUs: true };
     chat = await chatsRepo.findById(input.chatId, input.userId);
+
     if (!chat) {
       throw new NotFoundException(`Chat ${input.chatId} not found`);
     }
+
     return { chat, createdByUs: false };
   }
 
@@ -499,13 +526,16 @@ export class ChatLoopService {
     if (input.delivery !== undefined && !createdByUs) {
       await chatsRepo.lock(input.chatId, input.userId);
     }
+
     const item = await new ChatDeliveriesRepository(tx).findById(
       input.message.id,
       input.userId,
     );
+
     if (item && item.chatId !== input.chatId) {
       throw new ConflictException('Message id already exists');
     }
+
     return item;
   }
 
@@ -535,6 +565,7 @@ export class ChatLoopService {
       input.userId,
       input.message.id,
     );
+
     if (turn.userMessage || turn.assistantMessage) {
       throw new ConflictException('Message id already exists');
     }
@@ -558,9 +589,11 @@ export class ChatLoopService {
         senderUserId: input.userId,
         parts,
       }));
+
     if (!userMessage) {
       throw new ConflictException('Message id already exists');
     }
+
     return userMessage;
   }
 }

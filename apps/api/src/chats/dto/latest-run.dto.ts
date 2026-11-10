@@ -68,8 +68,10 @@ export class ChatLatestRunResponse {
  *  null: a cancelled Run's stream sends none, though the row records why. */
 function runErrorMessage(run: Run): string | null {
   if (run.status !== 'failed' && run.status !== 'expired') return null;
+
   if (!isRecord(run.error)) return null;
   const message = run.error['message'];
+
   return isString(message) ? message : null;
 }
 

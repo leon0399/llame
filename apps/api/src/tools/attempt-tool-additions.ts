@@ -70,11 +70,13 @@ async function admitWorkspaceTools(
     state: 'available',
     tool,
   }));
+
   const catalog = await composeTurnToolCatalog({
     allowedToolRules: options.allowedToolRules,
     callTimeoutSeconds: options.callTimeoutSeconds,
     candidates,
   });
+
   return {
     admitted: new Map(
       catalog.admitted.map((entry) => [entry.declaration.id, entry]),
@@ -95,9 +97,11 @@ function retainedConflict(
   boundExecutables: Map<string, AttemptToolBinding>,
 ): PlanDecision | undefined {
   const foldedId = asciiCaseFoldToolId(id);
+
   const collidingId = [...boundExecutables.keys()].find(
     (key) => key !== id && asciiCaseFoldToolId(key) === foldedId,
   );
+
   if (collidingId !== undefined) {
     return {
       kind: 'refused',
@@ -107,10 +111,13 @@ function retainedConflict(
       },
     };
   }
+
   const retained = boundExecutables.get(id);
+
   const declarationChanged =
     retained !== undefined &&
     canonicalJson(retained.declaration) !== canonicalJson(declaration);
+
   if (
     retained !== undefined &&
     (retained.server === undefined || declarationChanged)
@@ -121,8 +128,10 @@ function retainedConflict(
         executor: unavailableExecutor(retained.declaration),
       });
     }
+
     return { kind: 'available_next_run', id };
   }
+
   return undefined;
 }
 
@@ -133,37 +142,48 @@ function planTool(
   options: AttemptToolAdditionsOptions,
 ): PlanDecision {
   const id = tool.id;
+
   if (!isServerToolId(id, server)) {
     return {
       kind: 'refused',
       refusal: { id, reason: 'wrong_server_namespace' },
     };
   }
+
   if (!isToolId(id)) {
     return { kind: 'refused', refusal: { id, reason: 'invalid_tool_id' } };
   }
+
   if (!matchesAllowedToolId(id, options.allowedToolRules)) {
     return { kind: 'refused', refusal: { id, reason: 'not_allowlisted' } };
   }
+
   const entry = admission.availability.get(id);
+
   if (entry?.state === 'unavailable') {
     return { kind: 'refused', refusal: { id, reason: entry.reason } };
   }
+
   const admitted = admission.admitted.get(id);
+
   if (admitted === undefined) {
     return { kind: 'refused', refusal: { id, reason: 'declaration_refused' } };
   }
+
   const retained = retainedConflict(
     id,
     admitted.declaration,
     options.boundExecutables,
   );
+
   if (retained !== undefined) return retained;
+
   return {
     kind: 'planned',
     addition: { id, tool, declaration: admitted.declaration },
   };
 }
+
 function bindAddition(
   options: AttemptToolAdditionsOptions,
   record: ToolSet,
@@ -177,6 +197,7 @@ function bindAddition(
     server,
     available: true,
   });
+
   if (!(addition.id in record)) {
     record[addition.id] = options.createTool(addition.declaration);
   }
@@ -208,6 +229,7 @@ export class AttemptToolAdditions {
     for (const binding of this.options.boundExecutables.values()) {
       if (binding.server === server && binding.available !== false) return true;
     }
+
     return false;
   }
 
@@ -219,14 +241,17 @@ export class AttemptToolAdditions {
     for (const [id, binding] of this.options.boundExecutables) {
       if (binding.server !== undefined) continue;
       const parsed = parseMcpToolId(id);
+
       if (parsed.success && parsed.serverId === server) return true;
     }
+
     return false;
   }
   hasWorkspaceDeclaration(server: string): boolean {
     for (const binding of this.options.boundExecutables.values()) {
       if (binding.server === server) return true;
     }
+
     return false;
   }
 
@@ -240,8 +265,10 @@ export class AttemptToolAdditions {
       availableFromNextRun: [],
       refused: [],
     };
+
     for (const tool of tools) {
       const decision = planTool(tool, server, admission, this.options);
+
       switch (decision.kind) {
         case 'available_next_run':
           plan.availableFromNextRun.push(decision.id);
@@ -254,6 +281,7 @@ export class AttemptToolAdditions {
           break;
       }
     }
+
     return plan;
   }
 
@@ -265,8 +293,10 @@ export class AttemptToolAdditions {
     const added = plan.planned.map((addition) => {
       this.addedDeclarationsById.set(addition.id, addition.declaration);
       bindAddition(this.options, record, server, addition);
+
       return addition.id;
     });
+
     return {
       added,
       availableFromNextRun: plan.availableFromNextRun,
@@ -279,12 +309,15 @@ export class AttemptToolAdditions {
     tools: ReadonlyArray<Tool>,
   ): Promise<AttemptToolAdditionResult> {
     const serverTools = tools.filter(({ id }) => isServerToolId(id, server));
+
     const admission = await admitWorkspaceTools(
       this.options,
       server,
       serverTools,
     );
+
     const plan = this.plan(server, tools, admission);
+
     if (plan.planned.length === 0) {
       return {
         added: [],
@@ -292,7 +325,9 @@ export class AttemptToolAdditions {
         refused: plan.refused,
       };
     }
+
     const record = this.toolRecord;
+
     if (record === undefined) {
       return {
         added: [],
@@ -306,6 +341,7 @@ export class AttemptToolAdditions {
         ],
       };
     }
+
     return this.commit(server, plan, record);
   }
   disableAll(): void {

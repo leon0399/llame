@@ -63,12 +63,14 @@ describe('deriveSkillCatalogDelta', () => {
       advertised: [entry('pdf')],
       told: ['pdf', 'review'],
     });
+
     expect(becameManualOnly?.removed).toEqual(['review']);
 
     const becameProactive = deriveSkillCatalogDelta({
       advertised: [entry('pdf'), entry('review')],
       told: ['pdf'],
     });
+
     expect(becameProactive?.added.map((e) => e.name)).toEqual(['review']);
   });
 

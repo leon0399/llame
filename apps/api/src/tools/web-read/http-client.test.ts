@@ -107,6 +107,7 @@ async function fetchOne(
       resolve: deps.resolve ?? resolveExampleHost,
     },
   );
+
   try {
     return await session.fetch(url, init);
   } finally {
@@ -124,9 +125,11 @@ async function listenLoopback(server: Server): Promise<number> {
     });
   });
   const address = server.address();
+
   if (address === null || isString(address)) {
     throw new Error('The loopback server did not bind a TCP port.');
   }
+
   return address.port;
 }
 
@@ -143,9 +146,11 @@ function closeServer(server: Server): Promise<void> {
  *  only handle a test has on what the client does with that signal. */
 function signalOf(init: RequestInit | undefined): AbortSignal {
   const signal = init?.signal;
+
   if (signal === null || signal === undefined) {
     throw new Error('the client sent no request signal');
   }
+
   return signal;
 }
 
@@ -154,6 +159,7 @@ function signalOf(init: RequestInit | undefined): AbortSignal {
  *  passing one. */
 function abortListeners(signal: AbortSignal | undefined): number {
   if (signal === undefined) return -1;
+
   return getEventListeners(signal, 'abort').length;
 }
 
@@ -161,6 +167,7 @@ function abortListeners(signal: AbortSignal | undefined): number {
  *  can prove the client asked exactly once: nothing is retried. */
 function serving(response: Response) {
   const fetch = vi.fn(() => Promise.resolve(response));
+
   return { fetch } satisfies TestDeps;
 }
 
@@ -170,18 +177,23 @@ function routing(
   admit: AdmitDerivedLocator = refuseEveryHop,
 ) {
   const seen: Array<string> = [];
+
   const fetch = vi.fn((input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
     seen.push(url);
+
     return Promise.resolve(route(url, seen.length));
   });
+
   return { fetch, admit, seen } satisfies TestDeps & { seen: Array<string> };
 }
 
 /** A redirect naming `location`, with no body to read. */
 function redirectResponse(status: number, location?: string): Response {
   const headers = new Headers();
+
   if (location !== undefined) headers.set('location', location);
+
   return new Response(null, { status, headers });
 }
 
@@ -193,6 +205,7 @@ function textResponse(body: string, contentType: string): Response {
  *  test can put it on either side of the 2 KiB scan window. */
 function metaCharsetHtml(pad: number): string {
   const head = `<html><head><!--${'x'.repeat(pad)}-->`;
+
   return `${head}<meta charset="iso-8859-1"></head><body>café</body></html>`;
 }
 
@@ -205,12 +218,15 @@ function streamingResponse(
   onCancel: () => void,
 ): Response {
   let index = 0;
+
   return new Response(
     new ReadableStream<Uint8Array>({
       pull(controller) {
         const chunk = chunks[index++];
+
         if (chunk === undefined) return new Promise<void>(() => undefined);
         controller.enqueue(chunk);
+
         return undefined;
       },
       cancel: onCancel,
@@ -248,6 +264,7 @@ type DelayedStep =
  *  is in flight — so a bound that fires mid-wait is what ends the call. */
 function delayedRouting(script: ReadonlyArray<DelayedStep>) {
   const seen: Array<string> = [];
+
   const fetch = (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -256,16 +273,20 @@ function delayedRouting(script: ReadonlyArray<DelayedStep>) {
       const url = input instanceof Request ? input.url : String(input);
       seen.push(url);
       const step = script[seen.length - 1];
+
       if (step === undefined) {
         reject(new Error(`the transport has no script for ${url}`));
+
         return;
       }
+
       const timer =
         step.kind === 'answer'
           ? setTimeout(() => {
               resolve(step.respond());
             }, step.afterMs)
           : undefined;
+
       init?.signal?.addEventListener(
         'abort',
         () => {
@@ -288,6 +309,7 @@ function bodyAfter(
   contentType: string,
 ): Response {
   const bytes = new TextEncoder().encode(body);
+
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
@@ -307,6 +329,7 @@ function refusalOf(
   result: WebResponse | WebFetchFailure,
 ): WebResponse | WebFetchFailure {
   expect(Object.keys(result).sort()).toEqual(['message', 'type']);
+
   return result;
 }
 
@@ -318,10 +341,12 @@ describe('web fetch client', () => {
   it('sends one GET that identifies llame, negotiates Markdown, and carries no credential', async () => {
     let requested: RequestInfo | URL | undefined;
     let seen: RequestInit | undefined;
+
     const deps: TestDeps = {
       fetch: (input: RequestInfo | URL, init?: RequestInit) => {
         requested = input;
         seen = init;
+
         return Promise.resolve(textResponse('# Title\n', 'text/markdown'));
       },
     };
@@ -349,9 +374,11 @@ describe('web fetch client', () => {
   });
   it('overrides Accept and sends authorization only to its origin', async () => {
     let seen: RequestInit | undefined;
+
     const deps: TestDeps = {
       fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
         seen = init;
+
         return Promise.resolve(textResponse('# Title\n', 'text/markdown'));
       },
     };
@@ -371,12 +398,15 @@ describe('web fetch client', () => {
 
   it('posts an adapter body and keeps it when a foreign authorization is dropped', async () => {
     const seen: Array<RequestInit | undefined> = [];
+
     const deps: TestDeps = {
       fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
         seen.push(init);
+
         return Promise.resolve(textResponse('{"data":{}}', 'application/json'));
       },
     };
+
     const body = { contentType: 'application/json', text: '{"query":"{x}"}' };
 
     await fetchOne(deps, {}, URL_, { accept: 'application/json', body });
@@ -470,6 +500,7 @@ describe('web fetch client', () => {
 
   it('refuses a binary body with its type named', async () => {
     const cancelled = vi.fn();
+
     const deps = serving(
       streamingResponse(
         [new Uint8Array([0x25, 0x50, 0x44, 0x46])],
@@ -493,6 +524,7 @@ describe('web fetch client', () => {
     // refusal names a bounded, control-free form of it.
     const controls = '\u0007\u001b'.repeat(64);
     const mediaType = `application${controls}/${'x'.repeat(4096)}`;
+
     const deps = serving(
       new Response('binary', { headers: { 'content-type': mediaType } }),
     );
@@ -562,6 +594,7 @@ describe('web fetch client', () => {
         }),
       ),
     );
+
     expect(generic).toStrictEqual({
       type: 'http_status',
       message: 'The server answered HTTP 403.',
@@ -588,6 +621,7 @@ describe('web fetch client', () => {
         },
       },
     );
+
     expect(adapter).toStrictEqual({
       type: 'http_status',
       message: 'The server answered HTTP 403.',
@@ -607,6 +641,7 @@ describe('web fetch client', () => {
     // echoing either through to the model.
     const controls = '\u0007\u001b\u0085'.repeat(64);
     const retryAfter = `120${controls}${'A'.repeat(4096)}`;
+
     const deps = serving(
       new Response('slow down', {
         status: 429,
@@ -641,6 +676,7 @@ describe('web fetch client', () => {
 
   it('fails a declared length over the cap before the body is read', async () => {
     const cancelled = vi.fn();
+
     // The body itself never ends, so a read of it could only hang: returning
     // at all proves the declared length short-circuited the read.
     const deps = serving(
@@ -664,6 +700,7 @@ describe('web fetch client', () => {
 
   it('aborts a streamed body past the cap', async () => {
     const cancelled = vi.fn();
+
     const deps = serving(
       streamingResponse(
         [new Uint8Array(CAP_BYTES), new Uint8Array(1)],
@@ -773,6 +810,7 @@ describe('web fetch client', () => {
     // 11 bytes of markup and a 2,000-byte comment put the 27-byte declaration
     // at bytes 2011-2037: inside the scan window, ten bytes from its end.
     const html = metaCharsetHtml(1993);
+
     const deps = serving(
       new Response(Buffer.from(html, 'latin1'), {
         headers: { 'content-type': 'text/html' },
@@ -793,6 +831,7 @@ describe('web fetch client', () => {
     // body falls back to UTF-8 and the Latin-1 é arrives as the replacement
     // character.
     const html = metaCharsetHtml(2043);
+
     const deps = serving(
       new Response(Buffer.from(html, 'latin1'), {
         headers: { 'content-type': 'text/html' },
@@ -843,6 +882,7 @@ describe('web fetch client', () => {
     // Node's own error when the request URL carries credentials, verbatim:
     // neither the locator nor the credential it carried may reach the model.
     const locator = 'https://user:secret@evil.test/x';
+
     const deps: TestDeps = {
       fetch: () =>
         Promise.reject(
@@ -878,6 +918,7 @@ describe('web fetch client', () => {
   });
   it('never echoes an adapter authorization value in a failure message', async () => {
     const authorization = 'Bearer adapter-secret';
+
     const deps: TestDeps = {
       fetch: () =>
         Promise.reject(new Error(`request failed with ${authorization}`)),
@@ -942,6 +983,7 @@ describe('web fetch client', () => {
     const cause = Object.assign(new Error(`connect ${code} 10.0.0.7:443`), {
       code,
     });
+
     const deps: TestDeps = {
       fetch: () => Promise.reject(new TypeError('fetch failed', { cause })),
     };
@@ -954,6 +996,7 @@ describe('web fetch client', () => {
 
   it('keeps the echoed message when the code names no known kind', async () => {
     const cause = Object.assign(new Error('odd'), { code: 'EWHATEVER' });
+
     const deps: TestDeps = {
       fetch: () => Promise.reject(new TypeError('fetch failed', { cause })),
     };
@@ -975,9 +1018,11 @@ describe('web fetch client', () => {
       let cause: Error = Object.assign(new Error('refused'), {
         code: 'ECONNREFUSED',
       });
+
       for (let link = 1; link < depth; link += 1) {
         cause = new Error('wrapped', { cause });
       }
+
       const deps: TestDeps = {
         fetch: () => Promise.reject(new TypeError('fetch failed', { cause })),
       };
@@ -991,6 +1036,7 @@ describe('web fetch client', () => {
 
   it('reports a caller abort as aborted', async () => {
     const controller = new AbortController();
+
     const pending = fetchOne(
       { fetch: silentFetch },
       { signal: controller.signal },
@@ -1040,6 +1086,7 @@ describe('web fetch client', () => {
     // transport settles an abort a macrotask later, as a socket teardown can,
     // so the header timer still fires and must not rename the call's abort.
     vi.useFakeTimers();
+
     const lateRejectingFetch = (
       _input: RequestInfo | URL,
       init?: RequestInit,
@@ -1053,10 +1100,12 @@ describe('web fetch client', () => {
           { once: true },
         );
       });
+
     const pending = fetchOne(
       { fetch: lateRejectingFetch },
       { deadlineMs: 10_000 },
     );
+
     await vi.advanceTimersByTimeAsync(10_000);
     // Runs the transport's own delayed rejection, scheduled at the 10 s mark.
     await vi.advanceTimersByTimeAsync(1);
@@ -1068,6 +1117,7 @@ describe('web fetch client', () => {
     vi.useFakeTimers();
     const settled = vi.fn();
     const cancelled = vi.fn();
+
     const deps = serving(
       streamingResponse(
         [],
@@ -1075,6 +1125,7 @@ describe('web fetch client', () => {
         cancelled,
       ),
     );
+
     const pending = fetchOne(deps, { deadlineMs: 600_000 });
     void pending.then(settled);
 
@@ -1094,6 +1145,7 @@ describe('web fetch client', () => {
 
   it('fails a body that outlasts the call deadline', async () => {
     const cancelled = vi.fn();
+
     const deps = serving(
       streamingResponse(
         [],
@@ -1114,6 +1166,7 @@ describe('web fetch client', () => {
 
   it('reassembles a body that arrives in several chunks', async () => {
     const parts = ['web ', 'read ', 'client'];
+
     const deps = serving(
       new Response(
         new ReadableStream<Uint8Array>({
@@ -1193,10 +1246,12 @@ describe('web fetch client', () => {
     const caller = new AbortController();
     let request: AbortSignal | undefined;
     let boundWhileCalling = -1;
+
     const deps: TestDeps = {
       fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
         request = signalOf(init);
         boundWhileCalling = abortListeners(caller.signal);
+
         return Promise.resolve(textResponse('done', 'text/plain'));
       },
     };
@@ -1216,6 +1271,7 @@ describe('web fetch client', () => {
   it('stops listening to the caller’s signal the moment it aborts', async () => {
     const caller = new AbortController();
     let answer: (() => void) | undefined;
+
     const deps: TestDeps = {
       fetch: () =>
         new Promise<Response>((resolve) => {
@@ -1240,9 +1296,11 @@ describe('web fetch client', () => {
   it('unbinds from the request’s signal before its abort handling runs', async () => {
     let request: AbortSignal | undefined;
     const stillBound: Array<number> = [];
+
     const deps: TestDeps = {
       fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
         request = signalOf(init);
+
         return Promise.resolve(
           new Response(
             new ReadableStream<Uint8Array>({
@@ -1269,12 +1327,14 @@ describe('web fetch client', () => {
   it('cancels a body the call aborted before the reader was attached', async () => {
     const caller = new AbortController();
     const cancelled = vi.fn();
+
     const deps: TestDeps = {
       fetch: () => {
         // The caller gives up in the instant between the headers and the body,
         // so the request signal has already fired by the time the reader is
         // attached and its listener will never run.
         caller.abort();
+
         return Promise.resolve(
           new Response(
             new ReadableStream<Uint8Array>({
@@ -1307,6 +1367,7 @@ describe('web fetch page', () => {
         resolve: resolveExampleHost,
       },
     );
+
     try {
       return await session.fetchPage(URL_);
     } finally {
@@ -1316,6 +1377,7 @@ describe('web fetch page', () => {
 
   it('accepts a PDF body at exactly 20 MiB', async () => {
     const bytes = new Uint8Array(20 * 1024 * 1024);
+
     const result = await fetchPageOf(
       new Response(bytes, {
         headers: {
@@ -1324,12 +1386,14 @@ describe('web fetch page', () => {
         },
       }),
     );
+
     expect(result).toHaveProperty('kind', 'pdf');
     expect(result).toHaveProperty('bytes.byteLength', 20 * 1024 * 1024);
   });
 
   it('refuses a declared PDF length above 20 MiB without reading its body', async () => {
     const cancelled = vi.fn();
+
     const result = await fetchPageOf(
       streamingResponse(
         [],
@@ -1342,12 +1406,14 @@ describe('web fetch page', () => {
         cancelled,
       ),
     );
+
     expect(result).toHaveProperty('type', 'body_too_large');
     expect(cancelled).toHaveBeenCalledOnce();
   });
 
   it('cancels a PDF stream at the first byte beyond 20 MiB', async () => {
     const cancelled = vi.fn();
+
     const result = await fetchPageOf(
       streamingResponse(
         [new Uint8Array(20 * 1024 * 1024), new Uint8Array(1)],
@@ -1355,12 +1421,14 @@ describe('web fetch page', () => {
         cancelled,
       ),
     );
+
     expect(result).toHaveProperty('type', 'body_too_large');
     expect(cancelled).toHaveBeenCalledOnce();
   });
 
   it('routes a page outside the binary types to the document path and decodes its charset', async () => {
     const markup = '<html><body>café</body></html>';
+
     const result = await fetchPageOf(
       new Response(Buffer.from(markup, 'latin1'), {
         headers: { 'content-type': 'text/html; charset=iso-8859-1' },
@@ -1400,6 +1468,7 @@ describe('web fetch redirects', () => {
     'follows HTTP %i to the locator it names',
     async (status) => {
       const admitted: Array<[string, string]> = [];
+
       const deps = routing(
         (url) =>
           url === START
@@ -1407,6 +1476,7 @@ describe('web fetch redirects', () => {
             : textResponse('# Guide\n', 'text/markdown'),
         (kind, url) => {
           admitted.push([kind, url]);
+
           return ALLOW;
         },
       );
@@ -1458,13 +1528,17 @@ describe('web fetch redirects', () => {
   it('drops authorization after a cross-origin hop and never restores it', async () => {
     const back = 'https://a.example.test/final';
     const seenHeaders: Array<Headers> = [];
+
     const fetch = vi.fn(
       (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = input instanceof Request ? input.url : String(input);
         seenHeaders.push(new Headers(init?.headers));
+
         if (url === START)
           return Promise.resolve(redirectResponse(302, TARGET));
+
         if (url === TARGET) return Promise.resolve(redirectResponse(302, back));
+
         return Promise.resolve(textResponse('final', 'text/markdown'));
       },
     );
@@ -1488,6 +1562,7 @@ describe('web fetch redirects', () => {
     const base = 'https://docs.example.test/a/b/start';
     const resolved = 'https://docs.example.test/a/Guide';
     const admitted: Array<[string, string]> = [];
+
     const deps = routing(
       (url) =>
         url === base
@@ -1495,6 +1570,7 @@ describe('web fetch redirects', () => {
           : textResponse('guide', 'text/markdown'),
       (kind, url) => {
         admitted.push([kind, url]);
+
         return ALLOW;
       },
     );
@@ -1508,6 +1584,7 @@ describe('web fetch redirects', () => {
 
   it('normalizes a hop with the WHATWG parser before policy sees it', async () => {
     const admitted: Array<[string, string]> = [];
+
     const deps = routing(
       (url) =>
         url === START
@@ -1515,6 +1592,7 @@ describe('web fetch redirects', () => {
           : textResponse('guide', 'text/markdown'),
       (kind, url) => {
         admitted.push([kind, url]);
+
         return ALLOW;
       },
     );
@@ -1566,7 +1644,9 @@ describe('web fetch redirects', () => {
       },
       'test-policy',
     );
+
     const stripped = 'https://a.example.test/guide';
+
     const deps = routing(
       (url) =>
         url === START
@@ -1591,6 +1671,7 @@ describe('web fetch redirects', () => {
 
   it('never reads the body of the redirect it follows', async () => {
     const cancelled = vi.fn();
+
     const deps = routing(
       (url) =>
         url === START
@@ -1632,6 +1713,7 @@ describe('web fetch redirects', () => {
       () => redirectResponse(302, '/next'),
       () => ALLOW,
     );
+
     const session = createWebFetchSession(
       { userAgent: USER_AGENT },
       {
@@ -1641,6 +1723,7 @@ describe('web fetch redirects', () => {
         resolve: resolveExampleHost,
       },
     );
+
     try {
       // The first locator spends the whole 20-hop budget.
       const first = await session.fetch(START);
@@ -1659,10 +1742,12 @@ describe('web fetch redirects', () => {
   it('ends the call at a refused hop without requesting the target', async () => {
     const refused = 'https://evil.example.test/steal?token=secret#part';
     const admitted: Array<[string, string]> = [];
+
     const deps = routing(
       () => redirectResponse(302, refused),
       (kind, url) => {
         admitted.push([kind, url]);
+
         return REFUSE;
       },
     );
@@ -1687,6 +1772,7 @@ describe('web fetch redirects', () => {
 
   it('reports the same fixed message for every refused hop', async () => {
     const refuse = () => REFUSE;
+
     const first = await fetchOne(
       routing(
         () => redirectResponse(302, 'https://evil.example.test/a?token=1'),
@@ -1695,6 +1781,7 @@ describe('web fetch redirects', () => {
       {},
       START,
     );
+
     const second = await fetchOne(
       routing(
         () => redirectResponse(302, 'http://evil.example.test/b'),
@@ -1712,6 +1799,7 @@ describe('web fetch redirects', () => {
 
   it('bounds the locator a refused hop reports', async () => {
     const path = `/${'a'.repeat(3000)}`;
+
     const deps = routing(
       () => redirectResponse(302, `https://evil.example.test${path}?token=1`),
       () => REFUSE,
@@ -1727,10 +1815,12 @@ describe('web fetch redirects', () => {
 
   it('sends no cookie or credential on any hop, with the first request’s headers', async () => {
     const seen: Array<RequestInit | undefined> = [];
+
     const deps: TestDeps = {
       admit: () => ALLOW,
       fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
         seen.push(init);
+
         return Promise.resolve(
           seen.length === 1
             ? redirectResponse(302, TARGET)
@@ -1742,6 +1832,7 @@ describe('web fetch redirects', () => {
     await fetchOne(deps, {}, START);
 
     expect(seen).toHaveLength(2);
+
     for (const init of seen) {
       expect(init?.credentials).toBe('omit');
       const headers = new Headers(init?.headers);
@@ -1756,6 +1847,7 @@ describe('web fetch redirects', () => {
     // client's own bound and the scripted transport's.
     vi.useFakeTimers();
     const chainSettled = vi.fn();
+
     const deps = delayedRouting([
       // 9 s to the first response, then 9 s to the second: each wait is
       // inside the 10-second bound its own request arms, and together they
@@ -1771,11 +1863,13 @@ describe('web fetch redirects', () => {
         respond: () => bodyAfter(7000, '# Guide\n', 'text/markdown'),
       },
     ]);
+
     const chain = fetchOne(
       { fetch: deps.fetch, admit: () => ALLOW },
       {},
       START,
     );
+
     void chain.then(chainSettled);
 
     await vi.advanceTimersByTimeAsync(9000);
@@ -1803,6 +1897,7 @@ describe('web fetch redirects', () => {
     // call's 30: a bound the first request armed and the hop never re-armed
     // would leave this wait to the call bound.
     const hopSettled = vi.fn();
+
     const stalled = delayedRouting([
       {
         kind: 'answer',
@@ -1811,11 +1906,13 @@ describe('web fetch redirects', () => {
       },
       { kind: 'silent' },
     ]);
+
     const refused = fetchOne(
       { fetch: stalled.fetch, admit: () => ALLOW },
       {},
       START,
     );
+
     void refused.then(hopSettled);
 
     await vi.advanceTimersByTimeAsync(9000);
@@ -1832,6 +1929,7 @@ describe('web fetch redirects', () => {
     // The pipeline's probes share one session: a probe that never answers
     // must disqualify itself without aborting the locators fetched after it.
     vi.useFakeTimers();
+
     const deps = delayedRouting([
       { kind: 'silent' },
       {
@@ -1843,6 +1941,7 @@ describe('web fetch redirects', () => {
           }),
       },
     ]);
+
     const session = createWebFetchSession(
       { userAgent: USER_AGENT },
       {
@@ -1852,6 +1951,7 @@ describe('web fetch redirects', () => {
         resolve: resolveExampleHost,
       },
     );
+
     try {
       const stalled = session.fetch(START);
       await vi.advanceTimersByTimeAsync(10_000);
@@ -1878,13 +1978,16 @@ describe('web fetch redirects', () => {
     // for the host must not miss the dotted spelling a server sends.
     const admitted: Array<string> = [];
     const requested: Array<string> = [];
+
     const response = await fetchOne({
       admit: (_kind, url) => {
         admitted.push(url);
+
         return ALLOW;
       },
       fetch: (input: RequestInfo | URL) => {
         requested.push(input instanceof Request ? input.url : String(input));
+
         return Promise.resolve(
           requested.length === 1
             ? new Response(null, {
@@ -1915,16 +2018,19 @@ describe('web fetch address admission', () => {
     const requested: Array<string> = [];
     const resolved: Array<string> = [];
     const dispatchers: Array<RequestInit['dispatcher']> = [];
+
     const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input);
       requested.push(url);
       dispatchers.push(init?.dispatcher);
+
       return Promise.resolve(
         requested.length === 1
           ? redirectResponse(302, '/next')
           : textResponse('page', 'text/plain'),
       );
     };
+
     const session = createWebFetchSession(
       { userAgent: USER_AGENT },
       {
@@ -1933,10 +2039,12 @@ describe('web fetch address admission', () => {
         admitAddress: admitEveryAddress,
         resolve: (hostname) => {
           resolved.push(hostname);
+
           return Promise.resolve(TEST_ADDRESSES);
         },
       },
     );
+
     try {
       expect(await session.fetch(start)).toHaveProperty('body', 'page');
       expect(await session.fetch(`${start}/other`)).toHaveProperty(
@@ -1959,16 +2067,20 @@ describe('web fetch address admission', () => {
 
   it('includes DNS resolution in the request header bound', async () => {
     vi.useFakeTimers();
+
     const promise = new Promise<ReadonlyArray<ResolvedAddress>>(() => {
       // The header deadline, not the resolver, settles this request.
     });
+
     const fetch = vi.fn(() =>
       Promise.resolve(textResponse('unreachable', 'text/plain')),
     );
+
     const pending = fetchOne({
       fetch,
       resolve: () => promise,
     });
+
     const settled = vi.fn();
     void pending.then(settled);
 
@@ -1984,6 +2096,7 @@ describe('web fetch address admission', () => {
     const fetch = vi.fn(() =>
       Promise.resolve(textResponse('unreachable', 'text/plain')),
     );
+
     const result = await fetchOne({
       fetch,
       resolve: (hostname) =>
@@ -2002,6 +2115,7 @@ describe('web fetch address admission', () => {
     const fetch = vi.fn(() =>
       Promise.resolve(textResponse('unreachable', 'text/plain')),
     );
+
     const result = await fetchOne({
       fetch,
       resolve: () => Promise.resolve([]),
@@ -2018,11 +2132,14 @@ describe('web fetch address admission', () => {
     const fetch = vi.fn(() =>
       Promise.resolve(textResponse('unreachable', 'text/plain')),
     );
+
     const judged: Array<[string, string]> = [];
+
     const result = await fetchOne({
       fetch,
       admitAddress: (address, locator) => {
         judged.push([address, locator]);
+
         return false;
       },
     });
@@ -2041,15 +2158,18 @@ describe('web fetch address admission', () => {
   it('reports a refused address on a redirect with only the hop hostname and path', async () => {
     const hop = 'https://redirect.example.test/private?token=secret';
     const seen: Array<string> = [];
+
     const fetch = (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
       seen.push(url);
+
       return Promise.resolve(
         seen.length === 1
           ? redirectResponse(302, hop)
           : textResponse('unreachable', 'text/plain'),
       );
     };
+
     const result = await fetchOne({
       fetch,
       admit: () => ALLOW,
@@ -2070,18 +2190,23 @@ describe('web fetch address admission', () => {
       address: '93.184.216.34',
       family: 4,
     };
+
     const refused: ResolvedAddress = { address: '10.0.0.5', family: 4 };
     const decisions: Array<[string, string]> = [];
     let dispatcher: RequestInit['dispatcher'];
+
     const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       dispatcher = init?.dispatcher;
+
       return Promise.resolve(textResponse('page', 'text/plain'));
     });
+
     const result = await fetchOne({
       fetch,
       resolve: () => Promise.resolve([refused, accepted]),
       admitAddress: (address, locator) => {
         decisions.push([address, locator]);
+
         return address === accepted.address;
       },
     });
@@ -2100,6 +2225,7 @@ describe('web fetch address admission', () => {
       address: '93.184.216.34',
       family: 4,
     };
+
     const lookup = pinnedLookup('docs.example.test', [admitted]);
     const allResults: Array<PinnedLookupResult> = [];
     lookup('docs.example.test', { all: true }, (error, address, family) => {
@@ -2127,16 +2253,20 @@ describe('web fetch address admission', () => {
   it('judges an IPv4-mapped literal as dotted IPv4 without resolving it', async () => {
     const literal = 'https://[::ffff:169.254.169.254]/latest';
     const resolve = vi.fn<ResolveHost>();
+
     const fetch = vi.fn(() =>
       Promise.resolve(textResponse('unreachable', 'text/plain')),
     );
+
     const judged: Array<[string, string]> = [];
+
     const result = await fetchOne(
       {
         fetch,
         resolve,
         admitAddress: (address, locator) => {
           judged.push([address, locator]);
+
           return false;
         },
       },
@@ -2156,6 +2286,7 @@ describe('web fetch address admission', () => {
     const closedServer = createServer();
     const port = await listenLoopback(closedServer);
     await closeServer(closedServer);
+
     const result = await fetchOne(
       {
         fetch: undiciFetch,
@@ -2166,6 +2297,7 @@ describe('web fetch address admission', () => {
     );
 
     expect(result).toHaveProperty('type', 'network_error');
+
     if (!('message' in result))
       throw new Error('Expected a transport failure.');
     // The freed port can be reused by a parallel test before the request, so
@@ -2173,6 +2305,7 @@ describe('web fetch address admission', () => {
     expect(result.message).toMatch(
       /^The (server refused the connection|connection was reset)\.$/u,
     );
+
     for (const secret of ['127.0.0.1', String(port), 'closed.test']) {
       expect(result.message).not.toContain(secret);
       expect(JSON.stringify(result)).not.toContain(secret);
@@ -2201,6 +2334,7 @@ describe('web fetch real pinned transport', () => {
 
   it('uses the pinned lookup for a hostname that does not resolve', async () => {
     const acceptedBefore = acceptedSockets.length;
+
     const result = await fetchOne(
       {
         fetch: undiciFetch,
@@ -2216,6 +2350,7 @@ describe('web fetch real pinned transport', () => {
 
   it('refuses the resolved address before opening a socket', async () => {
     const acceptedBefore = acceptedSockets.length;
+
     const result = await fetchOne(
       {
         fetch: undiciFetch,

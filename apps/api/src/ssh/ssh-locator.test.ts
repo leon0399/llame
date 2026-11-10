@@ -6,9 +6,11 @@ import {
 
 function pathOf(value: string) {
   const parsed = parseSshLocator(value);
+
   if (parsed.kind !== 'path') {
     throw new Error(`expected a path locator for ${value}`);
   }
+
   return parsed;
 }
 
@@ -108,6 +110,7 @@ describe('parseSshLocator destinations', () => {
   it('refuses a password and says passwords are not accepted', () => {
     const parsed = parseSshLocator('ssh://root:secret@box/etc/hostname');
     expect(parsed.kind).toBe('invalid');
+
     if (parsed.kind !== 'invalid') throw new Error('expected a refusal');
     expect(parsed.message).toContain('password');
   });
@@ -170,6 +173,7 @@ describe('parseSshLocator paths', () => {
   it('refuses a missing path and tells the model to give an absolute one', () => {
     const parsed = parseSshLocator('ssh://box');
     expect(parsed.kind).toBe('invalid');
+
     if (parsed.kind !== 'invalid') throw new Error('expected a refusal');
     expect(parsed.message).toContain('absolute path');
   });

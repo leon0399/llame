@@ -58,6 +58,7 @@ const outputSchema = z.looseObject({
 });
 
 type GrepInput = z.infer<typeof inputSchema>;
+
 type GrepOutput = z.infer<typeof outputSchema>;
 
 /** Props for the dedicated `grep` tool row. */
@@ -88,7 +89,9 @@ type LocatorParts = { path: string; start: number };
  *  The path may itself contain `:`, so only the last one separates the range. */
 function locatorParts(locator: string): LocatorParts {
   const separator = locator.lastIndexOf(":");
+
   if (separator === -1) return { path: locator, start: 0 };
+
   return {
     path: locator.slice(0, separator),
     start: Number.parseInt(locator.slice(separator + 1), 10) || 0,
@@ -103,27 +106,35 @@ function locatorParts(locator: string): LocatorParts {
 function groupRuns(output: GrepOutput): Array<FileRun> {
   const explicit = new Set<number>();
   let covered = 0;
+
   for (const length of output.display?.rerank?.runLengths ?? []) {
     explicit.add(covered);
     covered += length;
   }
+
   const runs: Array<FileRun> = [];
   let previous: LocatorParts | undefined;
   output.results.forEach((passage, index) => {
     const parts = locatorParts(passage.locator);
+
     const opens =
       index < covered
         ? explicit.has(index)
         : !(previous?.path === parts.path && parts.start > previous.start);
+
     previous = parts;
     let run = runs.at(-1);
+
     if (opens || !run) {
       run = { path: parts.path, lines: [], matches: new Set<number>() };
       runs.push(run);
     }
+
     run.lines.push(...parseNumberedLines(passage.content));
+
     for (const line of passage.matches) run.matches.add(line);
   });
+
   return runs;
 }
 
@@ -132,6 +143,7 @@ function GrepQuery({ input }: { input: GrepInput }) {
     input.literal ? "literal" : "regex",
     input.ignoreCase ? "ignore case" : undefined,
   ].filter(Boolean);
+
   return (
     <ToolSection label="Search" aside={modes.join(" · ")}>
       <ul className="space-y-1 font-mono text-xs">
@@ -217,6 +229,7 @@ function GrepResult({ output }: { output: GrepOutput }) {
   const record = rankRecordOf(output.display);
   const fileCount = new Set(runs.map((run) => run.path)).size;
   const matchCount = runs.reduce((sum, run) => sum + run.matches.size, 0);
+
   return (
     <>
       {record ? (
@@ -266,6 +279,7 @@ export function GrepTool({
 }: GrepToolProps): ReactElement {
   const query = inputSchema.safeParse(input).data;
   const result = outputSchema.safeParse(output).data;
+
   return (
     <ToolRow
       name="grep"

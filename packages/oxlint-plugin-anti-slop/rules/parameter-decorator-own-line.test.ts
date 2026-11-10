@@ -5,6 +5,7 @@ import { parameterDecoratorOwnLineRule } from "./parameter-decorator-own-line.ts
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "inline" };
 
 tester.run(

@@ -41,6 +41,7 @@ export function useAutoResizeTextarea({
 
   const resize = useCallback(() => {
     const ta = textareaRef.current;
+
     if (!ta) return;
     applyAutoResize(ta, minHeight, maxHeight);
   }, [minHeight, maxHeight]);
@@ -49,6 +50,7 @@ export function useAutoResizeTextarea({
     if (frameId.current !== null) {
       cancelAnimationFrame(frameId.current);
     }
+
     frameId.current = window.requestAnimationFrame(() => {
       resize();
       frameId.current = null;
@@ -57,6 +59,7 @@ export function useAutoResizeTextarea({
 
   useLayoutEffect(() => {
     const ta = textareaRef.current;
+
     if (!ta) return;
 
     resize();
@@ -71,6 +74,7 @@ export function useAutoResizeTextarea({
     return () => {
       window.removeEventListener("resize", scheduleResize);
       ta.removeEventListener("input", onInput);
+
       if (frameId.current !== null) {
         cancelAnimationFrame(frameId.current);
       }

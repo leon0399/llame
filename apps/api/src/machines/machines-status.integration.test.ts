@@ -35,6 +35,7 @@ import type { MachineContact } from './machines-status';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
 
 /** The route details that must never reach a response. */
@@ -84,6 +85,7 @@ d('machines_status RLS and GET /api/v1/machines', () => {
       .overrideProvider(InstanceConfigService)
       .useValue({ config: machineConfig(), productUserAgent: 'llame/test' })
       .compile();
+
     closeModule = () => moduleRef.close();
     controller = moduleRef.get(MachinesController);
 
@@ -98,7 +100,9 @@ d('machines_status RLS and GET /api/v1/machines', () => {
     // Through the repository, as in beforeEach: a plain identity-less DELETE
     // is filtered to nothing by the system policy.
     if (repository !== undefined) await repository.pruneExcept([]);
+
     if (closeModule !== undefined) await closeModule();
+
     if (sql) {
       await sql`DELETE FROM users WHERE id = ${userId}`;
       await sql.end();
@@ -118,6 +122,7 @@ d('machines_status RLS and GET /api/v1/machines', () => {
       FROM pg_roles
       WHERE rolname = current_user
     `;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
@@ -126,6 +131,7 @@ d('machines_status RLS and GET /api/v1/machines', () => {
       FROM pg_class
       WHERE relname = 'machines_status'
     `;
+
     expect(table.relrowsecurity).toBe(true);
     expect(table.relforcerowsecurity).toBe(true);
     expect(table.owner).toBe(role.current_user);
@@ -135,6 +141,7 @@ d('machines_status RLS and GET /api/v1/machines', () => {
       WHERE polrelid = 'machines_status'::regclass
       ORDER BY polname
     `;
+
     expect(policies.length).toBe(2);
     expect(policies[0]).toMatchObject({
       polname: 'machines_status_authenticated_select',
@@ -199,8 +206,10 @@ d('machines_status RLS and GET /api/v1/machines', () => {
 
   it('refuses a read without an identity, even for the table owner', async () => {
     await repository.recordContact(contact());
+
     const [count] =
       await sql`SELECT count(*)::int AS count FROM machines_status`;
+
     expect(count.count).toBe(0);
     // A plain identity-less WRITE is refused too: only the marked system
     // transaction (the repository) may write.
@@ -218,9 +227,11 @@ d('machines_status RLS and GET /api/v1/machines', () => {
         lastContactAt: new Date(),
       });
     };
+
     const refused = await tenantDb
       .runAs(userId, insert)
       .catch((error: unknown) => error);
+
     // Drizzle wraps the driver error, so the SQLSTATE is the stable evidence.
     expect(pgErrorCode(refused)).toBe('42501');
     // Nothing was written by the refused attempt.
@@ -252,6 +263,7 @@ d('machines_status RLS and GET /api/v1/machines', () => {
     });
     expect(body[0]?.lastSeenAt).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/u);
     const serialized = JSON.stringify(body);
+
     for (const secret of [
       DESTINATION,
       KNOWN_HOSTS_FILE,

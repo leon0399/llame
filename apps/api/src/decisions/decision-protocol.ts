@@ -16,8 +16,10 @@ import { z } from 'zod';
 
 /** Per-attempt request timeout. */
 export const DECISION_ATTEMPT_TIMEOUT_MS = 10_000;
+
 /** Attempts per request, transient failures only. */
 export const DECISION_MAX_ATTEMPTS = 3;
+
 /** A response body larger than this many bytes is a codec mismatch. */
 export const DECISION_RESPONSE_MAX_BYTES = 1_048_576;
 

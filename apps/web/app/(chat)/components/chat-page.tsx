@@ -59,6 +59,7 @@ export function ChatPage({
   initialDraftPhase,
 }: ChatPageProps) {
   const { registerViewedChat } = useActiveRuns();
+
   const { resolveLatest, targetSeq, resolvedAfterSend } =
     useMessageTarget(chatId);
 
@@ -127,6 +128,7 @@ function deriveChatSessionRender(
   } = sessionState;
 
   if (!shouldRenderChatOwner(session)) return { kind: "hidden" };
+
   if (targetSeq !== null && historyQuery.data === undefined) {
     return historyQuery.isError ? { kind: "unavailable" } : { kind: "hidden" };
   }
@@ -170,18 +172,22 @@ function ChatSession({
     targetSeq,
     onTargetSendFinished,
   });
+
   const render = deriveChatSessionRender(
     chatId,
     targetSeq,
     initialChatExists,
     sessionState,
   );
+
   // Latched for this mount: a later hash change that keeps the live view
   // mounted must not re-enable the last-turn restore mid-session.
   const [mountedAfterTargetSend] = useState(resolvedAfterSend);
 
   if (render.kind === "hidden") return null;
+
   if (render.kind === "unavailable") return <TargetUnavailable />;
+
   return (
     <ChatMarkdownProvider>
       <ChatSessionContent
@@ -301,7 +307,9 @@ function ChatSessionMain({
 }: ChatSessionMainProps) {
   if (markdown.failed)
     return <ChatMarkdownUnavailable retry={markdown.retry} />;
+
   if (markdown.renderers === null) return <ChatMarkdownLoading />;
+
   return (
     <ChatTranscript
       chatId={chatId}
@@ -350,6 +358,7 @@ function ChatSessionComposer({
   disabled,
 }: ChatSessionComposerProps) {
   const { project, draftProjectId } = useChatPageProject(exists);
+
   const creation = useChatCreation({
     projectId: draftProjectId,
     composerChatId: chatId,
@@ -358,8 +367,10 @@ function ChatSessionComposer({
     attachments: composer.attachments,
     enabled: !exists,
   });
+
   // Only a chat that does not exist yet chooses where it starts.
   const creates = !exists && creation.active;
+
   return (
     <ChatComposer
       chatId={chatId}
@@ -391,6 +402,7 @@ function ChatSessionBody({
 }: ChatSessionBodyProps) {
   const { status, composer, pending, transcript, dialog } = conversation;
   const archived = useOpenChatArchived(session.chatId);
+
   return (
     <>
       <ChatSessionMain
@@ -420,6 +432,7 @@ function ChatSessionContent(props: ChatSessionContentProps) {
   const conversation = useChatConversation(props);
   const markdown = useChatMarkdownReady();
   useChatLastTurnRestore(props);
+
   // Always wait for real Streamdown handles — never mount empty bubbles, and
   // never tear down a draft's first message behind a late spinner.
   return (

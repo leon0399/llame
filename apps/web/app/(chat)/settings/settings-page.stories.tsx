@@ -26,6 +26,7 @@ let fetchMock: Mock<typeof fetch>;
 /** The "METHOD /path" a fetch call targets. */
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
+
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
@@ -33,7 +34,9 @@ function routeFetch() {
   fetchMock = stubFetch();
   fetchMock.mockImplementation(async (input) => {
     const key = routeOf(input);
+
     if (key === ME_ROUTE) return new Response(null, { status: 401 });
+
     if (key === PERSONALIZATION_ROUTE) {
       return jsonResponse({
         preferredName: null,
@@ -43,6 +46,7 @@ function routeFetch() {
         shareAccountIdentity: false,
       });
     }
+
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -59,6 +63,7 @@ const meta = {
       isError: false,
       refetch: refetchMemory,
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -71,6 +76,7 @@ const meta = {
 } satisfies Meta<typeof SettingsPage>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** The theme picker's own trigger. Scoped to its row so its "System" label
@@ -78,11 +84,13 @@ type Story = StoryObj<typeof meta>;
  * their own default option. */
 function themeTrigger(canvasElement: HTMLElement) {
   const label = within(canvasElement).getByText("Theme");
+
   // SAFETY: SettingRow always wraps the label paragraph and its trailing
   // control in one "flex items-center justify-between" row.
   const row = label.closest(
     ".flex.items-center.justify-between",
   ) as HTMLElement;
+
   return within(row).getByRole("button", { name: /System/ });
 }
 

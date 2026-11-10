@@ -48,6 +48,7 @@ export function loadSchemaDocument(
   access: SchemaFileAccess = DEFAULT_SCHEMA_FILE_ACCESS,
 ): UnknownRecord {
   let parsed: unknown;
+
   try {
     const text = access.readFile(SCHEMA_PATH);
     parsed = JSON.parse(text);
@@ -56,11 +57,13 @@ export function loadSchemaDocument(
       `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator instance-config error: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+
   if (!isRecord(parsed)) {
     throw new InstanceConfigError(
       `The published JSON Schema artifact at ${SCHEMA_PATH} is not a JSON object — this is an internal packaging problem (see nest-cli.json "assets"), not an operator instance-config error.`,
     );
   }
+
   return parsed;
 }
 
@@ -79,5 +82,6 @@ export function getConfigValidator(): ValidateFunction<RawInstanceConfig> {
     allErrors: true,
     strict: false,
   }).compile<RawInstanceConfig>(loadSchemaDocument());
+
   return cachedValidator;
 }

@@ -16,6 +16,7 @@ function errorMessage(err: unknown): string {
   if (!(err instanceof Error)) {
     throw new Error(`expected an Error instance, got ${String(err)}`);
   }
+
   return err.message;
 }
 
@@ -59,6 +60,7 @@ describe('product identity — the version the manifest beside the module declar
     const manifestPath = path.resolve(__dirname, '..', '..', 'package.json');
     const manifest: unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
     const version = isRecord(manifest) ? manifest.version : undefined;
+
     if (!isString(version)) {
       throw new Error('expected the API package manifest to declare a version');
     }

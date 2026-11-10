@@ -52,6 +52,7 @@ describe("personalization mutation transport", () => {
       responsePreferences: null,
       enabled: false,
     };
+
     const response = { ...initial, ...input };
     fetchMock.mockResolvedValue(jsonResponse(response));
 
@@ -77,6 +78,7 @@ describe("useUpdatePersonalizationMutation cache behavior", () => {
     const { result } = renderHook(() => useUpdatePersonalizationMutation(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ enabled: false });
 
     await waitFor(() => {
@@ -107,6 +109,7 @@ describe("useUpdatePersonalizationMutation cache behavior", () => {
     const { result } = renderHook(() => useUpdatePersonalizationMutation(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ about: "Changed" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
@@ -127,6 +130,7 @@ describe("useUpdatePersonalizationMutation cache behavior", () => {
     const { result } = renderHook(() => useUpdatePersonalizationMutation(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     result.current.mutate({ enabled: false });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

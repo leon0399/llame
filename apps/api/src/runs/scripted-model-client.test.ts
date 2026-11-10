@@ -13,6 +13,7 @@ import { scriptedStreamHandlers } from './scripted-model-stream-options';
 
 vi.mock('ai', async (importOriginal) => {
   const actual = await importOriginal<typeof AI>();
+
   return { ...actual, streamText: vi.fn(actual.streamText) };
 });
 
@@ -114,6 +115,7 @@ describe('ScriptedModelsService', () => {
 
   it('completes after a configured delay when it is not aborted', async () => {
     vi.useFakeTimers();
+
     try {
       const service = new ScriptedModelsService();
       service.register('delayed', {
@@ -122,6 +124,7 @@ describe('ScriptedModelsService', () => {
         delayMs: 1000,
       });
       const finishes: Array<unknown> = [];
+
       const result = service.createClient('delayed').streamText({
         chat,
         messages,
@@ -160,6 +163,7 @@ describe('ScriptedModelsService', () => {
     ['infrastructure failure', 'infra', { kind: 'infra-throw' as const }],
   ] as const)('fails closed for %s', (name, modelId, behavior) => {
     const service = new ScriptedModelsService();
+
     if (behavior !== undefined) service.register(modelId, behavior);
 
     expect(() => service.createClient(modelId)).toThrow(
@@ -292,15 +296,18 @@ describe('ScriptedModelsService', () => {
 
   it('aborts a hanging stream and cancels a delayed completion', async () => {
     vi.useFakeTimers();
+
     try {
       const service = new ScriptedModelsService();
       service.register('hang', { kind: 'hang' });
       const abort = new AbortController();
+
       const hanging = service.createClient('hang').streamText({
         chat,
         messages,
         abortSignal: abort.signal,
       }).text;
+
       abort.abort('cancelled');
       await expect(hanging).rejects.toThrow(/Aborted|cancelled/iu);
 
@@ -310,11 +317,13 @@ describe('ScriptedModelsService', () => {
         delayMs: 1000,
       });
       const delayedAbort = new AbortController();
+
       const delayed = service.createClient('delayed').streamText({
         chat,
         messages,
         abortSignal: delayedAbort.signal,
       }).text;
+
       delayedAbort.abort();
       await expect(delayed).rejects.toThrow(/Aborted|cancelled/iu);
       await vi.runAllTimersAsync();
@@ -335,10 +344,13 @@ describe('ScriptedModelsService', () => {
     const tools = recallTools();
     tools.search_conversations.execute = (input) => {
       searchArgs.push(input);
+
       return sourceResult;
     };
+
     tools.conversation_read.execute = (input) => {
       readArgs.push(input);
+
       return { status: 'success' as const, nextOffset: 2 };
     };
 
@@ -377,6 +389,7 @@ describe('ScriptedModelsService', () => {
     const tools = recallTools();
     tools.conversation_read.execute = (input) => {
       readArgs.push(input);
+
       return { status: 'success' as const, nextOffset: 2 };
     };
 
@@ -399,6 +412,7 @@ describe('ScriptedModelsService', () => {
       query: 'needle',
       finalText: 'closed',
     });
+
     const priorMessages: Array<ModelMessage> = [
       ...messages,
       {
@@ -535,13 +549,16 @@ describe('ScriptedModelsService observable contract', () => {
     });
 
     const searchCalls: Array<{ query: string; limit: number }> = [];
+
     const readCalls: Array<{
       chatId: string;
       messageSeq: number;
       offset?: number;
       limit: number;
     }> = [];
+
     const receipts: Array<LanguageModelUsage> = [];
+
     const result = service.createClient('recall').streamText({
       chat,
       messages,
@@ -550,6 +567,7 @@ describe('ScriptedModelsService observable contract', () => {
           inputSchema: z.object({ query: z.string(), limit: z.number() }),
           execute: (args) => {
             searchCalls.push(args);
+
             return sourceResult;
           },
         }),
@@ -562,6 +580,7 @@ describe('ScriptedModelsService observable contract', () => {
           }),
           execute: (args) => {
             readCalls.push(args);
+
             return { status: 'success' as const, nextOffset: 2 };
           },
         }),
@@ -569,6 +588,7 @@ describe('ScriptedModelsService observable contract', () => {
       maxSteps: 5,
       onRequestUsage: (usage) => receipts.push(usage),
     });
+
     await expect(result.text).resolves.toBe('source read');
 
     const steps = await result.steps;
@@ -610,6 +630,7 @@ describe('ScriptedModelsService observable contract', () => {
       tools: recallTools(),
       maxSteps: 5,
     });
+
     await expect(result.text).resolves.toBe('one read only');
 
     const steps = await result.steps;
@@ -638,6 +659,7 @@ describe('ScriptedModelsService observable contract', () => {
       tools: recallTools(search),
       maxSteps: 5,
     });
+
     await expect(result.text).resolves.toBe('resumed');
 
     const steps = await result.steps;
@@ -661,6 +683,7 @@ describe('ScriptedModelsService observable contract', () => {
       tools: recallTools(),
       maxSteps: 5,
     });
+
     await expect(result.text).resolves.toBe('searched anyway');
 
     const steps = await result.steps;
@@ -673,6 +696,7 @@ describe('ScriptedModelsService observable contract', () => {
     // Fake timers, not a real 1.1s sleep: the assertions are about ordering
     // around the delay, and every mutant re-runs this file.
     vi.useFakeTimers();
+
     try {
       const service = new ScriptedModelsService();
       service.register('delayed', {
@@ -681,9 +705,11 @@ describe('ScriptedModelsService observable contract', () => {
         delayMs: 1000,
       });
       let settled = false;
+
       const pending = service
         .createClient('delayed')
         .streamText({ chat, messages }).text;
+
       void pending.then(() => {
         settled = true;
       });
@@ -699,6 +725,7 @@ describe('ScriptedModelsService observable contract', () => {
 
   it('clears a delayed completion timer when the stream is aborted', async () => {
     vi.useFakeTimers();
+
     try {
       const service = new ScriptedModelsService();
       service.register('delayed', {
@@ -707,11 +734,13 @@ describe('ScriptedModelsService observable contract', () => {
         delayMs: 1000,
       });
       const abort = new AbortController();
+
       const pending = service.createClient('delayed').streamText({
         chat,
         messages,
         abortSignal: abort.signal,
       }).text;
+
       abort.abort();
 
       await expect(pending).rejects.toThrow(/abort/iu);
@@ -733,6 +762,7 @@ describe('ScriptedModelsService observable contract', () => {
       messages,
       maxSteps: 1,
     });
+
     await expect(result.text).resolves.toBe('');
     expect(await result.steps).toHaveLength(1);
   });
@@ -756,6 +786,7 @@ describe('ScriptedModelsService streamText options', () => {
     scriptedStreamText.mockClear();
     const service = new ScriptedModelsService();
     service.register('plain-with-tools', { kind: 'complete', text: 'done' });
+
     const result = service.createClient('plain-with-tools').streamText({
       chat,
       messages,
@@ -787,6 +818,7 @@ describe('ScriptedModelsService streamText options', () => {
       finalText: 'all recorded',
     });
     const executed: Array<string> = [];
+
     const result = service.createClient('tool-sequence').streamText({
       chat,
       messages,
@@ -795,6 +827,7 @@ describe('ScriptedModelsService streamText options', () => {
           inputSchema: z.object({ value: z.string() }),
           execute: ({ value }) => {
             executed.push(value);
+
             return value;
           },
         }),
@@ -819,6 +852,7 @@ describe('ScriptedModelsService streamText options', () => {
 
   it('forwards reasoning deltas through the scripted stream handler', () => {
     const onReasoningDelta = vi.fn();
+
     const handlers = scriptedStreamHandlers(
       { chat, messages, onReasoningDelta },
       { onAbort: vi.fn(), wait: () => Promise.resolve() },
@@ -848,6 +882,7 @@ describe('ScriptedModelsService whole-step scripts', () => {
       inputSchema: z.object({ value: z.string() }),
       execute: ({ value }) => {
         executed.push(value);
+
         return value;
       },
     });
@@ -950,6 +985,7 @@ describe('ScriptedModelsService whole-step scripts', () => {
         [{ type: 'text', id: 'final', text: 'ok' }],
       ],
     });
+
     const refusals: Array<{
       toolCallId: string;
       toolName: string;
@@ -957,6 +993,7 @@ describe('ScriptedModelsService whole-step scripts', () => {
       reason: 'not_available' | 'invalid_input';
       sdkRefusal: { errorText: string; input: unknown };
     }> = [];
+
     const executed: Array<string> = [];
 
     const result = service.createClient('refused-calls').streamText({

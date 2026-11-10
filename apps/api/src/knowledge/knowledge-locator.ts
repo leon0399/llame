@@ -54,8 +54,10 @@ export function parseKnowledgeLocator(
 ): ParsedKnowledgeLocator | LocatorParseFailure {
   const separator = rest.indexOf('/');
   const knowledgeSpaceId = separator < 0 ? rest : rest.slice(0, separator);
+
   if (knowledgeSpaceId.length === 0) return invalidPathFailure();
   const remainder = separator < 0 ? '' : rest.slice(separator + 1);
+
   if (remainder.length === 0) return { knowledgeSpaceId };
 
   // Split before decoding so an encoded colon remains part of the filename.
@@ -64,16 +66,20 @@ export function parseKnowledgeLocator(
   const rawPath = colon < 0 ? remainder : remainder.slice(0, colon);
   // Preserve a trailing separator for directory semantics.
   const trailing = rawPath.endsWith('/');
+
   if (rawPath === '/') return invalidPathFailure();
+
   const relativePath = decodeRelativePath(
     trailing ? rawPath.slice(0, -1) : rawPath,
   );
+
   if (
     relativePath === undefined ||
     (relativePath.length > 0 && !isSpaceRelativePath(relativePath))
   ) {
     return invalidPathFailure();
   }
+
   if (selector !== undefined && !isSelectorSuffix(selector)) {
     return invalidKnowledgeSelector(
       knowledgeSpaceId,
@@ -82,11 +88,14 @@ export function parseKnowledgeLocator(
       selector,
     );
   }
+
   const located =
     relativePath.length === 0
       ? { knowledgeSpaceId }
       : { knowledgeSpaceId, relativePath };
+
   const base = selector === undefined ? located : { ...located, selector };
+
   return trailing && relativePath.length > 0
     ? { ...base, trailingSeparator: true }
     : base;
@@ -118,12 +127,14 @@ function knowledgeSelectorSpelling(
   selector: string,
 ): string | undefined {
   if (relativePath.length === 0) return undefined;
+
   return `${formatKnowledgeLocator({
     knowledgeSpaceId,
     relativePath,
     ...(trailing && { trailingSeparator: true }),
   })}%3A${encodeSelectorSuffix(selector)}`;
 }
+
 /**
  * The Knowledge path rules, applied where the locator is parsed rather than
  * where the adapter opens it: the same `validatePath` the adapter applies
@@ -133,6 +144,7 @@ function knowledgeSelectorSpelling(
 function isSpaceRelativePath(relativePath: string): boolean {
   try {
     validatePath(relativePath);
+
     return true;
   } catch {
     return false;
@@ -153,8 +165,10 @@ function invalidPathFailure(): LocatorParseFailure {
 export function formatKnowledgeLocator(parsed: ParsedKnowledgeLocator): string {
   const base = `${KNOWLEDGE_LOCATOR_SCHEME}://${parsed.knowledgeSpaceId}`;
   const relativePath = parsed.relativePath;
+
   if (relativePath === undefined || relativePath.length === 0) return base;
   const encoded = encodeRelativePath(relativePath);
+
   return parsed.trailingSeparator === true
     ? `${base}/${encoded}/`
     : `${base}/${encoded}`;
@@ -199,7 +213,9 @@ export async function resolveKnowledgeLocator(
   allowMissing = false,
 ): Promise<ResolvedKnowledgeTarget | ToolResult> {
   const parsed = parseKnowledgeLocator(rest);
+
   if ('type' in parsed) return { status: 'error', ...parsed };
+
   if (!isKnowledgeSpaceId(parsed.knowledgeSpaceId))
     return knowledgeNotFoundResult();
 
@@ -207,6 +223,7 @@ export async function resolveKnowledgeLocator(
     context,
     parsed.knowledgeSpaceId,
   );
+
   if ('status' in access) return access;
 
   try {
@@ -214,6 +231,7 @@ export async function resolveKnowledgeLocator(
       allowMissing,
       signal: context.abortSignal,
     });
+
     const target: ResolvedKnowledgeTarget = {
       // The separator rides along so the reader's own `lstat`/open applies the
       // native rule: a directory resolves, a file is `ENOTDIR` and reports
@@ -232,6 +250,7 @@ export async function resolveKnowledgeLocator(
       createDirectories: () => createDirectories(context, access, parsed),
       assertInsideSpace: () => assertInsideSpace(context, access, hostPath),
     };
+
     return parsed.selector === undefined
       ? target
       : { ...target, selector: parsed.selector };
@@ -253,6 +272,7 @@ async function createDirectories(
       createDirectories: true,
       signal: context.abortSignal,
     });
+
     return undefined;
   } catch (error) {
     return mapKnowledgeResolutionFailure(error);
@@ -269,6 +289,7 @@ async function assertInsideSpace(
       hostPath,
       context.abortSignal,
     );
+
     return inside ? undefined : knowledgeNotFoundResult();
   } catch (error) {
     return mapKnowledgeResolutionFailure(error);
@@ -288,13 +309,17 @@ export async function resolveKnowledgeSpaceAccess(
   knowledgeSpaceId: string,
 ): Promise<KnowledgeSpaceAccess | ToolResult> {
   const resolver = context.knowledgeResolver;
+
   if (resolver === undefined) return knowledgeUnavailableResult();
+
   try {
     const binding = await resolver.resolveBindingForOwnerById(
       context.userId,
       knowledgeSpaceId,
     );
+
     if (binding === undefined) return knowledgeNotFoundResult();
+
     return {
       adapter: resolver.createAdapter(binding),
       binding,
@@ -314,6 +339,7 @@ export function mapKnowledgeResolutionFailure(
 ): KnowledgeToolError {
   if (!(error instanceof KnowledgeFilesystemError))
     return knowledgeUnavailableResult();
+
   switch (error.code) {
     case 'knowledge_cancelled':
       throw error;

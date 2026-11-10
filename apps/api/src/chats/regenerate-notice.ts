@@ -48,10 +48,12 @@ export function createRegenerateNoticeItem(input: {
   readonly runId: string;
 }): AuthoredContextItemPart {
   const payload: RegenerateNoticePayload = { reason: 'non_read_only_calls' };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the closed-reason invariant this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isRegenerateNoticePayload(payload)) {
     throw new TypeError('Invalid server-authored regenerate notice metadata');
   }
+
   return createRenderedContextItem({
     producer: 'regenerate',
     form: 'notice',
@@ -75,13 +77,18 @@ export function discardsNonReadOnlyCall(
   part: unknown,
 ): boolean {
   const record = isRecord(part) ? part : undefined;
+
   if (!isSettledToolPart(part) || record === undefined) return false;
   const classification = record['classification'];
+
   // A rejected call never ran, so it discarded nothing.
   if (classification === null) return false;
+
   if (classification !== undefined) return classification !== 'read_only';
   // The guard above proved the type names a tool.
   const toolName = part.type.slice(TOOL_PART_PREFIX.length);
+
   if (toolName.startsWith('mcp__')) return true;
+
   return TOOL_REGISTRY.get(toolName)?.classification !== 'read_only';
 }

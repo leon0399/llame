@@ -42,8 +42,10 @@ export async function persistFirstEpochBaselines(
   baselines: FirstEpochBaselines | undefined,
 ): Promise<void> {
   const chatsRepo = new ChatsRepository(tx);
+
   const { recencyDigestInitialization: digest, skillCatalogFreeze: freeze } =
     baselines ?? {};
+
   if (digest !== undefined) {
     await chatsRepo.setRecencyDigestIfAbsent(
       run.chatId,
@@ -52,6 +54,7 @@ export async function persistFirstEpochBaselines(
       digest.told,
     );
   }
+
   if (freeze !== undefined) {
     await chatsRepo.setSkillCatalogBaseline({
       chatId: run.chatId,
@@ -129,9 +132,11 @@ async function storeDeliveredMessage(
     senderUserId: locked.userId,
     parts: items.flatMap((item) => item.parts),
   });
+
   if (!message) {
     throw new Error(`Run ${locked.id} could not store its delivery.`);
   }
+
   return message;
 }
 
@@ -164,6 +169,7 @@ export function closedTelemetry(
 function closingAs(input: DeliveryInput, cause: DeliveryCause): DeliveryInput {
   if (cause === 'steer') return input;
   const { live, modelCompleted, telemetry } = input;
+
   return {
     ...input,
     ...(live !== undefined && {
@@ -191,6 +197,7 @@ async function finalizeSegmentUsage(
   closing: DeliveryInput,
 ): Promise<void> {
   const telemetry = closing.modelCompleted?.telemetry;
+
   if (!telemetry) return;
   await finalizeUsageCompleteness(tx, {
     userId: locked.userId,
@@ -220,6 +227,7 @@ async function closeSegmentAndStore(
 ): Promise<{ closedReply: Message | undefined; message: Message }> {
   const { locked, cause, items } = delivery;
   await finalizeSegmentUsage(tx, locked, closing);
+
   const closedReply = await finalizeRunReply(tx, {
     run: locked,
     status: cause === 'interrupt' ? 'cancelled' : 'completed',
@@ -228,6 +236,7 @@ async function closeSegmentAndStore(
     telemetry: closing.telemetry,
     models: closing.models,
   });
+
   if (closing.modelCompleted) {
     await new RunEventsRepository(tx).append(
       locked.id,
@@ -235,7 +244,9 @@ async function closeSegmentAndStore(
       closing.modelCompleted,
     );
   }
+
   const message = await storeDeliveredMessage(tx, locked, items);
+
   return { closedReply, message };
 }
 
@@ -257,21 +268,26 @@ async function moveRunToDelivery(
   const { id: runId, userId } = locked;
   const { items, message } = delivery;
   const deliveries = new ChatDeliveriesRepository(tx);
+
   for (const item of items) {
     const marked = await deliveries.markDelivered(item.id, userId, {
       messageId: message.id,
       runId,
     });
+
     // The items are locked, so a miss means the transaction must not commit.
     if (!marked) throw new Error(`Steer item ${item.id} was not pending.`);
   }
+
   const attemptId = randomUUID();
+
   const moved = await new RunsRepository(tx).updateForAttempt(
     runId,
     userId,
     fromAttemptId,
     { messageId: message.id, activeAttemptId: attemptId },
   );
+
   if (!moved) throw new Error(`Run ${runId} could not move to its delivery.`);
   await new RunEventsRepository(tx).append(runId, 'run.delivered', {
     messageId: message.id,
@@ -280,6 +296,7 @@ async function moveRunToDelivery(
     stoppedCalls: delivery.stoppedCalls,
     attemptId,
   });
+
   return attemptId;
 }
 
@@ -307,17 +324,23 @@ export async function deliverPendingSteering(
     input.run.userId,
     input.attemptId,
   );
+
   if (!locked) return { kind: 'fenced' };
+
   if (locked.cancelRequestedAt !== null) return { kind: 'cancelled' };
   const { chatId, userId } = locked;
+
   if (!(await new ChatsRepository(tx).lock(chatId, userId))) {
     return { kind: 'fenced' };
   }
+
   const items = await new ChatDeliveriesRepository(tx).lockPendingSteering(
     chatId,
     userId,
   );
+
   if (items.length === 0) return { kind: 'nothing-pending' };
+
   return finishDelivery(tx, input, locked, items);
 }
 
@@ -333,20 +356,24 @@ async function finishDelivery(
     items.some((item) => item.mode === 'interrupt')
       ? 'interrupt'
       : 'steer';
+
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
     closingAs(input, cause),
     { locked, cause, items },
   );
+
   if (cause === 'steer') {
     await persistFirstEpochBaselines(tx, locked, input.baselines);
   }
+
   const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
     items,
     message,
     cause,
     stoppedCalls: input.stoppedCalls ?? [],
   });
+
   return {
     kind: 'delivered',
     ...(closedReply !== undefined && { closedReply }),

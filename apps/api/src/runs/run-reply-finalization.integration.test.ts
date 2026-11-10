@@ -78,6 +78,7 @@ vi.mock('@sentry/nestjs', async (importOriginal) => ({
 
 const MODEL_ID = 'mock';
 const USER_TEXT = 'answer the question';
+
 const ITEM_TEXT =
   '<system-reminder producer="workspace" form="notice">attempt A item</system-reminder>';
 
@@ -311,9 +312,11 @@ describeIfDb(
     /** Provider clients built from the loader's own configuration. */
     let wireClients: ModelsService;
     let wireConfigDir: string;
+
     const jobState = vi.fn<RunDispatcher['jobState']>(() =>
       Promise.resolve('active'),
     );
+
     const reindexChat = vi.fn<ChatSearchIndexer['reindexChat']>(() =>
       Promise.resolve(),
     );
@@ -340,13 +343,16 @@ describeIfDb(
         validateModelSelection: () => MODEL_ENTRY,
         resolveEffortSelection: () => undefined,
       };
+
       const bridge: RunStreamResponder = {
         createUiMessageStreamResponse: () => new Response(),
       };
+
       const dispatcher: RunDispatcher = {
         dispatch: () => Promise.resolve(),
         jobState,
       };
+
       chatLoop = new ChatLoopService(
         tenantDb,
         models,
@@ -355,6 +361,7 @@ describeIfDb(
         dispatcher,
         new MediaService(tenantDb),
       );
+
       // Every seeded turn fits the model's window, so a window summary request
       // would be a scenario this suite does not mean to exercise.
       const noopCompaction: CompactionCapability = {
@@ -363,6 +370,7 @@ describeIfDb(
             ? Promise.reject(new Error('window summarization is not exercised'))
             : Promise.resolve(null),
       };
+
       runExecution = new RunExecutionService(
         tenantDb,
         noopCompaction,
@@ -391,6 +399,7 @@ describeIfDb(
       wireConfigDir = mkdtempSync(path.join(tmpdir(), 'llame-five-wire-'));
       const wireConfigPath = path.join(wireConfigDir, 'llame.config.json');
       writeFileSync(wireConfigPath, fiveWireConfigJson());
+
       const wireConfig = loadInstanceConfig({
         LLAME_CONFIG_PATH: wireConfigPath,
         RESPONSES_KEY: CREDENTIAL_CANARY.responses,
@@ -400,6 +409,7 @@ describeIfDb(
         MESSAGES_KEY: CREDENTIAL_CANARY.messages,
         CODEX_KEY: CREDENTIAL_CANARY.codex,
       });
+
       wireClients = new ModelsService({
         config: wireConfig,
         productUserAgent: WIRE_USER_AGENT,
@@ -415,6 +425,7 @@ describeIfDb(
     afterAll(async () => {
       if (wireConfigDir)
         rmSync(wireConfigDir, { recursive: true, force: true });
+
       if (sql) {
         await sql`DELETE FROM users WHERE id = ${userId}`;
         await sql.end();
@@ -430,6 +441,7 @@ describeIfDb(
           title: 'Reply finalization',
         }),
       );
+
       return chatId;
     }
 
@@ -445,12 +457,14 @@ describeIfDb(
           senderUserId: userId,
           parts: [{ type: 'text', text: USER_TEXT }],
         });
+
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: userMessage.id,
           userId,
           modelId,
         });
+
         return { chatId, runId: run.id, userMessage };
       });
     }
@@ -459,12 +473,15 @@ describeIfDb(
       openMutation?: boolean;
     }): Promise<DiedAttempt> {
       const turn = await seedTurn(await createChat());
+
       return tenantDb.runAs(userId, async (tx) => {
         const started = await new RunsRepository(tx).markStarted(
           turn.runId,
           userId,
         );
+
         const attemptId = started?.activeAttemptId;
+
         if (!attemptId) throw new Error('Attempt A did not claim the Run.');
         const events = new RunEventsRepository(tx);
         const replies = new RunningReplyRepository(tx);
@@ -473,6 +490,7 @@ describeIfDb(
           modelId: MODEL_ID,
           attemptId,
         });
+
         const reply = await replies.upsertRunningReply({
           chatId: turn.chatId,
           inReplyTo: turn.userMessage.id,
@@ -485,6 +503,7 @@ describeIfDb(
           }),
           followUpAction: null,
         });
+
         if (!reply) throw new Error('Attempt A did not create its reply.');
         await events.append(turn.runId, 'model.delta', { text: 'A partial. ' });
         await events.append(turn.runId, 'tool.requested', {
@@ -498,11 +517,13 @@ describeIfDb(
           status: 'success',
           output: { status: 'success', matches: [] },
         });
+
         // The step after call-1 staged an item: its write stores the reply's
         // snapshot as the live collector held it, item last.
         const snapshot = reconstructDurableAssistant(
           await events.listByRunId(turn.runId, userId),
         ).collector.parts();
+
         const stored = await replies.updateRunningReplyParts({
           chatId: turn.chatId,
           inReplyTo: turn.userMessage.id,
@@ -518,8 +539,10 @@ describeIfDb(
             }),
           ],
         });
+
         if (!stored) throw new Error('Attempt A did not store its item.');
         await events.append(turn.runId, 'model.delta', { text: 'A tail.' });
+
         if (options?.openMutation) {
           await events.append(turn.runId, 'tool.requested', {
             toolCallId: 'call-mutation',
@@ -532,6 +555,7 @@ describeIfDb(
             path: 'mcp__web__write',
           });
         }
+
         return { ...turn, attemptId, replyId: reply.id };
       });
     }
@@ -564,6 +588,7 @@ describeIfDb(
           turn.userMessage.id,
         ),
       );
+
       return state.assistantMessage;
     }
 
@@ -600,6 +625,7 @@ describeIfDb(
       const messages = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userId),
       );
+
       return messages.flatMap((message) =>
         message.parts.flatMap((part) =>
           isContextItemPart(part) && isModelChangePayload(part.data.payload)
@@ -612,9 +638,11 @@ describeIfDb(
     it("resets the reply in the retry's own dispatch, and the retry's request carries none of the dead attempt's output or items", async () => {
       const died = await seedDiedAttempt();
       const replyAtRequest: Array<Message | undefined> = [];
+
       const model = new MockLanguageModelV3({
         doStream: async () => {
           replyAtRequest.push(await replyRow(died));
+
           return {
             stream: simulateReadableStream({
               chunks: answerChunks('B answer.'),
@@ -774,6 +802,7 @@ describeIfDb(
               text: '',
               chatsDisclosure: { pinned: new Set(), recent: new Set() },
             });
+
           try {
             await expect(
               execute(
@@ -810,7 +839,9 @@ describeIfDb(
         const chat = await tenantDb.runAs(userId, (tx) =>
           new ChatsRepository(tx).findById(died.chatId, userId),
         );
+
         expect(chat?.updatedAt.getTime()).toBeGreaterThan(indexedAt.getTime());
+
         if (reindexedByNextRun) {
           expect(reindexChat).not.toHaveBeenCalled();
         } else {
@@ -820,6 +851,7 @@ describeIfDb(
         const run = await tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(died.runId, userId),
         );
+
         expect(run?.status).toBe(runStatus);
         expect(
           (await runEvents(died.runId)).filter(
@@ -843,10 +875,12 @@ describeIfDb(
         // A's output, rebuilt from its events, with its item after the tool
         // part of the step that triggered it.
         const parts = reply?.parts ?? [];
+
         const workspaceItemData: unknown = expect.objectContaining({
           producer: 'workspace',
           text: ITEM_TEXT,
         });
+
         expect(parts.slice(0, 4)).toEqual([
           expect.objectContaining({ type: 'text', text: 'A partial. ' }),
           expect.objectContaining({
@@ -870,10 +904,12 @@ describeIfDb(
               ]
             : [],
         );
+
         // Settled, so history shows it.
         const history = await tenantDb.runAs(userId, (tx) =>
           new MessagesRepository(tx).findByChatId(died.chatId, userId),
         );
+
         expect(history.map(({ id }) => id)).toContain(died.replyId);
       },
     );
@@ -883,12 +919,14 @@ describeIfDb(
         const chatId = await createChat();
         await tenantDb.runAs(userId, async (tx) => {
           const messages = new MessagesRepository(tx);
+
           const earlier = await messages.create({
             chatId,
             role: 'user',
             senderUserId: userId,
             parts: [{ type: 'text', text: 'earlier question' }],
           });
+
           await messages.create({
             chatId,
             role: 'assistant',
@@ -901,10 +939,12 @@ describeIfDb(
         // The switching Run dispatches, which stores its switch item, and fails
         // on its first request with no output.
         const failing = await seedTurn(chatId);
+
         const failed = await execute(
           failing,
           scriptedClient(scriptedModel(FAILURE_CHUNKS)),
         );
+
         await failed.consumeStream?.();
         await waitForEvent(failing.runId, 'run.failed');
         expect(await switchedFrom(chatId)).toEqual(['source-model']);
@@ -914,10 +954,12 @@ describeIfDb(
         });
 
         const next = await seedTurn(chatId);
+
         const completed = await execute(
           next,
           scriptedClient(scriptedModel(answerChunks('Answered.'))),
         );
+
         await completed.consumeStream?.();
         await waitForEvent(next.runId, 'run.completed');
 
@@ -992,10 +1034,13 @@ describeIfDb(
           // so every transport is the stub and no request leaves the process.
           const fetchStub = vi.fn(() => Promise.resolve(respond()));
           vi.stubGlobal('fetch', fetchStub);
+
           const loggerError = vi
             .spyOn(Logger.prototype, 'error')
             .mockImplementation(() => undefined);
+
           vi.mocked(Sentry.captureException).mockClear();
+
           try {
             // The real `ModelsService` -> `createModelClient`, with only the
             // transport stubbed: no client override, no hand-built config.
@@ -1012,7 +1057,9 @@ describeIfDb(
             const failedRun = await tenantDb.runAs(userId, (tx) =>
               new RunsRepository(tx).findById(failing.runId, userId),
             );
+
             const events = await runEvents(failing.runId);
+
             const terminal = events.find(
               (event) => event.eventType === 'run.failed',
             );
@@ -1028,6 +1075,7 @@ describeIfDb(
             // Every other surface the same failure reaches: the run logger
             // (error stack) and the Sentry event argument.
             const logged = JSON.stringify(loggerError.mock.calls);
+
             const captured = JSON.stringify(
               vi
                 .mocked(Sentry.captureException)
@@ -1047,10 +1095,12 @@ describeIfDb(
               expect(surface).not.toContain(canary);
               expect(surface).not.toContain(CREDENTIAL_CANARY.header);
             }
+
             if (redacts) {
               expect(runError).toContain('[REDACTED]');
               expect(terminalPayload).toContain('[REDACTED]');
             }
+
             // Non-vacuous: the failure actually reached both observation points.
             expect(loggerError).toHaveBeenCalled();
             expect(Sentry.captureException).toHaveBeenCalled();

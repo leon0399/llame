@@ -31,17 +31,21 @@ export function createLineFramer(
       const text = Buffer.isBuffer(chunk) ? decoder.write(chunk) : chunk;
       const events: Array<FramerEvent> = [];
       let rest = text;
+
       while (rest.length > 0) {
         const at = rest.indexOf("\n");
         const terminated = at !== -1;
         const body = terminated ? rest.slice(0, at) : rest;
         rest = terminated ? rest.slice(at + 1) : "";
+
         if (skipping) {
           if (terminated) skipping = false;
           continue;
         }
+
         pending += body;
         pendingBytes += Buffer.byteLength(body, "utf8");
+
         if (pendingBytes > maxLineBytes) {
           pending = "";
           pendingBytes = 0;
@@ -49,11 +53,13 @@ export function createLineFramer(
           events.push({ kind: "oversize" });
           continue;
         }
+
         if (!terminated) continue;
         events.push({ kind: "line", line: pending });
         pending = "";
         pendingBytes = 0;
       }
+
       return events;
     },
   };

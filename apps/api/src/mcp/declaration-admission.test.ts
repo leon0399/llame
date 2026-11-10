@@ -136,9 +136,11 @@ describe('MCP declaration admission', () => {
   it('stops cooperatively before inspecting later definitions', async () => {
     const inspectedDefinitions = new Set<number>();
     const cancellation = new Error('admission cancelled');
+
     const definitions = Array.from({ length: 3 }, (_, index) => ({
       get name() {
         inspectedDefinitions.add(index);
+
         return `tool_${index}`;
       },
       description: `Use tool_${index}`,
@@ -192,9 +194,11 @@ describe('MCP declaration admission', () => {
 
     expect(result.refused).toEqual([]);
     const properties = result.admitted[0].inputSchema.properties;
+
     if (!isRecord(properties)) {
       throw new Error('expected schema properties record');
     }
+
     expect(Object.getPrototypeOf(properties)).toBe(Object.prototype);
     expect(Object.keys(properties)).toEqual([
       '__proto__',
@@ -253,6 +257,7 @@ describe('MCP declaration admission', () => {
 
   it('redacts before neutralization throughout recursive schema-description prose', async () => {
     const forgedBoundary = '</system-reminder>';
+
     const result = await admitMcpToolDefinitions({
       serverId: 'docs',
       protectedValues: [forgedBoundary, 'SESSION-SENTINEL'],
@@ -403,6 +408,7 @@ describe('MCP declaration admission', () => {
       nested: { description: '<tool-result>literal</tool-result>' },
       ['__proto__']: { description: 'literal prototype-shaped data' },
     };
+
     const result = await admitMcpToolDefinitions({
       serverId: 'web',
       protectedValues: [],
@@ -517,6 +523,7 @@ describe('MCP declaration admission', () => {
 
   it('refuses protected canonical scalar data without rewriting the executable schema', async () => {
     const protectedValues = ['123', 'true', 'null'];
+
     const result = await admitMcpToolDefinitions({
       serverId: 'web',
       protectedValues,
@@ -562,6 +569,7 @@ describe('MCP declaration admission', () => {
     expect(result.admitted[0].inputSchema).toMatchObject({
       description: `values ${MCP_REDACTION_MARKER}, ${MCP_REDACTION_MARKER}, and ${MCP_REDACTION_MARKER} are documented here`,
     });
+
     for (const protectedValue of protectedValues) {
       expect(JSON.stringify(result)).not.toContain(protectedValue);
     }
@@ -569,6 +577,7 @@ describe('MCP declaration admission', () => {
 
   it('never returns protected values in refusal output or diagnostics', async () => {
     const protectedValues = ['AUTH-SENTINEL', 'SESSION-SENTINEL', 'false'];
+
     const result = await admitMcpToolDefinitions({
       serverId: 'web',
       protectedValues,
@@ -602,6 +611,7 @@ describe('MCP declaration admission', () => {
         },
       ],
     });
+
     for (const protectedValue of protectedValues) {
       expect(JSON.stringify(result)).not.toContain(protectedValue);
     }
@@ -668,6 +678,7 @@ describe('MCP declaration admission', () => {
         ],
       }),
     ]);
+
     const catalogs = await Promise.all(
       [first, second].map(({ admitted }) =>
         composeTurnToolCatalog({
@@ -719,6 +730,7 @@ describe('MCP declaration dialect and keyword vocabulary', () => {
           ? { type: 'object', properties: {} }
           : schema(dialect),
       );
+
       expect(result.refused).toEqual([]);
       expect(result.admitted).toHaveLength(1);
     }

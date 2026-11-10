@@ -347,6 +347,7 @@ export const InDialog: Story = {
     const dialog = await screen.findByRole("dialog", {
       name: "Popover Example",
     });
+
     await expect(dialog).toHaveAccessibleDescription(
       "Click the button below to see the popover.",
     );

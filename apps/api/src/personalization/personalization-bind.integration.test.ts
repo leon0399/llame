@@ -41,6 +41,7 @@ import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-
 import type { KnowledgeToolResolver } from '../tools/types';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 const knowledgeResolver: KnowledgeToolResolver = {
   listForOwnerPage: () => Promise.resolve({ spaces: [] }),
   resolveBindingForOwnerById: () => Promise.resolve(undefined),
@@ -55,6 +56,7 @@ const knowledgeResolver: KnowledgeToolResolver = {
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
   resolve: () => Promise.resolve([]),
 };
+
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 describeIfDb('personalization binds per run', () => {
@@ -70,14 +72,18 @@ describeIfDb('personalization binds per run', () => {
   const execute = async (userId: string, chatId: string, messageId: string) => {
     const { run, message } = await tenantDb.runAs(userId, async (tx) => {
       const [run] = await new RunsRepository(tx).findByChatId(chatId, userId);
+
       const message = await new MessagesRepository(tx).findById(
         chatId,
         userId,
         messageId,
       );
+
       return { run, message };
     });
+
     if (!run || !message) throw new Error('Failed to load accepted run');
+
     const result = await runExecution.executeRun({
       runId: run.id,
       chatId,
@@ -89,8 +95,10 @@ describeIfDb('personalization binds per run', () => {
       },
       client: createFakeModelClient(['done']),
     });
+
     await result.consumeStream?.();
   };
+
   // test exercises the actual renderer (including its trim-means-absent rule)
   // rather than a stub that has to re-implement it and can drift from it.
   const SYSTEM_PROMPT_TEMPLATE =
@@ -111,15 +119,19 @@ describeIfDb('personalization binds per run', () => {
   const boundReceipt = async (userId: string, chatId: string) =>
     tenantDb.runAs(userId, async (tx) => {
       const [run] = await new RunsRepository(tx).findByChatId(chatId, userId);
+
       if (!run?.completedAttemptId) {
         throw new Error('Expected a completed attempt receipt');
       }
+
       const receipt = await new SystemPromptReceiptsRepository(
         tx,
       ).findByAttempt(run.id, run.completedAttemptId, userId);
+
       if (!receipt) {
         throw new Error('Expected a system prompt receipt');
       }
+
       return receipt;
     });
 

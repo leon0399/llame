@@ -30,10 +30,14 @@ export function defaultTargetProblem(
   executorId: string,
 ): DefaultTargetProblem | null {
   if (checkout === undefined) return 'checkout_not_found';
+
   if (checkout.kind !== 'main') return 'checkout_not_main';
+
   if (checkout.repositoryId !== link.repositoryId) {
     return 'checkout_repository_mismatch';
   }
+
   if (checkout.executorId !== executorId) return 'checkout_executor_mismatch';
+
   return null;
 }

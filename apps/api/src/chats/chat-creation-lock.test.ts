@@ -33,11 +33,14 @@ type FakeClient = {
 function fakeClient(rows: ReadonlyArray<{ locked: boolean }>): FakeClient {
   const statements: Array<string> = [];
   const releases: Array<string> = [];
+
   const reserved = vi.fn((strings: TemplateStringsArray) => {
     const statement = strings.join('?');
     statements.push(statement);
+
     return Promise.resolve([...rows]);
   });
+
   const sql = Object.assign(vi.fn(), {
     reserve: vi.fn(() =>
       Promise.resolve(
@@ -47,6 +50,7 @@ function fakeClient(rows: ReadonlyArray<{ locked: boolean }>): FakeClient {
       ),
     ),
   });
+
   return { sql, statements, releases };
 }
 
@@ -87,10 +91,13 @@ describe('creationInProgress', () => {
 describe('tryCreationTransactionLock', () => {
   it('reports the database’s verdict, taking the lock once per transaction', async () => {
     const statements: Array<SQL> = [];
+
     const execute = vi.fn((statement: SQL) => {
       statements.push(statement);
+
       return Promise.resolve([{ locked: false }]);
     });
+
     const tx = asDouble<Db>({ execute });
 
     await expect(tryCreationTransactionLock(tx, CHAT_ID)).resolves.toBe(false);
@@ -124,6 +131,7 @@ describe('ChatCreationLock.runExclusively', () => {
     await expect(
       lockOf(client).runExclusively(CHAT_ID, () => {
         order.push('run');
+
         return Promise.resolve('done');
       }),
     ).resolves.toBe('done');

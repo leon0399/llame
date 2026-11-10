@@ -9,6 +9,7 @@ import {
 import { fetchVendorHtml, type VendorFetch } from './http';
 
 export const DUCKDUCKGO_SEARCH_URL = 'https://html.duckduckgo.com/html/';
+
 const DUCKDUCKGO_RECENCY: Readonly<
   Record<NonNullable<EngineRequest['recency']>, string>
 > = {
@@ -17,11 +18,13 @@ const DUCKDUCKGO_RECENCY: Readonly<
   month: 'm',
   year: 'y',
 };
+
 const DUCKDUCKGO_REDIRECT_PREFIX = '//duckduckgo.com/l/?';
 
 function unwrapRedirect(href: string): string {
   if (!href.startsWith(DUCKDUCKGO_REDIRECT_PREFIX)) return href;
   const target = new URL(`https:${href}`).searchParams.get('uddg');
+
   return target ?? href;
 }
 
@@ -30,8 +33,10 @@ function parseResults(document: Document): ReadonlyArray<RawResult> {
     if (result.classList.contains('result--ad')) return [];
     const anchor = result.querySelector('a.result__a');
     const href = anchor?.getAttribute('href');
+
     if (anchor === null || href === null || href === undefined) return [];
     const snippet = result.querySelector('.result__snippet');
+
     return [
       {
         title: String(anchor.textContent).trim(),
@@ -50,8 +55,10 @@ export function createDuckDuckGoEngine(deps: {
 }): Engine {
   return async (request: EngineRequest) => {
     const formBody = new URLSearchParams({ q: request.query });
+
     if (request.recency !== undefined)
       formBody.set('df', DUCKDUCKGO_RECENCY[request.recency]);
+
     const htmlBody = await fetchVendorHtml(
       DUCKDUCKGO_SEARCH_URL,
       {
@@ -68,15 +75,19 @@ export function createDuckDuckGoEngine(deps: {
         userAgent: request.userAgent,
       },
     );
+
     const { document } = parseHTML(htmlBody);
+
     if (document.querySelector('[class^="anomaly-modal"]') !== null)
       throw new EngineFailure('challenge');
+
     // Canonicalize before cutting, so a URL that fails validation never takes
     // a result slot from a valid one below it.
     const results = canonicalizeResults(parseResults(document)).slice(
       0,
       request.limit,
     );
+
     return results.length > 0
       ? { kind: 'results', results }
       : { kind: 'empty' };

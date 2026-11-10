@@ -48,6 +48,7 @@ type TruncatedModelIds = { from: boolean; to: boolean };
 function useTruncatedModelIds(fromModelId: string, toModelId: string) {
   const fromModelRef = React.useRef<HTMLSpanElement>(null);
   const toModelRef = React.useRef<HTMLSpanElement>(null);
+
   const [truncatedModelIds, setTruncatedModelIds] =
     React.useState<TruncatedModelIds>({
       from: false,
@@ -67,11 +68,14 @@ function useTruncatedModelIds(fromModelId: string, toModelId: string) {
     };
 
     measure();
+
     // Checked via `in` rather than `typeof ResizeObserver` so this stays a
     // property lookup, not a narrowing typeof on an unparsed value.
     const observer =
       "ResizeObserver" in globalThis ? new ResizeObserver(measure) : null;
+
     if (fromModelRef.current) observer?.observe(fromModelRef.current);
+
     if (toModelRef.current) observer?.observe(toModelRef.current);
     window.addEventListener("resize", measure);
 
@@ -238,8 +242,10 @@ export function ModelSwitchBoundary({
   onInspectContext,
 }: ModelSwitchBoundaryProps) {
   const [open, setOpen] = React.useState(false);
+
   const { fromModelRef, toModelRef, truncatedModelIds, hasTruncatedModelId } =
     useTruncatedModelIds(fromModelId, toModelId);
+
   const accessibleLabel = `Model changed from ${fromModelId} to ${toModelId}`;
 
   return (

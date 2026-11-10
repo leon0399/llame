@@ -30,6 +30,7 @@ const { cookiesMock, redirectMock, notFoundMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/headers", () => ({ cookies: cookiesMock }));
+
 vi.mock("next/navigation", () => ({
   redirect: redirectMock,
   notFound: notFoundMock,
@@ -59,11 +60,13 @@ function chatPageProps(element: ReactNode): ChatPageProps {
   // prehydration-pin-script.tsx) followed by the chat page — find the page by
   // its props rather than assuming a single child.
   const children = element.props.children;
+
   const child = (Array.isArray(children) ? children : [children]).find(
     (candidate): candidate is React.ReactElement<ChatPageProps> =>
       isValidElement<Partial<ChatPageProps>>(candidate) &&
       typeof candidate.props.chatId === "string",
   );
+
   if (child === undefined) {
     throw new Error("expected chat page child");
   }
@@ -76,7 +79,9 @@ function seededMessagesQuery(element: ReactNode, chatId: string) {
   if (!isValidElement<{ state: DehydratedState }>(element)) {
     throw new Error("expected hydration boundary");
   }
+
   const expectedKey = JSON.stringify(chatQueryKeys.messages(chatId));
+
   return element.props.state.queries.find(
     (query) => JSON.stringify(query.queryKey) === expectedKey,
   );

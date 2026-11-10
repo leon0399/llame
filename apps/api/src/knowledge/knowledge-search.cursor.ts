@@ -18,6 +18,7 @@ export class KnowledgeSearchCursorError extends Error {
 }
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
@@ -39,6 +40,7 @@ export function encodeKnowledgeSearchCursor(
   cursor: KnowledgeSearchCursor,
 ): string {
   validateCursor(cursor);
+
   const payload: KnowledgeSearchCursorPayload = {
     version: 1,
     query: cursor.query,
@@ -48,6 +50,7 @@ export function encodeKnowledgeSearchCursor(
     path: cursor.path,
     offset: cursor.offset,
   };
+
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
@@ -63,12 +66,15 @@ function cursorPayloadKeySet(hasSelector: boolean): Array<string> {
     'spaceId',
     'version',
   ];
+
   if (hasSelector) keys.push('knowledgeSpaceId');
+
   return keys.sort();
 }
 
 function requireCursorString(value: unknown): string {
   if (!isString(value)) throw new KnowledgeSearchCursorError();
+
   return value;
 }
 
@@ -83,15 +89,18 @@ function parseCursorPayload(decoded: unknown): KnowledgeSearchCursorPayload {
   const hasSelector = Object.hasOwn(decoded, 'knowledgeSpaceId');
   const keys = Object.keys(decoded).sort();
   const expectedKeys = cursorPayloadKeySet(hasSelector);
+
   if (
     keys.length !== expectedKeys.length ||
     keys.some((key, index) => key !== expectedKeys[index])
   ) {
     throw new KnowledgeSearchCursorError();
   }
+
   const knowledgeSpaceId = hasSelector
     ? requireCursorString(decoded.knowledgeSpaceId)
     : undefined;
+
   if (
     decoded.version !== 1 ||
     !isString(decoded.query) ||
@@ -102,6 +111,7 @@ function parseCursorPayload(decoded: unknown): KnowledgeSearchCursorPayload {
   ) {
     throw new KnowledgeSearchCursorError();
   }
+
   return {
     version: 1,
     query: decoded.query,
@@ -127,6 +137,7 @@ export function decodeKnowledgeSearchCursor(
   try {
     const payloadJson = Buffer.from(value, 'base64url').toString('utf8');
     const payload = parseCursorPayload(JSON.parse(payloadJson));
+
     const cursor: KnowledgeSearchCursor = {
       version: 1,
       query: payload.query,
@@ -136,13 +147,17 @@ export function decodeKnowledgeSearchCursor(
       path: payload.path,
       offset: payload.offset,
     };
+
     if (cursor.spaceCreatedAt.toISOString() !== payload.spaceCreatedAt) {
       throw new KnowledgeSearchCursorError();
     }
+
     validateCursor(cursor);
+
     if (encodeKnowledgeSearchCursor(cursor) !== value) {
       throw new KnowledgeSearchCursorError();
     }
+
     return cursor;
   } catch (error) {
     if (error instanceof KnowledgeSearchCursorError) throw error;
@@ -189,6 +204,7 @@ function isSafeCursorPath(value: string): boolean {
   ) {
     return false;
   }
+
   return value.split('/').every((component) => {
     return component.length > 0 && component !== '.' && component !== '..';
   });

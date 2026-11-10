@@ -176,12 +176,15 @@ function validateModeRules(
   }>,
 ): void {
   const data = ctx.value;
+
   if (data.mode === 'content') {
     validateContentMode(ctx);
   }
+
   if (data.mode === 'timeline') {
     validateTimelineMode(ctx);
   }
+
   if (
     data.after !== undefined &&
     data.before !== undefined &&
@@ -201,9 +204,11 @@ function validateContentMode(
   }>,
 ): void {
   const data = ctx.value;
+
   if (!data.query?.trim()) {
     rejectField(ctx, 'query', 'content mode requires a query');
   }
+
   if (data.limit !== undefined && data.limit > CONTENT_LIMIT_MAX) {
     rejectField(
       ctx,
@@ -211,7 +216,9 @@ function validateContentMode(
       `content mode limit must be at most ${CONTENT_LIMIT_MAX}`,
     );
   }
+
   const hasBound = data.after !== undefined || data.before !== undefined;
+
   if (hasBound && data.constraint === undefined) {
     rejectField(
       ctx,
@@ -219,6 +226,7 @@ function validateContentMode(
       'constraint is required when a time bound is present',
     );
   }
+
   if (!hasBound && data.constraint !== undefined) {
     rejectField(
       ctx,
@@ -237,9 +245,11 @@ function validateTimelineMode(
   }>,
 ): void {
   const data = ctx.value;
+
   if (data.query !== undefined) {
     rejectField(ctx, 'query', 'timeline mode does not accept a query');
   }
+
   if (data.constraint !== undefined) {
     rejectField(
       ctx,
@@ -247,6 +257,7 @@ function validateTimelineMode(
       'timeline mode does not accept a constraint',
     );
   }
+
   if (data.after === undefined && data.before === undefined) {
     rejectField(ctx, 'after', 'timeline mode requires at least one time bound');
   }
@@ -263,6 +274,7 @@ export const searchConversationsTool: Tool<ParsedInput> = {
   inputSchema: searchConversationsInputSchema,
   async execute(context: ToolContext, args: ParsedInput): Promise<ToolResult> {
     const parsed = searchConversationsInputSchema.safeParse(args);
+
     if (!parsed.success) {
       return {
         status: 'error',
@@ -270,18 +282,21 @@ export const searchConversationsTool: Tool<ParsedInput> = {
         message: 'The search arguments are invalid.',
       };
     }
+
     const input = parsed.data;
 
     try {
       if (input.mode === 'timeline') {
         return await executeTimeline(context, input);
       }
+
       return await executeContent(context, input);
     } catch (error) {
       logger.error(
         `search_conversations failed for user ${context.userId}`,
         error instanceof Error ? error.stack : String(error),
       );
+
       return {
         status: 'error',
         type: 'search_failed',
@@ -331,6 +346,7 @@ async function executeTimeline(
       truncated,
       results,
     };
+
     return success;
   });
 }
@@ -345,6 +361,7 @@ async function resolveVectorParams(context: ToolContext, query: string) {
         context.abortSignal,
       )
     : { fallback: 'no_model' as const };
+
   return 'vector' in embedResult
     ? { queryVector: embedResult.vector, modelKey: embedResult.modelKey }
     : undefined;
@@ -358,6 +375,7 @@ async function executeContent(
   const limit = input.limit ?? CONTENT_LIMIT_DEFAULT;
   const after = input.after ? new Date(input.after) : undefined;
   const before = input.before ? new Date(input.before) : undefined;
+
   const timeRange: TimeRange | undefined =
     input.constraint && (after || before)
       ? { after, before, constraint: input.constraint }
@@ -371,15 +389,19 @@ async function executeContent(
       query,
       { limit: limit + 1, vector: vectorParams, timeRange },
     );
+
     const truncated = rows.length > limit;
     const candidates = truncated ? rows.slice(0, limit) : rows;
+
     const requiredRange =
       timeRange?.constraint === 'required' ? { after, before } : undefined;
+
     const results = await canonicalSuccess(tx, context.userId, {
       query,
       candidates,
       requiredRange,
     });
+
     const success: SearchConversationsCanonicalSuccess = {
       status: 'success',
       notice: SEARCH_CONVERSATIONS_CANONICAL_NOTICE,
@@ -387,6 +409,7 @@ async function executeContent(
       truncated,
       results,
     };
+
     return success;
   });
 }
@@ -397,9 +420,13 @@ function buildAppliedRange(
   input: ParsedInput,
 ): SearchConversationsAppliedRange {
   const range: SearchConversationsAppliedRange = {};
+
   if (input.after !== undefined) range.after = input.after;
+
   if (input.before !== undefined) range.before = input.before;
+
   if (input.constraint !== undefined) range.constraint = input.constraint;
+
   return range;
 }
 
@@ -418,21 +445,27 @@ async function canonicalSuccess(
 ): Promise<Array<SearchConversationsCanonicalResult>> {
   const { query, candidates, requiredRange } = options;
   const results: Array<SearchConversationsCanonicalResult> = [];
+
   for (const row of candidates) {
     const result = await resolveCanonicalRow(tx, ownerUserId, {
       query,
       row,
       requiredRange,
     });
+
     if (result !== null) results.push(result);
   }
+
   return results;
 }
 
 function isInRange(timestamp: Date, range?: RequiredRange): boolean {
   if (!range) return true;
+
   if (range.after && timestamp < range.after) return false;
+
   if (range.before && timestamp >= range.before) return false;
+
   return true;
 }
 
@@ -446,6 +479,7 @@ async function resolveCanonicalRow(
   },
 ): Promise<SearchConversationsCanonicalResult | null> {
   const { query, row, requiredRange } = candidate;
+
   if (row.bestDocumentId === null) {
     return {
       kind: 'metadata',
@@ -459,6 +493,7 @@ async function resolveCanonicalRow(
     chatId: row.id,
     bestDocumentId: row.bestDocumentId,
   });
+
   if (document === null) return null;
 
   const inRangeMessages = requiredRange
@@ -487,6 +522,7 @@ function contentResult(
     offset: passage.offset,
     limit: passage.limit,
   });
+
   if (!coordinates.success) return null;
 
   return {
@@ -509,11 +545,13 @@ function lineIndexAtOffset(
   for (const line of lines) {
     if (charOffset < line.endOffsetExclusive) return line.line;
   }
+
   return Math.max(lines.length - 1, 0);
 }
 
 function truncatedExcerpt(text: string): string {
   const codePoints = Array.from(text);
+
   return codePoints.length <= EXCERPT_MAX_CODE_POINTS
     ? text
     : `${codePoints.slice(0, EXCERPT_MAX_CODE_POINTS).join('')}…`;
@@ -525,17 +563,21 @@ function vectorOnlyContentResult(
   requiredRange?: RequiredRange,
 ): SearchConversationsContentResult | null {
   const firstMessage = document.messages[0];
+
   if (!firstMessage) return null;
+
   if (requiredRange && !isInRange(firstMessage.timestamp, requiredRange)) {
     return null;
   }
 
   const lines = scanConversationLogicalLines(firstMessage.visibleText);
   const offset = lineIndexAtOffset(lines, firstMessage.sourceStart);
+
   const lastLine = lineIndexAtOffset(
     lines,
     Math.max(firstMessage.sourceEndExclusive - 1, firstMessage.sourceStart),
   );
+
   const limit = Math.max(1, Math.min(lastLine - offset + 1, 2000));
 
   const coordinates = conversationSourceCoordinatesSchema.safeParse({
@@ -544,12 +586,14 @@ function vectorOnlyContentResult(
     offset,
     limit,
   });
+
   if (!coordinates.success) return null;
 
   const windowText = firstMessage.visibleText.slice(
     firstMessage.sourceStart,
     firstMessage.sourceEndExclusive,
   );
+
   return {
     kind: 'content',
     ...coordinates.data,

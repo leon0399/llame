@@ -29,7 +29,9 @@ export const WEB_SEARCH_FAILURE_CLASSES = [
   'unsupported',
   'upstream_error',
 ] as const;
+
 export type FailureClass = (typeof WEB_SEARCH_FAILURE_CLASSES)[number];
+
 const FAILURE_MESSAGES: Record<FailureClass, string> = {
   auth: 'The web search engine rejected authentication.',
   rate_limited: 'The web search engine rate limited the request.',
@@ -56,13 +58,16 @@ export type RawResult = {
   readonly snippet?: string;
   readonly published?: string;
 };
+
 export type RawCitation = { readonly url: string; readonly title?: string };
+
 /** The grounded answer an `aggregate` attaches from one of its answer children. */
 export type RawAnswer = {
   readonly engine: string;
   readonly answer: string;
   readonly citations: ReadonlyArray<RawCitation>;
 };
+
 type ResultOutcome = {
   readonly kind: 'results';
   readonly results: ReadonlyArray<RawResult>;
@@ -70,6 +75,7 @@ type ResultOutcome = {
   /** Answers that an `aggregate` attaches from its answer children, in child order. */
   readonly answers?: ReadonlyArray<RawAnswer>;
 };
+
 type AnswerOutcome = {
   readonly kind: 'answer';
   readonly answer: string;
@@ -77,11 +83,14 @@ type AnswerOutcome = {
   /** Engine notes that accompany a grounded answer, as for a result list. */
   readonly notes?: ReadonlyArray<string>;
 };
+
 type EmptyOutcome = {
   readonly kind: 'empty';
   readonly notes?: ReadonlyArray<string>;
 };
+
 export type EngineOutcome = ResultOutcome | AnswerOutcome | EmptyOutcome;
+
 export type EngineRequest = {
   readonly query: string;
   /** The model's goal for this search; engines without the field ignore it. */
@@ -107,8 +116,11 @@ export type EngineRequest = {
    */
   readonly modelClients?: ToolContext['modelClients'];
 };
+
 export type Engine = (request: EngineRequest) => Promise<EngineOutcome>;
+
 export type EngineLookup = (id: string) => Engine;
+
 type ChainBase = {
   readonly engine: string;
   readonly query: string;
@@ -116,22 +128,29 @@ type ChainBase = {
   /** Entries this call removed, for the output layer's one count note. */
   readonly removed?: number;
 };
+
 export type SearchChainSuccess =
   | (ChainBase & ResultOutcome)
   | (ChainBase & AnswerOutcome);
+
 export type SearchChainError = {
   readonly status: 'error';
   readonly type: 'web_search_failed';
   readonly message: string;
 };
+
 export type SearchChainResult = SearchChainSuccess | SearchChainError;
+
 type RunOne = EngineOutcome | FailureClass;
+
 type Notes = Array<string>;
+
 type LastEmpty = {
   readonly engine: string;
   readonly noteIndex: number;
   readonly notes?: ReadonlyArray<string>;
 };
+
 type OutcomeDecision =
   | { readonly kind: 'continue'; readonly lastEmpty?: LastEmpty }
   | {
@@ -155,6 +174,7 @@ function withChainNotes(
   notes: ReadonlyArray<string>,
 ): SearchChainSuccess {
   const finalNotes = [...notes, ...(result.notes ?? [])];
+
   return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
 
@@ -163,6 +183,7 @@ export function canonicalizeResults(
 ): Array<RawResult> {
   return results.flatMap((result) => {
     const url = canonicalUrl(result.url);
+
     return url === undefined ? [] : [{ ...result, url }];
   });
 }
@@ -173,9 +194,12 @@ export function canonicalizeResults(
  */
 export function groupingKey(rawUrl: string): string {
   const url = new URL(rawUrl);
+
   if (url.hostname.startsWith('www.'))
     url.hostname = url.hostname.slice('www.'.length);
+
   if (url.pathname.endsWith('/')) url.pathname = url.pathname.slice(0, -1);
+
   return url.href;
 }
 
@@ -189,13 +213,16 @@ export function distinctResults(
 ): Array<RawResult> {
   const seen = new Set<string>();
   const distinct: Array<RawResult> = [];
+
   for (const result of results) {
     if (distinct.length === limit) break;
     const key = groupingKey(result.url);
+
     if (seen.has(key)) continue;
     seen.add(key);
     distinct.push(result);
   }
+
   return distinct;
 }
 
@@ -203,10 +230,13 @@ export function canonicalizeCitations(
   citations: ReadonlyArray<RawCitation>,
 ): Array<RawCitation> {
   const seen = new Set<string>();
+
   return citations.flatMap((citation) => {
     const url = canonicalUrl(citation.url);
+
     if (url === undefined || seen.has(url)) return [];
     seen.add(url);
+
     return [{ ...citation, url }];
   });
 }
@@ -241,6 +271,7 @@ function canonicalizeOutcome(
  */
 const MARKDOWN_LINK =
   /\[([^[\]\n]*)\]\([ \t\n]*(?:<([^<>\n]*)>|((?:[^()\s\\]|\\[!-/:-@[-`{-~]|\([^()\s]*\))*))(?:[ \t\n]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t\n]*\)/gu;
+
 /**
  * A URL written as itself rather than as a Markdown link target, with balanced
  * parentheses one level deep. The last character cannot be sentence
@@ -249,22 +280,26 @@ const MARKDOWN_LINK =
  */
 const BARE_URL =
   /\bhttps?:\/\/(?:[^\s<>()[\]"'`]|\([^\s<>()[\]"'`]*\))*(?:[^\s<>()[\]"'`.,;:!?*_]|\([^\s<>()[\]"'`]*\))/giu;
+
 /**
  * A CommonMark backslash escape: a backslash before one ASCII punctuation
  * character stands for that character alone.
  */
 const MARKDOWN_ESCAPE = /\\([!-/:-@[-`{-~])/gu;
+
 /**
  * A raw HTML anchor opening tag in answer text, whose quoted attribute values
  * may hold a `>` or a `<`. Each repeated alternative starts with a different
  * character, so a hostile answer cannot make the engine backtrack.
  */
 const HTML_ANCHOR = /<a\b((?:[^<>"']|"[^"]*"|'[^']*')*)>/giu;
+
 /**
  * The `href` of one anchor's attributes, which must start the list or follow
  * whitespace so `data-href` is not one. An unquoted value ends at a space.
  */
 const HTML_HREF = /(?:^|\s)href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))/iu;
+
 /**
  * A link reference definition: its label and the destination that a reference
  * elsewhere in the answer resolves to. The renderer builds that link's `href`
@@ -292,6 +327,7 @@ function decodeCharacterReferences(text: string): string {
     .document.body;
   // safe-html: never rendered — linkedom decodes a link target's character references so removal can read the result back as text
   referenceBody.innerHTML = text;
+
   return String(referenceBody.textContent);
 }
 
@@ -306,6 +342,7 @@ function decodeMarkdownTarget(target: string): string {
   const unescaped = target.includes('\\')
     ? target.replace(MARKDOWN_ESCAPE, '$1')
     : target;
+
   return unescaped.includes('&')
     ? decodeCharacterReferences(unescaped)
     : unescaped;
@@ -323,12 +360,15 @@ function withoutRemovedTargets(answer: string, removal: ResultRemoval): string {
     .replace(HTML_ANCHOR, (tag: string, attributes: string) => {
       const href = HTML_HREF.exec(attributes);
       const target = href?.[1] ?? href?.[2] ?? href?.[3];
+
       if (target === undefined) return tag;
+
       // HTML decodes character references in an attribute and leaves a
       // backslash alone.
       const value = target.includes('&')
         ? decodeCharacterReferences(target)
         : target;
+
       // The anchor loses its tag and keeps its text; the closing tag left
       // behind cannot start a link, so the HTML5 parser drops it.
       return removal.removes(value) ? '' : tag;
@@ -343,9 +383,11 @@ function withoutRemovedTargets(answer: string, removal: ResultRemoval): string {
       ) => {
         const target = angled ?? bare ?? '';
         const decoded = decodeMarkdownTarget(target);
+
         if (!removal.removes(decoded) && !removal.removes(target)) return link;
         const label = text.trim().toLowerCase();
         const shown = (canonicalUrl(decoded) ?? decoded).toLowerCase();
+
         // A label that spells the removed target or its host is a bare copy of
         // the entry, not text worth keeping.
         return [shown, URL.parse(shown)?.hostname].includes(label) ? '' : text;
@@ -355,6 +397,7 @@ function withoutRemovedTargets(answer: string, removal: ResultRemoval): string {
       LINK_DEFINITION,
       (line: string, angled: string | undefined, bare: string | undefined) => {
         const target = angled ?? bare;
+
         return target !== undefined &&
           removal.removes(decodeMarkdownTarget(target))
           ? ''
@@ -375,6 +418,7 @@ export function answerLinkRanges(text: string): Array<AnswerLinkRange> {
   return [MARKDOWN_LINK, BARE_URL].flatMap((pattern) =>
     [...text.matchAll(pattern)].map((match) => {
       const start = match.index ?? 0;
+
       return { start, end: start + match[0].length };
     }),
   );
@@ -396,22 +440,28 @@ function removeEntries(
     const results = outcome.results.filter((result) => {
       if (!removal.removes(result.url)) return true;
       removal.count(result.url);
+
       return false;
     });
+
     return { ...outcome, results };
   }
+
   if (outcome.kind === 'answer') {
     const citations = outcome.citations.filter((citation) => {
       if (!removal.removes(citation.url)) return true;
       removal.count(citation.url);
+
       return false;
     });
+
     return {
       ...outcome,
       answer: withoutRemovedTargets(outcome.answer, removal),
       citations,
     };
   }
+
   return outcome;
 }
 
@@ -424,17 +474,23 @@ export async function runOne(
     timeoutSeconds === undefined
       ? undefined
       : AbortSignal.timeout(timeoutSeconds * 1000);
+
   const signal =
     deadline === undefined
       ? request.signal
       : AbortSignal.any([request.signal, deadline]);
+
   try {
     const outcome = await engine({ ...request, signal });
+
     if (request.signal.aborted) throwAbort(request.signal);
+
     if (deadline?.aborted === true) return 'timeout';
+
     return removeEntries(outcome, request.removal);
   } catch (error) {
     if (request.signal.aborted) throwAbort(request.signal);
+
     return deadline?.aborted === true
       ? 'timeout'
       : error instanceof EngineFailure
@@ -484,12 +540,16 @@ function emptyResult(
 ): SearchChainSuccess {
   const finalNotes =
     engineNotes === undefined ? notes : [...notes, ...engineNotes];
+
   const result = { kind: 'results' as const, engine, query, results: [] };
+
   return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
+
 function withoutNote(notes: Notes, noteIndex: number): Notes {
   return [...notes.slice(0, noteIndex), ...notes.slice(noteIndex + 1)];
 }
+
 function classifyOutcome(
   id: string,
   outcome: RunOne,
@@ -498,20 +558,25 @@ function classifyOutcome(
 ): OutcomeDecision {
   if (isFailureClass(outcome)) {
     notes.push(`${id}: ${outcome}`);
+
     return { kind: 'continue' };
   }
+
   const canonical =
     outcome.kind === 'empty' ? outcome : canonicalizeOutcome(outcome);
+
   // An engine holds its own fetch bound; an aggregate keeps its merged set.
   const success =
     canonical.kind === 'results' && limit !== undefined
       ? { ...canonical, results: distinctResults(canonical.results, limit) }
       : canonical;
+
   if (
     success.kind === 'empty' ||
     (success.kind === 'results' && success.results.length === 0)
   ) {
     notes.push(`${id}: empty`);
+
     return {
       kind: 'continue',
       lastEmpty: {
@@ -521,13 +586,16 @@ function classifyOutcome(
       },
     };
   }
+
   if (
     success.kind === 'answer' &&
     !isGrounded(success.answer, success.citations)
   ) {
     notes.push(`${id}: ungrounded`);
+
     return { kind: 'continue' };
   }
+
   return { kind: 'success', success };
 }
 
@@ -539,11 +607,13 @@ async function runEntry(
   notes: Notes,
 ): Promise<OutcomeDecision> {
   const aggregate = entry.type === 'aggregate';
+
   const outcome = await runOne(
     engine,
     aggregate ? undefined : entry.timeoutSeconds,
     request,
   );
+
   return classifyOutcome(
     entry.id,
     outcome,
@@ -561,6 +631,7 @@ function withRemoved(
   removal: ResultRemoval,
 ): SearchChainSuccess {
   const removed = removal.removedCount();
+
   return removed === 0 ? result : { ...result, removed };
 }
 
@@ -584,15 +655,19 @@ export async function executeSearchChain(
 ): Promise<SearchChainResult> {
   const notes: Notes = [];
   let lastEmpty: LastEmpty | undefined;
+
   for (const id of request.engines ?? config.chain) {
     if (request.signal.aborted) throwAbort(request.signal);
     const entry = config.engines.find((candidate) => candidate.id === id)!;
+
     // A local decision, not a vendor failure: the request is never sent.
     if (!acceptsQuery(ENGINE_LIMITS[entry.type], request.query)) {
       notes.push(`${id}: unsupported`);
       continue;
     }
+
     const decision = await runEntry(entry, lookup(id), request, notes);
+
     if (decision.kind === 'success')
       return withRemoved(
         withChainNotes(
@@ -601,10 +676,13 @@ export async function executeSearchChain(
         ),
         request.removal,
       );
+
     if (decision.lastEmpty !== undefined) lastEmpty = decision.lastEmpty;
   }
+
   if (lastEmpty === undefined) return totalFailure(notes);
   const finalNotes = withoutNote(notes, lastEmpty.noteIndex);
+
   return withRemoved(
     emptyResult(request.query, lastEmpty.engine, finalNotes, lastEmpty.notes),
     request.removal,

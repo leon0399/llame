@@ -38,6 +38,7 @@ type Fixture = Readonly<{
 
 function fixture(options: ProtocolPeerOptions = {}): Fixture {
   const hubNotifications: Array<HubNotification> = [];
+
   const peer = createProtocolPeer({
     roots: ['/srv/work'],
     ...options,
@@ -50,12 +51,14 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
       ...options.answers,
     },
   });
+
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
     transportFactory: peer.factory,
     handshakeTimeoutMs: 2000,
   });
+
   return { connector, peer, hubNotifications };
 }
 
@@ -74,6 +77,7 @@ async function opened(
 ): Promise<OpenedTransport> {
   const diagnostics: Array<string> = [];
   const messages: Array<JSONRPCMessage> = [];
+
   const transport = new MachineTransport({
     connector,
     machine: 'devl',
@@ -83,12 +87,14 @@ async function opened(
     onDiagnostic: (text) => diagnostics.push(text),
     ...overrides,
   });
+
   transport.onmessage = (message) => messages.push(message);
   const started = transport.start();
   const session = await peer.session(0);
   await session.awaitRequests(1);
   session.release('mcp.open', { protectedValues: [START_VALUE] }, true);
   await started;
+
   return { transport, session, diagnostics, messages, hubNotifications };
 }
 
@@ -192,6 +198,7 @@ describe('MachineTransport', () => {
         text: `${'x'.repeat(1024)}\n`,
       });
     }
+
     expect(openedTransport.diagnostics.join('').length).toBeLessThan(64 * 1024);
     await openedTransport.transport.close();
   });
@@ -306,6 +313,7 @@ describe('MachineTransport', () => {
 
   it('keeps a protocol version set before the channel exists', () => {
     const { connector, peer } = fixture();
+
     const transport = new MachineTransport({
       connector,
       machine: 'devl',
@@ -379,6 +387,7 @@ describe('MachineTransport', () => {
     const { connector, peer } = fixture();
     const failed = vi.fn();
     const closed = vi.fn();
+
     const transport = new MachineTransport({
       connector,
       machine: 'devl',
@@ -386,6 +395,7 @@ describe('MachineTransport', () => {
       server: 'storybook',
       envelope: ENVELOPE,
     });
+
     transport.onerror = failed;
     transport.onclose = closed;
 
@@ -410,6 +420,7 @@ describe('MachineTransport', () => {
     const { connector, peer } = fixture();
     const failed = vi.fn();
     const closed = vi.fn();
+
     const transport = new MachineTransport({
       connector,
       machine: 'devl',
@@ -417,6 +428,7 @@ describe('MachineTransport', () => {
       server: 'storybook',
       envelope: ENVELOPE,
     });
+
     transport.onerror = failed;
     transport.onclose = closed;
 
@@ -438,6 +450,7 @@ describe('MachineTransport', () => {
     const { connector } = fixture();
     const controller = new AbortController();
     controller.abort();
+
     const transport = new MachineTransport({
       connector,
       machine: 'devl',
@@ -454,6 +467,7 @@ describe('MachineTransport', () => {
 
   it('refuses to start once llame closed the transport', async () => {
     const { connector } = fixture();
+
     const transport = new MachineTransport({
       connector,
       machine: 'devl',

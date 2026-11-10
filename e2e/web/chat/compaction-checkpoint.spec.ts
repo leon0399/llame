@@ -20,8 +20,10 @@ import { expect, test } from "../../support/fixtures";
 import { seedCheckpoint } from "./seed-compaction";
 
 const ANSWER = "Mocked answer from the e2e model server.";
+
 const SEEDED_SUMMARY =
   "E2E-seeded summary: the user asked about the project roadmap and the assistant outlined next steps.";
+
 const SEEDED_USAGE = {
   inputTokens: 71_400,
   outputTokens: 12_800,
@@ -35,9 +37,11 @@ const apiUrl =
 /** Whether `first` precedes `second` in document order. */
 async function precedes(first: Locator, second: Locator): Promise<boolean> {
   const secondHandle = await second.elementHandle();
+
   if (!secondHandle) {
     throw new Error("Could not locate the later element");
   }
+
   return first.evaluate(
     (earlier, later) =>
       Boolean(
@@ -69,6 +73,7 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     });
 
     const chatId = new URL(page.url()).pathname.split("/").pop();
+
     if (!chatId) {
       throw new Error(`Could not extract chat id from URL: ${page.url()}`);
     }
@@ -80,18 +85,21 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
       `${apiUrl}/api/v1/chats/${chatId}/messages`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
+
     // Status in the message: a bare `.ok()` boolean turns any failure into
     // "expected true, received false" with no clue whether it was 401, 429, …
     expect(
       messagesResponse.ok(),
       `GET messages failed with ${messagesResponse.status()}`,
     ).toBe(true);
+
     // SAFETY: this is the api's own chat-messages endpoint (under test
     // here), whose { messages: [...] } envelope is fixed by its own OpenAPI
     // contract.
     const { messages } = (await messagesResponse.json()) as {
       messages: Array<{ seq: number }>;
     };
+
     expect(messages.length).toBeGreaterThan(0);
     const boundarySeq = Math.max(...messages.map((m) => m.seq));
 
@@ -155,6 +163,7 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
       if ((await checkpoint.getAttribute("aria-expanded")) !== "true") {
         await checkpoint.click();
       }
+
       await expect(page.getByText("Compaction result")).toBeVisible({
         timeout: 2000,
       });

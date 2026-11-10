@@ -26,6 +26,7 @@ describe('toChatDeliveryResponse', () => {
         },
       }),
     );
+
     expect(withEffort.effort).toBe('high');
 
     const withoutEffort = toChatDeliveryResponse(
@@ -33,6 +34,7 @@ describe('toChatDeliveryResponse', () => {
         settings: { modelId: 'model-id', permissionMode: 'default' },
       }),
     );
+
     expect(withoutEffort).not.toHaveProperty('effort');
   });
 });
@@ -43,6 +45,7 @@ describe('UpdateChatDto', () => {
     forbidNonWhitelisted: true,
     transform: true,
   });
+
   const metadata: ArgumentMetadata = {
     type: 'body',
     metatype: UpdateChatDto,
@@ -111,6 +114,7 @@ describe('ForkChatDto', () => {
     forbidNonWhitelisted: true,
     transform: true,
   });
+
   const metadata: ArgumentMetadata = {
     type: 'body',
     metatype: ForkChatDto,
@@ -150,6 +154,7 @@ describe('CreateMessageDto', () => {
     forbidNonWhitelisted: true,
     transform: true,
   });
+
   const metadata: ArgumentMetadata = {
     type: 'body',
     metatype: CreateMessageDto,
@@ -237,9 +242,11 @@ describe('CreateMessageDto', () => {
         pipe.transform({ modelId, delivery, message }, metadata),
       ).resolves.toMatchObject({ delivery });
     }
+
     await expect(
       pipe.transform({ modelId, message }, metadata),
     ).resolves.toMatchObject({ delivery: undefined });
+
     // null is not "omitted".
     for (const delivery of ['later', '', null, 7]) {
       await expect(
@@ -291,14 +298,17 @@ describe('CreateMessageDto', () => {
 
   describe('file parts', () => {
     const modelId = 'system:openai:gpt-5.4-mini';
+
     const media = (n: number) =>
       `media://0192f3a4-5b6c-7d8e-9f01-${String(n).padStart(12, '0')}`;
+
     const file = (url: string) => ({
       type: 'file',
       mediaType: 'image/png',
       url,
       filename: 'shot.png',
     });
+
     const send = (parts: ReadonlyArray<unknown>) =>
       pipe.transform({ modelId, message: { id: message.id, parts } }, metadata);
 
@@ -329,6 +339,7 @@ describe('CreateMessageDto', () => {
         type: 'text',
         text: 'x',
       }));
+
       const files = Array.from({ length: 10 }, (_, n) => file(media(n)));
       await expect(send([...texts, ...files])).resolves.toBeDefined();
       await expect(
@@ -396,10 +407,12 @@ describe('ChatMessagesQueryDto', () => {
     forbidNonWhitelisted: true,
     transform: true,
   });
+
   const metadata: ArgumentMetadata = {
     type: 'query',
     metatype: ChatMessagesQueryDto,
   };
+
   const ownerMetadata: ArgumentMetadata = {
     type: 'query',
     metatype: OwnerChatMessagesQueryDto,
@@ -493,6 +506,7 @@ describe('ChatSearchQueryDto', () => {
     forbidNonWhitelisted: true,
     transform: true,
   });
+
   const metadata: ArgumentMetadata = {
     type: 'query',
     metatype: ChatSearchQueryDto,
@@ -607,6 +621,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
         artifact: 'artifact://grep-7',
       },
     ];
+
     const message: Message = {
       id: 'm-owner',
       chatId: 'chat-owner',
@@ -658,6 +673,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
         providerMetadata: { anthropic: { signature: 'SIG' } },
       },
     ];
+
     const message: Message = {
       id: 'm-egress',
       chatId: 'chat-owner',
@@ -705,6 +721,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
         input: { q: 'x' },
       },
     };
+
     const message: Message = {
       id: 'm-refused',
       chatId: 'chat-owner',
@@ -742,6 +759,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
       height: 900,
       data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
     };
+
     const toolPart = {
       type: 'tool-read',
       toolCallId: 'call-1',
@@ -757,6 +775,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
       },
       retainedMedia,
     };
+
     const importsPart = {
       type: 'data-context',
       data: {
@@ -778,6 +797,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
         },
       },
     };
+
     const message: Message = {
       id: 'm-assistant',
       chatId: 'chat-owner',
@@ -890,6 +910,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       ...overrides,
     };
   }
+
   it('omits the owner-only Workspace binding from the shared projection', () => {
     const dto = toSharedChatResponse(fakeChat, []);
 
@@ -971,6 +992,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
         },
       ],
     });
+
     const imageOnly = fakeMessage({
       id: 'm-2',
       seq: 2,

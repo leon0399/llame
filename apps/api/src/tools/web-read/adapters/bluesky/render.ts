@@ -11,6 +11,7 @@ const NO_UNAUTHENTICATED = '!no-unauthenticated';
 const WEB_ORIGIN = 'https://bsky.app';
 const INVALID_HANDLE = 'handle.invalid';
 const LINK_FEATURE = 'app.bsky.richtext.facet#link';
+
 /** `#viewRecord`, `#viewNotFound`, `#viewBlocked`, and `#viewDetached` are
  *  quoted-post views; any other `$type` is a feed, list, or similar record. */
 const QUOTED_POST_VIEW = 'app.bsky.embed.record#view';
@@ -54,6 +55,7 @@ const AUTHOR = z.object({
     .array(z.object({ src: z.string().optional(), val: z.string() }))
     .optional(),
 });
+
 type Author = z.infer<typeof AUTHOR>;
 
 const FACETS = z.array(
@@ -67,6 +69,7 @@ const FACETS = z.array(
     ),
   }),
 );
+
 type Facets = z.infer<typeof FACETS>;
 
 /** A post record with link facets already expanded into its text; a
@@ -83,10 +86,12 @@ const POST_RECORD = z
   }));
 
 const IMAGE = z.object({ fullsize: z.string(), alt: z.string().optional() });
+
 const VIDEO = z.object({
   playlist: z.string(),
   thumbnail: z.string().optional(),
 });
+
 const EXTERNAL = z.object({
   uri: z.string(),
   title: z.string().optional(),
@@ -175,6 +180,7 @@ const POST_VIEW = z.object({
   record: POST_RECORD,
   embed: EMBED.optional(),
 });
+
 export type BlueskyPost = z.infer<typeof POST_VIEW>;
 
 /** Not-found and blocked nodes, and malformed ones, parse to `undefined`. */
@@ -201,6 +207,7 @@ const PROFILE = AUTHOR.extend({
   followsCount: z.number().int().optional(),
   postsCount: z.number().int().optional(),
 });
+
 export type BlueskyProfile = z.infer<typeof PROFILE>;
 
 /** Reposts carry a `reason` and are dropped, as x.md lists originals. */
@@ -216,6 +223,7 @@ const AUTHOR_FEED = z.object({
 });
 
 const ACCOUNTS = z.array(AUTHOR.or(SKIPPED)).optional();
+
 const FOLLOW_PAGE = z.object({
   subject: AUTHOR,
   followers: ACCOUNTS,
@@ -226,13 +234,16 @@ const FOLLOW_PAGE = z.object({
 /** Renders `app.bsky.feed.getPostThread` in x.md's thread layout. */
 export function renderThread(body: string): BlueskyRender {
   const thread = parseJsonBody(body, z.object({ thread: THREAD_NODE }));
+
   if (thread === undefined) return { failure: 'parse' };
   const focal = thread.thread;
+
   if (focal === undefined || isHidden(focal.post.author)) {
     return { failure: 'empty' };
   }
 
   const entries: Array<ThreadEntry> = [];
+
   for (
     let ancestor = focal.parent;
     ancestor !== undefined && !isHidden(ancestor.post.author);
@@ -240,12 +251,14 @@ export function renderThread(body: string): BlueskyRender {
   ) {
     entries.unshift({ label: 'Parent', post: ancestor.post });
   }
+
   entries.push({ label: 'Post', post: focal.post });
   collectReplies(focal, focal.post, true, entries);
 
   const content = entries
     .map((entry, index) => postLines(entry, index, entries.length).join('\n'))
     .join('\n\n---\n\n');
+
   return { content };
 }
 
@@ -256,7 +269,9 @@ export function parseProfile(
   | { readonly profile: BlueskyProfile }
   | { readonly failure: 'parse' | 'empty' } {
   const profile = parseJsonBody(body, PROFILE);
+
   if (profile === undefined) return { failure: 'parse' };
+
   return isHidden(profile) ? { failure: 'empty' } : { profile };
 }
 
@@ -276,20 +291,25 @@ export function renderProfile(
 ): string {
   const lines = [`# [${authorLabel(profile)}](${profileUrl(profile)})`, ''];
   const description = profile.description?.trim();
+
   if (description) lines.push(description, '');
   lines.push(
     `Followers: ${formatCount(profile.followersCount)} · Following: ${formatCount(profile.followsCount)} · Posts: ${formatCount(profile.postsCount)}`,
   );
+
   if (posts === undefined) return lines.join('\n');
 
   lines.push('', '## Latest posts');
+
   if (posts.length === 0)
     lines.push('', 'No original posts among the latest 30.');
+
   for (const post of posts) {
     lines.push(
       `- [@${post.author.handle}](${profileUrl(post.author)}): ${oneLine(post.record.text)} [Source](${postUrl(post.author, post.uri)})`,
     );
   }
+
   return lines.join('\n');
 }
 
@@ -300,27 +320,35 @@ export function renderFollowList(
 ): BlueskyRender {
   const page = parseJsonBody(body, FOLLOW_PAGE);
   const accounts = page?.[list];
+
   if (page === undefined || accounts === undefined) {
     return { failure: 'parse' };
   }
+
   if (isHidden(page.subject)) return { failure: 'empty' };
 
   const title = list === 'followers' ? 'Followers of' : 'Accounts followed by';
+
   const lines = [
     `# ${title} [${authorLabel(page.subject)}](${profileUrl(page.subject)})`,
     '',
   ];
+
   const listed = accounts.flatMap((account) => {
     if (account === undefined || isHidden(account)) return [];
     const bio = oneLine(account.description ?? '');
+
     return [
       `- [${authorLabel(account)}](${profileUrl(account)})${bio ? `: ${bio}` : ''}`,
     ];
   });
+
   lines.push(...(listed.length === 0 ? ['No accounts.'] : listed));
+
   if (page.cursor !== undefined) {
     lines.push('', `Showing the first ${listed.length}; more are not loaded.`);
   }
+
   return { content: lines.join('\n') };
 }
 
@@ -352,23 +380,31 @@ function postLines(
   total: number,
 ): Array<string> {
   const { post } = entry;
+
   const lines = [
     `## ${entry.label} · ${index + 1}/${total} — ${authorLabel(post.author)}`,
     '',
   ];
+
   if (entry.replyTo !== undefined) {
     lines.push(`Replying to @${entry.replyTo}`, '');
   }
+
   const text = post.record.text.trim();
+
   if (text) lines.push(text, '');
   const media = post.embed?.media ?? [];
+
   if (media.length > 0) lines.push(...media.map(blockquote), '');
   const quote = post.embed?.quote;
+
   if (quote !== undefined) lines.push(...quote.map(blockquote), '');
   lines.push(`Source: ${postUrl(post.author, post.uri)}`);
+
   if (post.record.createdAt !== undefined) {
     lines.push(`Date: ${post.record.createdAt}`);
   }
+
   return lines;
 }
 
@@ -380,20 +416,26 @@ function quoteLines(quoted: {
   readonly embeds?: ReadonlyArray<EmbedParts>;
 }): ReadonlyArray<string> {
   const { author, value, embeds = [] } = quoted;
+
   if (isHidden(author)) return UNAVAILABLE_QUOTE;
   const name = author.displayName?.trim() || author.handle;
   const lines = ['**Quoted post**', '', `**${name}** @${author.handle}`];
   const text = value.text.trim();
+
   if (text) lines.push(...text.split('\n'));
+
   for (const embed of embeds) {
     lines.push(...embed.media, ...(embed.quote ?? []).map(blockquote));
   }
+
   lines.push(`Source: ${postUrl(author, quoted.uri)}`);
+
   return lines;
 }
 
 function imageLine(image: z.infer<typeof IMAGE>): string {
   const alt = oneLine(image.alt ?? '').replaceAll(/[[\]]/gu, '');
+
   return `![${alt || 'image'}](${image.fullsize})`;
 }
 
@@ -406,6 +448,7 @@ function videoLines(video: z.infer<typeof VIDEO>): Array<string> {
 function externalLines(external: z.infer<typeof EXTERNAL>): Array<string> {
   const title = oneLine(external.title ?? '') || external.uri;
   const description = oneLine(external.description ?? '');
+
   return description
     ? [`[${title}](${external.uri})`, description]
     : [`[${title}](${external.uri})`];
@@ -415,24 +458,29 @@ function externalLines(external: z.infer<typeof EXTERNAL>): Array<string> {
  *  its full URI; facet offsets are UTF-8 byte offsets. */
 function expandLinks(text: string, facets: Facets): string {
   const bytes = Buffer.from(text, 'utf8');
+
   const links = facets
     .flatMap(({ index, features }) => {
       const uri = features.find(({ $type }) => $type === LINK_FEATURE)?.uri;
+
       return uri === undefined ? [] : [{ ...index, uri }];
     })
     .sort((left, right) => left.byteStart - right.byteStart);
 
   let expanded = '';
   let cursor = 0;
+
   for (const { byteStart, byteEnd, uri } of links) {
     if (byteStart < cursor || byteEnd > bytes.length || byteEnd <= byteStart) {
       continue;
     }
+
     const label = bytes.subarray(byteStart, byteEnd).toString('utf8');
     expanded += bytes.subarray(cursor, byteStart).toString('utf8');
     expanded += label === uri ? uri : `[${label}](${uri})`;
     cursor = byteEnd;
   }
+
   return expanded + bytes.subarray(cursor).toString('utf8');
 }
 
@@ -450,11 +498,13 @@ function isHidden(author: Author): boolean {
 
 function authorLabel(author: Author): string {
   const name = author.displayName?.trim();
+
   return name ? `${name} (@${author.handle})` : `@${author.handle}`;
 }
 
 function profileUrl(author: Author): string {
   const actor = author.handle === INVALID_HANDLE ? author.did : author.handle;
+
   return `${WEB_ORIGIN}/profile/${actor}`;
 }
 

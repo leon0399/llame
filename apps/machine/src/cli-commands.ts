@@ -36,7 +36,9 @@ function messageOf(error: unknown): string {
 /** Why a session ended decides the process status the hub reads. */
 export function exitCodeFor(reason: SessionEndReason): number {
   if (reason === "incompatible_version") return EXIT_INCOMPATIBLE_VERSION;
+
   if (reason === "protocol_error") return EXIT_PROTOCOL_ERROR;
+
   return EXIT_OK;
 }
 
@@ -45,23 +47,31 @@ function rootsCommand(
   environment: CliEnvironment,
 ): number {
   const [action, directory] = args;
+
   if (action === "list" && directory === undefined) {
     for (const root of readRoots(rootsFileFor())) environment.out(`${root}\n`);
+
     return EXIT_OK;
   }
+
   if (directory === undefined || (action !== "add" && action !== "remove")) {
     environment.err(USAGE);
+
     return EXIT_USAGE;
   }
+
   try {
     const changed =
       action === "add"
         ? addRoot(rootsFileFor(), directory)
         : removeRoot(rootsFileFor(), directory);
+
     environment.out(`${changed}\n`);
+
     return EXIT_OK;
   } catch (error) {
     environment.err(`llame-machine: ${messageOf(error)}\n`);
+
     return EXIT_USAGE;
   }
 }
@@ -72,12 +82,15 @@ async function serveCommand(
 ): Promise<number> {
   if (args.length !== 1 || args[0] !== "--stdio") {
     environment.err(USAGE);
+
     return EXIT_USAGE;
   }
+
   const session =
     environment.serve === undefined
       ? serveMachine(process.stdin, process.stdout)
       : environment.serve({});
+
   return exitCodeFor(await session.done);
 }
 
@@ -86,13 +99,19 @@ export async function runCli(
   environment: CliEnvironment,
 ): Promise<number> {
   const [command, ...rest] = argv;
+
   if (command === "serve") return serveCommand(rest, environment);
+
   if (command === "roots") return rootsCommand(rest, environment);
+
   if (command === "--version") {
     environment.out(`${DAEMON_VERSION}\n`);
+
     return EXIT_OK;
   }
+
   environment.err(USAGE);
+
   return EXIT_USAGE;
 }
 
@@ -106,13 +125,16 @@ export async function runMain(argv: ReadonlyArray<string>): Promise<number> {
       process.stderr.write(text);
     },
   };
+
   try {
     const code = await runCli(argv, environment);
     process.exitCode = code;
+
     return code;
   } catch (error) {
     environment.err(`llame-machine: ${messageOf(error)}\n`);
     process.exitCode = EXIT_USAGE;
+
     return EXIT_USAGE;
   }
 }

@@ -14,6 +14,7 @@ async function waitForUrl(): Promise<void> {
   while (Date.now() < timeout) {
     try {
       const response = await fetch(url);
+
       if (response.ok) return;
     } catch {
       // Expected while the service is still starting: a refused connection or
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
 
   const executable =
     process.platform === "win32" && command === "pnpm" ? "pnpm.cmd" : command;
+
   const child = spawn(executable, args, {
     env: process.env,
     stdio: "inherit",
@@ -48,6 +50,7 @@ async function main(): Promise<void> {
     child.on("exit", (code, signal) => {
       if (signal) {
         process.kill(process.pid, signal);
+
         return;
       }
 

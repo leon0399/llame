@@ -151,6 +151,7 @@ function isToolName(value: unknown): value is string {
 function isToolActivityPart(part: unknown): part is StoredToolPart {
   if (!isRecord(part)) return false;
   const value = part;
+
   return (
     typeof value.type === 'string' &&
     value.type.startsWith(TOOL_PART_PREFIX) &&
@@ -163,6 +164,7 @@ function isToolActivityPart(part: unknown): part is StoredToolPart {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- stored result metadata is untyped jsonb, and the two `isRecord` guards inside parse each level before it is read.
 export function isCancelledMetadata(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.llame)) return false;
+
   return value.llame.cancelled === true;
 }
 
@@ -174,7 +176,9 @@ export function isCancelledMetadata(value: unknown): boolean {
 function storedRefusal(value: unknown): SdkRefusal | undefined {
   if (!isRecord(value)) return undefined;
   const errorText = value['errorText'];
+
   if (!isString(errorText) || !Object.hasOwn(value, 'input')) return undefined;
+
   return { errorText, input: value['input'] };
 }
 
@@ -184,6 +188,7 @@ function storedRefusal(value: unknown): SdkRefusal | undefined {
  */
 function storedProviderMetadata(value: unknown): ProviderMetadata | undefined {
   if (!isRecord(value)) return undefined;
+
   // SAFETY: the value is the adapter's own provider-metadata object as the
   // stored part keeps it; the check above only rules out a malformed or legacy
   // shape, and nothing reads inside it.
@@ -198,6 +203,7 @@ function resolveOutcome(part: StoredToolPart): string {
       : isCancelledMetadata(part.resultProviderMetadata)
         ? 'cancelled'
         : 'error';
+
   return normalizeToolObservationOutcome(part.outcome, fallback);
 }
 
@@ -215,6 +221,7 @@ function failureResult(
   // the native `read` tool's hop rejection and the stored value the exact
   // locator `rejectedHopUrl` writes, or the rebuilt result carries none.
   const rejectedUrl = part.errorRejectedUrl;
+
   return {
     status: 'error',
     type: outcome,
@@ -247,6 +254,7 @@ function storedOutput(
         media,
       );
     }
+
     return toolResultOutput(
       neutralizeReservedDelimiters(
         isString(part.output)
@@ -256,6 +264,7 @@ function storedOutput(
       media,
     );
   }
+
   return modelToolOutput(
     renderToolResultForModel(
       toolName,
@@ -276,9 +285,11 @@ function readObservationRef(
   mediaKey: string,
 ): Pick<StoredToolObservation, 'media' | 'retained'> {
   const named = mediaResultRef(part.output, submittedLocator(part.input));
+
   if (!isUnstoredMedia(named)) return { media: named, retained: undefined };
   const record = parseRetainedMedia(part.retainedMedia);
   const entry = record === undefined ? undefined : retainedEntry(record, named);
+
   return entry === undefined
     ? { media: undefined, retained: undefined }
     : {
@@ -311,13 +322,17 @@ export function projectStoredToolPart(
   // eslint-disable-next-line anti-slop/no-known-value-widening -- stored parts are the open `MessagePart` union, so the guard must accept it whole and narrow it itself.
   if (!isToolActivityPart(part)) return undefined;
   const toolName = part.type.slice(TOOL_PART_PREFIX.length);
+
   if (!isToolName(toolName)) return undefined;
   const outcome = resolveOutcome(part);
+
   const { media, retained } =
     toolName === READ_TOOL_NAME && part.state === 'output-available'
       ? readObservationRef(part, mediaKey)
       : { media: undefined, retained: undefined };
+
   const refusal = storedRefusal(part.sdkRefusal);
+
   return {
     pair: {
       toolCallPart: {

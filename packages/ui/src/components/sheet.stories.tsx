@@ -134,9 +134,11 @@ export const NoCloseButton: Story = {
     const trigger = canvas.getByRole("button", { name: "Open Sheet" });
 
     await userEvent.click(trigger);
+
     const dialog = await screen.findByRole("dialog", {
       name: "No Close Button",
     });
+
     await expect(dialog).toHaveAccessibleDescription(
       "This sheet doesn't have a close button in the top-right corner. Click outside to close.",
     );
@@ -214,9 +216,11 @@ export const Sides: Story = {
       const trigger = canvas.getByRole("button", { name: side });
 
       await userEvent.click(trigger);
+
       const dialog = await screen.findByRole("dialog", {
         name: "Edit profile",
       });
+
       // base-nova drives edge placement via the `data-side` attribute + its
       // `data-[side=…]:` variant classes, not a plain `top-0`/`left-0` class.
       await expect(dialog).toHaveAttribute("data-side", side);

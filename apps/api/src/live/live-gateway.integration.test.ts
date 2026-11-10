@@ -44,10 +44,12 @@ describeIfDb('LiveGatewayService', () => {
   let tenantDb: TenantDbService;
   let machineStatus: MachinesStatusRepository;
   let url: string;
+
   const users: Record<'a' | 'b', { id: string; cookie: string }> = {
     a: { id: '', cookie: '' },
     b: { id: '', cookie: '' },
   };
+
   const clients: Array<Client> = [];
 
   const register = async (name: string) => {
@@ -58,8 +60,10 @@ describeIfDb('LiveGatewayService', () => {
         password: 'correct horse battery staple',
         name,
       });
+
     expect(res.status).toBe(201);
     expectRegisteredUserId(res.body);
+
     return { id: res.body.user.id, cookie: cookieOf(res) };
   };
 
@@ -82,10 +86,12 @@ describeIfDb('LiveGatewayService', () => {
       const socket = new WebSocket(url, {
         headers: { cookie, origin: 'http://localhost:3000' },
       });
+
       const client: Client = { socket, messages: [] };
       socket.on('message', (data) => {
         if (!Buffer.isBuffer(data)) return;
         const parsed: unknown = JSON.parse(data.toString('utf8'));
+
         if (isRecord(parsed)) client.messages.push(parsed);
       });
       socket.on('open', () => {
@@ -100,11 +106,14 @@ describeIfDb('LiveGatewayService', () => {
     predicate: (m: UnknownRecord) => boolean,
   ): Promise<UnknownRecord> => {
     const deadline = Date.now() + 5000;
+
     while (Date.now() < deadline) {
       const hit = client.messages.find(predicate);
+
       if (hit) return hit;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+
     throw new Error('live message not received');
   };
 
@@ -117,6 +126,7 @@ describeIfDb('LiveGatewayService', () => {
         title: 'Live',
       }),
     );
+
     return id;
   };
 
@@ -125,6 +135,7 @@ describeIfDb('LiveGatewayService', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = mod.createNestApplication();
     configureApp(app);
     await app.listen(0);
@@ -132,9 +143,11 @@ describeIfDb('LiveGatewayService', () => {
     tenantDb = app.get(TenantDbService);
     machineStatus = app.get(MachinesStatusRepository);
     const address = http.address();
+
     if (!address || isString(address)) {
       throw new Error('expected a TCP listen address');
     }
+
     url = `ws://127.0.0.1:${address.port}${LIVE_PATH}`;
     users.a = await register('a');
     users.b = await register('b');
@@ -169,10 +182,12 @@ describeIfDb('LiveGatewayService', () => {
     const b = await connect(users.b.cookie);
 
     const chatId = await newChat(users.a.id);
+
     const rename = await request(http)
       .patch(`/api/v1/chats/${chatId}`)
       .set('Cookie', users.a.cookie)
       .send({ title: 'Renamed live' });
+
     expect(rename.status).toBe(200);
 
     await waitForMessage(
@@ -191,14 +206,17 @@ describeIfDb('LiveGatewayService', () => {
         senderUserId: users.a.id,
         parts: [{ type: 'text', text: 'go' }],
       });
+
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: message.id,
         userId: users.a.id,
         modelId: 'system:openai:gpt-5.4-mini',
       });
+
       return run.id;
     });
+
     await tenantDb.runAs(users.a.id, (tx) =>
       new RunEventsRepository(tx).append(runId, 'tool.requested', {}),
     );
@@ -258,6 +276,7 @@ describeIfDb('LiveGatewayService', () => {
       m['chatId'] === chatId &&
       Array.isArray(m['items']) &&
       m['items'].length === 1;
+
     for (const tab of [firstTab, secondTab]) {
       const message = await waitForMessage(tab, pendingOf);
       expect(message['items']).toMatchObject([
@@ -275,12 +294,15 @@ describeIfDb('LiveGatewayService', () => {
     const withdrawn = await request(http)
       .delete(`/api/v1/chats/${chatId}/deliveries/${itemId}`)
       .set('Cookie', users.a.cookie);
+
     expect(withdrawn.status).toBe(200);
+
     const emptied = (m: UnknownRecord) =>
       m['type'] === 'chat.deliveries' &&
       m['chatId'] === chatId &&
       Array.isArray(m['items']) &&
       m['items'].length === 0;
+
     await waitForMessage(firstTab, emptied);
     await waitForMessage(secondTab, emptied);
 
@@ -313,6 +335,7 @@ describeIfDb('LiveGatewayService', () => {
       m['type'] === 'machine.upserted' &&
       isRecord(m['machine']) &&
       m['machine']['name'] === name;
+
     const seenByA = await waitForMessage(a, isMachine);
     const seenByB = await waitForMessage(b, isMachine);
 
@@ -320,6 +343,7 @@ describeIfDb('LiveGatewayService', () => {
     // is the shape `GET /api/v1/machines` serves.
     expect(seenByA).toEqual(seenByB);
     const machine = seenByA['machine'];
+
     if (!isRecord(machine)) throw new Error('expected a machine record');
     expect(machine).toMatchObject({
       name,
@@ -341,8 +365,10 @@ describeIfDb('LiveGatewayService', () => {
       );
       await tx.execute(sql`delete from machines_status where name = ${name}`);
     });
+
     const isRemoval = (m: UnknownRecord) =>
       m['type'] === 'machine.deleted' && m['name'] === name;
+
     expect(await waitForMessage(a, isRemoval)).toEqual({
       type: 'machine.deleted',
       name,

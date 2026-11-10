@@ -12,9 +12,11 @@ import {
 } from './render';
 
 const HOST = /^(?:t\.me|telegram\.me|telegram\.dog)$/u;
+
 /** `/{name}`, `/s/{name}`, `/{name}/{id}`, or `/s/{name}/{id}`. */
 const LOCATOR =
   /^\/(?:s\/)?([A-Za-z][A-Za-z0-9_]{3,31})(?:\/([1-9][0-9]{0,9}))?$/u;
+
 const ID = /^[1-9][0-9]{0,9}$/u;
 const ORIGIN = 'https://t.me';
 
@@ -33,11 +35,14 @@ export function parseTelegramUrl(source: URL): TelegramTarget | undefined {
   ) {
     return undefined;
   }
+
   if (source.pathname.startsWith('/c/')) return { kind: 'private' };
   const match = LOCATOR.exec(source.pathname);
   const name = match?.[1];
+
   if (name === undefined) return undefined;
   const id = match?.[2];
+
   return id === undefined
     ? { kind: 'channel', name }
     : { kind: 'post', name, id };
@@ -53,14 +58,18 @@ export function createTelegramAdapter(
     match: (source) => parseTelegramUrl(source) !== undefined,
     read: async (source, io) => {
       const target = parseTelegramUrl(source)!;
+
       if (target.kind === 'private') {
         return { kind: 'failed', failure: 'address' };
       }
+
       const result =
         target.kind === 'post'
           ? await readPost(target.name, target.id, io)
           : await readChannel(target.name, source.searchParams, io);
+
       if ('kind' in result) return result;
+
       return 'failure' in result
         ? { kind: 'failed', failure: result.failure }
         : {
@@ -82,11 +91,14 @@ async function readPost(
   const fetched = await io.fetch(`${ORIGIN}/${name}/${id}?embed=1&mode=tme`, {
     accept: 'text/html',
   });
+
   if ('type' in fetched) return primaryFailure(fetched);
+
   // An admitted redirect may leave t.me; only Telegram's answer is a post.
   if (new URL(fetched.finalUrl).origin !== ORIGIN) {
     return { kind: 'failed', failure: 'status' };
   }
+
   return renderWidgetPost(fetched.body);
 }
 
@@ -98,14 +110,18 @@ async function readChannel(
   io: WebAdapterIo,
 ): Promise<WebAdapterOutcome | TelegramRender> {
   const cursor = channelCursor(params);
+
   if (cursor === undefined) return { kind: 'failed', failure: 'address' };
   const url = `${ORIGIN}/s/${name}${cursor}`;
   const fetched = await io.fetch(url, { accept: 'text/html' });
+
   if ('type' in fetched) return primaryFailure(fetched);
   const final = new URL(fetched.finalUrl);
+
   if (final.origin !== ORIGIN || final.pathname !== `/s/${name}`) {
     return { kind: 'failed', failure: 'status' };
   }
+
   return renderChannelPage(fetched.body, url);
 }
 
@@ -114,10 +130,14 @@ async function readChannel(
  *  cursor. Every other key is dropped. */
 function channelCursor(params: URLSearchParams): string | undefined {
   if (params.has('q')) return undefined;
+
   const [cursor, ...rest] = [...params].filter(
     ([key]) => key === 'before' || key === 'after',
   );
+
   if (cursor === undefined) return '';
+
   if (rest.length > 0 || !ID.test(cursor[1])) return undefined;
+
   return `?${cursor[0]}=${cursor[1]}`;
 }

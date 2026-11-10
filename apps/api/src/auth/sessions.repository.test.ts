@@ -6,6 +6,7 @@ import { isString } from '@workspace/runtime-safety';
 import { SessionsRepository } from './sessions.repository';
 
 type LoggedQuery = { sql: string; params: Array<unknown> };
+
 type QueryCall = { method: string; args: Array<unknown> };
 
 /** The columns this repository writes through `.set()`, recorded verbatim. */
@@ -28,6 +29,7 @@ const session: Session = {
 
 function makeLoggedDb(options: { stubSelectWith?: Array<unknown> } = {}) {
   const queries: Array<LoggedQuery> = [];
+
   const db = drizzle.mock({
     schema,
     logger: {
@@ -36,6 +38,7 @@ function makeLoggedDb(options: { stubSelectWith?: Array<unknown> } = {}) {
       },
     },
   });
+
   if (options.stubSelectWith !== undefined) {
     // Stub only the read so the write is still built (and logged) by the real
     // query builder; drizzle.mock rejects on execute, never before logging.
@@ -63,6 +66,7 @@ function asDbQuery(query: ReturnType<typeof queryResult>): never {
 function queryResult(value: Array<unknown>, calls: Array<QueryCall>) {
   const terminal = Promise.resolve(value);
   const chain = () => terminal;
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -71,10 +75,12 @@ function queryResult(value: Array<unknown>, calls: Array<QueryCall>) {
     values: chain,
     set: (setValue: SessionUpdate) => {
       calls.push({ method: 'set', args: [setValue] });
+
       return terminal;
     },
     returning: () => {
       calls.push({ method: 'returning', args: [] });
+
       return terminal;
     },
   });
@@ -86,12 +92,16 @@ function makeStubDb(rows: {
 }) {
   const db = drizzle.mock({ schema });
   const calls: Array<QueryCall> = [];
+
   const select = vi.spyOn(db, 'select').mockImplementation(() => {
     calls.push({ method: 'select', args: [] });
+
     return asDbQuery(queryResult(rows.select ?? [], calls));
   });
+
   const update = vi.spyOn(db, 'update').mockImplementation(() => {
     calls.push({ method: 'update', args: [] });
+
     return asDbQuery(queryResult(rows.update ?? [], calls));
   });
 
@@ -105,6 +115,7 @@ function boundTime(value: unknown): number {
       'expected a bound timestamp parameter, got a non-string',
     );
   }
+
   return new Date(value).getTime();
 }
 
@@ -215,6 +226,7 @@ describe('SessionsRepository.findActiveAndTouch', () => {
 
   it('touches last_seen_at and returns the updated row when the debounce has lapsed', async () => {
     const touchedRow = { ...session, lastSeenAt: NOW };
+
     const { repository, calls } = makeStubDb({
       select: [],
       update: [touchedRow],

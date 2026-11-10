@@ -9,6 +9,7 @@ import {
 
 function requestFromCall(call: Parameters<typeof fetch>): Request {
   const [input, init] = call;
+
   return input instanceof Request ? input : new Request(input, init);
 }
 
@@ -21,6 +22,7 @@ describe("Fetch policies", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+
     if (originalApiUrl === undefined) {
       delete process.env.NEXT_PUBLIC_API_URL;
     } else {
@@ -32,6 +34,7 @@ describe("Fetch policies", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 204 }));
+
     const fetchWithAuth = createAuthenticatedBrowserFetch(fetchMock);
 
     await fetchWithAuth("/api/v1/projects");
@@ -49,6 +52,7 @@ describe("Fetch policies", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 204 }));
+
     const fetchWithAuth = createAuthenticatedBrowserFetch(fetchMock);
     const controller = new AbortController();
     const body = JSON.stringify({ name: "new project" });
@@ -79,14 +83,17 @@ describe("Fetch policies", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 204 }));
+
     const requestConstructor = vi.fn();
     const NativeRequest = globalThis.Request;
+
     class TrackedRequest extends NativeRequest {
       constructor(input: RequestInfo | URL, init?: RequestInit) {
         requestConstructor();
         super(input, init);
       }
     }
+
     vi.stubGlobal("Request", TrackedRequest);
     const fetchWithAuth = createAuthenticatedBrowserFetch(fetchMock);
     const body = JSON.stringify({ message: "hello" });
@@ -118,6 +125,7 @@ describe("Fetch policies", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 401 }));
+
     const queryClient = new QueryClient();
     const clear = vi.spyOn(queryClient, "clear");
     const assign = vi.fn();
@@ -140,6 +148,7 @@ describe("Fetch policies", () => {
       const fetchMock = vi
         .fn<typeof fetch>()
         .mockResolvedValue(new Response(null, { status: 401 }));
+
       const queryClient = new QueryClient();
       const clear = vi.spyOn(queryClient, "clear");
       const assign = vi.fn();
@@ -159,6 +168,7 @@ describe("Fetch policies", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 401 }));
+
     const queryClient = new QueryClient();
     const clear = vi.spyOn(queryClient, "clear");
     const assign = vi.fn();
@@ -181,6 +191,7 @@ describe("Fetch policies", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 401 }));
+
     const queryClient = new QueryClient();
     const clear = vi.spyOn(queryClient, "clear");
     registerApiQueryClient(queryClient);

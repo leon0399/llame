@@ -41,6 +41,7 @@ import { ChatItem } from "./chat-item";
 const usePinItem = vi.mocked(pinsMutations.usePinItem, { partial: true });
 const useUnpinItem = vi.mocked(pinsMutations.useUnpinItem, { partial: true });
 const useForkChat = vi.mocked(fork.useForkChat, { partial: true });
+
 const useActiveRuns = vi.mocked(activeRunsContext.useActiveRuns, {
   partial: true,
 });
@@ -64,12 +65,15 @@ function routeFileChat() {
   fetchMock.mockImplementation((input) => {
     const request = input instanceof Request ? input : new Request(input);
     const key = `${request.method} ${new URL(request.url).pathname}`;
+
     if (key === "PATCH /api/v1/chats/chat-1") {
       return Promise.resolve(emptyResponse());
     }
+
     unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
+
   return () => {
     vi.unstubAllGlobals();
   };
@@ -79,6 +83,7 @@ function routeFileChat() {
 function sentRoutes() {
   return fetchMock.mock.calls.map(([input]) => {
     const request = input instanceof Request ? input : new Request(input);
+
     return `${request.method} ${new URL(request.url).pathname}`;
   });
 }
@@ -116,10 +121,12 @@ function routeCheckouts(handler: () => Promise<Response>) {
   fetchMock.mockImplementation((input) => {
     const request = input instanceof Request ? input : new Request(input);
     const key = `${request.method} ${new URL(request.url).pathname}`;
+
     if (key === "GET /api/v1/checkouts") return handler();
     unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
+
   return () => {
     vi.unstubAllGlobals();
   };
@@ -143,6 +150,7 @@ async function pickProject(name: string) {
   const request = await waitFor(() => requestFromCall(fetchMock));
   // One pick, one request: the chat's own PATCH and nothing else.
   await expect(sentRoutes()).toEqual(["PATCH /api/v1/chats/chat-1"]);
+
   return request;
 }
 
@@ -249,6 +257,7 @@ const meta = {
 } satisfies Meta<typeof ChatItem>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 // Radix dropdown/submenu portals produce vendored-structure axe false positives
@@ -446,6 +455,7 @@ export const TitleArrives: Story = {
 
     useEffect(() => {
       const timer = setTimeout(() => setTitle(LONG_TITLE), 600);
+
       return () => clearTimeout(timer);
     }, []);
 
@@ -532,6 +542,7 @@ export const Pin: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement, step }) => {
     const canvas = within(canvasElement);
+
     // The card the row synthesizes from the chat already on screen.
     const synthesizedCard = {
       id: "chat-1",
@@ -627,6 +638,7 @@ export const Fork: Story = {
       { chatId: string },
       { onSuccess: (forked: { id: string }) => void },
     ];
+
     // The clone carries no anchor message: that is the difference between the
     // whole-chat Fork and the per-message action's fromMessageId.
     await expect(forkMutate).toHaveBeenCalledTimes(1);

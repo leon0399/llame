@@ -157,6 +157,7 @@ export const WithTooltip: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("button", { name: "Save" }));
+
     // Base UI links the tooltip to its trigger via aria-describedby (no
     // role="tooltip"); the popup portals to document.body — assert the
     // visible content by its data-slot, as the tooltip stories do.
@@ -164,9 +165,12 @@ export const WithTooltip: Story = {
       const el = document.querySelector<HTMLElement>(
         "[data-slot='tooltip-content']",
       );
+
       expect(el).toBeVisible();
+
       return el;
     });
+
     await expect(tip).toHaveTextContent("Save Changes");
   },
 };

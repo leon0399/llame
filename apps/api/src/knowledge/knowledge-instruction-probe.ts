@@ -57,19 +57,23 @@ export function createKnowledgeInstructionProbe(input: {
 }): KnowledgeInstructionProbe {
   return async (knowledgeSpaceId) => {
     let adapter: KnowledgeFilesystemAdapterPort;
+
     try {
       const binding = await input.resolver.resolveBindingForOwnerById(
         input.ownerUserId,
         knowledgeSpaceId,
       );
+
       if (binding === undefined) return undefined;
       adapter = input.resolver.createAdapter(binding);
+
       // The Space's own directory is resolved once, up front, and confirmed
       // inside the Space: a root that is gone, moved, or no longer canonical
       // yields no scope at all, so no candidate in it is ever probed.
       const directory = await adapter.resolveHostPath(undefined, {
         signal: input.signal,
       });
+
       if (!(await adapter.isInsideSpace(directory, input.signal))) {
         return undefined;
       }
@@ -78,6 +82,7 @@ export function createKnowledgeInstructionProbe(input: {
       // failure carrying a host path is a message that reaches no output.
       return undefined;
     }
+
     return spaceScope(adapter, input.signal);
   };
 }
@@ -96,13 +101,16 @@ export function spaceInstructionScope(input: {
   readonly space: KnowledgeInstructionScope;
 }): InstructionScope {
   const { knowledgeSpaceId, space } = input;
+
   const label = (key: string): string =>
     formatKnowledgeLocator({ knowledgeSpaceId, relativePath: key });
+
   return {
     root: SPACE_ROOT,
     label,
     probe: async (key) => {
       const entry = await space.probe(key);
+
       return entry.kind === 'missing'
         ? { kind: 'missing' }
         : { kind: entry.kind, size: entry.size, canonicalPath: label(key) };
@@ -128,6 +136,7 @@ function spaceScope(
         relativePath === SPACE_ROOT ? undefined : relativePath,
         { allowMissing: true, signal },
       );
+
       return (await adapter.isInsideSpace(host, signal)) ? host : undefined;
     } catch (error) {
       // A cancelled Run is not a missing file: it ends the walk where the
@@ -140,13 +149,16 @@ function spaceScope(
       ) {
         throw error;
       }
+
       return undefined;
     }
   };
+
   return {
     probe: async (relativePath) => probeEntry(await inside(relativePath)),
     list: async (relativeDirectory) => {
       const host = await inside(relativeDirectory);
+
       return host === undefined ? [] : listDirectoryNames(host);
     },
   };
@@ -157,9 +169,12 @@ async function probeEntry(
   host: string | undefined,
 ): Promise<KnowledgeEntryProbe> {
   if (host === undefined) return { kind: 'missing' };
+
   try {
     const stats = await lstat(host);
+
     if (!stats.isFile() && !stats.isDirectory()) return { kind: 'missing' };
+
     return {
       kind: stats.isDirectory() ? 'directory' : 'file',
       size: stats.size,

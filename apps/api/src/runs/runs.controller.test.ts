@@ -13,6 +13,7 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 type RunEventRequest = Parameters<RunsController['streamRunEvents']>[3];
+
 type RunEventResponse = Parameters<RunsController['streamRunEvents']>[4];
 
 describe('RunsController context receipt', () => {
@@ -37,6 +38,7 @@ describe('RunsController context receipt', () => {
     followUpAction: null,
     sourceRunId: null,
   };
+
   const promptReceipt: SystemPromptReceipt = {
     id: '55555555-5555-4555-8555-555555555555',
     ownerUserId: 'owner',
@@ -52,10 +54,12 @@ describe('RunsController context receipt', () => {
 
   function controller() {
     const tx: Db = drizzle.mock({ schema });
+
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
       callback: (scoped: Db) => Promise<T>,
     ) => callback(tx);
+
     const tenantDb: TenantRunner = { runAs };
     vi.spyOn(tenantDb, 'runAs');
 
@@ -74,11 +78,15 @@ describe('RunsController context receipt', () => {
     const status = vi.fn().mockReturnThis();
     const setHeader = vi.fn().mockReturnThis();
     const flushHeaders = vi.fn();
+
     const write = vi.fn((chunk: string) => {
       writes.push(chunk);
+
       return true;
     });
+
     const end = vi.fn();
+
     const value: RunEventResponse = {
       writableEnded: false,
       status,
@@ -87,6 +95,7 @@ describe('RunsController context receipt', () => {
       write,
       end,
     };
+
     return { value, writes, status, setHeader, flushHeaders, write, end };
   }
 
@@ -185,6 +194,7 @@ describe('RunsController context receipt', () => {
       status: 'running_model' as const,
       cancelRequestedAt: new Date('2026-07-18T10:00:01.500Z'),
     };
+
     vi.spyOn(RunsRepository.prototype, 'requestCancel').mockResolvedValue(
       undefined,
     );
@@ -221,6 +231,7 @@ describe('RunsController context receipt', () => {
       activeAttemptId: promptReceipt.attemptId,
       completedAttemptId: promptReceipt.attemptId,
     };
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
       attemptedRun,
     );
@@ -285,11 +296,14 @@ describe('RunsController context receipt', () => {
       payload: { finishReason: 'stop' },
       createdAt: new Date('2026-07-18T10:00:02.000Z'),
     };
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+
     const list = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValueOnce([event])
       .mockResolvedValueOnce([]);
+
     const output = response();
 
     await controller().streamRunEvents(
@@ -364,6 +378,7 @@ describe('RunsController context receipt', () => {
         createdAt: new Date('2026-07-18T10:00:02.000Z'),
       },
     ];
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValueOnce(events)
@@ -415,6 +430,7 @@ describe('RunsController context receipt', () => {
     // alone: this change adds text and call metadata, it does not alter
     // reasoning.
     const reasoningMetadata = { anthropic: { signature: 'SIG_1' } };
+
     const events: Array<RunEvent> = [
       {
         runId: run.id,
@@ -472,6 +488,7 @@ describe('RunsController context receipt', () => {
         createdAt: new Date('2026-07-18T10:00:02.500Z'),
       },
     ];
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValueOnce(events)
@@ -558,6 +575,7 @@ describe('RunsController context receipt', () => {
         input: { q: 'x' },
       },
     };
+
     const events: Array<RunEvent> = [
       {
         runId: run.id,
@@ -567,6 +585,7 @@ describe('RunsController context receipt', () => {
         createdAt: new Date('2026-07-18T10:00:01.000Z'),
       },
     ];
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValueOnce(events)
@@ -612,6 +631,7 @@ describe('RunsController context receipt', () => {
       height: 900,
       data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
     };
+
     const output = {
       kind: 'image',
       mediaType: 'image/png',
@@ -619,6 +639,7 @@ describe('RunsController context receipt', () => {
       height: 900,
       path: '/work/shot.png',
     };
+
     const keptToolPart = {
       type: 'tool-read',
       toolCallId: 'call-1',
@@ -627,6 +648,7 @@ describe('RunsController context receipt', () => {
       output,
       retainedMedia,
     };
+
     const events: Array<RunEvent> = [
       {
         runId: run.id,
@@ -651,6 +673,7 @@ describe('RunsController context receipt', () => {
         createdAt: new Date('2026-07-18T10:00:01.500Z'),
       },
     ];
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValueOnce(events)
@@ -710,10 +733,13 @@ describe('RunsController context receipt', () => {
     { header: ['8', '9'], query: 1, expected: 8 },
   ])('selects a safe replay cursor: $header', async (example) => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+
     const list = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValue([]);
+
     const output = response();
+
     const headers =
       example.header === undefined ? {} : { 'last-event-id': example.header };
 
@@ -732,6 +758,7 @@ describe('RunsController context receipt', () => {
 
   it('refreshes a running run after events and closes after its terminal tail', async () => {
     const running = { ...run, status: 'running_model' as const };
+
     const event: RunEvent = {
       runId: run.id,
       sequence: 1,
@@ -739,6 +766,7 @@ describe('RunsController context receipt', () => {
       payload: null,
       createdAt: new Date('2026-07-18T10:00:02.000Z'),
     };
+
     vi.spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(run);
@@ -760,6 +788,7 @@ describe('RunsController context receipt', () => {
 
   it('closes without DONE when the run is deleted after an event', async () => {
     const running = { ...run, status: 'running_model' as const };
+
     const event: RunEvent = {
       runId: run.id,
       sequence: 1,
@@ -767,6 +796,7 @@ describe('RunsController context receipt', () => {
       payload: { delta: 'hello' },
       createdAt: new Date('2026-07-18T10:00:02.000Z'),
     };
+
     vi.spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(undefined);
@@ -814,9 +844,11 @@ describe('RunsController context receipt', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockRejectedValue(
       'database unavailable',
     );
+
     const logger = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     const output = response();
 
     await controller().streamRunEvents(

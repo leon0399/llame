@@ -59,6 +59,7 @@ const outputSchema = z.looseObject({
 });
 
 type SearchOutput = z.infer<typeof outputSchema>;
+
 type SearchResult = z.infer<typeof resultSchema>;
 
 /** Props for the dedicated `search_conversations` tool row. */
@@ -68,6 +69,7 @@ export type SearchConversationsToolProps = ToolPartProps;
  *  and server/client renders. Anything else shows as given. */
 export function formatInstant(value: string): string {
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/u.exec(value);
+
   return match ? `${match[1]} ${match[2]}` : value;
 }
 
@@ -76,6 +78,7 @@ function rangeLabel(range: { after?: string; before?: string }) {
   if (range.after === undefined && range.before === undefined) return undefined;
   const after = range.after === undefined ? "…" : formatInstant(range.after);
   const before = range.before === undefined ? "…" : formatInstant(range.before);
+
   return `${after} – ${before}`;
 }
 
@@ -95,6 +98,7 @@ function ResultLine({ result }: { result: SearchResult }) {
       </>
     );
   }
+
   return (
     <>
       <span className="font-medium">{result.title ?? "Untitled chat"}</span>
@@ -109,6 +113,7 @@ function ResultLine({ result }: { result: SearchResult }) {
 
 function SearchResults({ output }: { output: SearchOutput }) {
   const count = output.results.length;
+
   return (
     <>
       <ToolSection
@@ -162,6 +167,7 @@ export function SearchConversationsTool({
 }: SearchConversationsToolProps): ReactElement {
   const search = inputSchema.safeParse(input).data;
   const result = outputSchema.safeParse(output).data;
+
   return (
     <ToolRow
       name="search_conversations"

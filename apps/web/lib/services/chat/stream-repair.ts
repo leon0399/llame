@@ -51,8 +51,10 @@ function mergeEpisode(
     held && held.runId === interruption.runId
       ? held
       : { runId: interruption.runId, seq: 0, attempts: 0, timer: null };
+
   episode.seq = interruption.seq;
   cancelRetry(episode);
+
   return episode;
 }
 
@@ -72,10 +74,13 @@ function spendAttempt(
   const delayMs = streamRepairDelayMs(episode.attempts);
   episode.attempts += 1;
   onAttempt();
+
   if (delayMs === 0) {
     attach();
+
     return;
   }
+
   episode.timer = setTimeout(attach, delayMs);
 }
 
@@ -88,6 +93,7 @@ export function useStreamInterruption() {
   const [interruption, setInterruption] = useState<StreamInterruption | null>(
     null,
   );
+
   const report = useCallback((runId: string | null) => {
     if (!runId) return;
     setInterruption((previous) => ({
@@ -95,6 +101,7 @@ export function useStreamInterruption() {
       seq: (previous?.seq ?? 0) + 1,
     }));
   }, []);
+
   return { interruption, report };
 }
 
@@ -120,6 +127,7 @@ export function useStreamRepair(options: {
   // changes, and no equality test on the previous id is reachable.
   useEffect(() => {
     const episode = episodeRef.current;
+
     if (!episode) return;
     cancelRetry(episode);
     episodeRef.current = null;
@@ -140,6 +148,7 @@ export function useStreamRepair(options: {
   useEffect(
     () => () => {
       const episode = episodeRef.current;
+
       if (episode) cancelRetry(episode);
     },
     [],

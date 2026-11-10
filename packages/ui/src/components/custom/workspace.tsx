@@ -58,6 +58,7 @@ function WorkspaceList({
   items: ReadonlyArray<{ key: string; name: string; detail?: string }>;
 }) {
   if (items.length === 0) return null;
+
   return (
     <ToolSection label={label}>
       <ul className="space-y-1 text-sm">
@@ -80,6 +81,7 @@ function EnteredWorkspace({ output }: { output: EnterOutput }) {
     name: skill.name,
     detail: skill.description ?? undefined,
   }));
+
   if (output.skillsOmitted > 0) {
     skills.push({
       key: "+omitted",
@@ -87,6 +89,7 @@ function EnteredWorkspace({ output }: { output: EnterOutput }) {
       detail: undefined,
     });
   }
+
   return (
     <>
       <ToolSection label={transitions[output.state]}>
@@ -114,12 +117,16 @@ function WorkspaceResult({
     name === "enter_workspace"
       ? enterOutputSchema.safeParse(output).data
       : undefined;
+
   if (entered) return <EnteredWorkspace output={entered} />;
+
   const exited =
     name === "exit_workspace"
       ? exitOutputSchema.safeParse(output).data
       : undefined;
+
   if (!exited) return <ToolResultFallback output={output} />;
+
   return (
     <ToolSection label={exited.previousRoot ? "Left" : "No Workspace"}>
       <p className="break-all font-mono text-sm">
@@ -148,6 +155,7 @@ export function WorkspaceTool({
     name === "enter_workspace"
       ? enterInputSchema.safeParse(input).data?.path
       : exitOutputSchema.safeParse(output).data?.previousRoot;
+
   return (
     <ToolRow
       name={name}

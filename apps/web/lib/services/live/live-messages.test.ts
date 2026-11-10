@@ -19,6 +19,7 @@ describe("parseLiveMessage", () => {
       startedAt: null,
       finishedAt: "2026-10-16T12:01:00.000Z",
     };
+
     expect(
       parseLiveMessage(JSON.stringify({ type: "run.updated", run })),
     ).toEqual({ type: "run.updated", run });

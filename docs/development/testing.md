@@ -91,12 +91,15 @@ pnpm test:mutation:changed --base origin/master
 ```
 
 A pull request mutates the lines its diff changed, and every mutant on them
-must be detected. `git diff -U0` against the merge base gives the changed lines
-per file; only mutant sources contribute, so a range in a test, a fixture, a
-migration, a generated artifact or a configuration file selects nothing.
-Ranges within three lines of each other merge; a file touched in many places
-contributes many ranges and is never collapsed to the whole file, because that
-would measure lines the pull request never wrote.
+must be detected. `git diff -U0 --ignore-blank-lines` against the merge base
+gives the changed lines per file; a hunk that only adds or removes blank lines
+holds no mutant and selects nothing. Only mutant sources contribute, so a range
+in a test, a fixture, a migration, a generated artifact or a configuration file
+selects nothing. Ranges within three lines of each other merge; a file touched
+in many places contributes many ranges and is never collapsed to the whole
+file, because that would measure lines the pull request never wrote. Two edits
+that only an inserted blank line joins stay separate ranges, so a mutant node
+spanning both, such as a multi-line object literal, is not measured.
 `coverageAnalysis: perTest` then runs only the tests covering each mutant.
 
 The gate is a level over the changed lines: the score across them must reach

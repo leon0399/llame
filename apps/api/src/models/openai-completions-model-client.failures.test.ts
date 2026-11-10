@@ -15,6 +15,7 @@ import {
 } from './stream-idle-watchdog';
 
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
 const messages = [
   { role: 'user', content: 'Say hello.' },
 ] satisfies Array<ModelMessage>;
@@ -66,9 +67,12 @@ function buildClient(fetch: typeof globalThis.fetch): ModelClient {
 /** A transport that answers the n-th request with the n-th response. */
 function serve(...responses: Array<() => Response>) {
   let call = 0;
+
   return vi.fn<typeof globalThis.fetch>(() => {
     const response = responses[Math.min(call++, responses.length - 1)];
+
     if (response === undefined) throw new TypeError('no response scripted');
+
     return Promise.resolve(response());
   });
 }
@@ -89,6 +93,7 @@ async function reportedError(client: ModelClient): Promise<Error> {
         if (!(error instanceof Error)) {
           throw new TypeError(`expected an Error, received ${String(error)}`);
         }
+
         reported.push(error);
       },
     })
@@ -98,7 +103,9 @@ async function reportedError(client: ModelClient): Promise<Error> {
     );
   expect(reported).toHaveLength(1);
   const [failure] = reported;
+
   if (failure === undefined) throw new TypeError('no failure was reported');
+
   return failure;
 }
 
@@ -113,6 +120,7 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
         serve(() => streamOf(TEXT_CHUNK, `<html>proxy echo ${CANARY}</html>`)),
       ),
     );
+
     const mismatched = await reportedError(
       buildClient(
         serve(() =>
@@ -126,6 +134,7 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
 
     expect(notJson.message).toMatch(/stream event that could not be read/);
     expect(mismatched.message).toBe(notJson.message);
+
     for (const error of [notJson, mismatched]) {
       expect(surfaces(error)).not.toContain(CANARY);
       expect(error.cause).toBeUndefined();
@@ -212,6 +221,7 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
 
   it('passes a transport failure through unchanged', async () => {
     const transportFailure = new TypeError('network unreachable');
+
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.reject(transportFailure),
     );
@@ -227,23 +237,30 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     // detach that handler from the drain.
     // Executor form: the API's TypeScript lib predates `Promise.withResolvers`.
     let markInvoked: () => void = () => {};
+
     const invoked = new Promise<void>((resolve) => {
       markInvoked = resolve;
     });
+
     let release: () => void = () => {};
+
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const client = buildClient(
       serve(() => streamOf(TEXT_CHUNK, `<html>${CANARY}</html>`)),
     );
+
     let drained = false;
+
     const drain = client
       .streamText({
         chat: CHAT,
         messages,
         onError: () => {
           markInvoked();
+
           return gate;
         },
       })
@@ -266,6 +283,7 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     const consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
+
     try {
       const client = buildClient(
         serve(() => streamOf(TEXT_CHUNK, `<html>${CANARY}</html>`)),
@@ -275,9 +293,11 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
 
       expect(consoleError).toHaveBeenCalledTimes(1);
       const printed: unknown = consoleError.mock.calls[0]?.[0];
+
       if (!(printed instanceof Error)) {
         throw new TypeError('expected an Error to be printed');
       }
+
       expect(printed.message).toMatch(/stream event that could not be read/);
       expect(surfaces(printed)).not.toContain(CANARY);
       expect(JSON.stringify(consoleError.mock.calls)).not.toContain(CANARY);
@@ -313,6 +333,7 @@ describe('createOpenAICompletionsModelClient — stream-idle watchdog (design D4
         ),
       ),
     );
+
     const reported: Array<unknown> = [];
 
     const result = client.streamText({
@@ -322,10 +343,12 @@ describe('createOpenAICompletionsModelClient — stream-idle watchdog (design D4
         reported.push(error);
       },
     });
+
     // The SDK streams nothing until a result accessor is read.
     const drained = result.fullStream
       .pipeTo(new WritableStream())
       .catch(() => undefined);
+
     await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
     await drained;
 

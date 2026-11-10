@@ -64,22 +64,27 @@ vi.mock('@sentry/nestjs', () => ({
 
 const NAME = 'devl';
 const HUB_VERSION = '9.9.9';
+
 /** Liveness has its own test; every other test keeps the session quiet. */
 const HEARTBEAT_OFF_MS = 60_000;
 const ENVELOPE = { budgetMs: 30_000 };
+
 const HELLO = {
   protocolVersion: PROTOCOL_VERSION,
   daemonVersion: '1.2.3',
   roots: ['/srv/app'],
 };
+
 const ROOTS_CALL: MachineCall<'roots.list'> = {
   method: 'roots.list',
   params: { envelope: ENVELOPE },
 };
+
 const FS_STAT_CALL: MachineCall<'fs.stat'> = {
   method: 'fs.stat',
   params: { envelope: ENVELOPE, path: '/srv/app/a.ts' },
 };
+
 const FS_READ_CALL: MachineCall<'fs.read'> = {
   method: 'fs.read',
   params: {
@@ -88,6 +93,7 @@ const FS_READ_CALL: MachineCall<'fs.read'> = {
     options: { displayPrefix: 'machine://devl' },
   },
 };
+
 const GIT_STATE_CALL: MachineCall<'git.state'> = {
   method: 'git.state',
   params: {
@@ -99,6 +105,7 @@ const GIT_STATE_CALL: MachineCall<'git.state'> = {
     options: { displayPrefix: 'machine://devl' },
   },
 };
+
 const MCP_OPEN_CALL: MachineCall<'mcp.open'> = {
   method: 'mcp.open',
   params: { envelope: ENVELOPE, root: '/srv/app', server: 'repo' },
@@ -152,28 +159,36 @@ function localLink(
     autoDestroy: false,
     emitClose: options.inputEmitClose ?? true,
   });
+
   const output = new PassThrough();
+
   if (options.writeError !== undefined) {
     const { writeError } = options;
     output.write = () => {
       throw writeError;
     };
   }
+
   const end = Promise.withResolvers<MachineLinkEnd>();
   const frames: Array<Frame> = [];
+
   const waiters: Array<{
     readonly match: (frame: Frame) => boolean;
     readonly resolve: (frame: Frame) => void;
   }> = [];
+
   const framer = createLineFramer();
   output.on('data', (chunk: Buffer) => {
     for (const event of framer.push(chunk)) {
       if (event.kind !== 'line') continue;
       const decoded = decodeFrame(event.line);
+
       if (!decoded.ok) continue;
       frames.push(decoded.frame);
+
       for (let index = waiters.length - 1; index >= 0; index -= 1) {
         const waiter = waiters[index];
+
         if (waiter === undefined || !waiter.match(decoded.frame)) continue;
         waiters.splice(index, 1);
         waiter.resolve(decoded.frame);
@@ -181,6 +196,7 @@ function localLink(
     }
   });
   let closes = 0;
+
   return {
     transport: {
       input,
@@ -194,9 +210,11 @@ function localLink(
     closes: () => closes,
     nextFrame: (match) => {
       const seen = frames.find(match);
+
       if (seen !== undefined) return Promise.resolve(seen);
       const { promise, resolve } = Promise.withResolvers<Frame>();
       waiters.push({ match, resolve });
+
       return promise;
     },
     sendFrame: (frame) => input.push(encodeFrame(frame)),
@@ -229,6 +247,7 @@ function pipeSession(
 /** A hub session over the peer's real wire. */
 function peerSession(options: ProtocolPeerOptions = {}) {
   const peer = createProtocolPeer(options);
+
   const session = track(
     new MachineSession({
       name: NAME,
@@ -238,11 +257,13 @@ function peerSession(options: ProtocolPeerOptions = {}) {
       heartbeatIntervalMs: HEARTBEAT_OFF_MS,
     }),
   );
+
   return { peer, session };
 }
 
 function track(session: MachineSession): MachineSession {
   live.push(session);
+
   return session;
 }
 
@@ -273,19 +294,23 @@ async function awaitFrame<T extends Frame>(
   match: (frame: Frame) => frame is T,
 ): Promise<T> {
   const frame = await within(link.nextFrame(match));
+
   if (!match(frame))
     throw new Error('The session wrote a frame this test did not await.');
+
   return frame;
 }
 
 /** A promise that must settle within `ms`, so a session that never ends fails a test instead of hanging it. */
 function within<T>(promise: Promise<T>, ms = 2000): Promise<T> {
   const bounded = Promise.withResolvers<T>();
+
   const timer = setTimeout(
     () =>
       bounded.reject(new Error(`The promise did not settle within ${ms}ms.`)),
     ms,
   );
+
   timer.unref();
   void promise.then(
     (value) => {
@@ -297,6 +322,7 @@ function within<T>(promise: Promise<T>, ms = 2000): Promise<T> {
       bounded.reject(error);
     },
   );
+
   return bounded.promise;
 }
 
@@ -315,6 +341,7 @@ async function failedCall(promise: Promise<unknown>): Promise<Error> {
   } catch (error) {
     return error instanceof Error ? error : new Error(String(error));
   }
+
   throw new Error('The call resolved instead of failing.');
 }
 
@@ -325,6 +352,7 @@ function thrownCall(call: () => void): Error {
   } catch (error) {
     return error instanceof Error ? error : new Error(String(error));
   }
+
   throw new Error('The call returned instead of throwing.');
 }
 
@@ -413,6 +441,7 @@ describe('MachineSession link ends', () => {
 
   it('pings once per interval, then ends the session on its own silence', async () => {
     const link = localLink();
+
     // Eight intervals of silence: on a loaded machine a late tick can only
     // shorten the ping run, never stretch it past the deadline the session
     // itself measured.
@@ -420,15 +449,18 @@ describe('MachineSession link ends', () => {
       heartbeatIntervalMs: 50,
       heartbeatMisses: 8,
     });
+
     const started = Date.now();
     await expect(within(session.ended)).resolves.toEqual({
       reason: 'session_lost',
       established: false,
     });
+
     // One ping per interval, and none once the peer stayed silent for the window.
     const written = link.frames.filter((frame) =>
       isNotification(PING_NOTIFICATION)(frame),
     );
+
     expect(written.length).toBeGreaterThan(1);
     expect(written.length).toBeLessThanOrEqual(7);
     // The third of the window would have ended the session far sooner.
@@ -601,6 +633,7 @@ describe('MachineSession git methods', () => {
       roots: ['/srv/app'],
       answers: { 'fs.read': FS_READ_ANSWER },
     });
+
     await session.ready();
 
     const error = await failedCall(session.request(GIT_STATE_CALL));
@@ -633,6 +666,7 @@ describe('MachineSession git methods', () => {
         'git.status',
       ],
     });
+
     await expect(session.ready()).resolves.toMatchObject({
       protocolVersion: PROTOCOL_VERSION,
     });
@@ -662,6 +696,7 @@ describe('MachineSession git methods', () => {
         },
       },
     });
+
     await session.ready();
 
     await expect(session.request(GIT_STATE_CALL)).resolves.toEqual({
@@ -681,9 +716,11 @@ describe('MachineSession request fence', () => {
     const link = localLink();
     const session = pipeSession(link);
     const given = new Error('the caller gave up');
+
     const error = await failedCall(
       session.request(ROOTS_CALL, { signal: AbortSignal.abort(given) }),
     );
+
     expect(error).toBe(given);
     expect(error).not.toBeInstanceOf(MachineUnavailableError);
     expect(link.frames).toHaveLength(0);
@@ -731,6 +768,7 @@ describe('MachineSession request fence', () => {
     const { peer, session } = peerSession({
       answers: { 'roots.list': { hold: true } },
     });
+
     await session.ready();
     const call = failedCall(session.request(ROOTS_CALL));
     const machine = await peer.session(0);
@@ -745,6 +783,7 @@ describe('MachineSession request fence', () => {
     const { peer, session } = peerSession({
       answers: { 'fs.stat': { hold: true } },
     });
+
     await session.ready();
     const call = failedCall(session.request(FS_STAT_CALL));
     const machine = await peer.session(0);
@@ -773,6 +812,7 @@ describe('MachineSession request fence', () => {
     const { session } = peerSession({
       answers: { 'roots.list': { error: 'path_not_registered' } },
     });
+
     await session.ready();
     const error = protocolError(await failedCall(session.request(ROOTS_CALL)));
     expect(error.name).toBe('MachineProtocolError');
@@ -783,6 +823,7 @@ describe('MachineSession request fence', () => {
   it('refuses an answer above the frame byte bound without ending the session', async () => {
     const link = localLink();
     const session = pipeSession(link);
+
     const call = failedCall(
       session.request({
         method: 'fs.stat',
@@ -792,6 +833,7 @@ describe('MachineSession request fence', () => {
         },
       }),
     );
+
     const refused = await awaitFrame(link, isErrorOn(1));
     expect(refused.m.error.message).toBe(
       'The answer exceeds the frame byte bound of this protocol.',
@@ -806,9 +848,11 @@ describe('MachineSession channels', () => {
   it('refuses a channel past the session stream cap without ending it', async () => {
     const link = localLink();
     const session = pipeSession(link);
+
     const open = Array.from({ length: MAX_CONCURRENT_STREAMS }, () =>
       session.openChannel(MCP_OPEN_CALL),
     );
+
     const error = refusal(thrownCall(() => session.openChannel(MCP_OPEN_CALL)));
     expect(error.reason).toBe('session_lost');
     expect(error.sent).toBe(false);
@@ -818,6 +862,7 @@ describe('MachineSession channels', () => {
     expect(link.frames).toHaveLength(MAX_CONCURRENT_STREAMS);
     expect(session.openStreams).toBe(MAX_CONCURRENT_STREAMS);
     expect(session.endReason).toBeUndefined();
+
     // The cap holds 64 streams; closing them settles the answers they await.
     for (const handle of open) handle.channel.close();
     expect(session.openStreams).toBe(0);
@@ -828,15 +873,19 @@ describe('MachineSession channels', () => {
     const link = localLink();
     const session = pipeSession(link);
     const abort = new AbortController();
+
     const handle = session.openChannel(MCP_OPEN_CALL, {
       signal: abort.signal,
     });
+
     const request = await awaitFrame(link, isRequest('mcp.open'));
     expect(handle.channel.id).toBe(request.s);
     abort.abort();
+
     const cancel = await within(
       link.nextFrame(isNotification(CANCEL_NOTIFICATION)),
     );
+
     expect(cancel).toEqual({
       s: request.s,
       m: { jsonrpc: '2.0', method: CANCEL_NOTIFICATION },
@@ -849,6 +898,7 @@ describe('MachineSession channels', () => {
     const { peer, session } = peerSession({
       answers: { 'mcp.open': { hold: true } },
     });
+
     await session.ready();
     const handle = session.openChannel(MCP_OPEN_CALL);
     const machine = await peer.session(0);
@@ -937,6 +987,7 @@ describe('MachineSession unusable inbound lines', () => {
 describe('MachineSession tracing', () => {
   const SENTRY_TRACE = '0123456789abcdef0123456789abcdef-0123456789abcdef-1';
   const BAGGAGE = 'sentry-trace_id=0123456789abcdef0123456789abcdef';
+
   const SPAN = {
     name: 'llame-machine/fs.stat',
     op: 'rpc',
@@ -965,6 +1016,7 @@ describe('MachineSession tracing', () => {
     });
     await expect(call).resolves.toEqual({ kind: 'missing' });
     const params = request.m.params;
+
     return isSerializableRecord(params) ? params['envelope'] : undefined;
   }
 

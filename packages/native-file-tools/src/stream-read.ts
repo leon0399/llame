@@ -43,8 +43,10 @@ type SourceLineState = {
 function lineBodyAndTerminator(fragment: string) {
   if (fragment.endsWith("\r\n"))
     return { body: fragment.slice(0, -2), terminator: "\r\n" };
+
   if (fragment.endsWith("\n"))
     return { body: fragment.slice(0, -1), terminator: "\n" };
+
   return { body: fragment, terminator: "" };
 }
 
@@ -60,9 +62,11 @@ function consumeOversizedFragment(
 ): MarkdownLineRecord | null {
   const { body, terminator } = lineBodyAndTerminator(fragment);
   appendMarkdownDropped(body, state.dropped);
+
   if (terminator === "") return null;
   const scanned = markdownScannedLine(state.partial, state.dropped, terminator);
   resetSourceLine(state);
+
   return { scanned, rendered: undefined };
 }
 
@@ -71,39 +75,49 @@ function takeSourceFragment(
   state: SourceLineState,
 ): MarkdownLineRecord | null {
   if (state.oversized) return consumeOversizedFragment(fragment, state);
+
   if (state.partial.length + fragment.length <= MAX_RESULT_CODE_UNITS) {
     state.partial += fragment;
+
     if (!fragment.endsWith("\n")) return null;
     const line = state.partial;
     resetSourceLine(state);
+
     return { scanned: line, rendered: line };
   }
+
   const { body, terminator } = lineBodyAndTerminator(fragment);
   const combined = state.partial + body;
   state.oversized = true;
   state.partial = combined.slice(0, MAX_RESULT_CODE_UNITS);
   state.dropped = createMarkdownDroppedState(state.partial);
   appendMarkdownDropped(combined.slice(MAX_RESULT_CODE_UNITS), state.dropped);
+
   if (terminator === "") return null;
   const scanned = markdownScannedLine(state.partial, state.dropped, terminator);
   resetSourceLine(state);
+
   return { scanned, rendered: undefined };
 }
+
 export async function* sourceLineRecords(
   file: FileHandle,
   signal: AbortSignal | undefined,
 ): AsyncGenerator<MarkdownLineRecord> {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   const buffer = Buffer.allocUnsafe(64 * 1024);
+
   const state: SourceLineState = {
     partial: "",
     oversized: false,
     dropped: createMarkdownDroppedState(),
   };
+
   while (true) {
     signal?.throwIfAborted();
     const { bytesRead } = await file.read(buffer);
     let text: string;
+
     try {
       text = decoder.decode(buffer.subarray(0, bytesRead), {
         stream: bytesRead > 0,
@@ -111,12 +125,16 @@ export async function* sourceLineRecords(
     } catch {
       throw new NativeFileError("invalid_utf8");
     }
+
     for (const fragment of splitSourceLines(text)) {
       const line = takeSourceFragment(fragment, state);
+
       if (line !== null) yield line;
     }
+
     if (bytesRead === 0) break;
   }
+
   if (state.oversized)
     yield {
       scanned: markdownScannedLine(state.partial, state.dropped, ""),
@@ -151,13 +169,17 @@ async function drainCollector<T>(
   signal: AbortSignal | undefined,
 ): Promise<T> {
   let count = 0;
+
   for await (const line of sourceLineRecords(file, signal)) {
     const keepReading = collector.push(count, line);
     count += 1;
+
     if (!keepReading) break;
   }
+
   return collector.finish(count);
 }
+
 async function collectMarkdownWindow(
   file: FileHandle,
   target: ReadTarget,
@@ -184,23 +206,33 @@ async function collectWindow(
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
   const result = emptyReadResult(target, requestedEnd);
   let count = 0;
+
   for await (const text of sourceLines(file, signal)) {
     const index = count++;
+
     if (index < start) continue;
+
     if (index >= boundedEnd) {
       result.nextOffset = boundedEnd;
       result.truncated =
         target.limit === undefined || requestedEnd > boundedEnd;
+
       if (!target.raw) appendReadLine(result, text, index, target);
+
       return result;
     }
+
     if (!appendReadLine(result, text, index, target)) return result;
   }
+
   if (target.offset >= count && (count > 0 || target.offset !== 0))
     throw new NativeFileError("invalid_selector");
+
   if (count === 0) result.requestedRange = null;
+
   return result;
 }
+
 /** A selected line exists past `index` in this or a later expanded range. */
 function hasSelectedLineAfter(
   expanded: Array<{ offset: number; limit: number }>,
@@ -208,7 +240,9 @@ function hasSelectedLineAfter(
   index: number,
 ): boolean {
   const range = expanded[rangeIndex];
+
   if (index + 1 < range.offset + range.limit) return true;
+
   return rangeIndex + 1 < expanded.length;
 }
 
@@ -224,6 +258,7 @@ function activeRangeIndex(
   ) {
     rangeIndex++;
   }
+
   return rangeIndex;
 }
 
@@ -263,6 +298,7 @@ function entrySnapshot(
 ): RangeSnapshot | undefined {
   if (rangeIndex === 0 || index !== expanded[rangeIndex].offset)
     return undefined;
+
   return { content: result.content, shownRanges: [...result.shownRanges] };
 }
 
@@ -280,10 +316,13 @@ function admitRangeLine(
   if (position.rangeIndex === 0 && emitted >= MAX_READ_LINES) {
     return { admitted: false, nextOffset: position.index };
   }
+
   if (position.rangeIndex > 0 && emitted >= MAX_READ_LINES) {
     const range = position.expanded[position.rangeIndex];
+
     return { admitted: false, nextOffset: range.offset };
   }
+
   return {
     admitted: true,
     snapshot: entrySnapshot(
@@ -310,8 +349,10 @@ function recoverAppendFailure(
     result.content = snapshot.content;
     result.shownRanges = snapshot.shownRanges;
     result.nextOffset = position.expanded[position.rangeIndex].offset;
+
     return;
   }
+
   if (
     result.content === "" &&
     !hasSelectedLineAfter(
@@ -323,6 +364,7 @@ function recoverAppendFailure(
     delete result.nextOffset;
   }
 }
+
 /**
  * End the read on a refused range: roll a partial later range back whole so
  * its retry fits on a fresh budget, keep a split first range's prefix, and
@@ -338,6 +380,7 @@ function haltRefusedRange(
     result.content = snapshot.content;
     result.shownRanges = snapshot.shownRanges;
   }
+
   result.truncated = true;
   result.nextOffset = nextOffset;
 }
@@ -355,6 +398,7 @@ function haltAfterAppend(
   if (appendMultiReadLine(result, cursor.text, cursor.index, target))
     return false;
   recoverAppendFailure(cursor, snapshot, result);
+
   return true;
 }
 
@@ -366,7 +410,9 @@ function finishMultiWindow(
 ): MultiReadSuccess {
   if (target.offset >= count && (count > 0 || target.offset !== 0))
     throw new NativeFileError("invalid_selector");
+
   if (count === 0) result.requestedRanges = [];
+
   return result;
 }
 
@@ -394,6 +440,7 @@ type MultiRangeStep = "continue" | "halted" | "exhausted";
 
 function startMultiRangeWalk(target: ReadTarget): MultiRangeWalk {
   const result = emptyMultiReadResult(target);
+
   return {
     expanded: target.expandedRanges ?? [],
     rangeIndex: 0,
@@ -417,22 +464,30 @@ function stepMultiRangeWalk(
   const { expanded, result } = walk;
   const index = walk.count++;
   walk.rangeIndex = activeRangeIndex(expanded, walk.rangeIndex, index);
+
   if (walk.rangeIndex >= expanded.length) return "exhausted";
+
   if (index < expanded[walk.rangeIndex].offset) return "continue";
+
   if (text === undefined) {
     // An oversized line is omitted and skipped without ending the read.
     result.truncated = true;
     const entry = entrySnapshot(expanded, walk.rangeIndex, index, result);
+
     if (entry !== undefined) walk.rangeSnapshot = entry;
+
     return "continue";
   }
+
   const cursor: MultiCursor = {
     expanded,
     rangeIndex: walk.rangeIndex,
     index,
     text,
   };
+
   const admission = admitRangeLine(cursor, walk.emitted, result);
+
   if (!admission.admitted) {
     haltRefusedRange(
       walk.rangeIndex,
@@ -440,12 +495,16 @@ function stepMultiRangeWalk(
       admission.nextOffset,
       result,
     );
+
     return "halted";
   }
+
   if (admission.snapshot !== undefined) walk.rangeSnapshot = admission.snapshot;
+
   if (haltAfterAppend(cursor, walk.rangeSnapshot, result, target))
     return "halted";
   walk.emitted += 1;
+
   return "continue";
 }
 
@@ -455,11 +514,15 @@ async function collectMultiWindow(
   signal: AbortSignal | undefined,
 ): Promise<MultiReadSuccess> {
   const walk = startMultiRangeWalk(target);
+
   for await (const text of sourceLines(file, signal)) {
     const step = stepMultiRangeWalk(walk, text, target);
+
     if (step === "halted") return walk.result;
+
     if (step === "exhausted") break;
   }
+
   return finishMultiWindow(walk.result, target, walk.count);
 }
 
@@ -489,25 +552,35 @@ export function selectMultiRangeLines(
   mediaType?: string,
 ): MultiReadSuccess {
   assertResolvedTarget(target);
+
   if (target.ranges === undefined) throw new NativeFileError("invalid_input");
   const lines = splitSourceLines(source);
   const placed: ReadTarget = { ...target, lineCount: lines.length };
+
   if (mediaType === "text/markdown" && !target.raw) {
     const collector = new MultiCollector(placed);
     let count = 0;
+
     for (const line of lines) {
       const keepReading = collector.push(count, markdownLineRecord(line));
       count += 1;
+
       if (!keepReading) break;
     }
+
     return collector.finish(count);
   }
+
   const walk = startMultiRangeWalk(placed);
+
   for (const text of memorySourceLines(lines)) {
     const step = stepMultiRangeWalk(walk, text, target);
+
     if (step === "halted") return walk.result;
+
     if (step === "exhausted") break;
   }
+
   return finishMultiWindow(walk.result, target, walk.count);
 }
 
@@ -520,10 +593,12 @@ async function collectOpenedWindow(window: {
   signal: AbortSignal | undefined;
 }): Promise<ReadSuccess> {
   const { file, target, mediaType, signal } = window;
+
   if (target.ranges !== undefined)
     return mediaType === "text/markdown" && !target.raw
       ? await collectMarkdownMultiWindow(file, target, signal)
       : await collectMultiWindow(file, target, signal);
+
   return mediaType === "text/markdown" && target.offset > 0 && !target.raw
     ? await collectMarkdownWindow(file, target, signal)
     : await collectWindow(file, target, signal);
@@ -541,6 +616,7 @@ async function resolveCountedTarget(
 ): Promise<{ target: ReadTarget; counted: number | undefined }> {
   if (target.pending === undefined) return { target, counted: undefined };
   const counted = await countSourceLines(file, signal);
+
   return { target: resolveEndRelativeSelector(target, counted), counted };
 }
 
@@ -556,6 +632,7 @@ async function textWindow(window: {
 }): Promise<ReadSuccess> {
   const { file, target, size, counted, mediaType, signal } = window;
   const lineCount = await storedLineCount(file, size, counted, signal);
+
   return await collectOpenedWindow({
     file,
     target: lineCount === undefined ? target : { ...target, lineCount },
@@ -579,18 +656,23 @@ export async function streamFileWindow(
   },
 ): Promise<ReadSuccess | MediaReadSuccess | FileFailure> {
   const file = await open(source.hostPath, openFlags(source.followSymlinks));
+
   try {
     const stats = await file.stat();
+
     if (!stats.isFile()) throw new NativeFileError("not_regular_file");
     const media = await readMedia(file, stats.size, target, source);
+
     if (media) return media;
     const placed = await resolveCountedTarget(target, file, source.signal);
     const mediaType = fileMediaType(source.hostPath);
+
     if (placed.target.outline)
       return await outlineReader(mediaType)(
         outlineSourceLines(file, source.signal),
         placed.target,
       );
+
     return await textWindow({
       file,
       target: placed.target,

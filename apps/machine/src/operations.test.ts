@@ -67,6 +67,7 @@ function isLocalFileRead(value: unknown): value is LocalFileRead {
 /** The local read's own paths, spelled as the Machine locator the daemon reports. */
 function locatorize(result: LocalFileRead, prefix: string) {
   const realPath = result.realPath;
+
   return realPath === undefined
     ? { ...result, path: `${prefix}${result.path}` }
     : {
@@ -142,6 +143,7 @@ describe("fs.list", () => {
       envelope: envelope(),
       path: fixture.outside,
     });
+
     expect(outcome.error).toMatchObject(refusal("path_not_registered"));
   });
 });
@@ -149,6 +151,7 @@ describe("fs.list", () => {
 describe("fs.read", () => {
   it("reads exactly what a local read of the same selector returns", async () => {
     const local = await nativeReadFile({ path: `${fixture.notes}:2-3` });
+
     if (!isLocalFileRead(local)) throw new Error("the local read failed");
     await expect(
       daemon.call("fs.read", {
@@ -161,6 +164,7 @@ describe("fs.read", () => {
 
   it("reads a whole file exactly as a local read of it does", async () => {
     const local = await nativeReadFile({ path: fixture.notes });
+
     if (!isLocalFileRead(local)) throw new Error("the local read failed");
     await expect(
       daemon.call("fs.read", {
@@ -177,6 +181,7 @@ describe("fs.read", () => {
       path: fixture.root,
       options: { displayPrefix: PREFIX },
     });
+
     expect(result).toMatchObject({ status: "success", kind: "directory" });
     const content = JSON.stringify(result);
     expect(content).toContain(`${PREFIX}${fixture.root}`);
@@ -202,13 +207,16 @@ describe("fs.read", () => {
       path: fixture.escapeLink,
       options: { displayPrefix: PREFIX },
     });
+
     expect(read.error).toMatchObject(refusal("path_not_registered"));
+
     const write = await daemon.attempt("fs.write", {
       envelope: envelope(),
       path: `${fixture.escapeLink}/new.txt`,
       options: { displayPrefix: PREFIX },
       content: "no\n",
     });
+
     expect(write.error).toEqual(read.error);
     await expect(readFile(join(fixture.outside, "new.txt"))).rejects.toThrow(
       /ENOENT/u,
@@ -245,11 +253,13 @@ describe("fs.read", () => {
       path: join(fixture.outside, "missing.txt"),
       options: { displayPrefix: PREFIX },
     });
+
     const existing = await daemon.attempt("fs.read", {
       envelope: envelope(),
       path: fixture.secret,
       options: { displayPrefix: PREFIX },
     });
+
     expect(absent.error).toEqual(existing.error);
   });
 
@@ -277,18 +287,21 @@ describe("fs.edit and fs.write", () => {
       oldText: "two\n",
       newText: "TWO\n",
     });
+
     expect(result).toMatchObject({
       status: "success",
       operation: "edit",
       path: `${PREFIX}${fixture.notes}`,
       lineCount: 4,
     });
+
     // The hub holds the submitted text in the call and rebuilds it, so the
     // answer carries only the start line: echoing a large replacement would
     // carry it over one frame twice and can fail after the file has changed.
     const display = isSerializableRecord(result)
       ? result["display"]
       : undefined;
+
     expect(display).toEqual({ startLine: 2 });
     expect(result).not.toHaveProperty("diff");
     await expect(readFile(fixture.notes, "utf8")).resolves.toBe(
@@ -298,12 +311,14 @@ describe("fs.edit and fs.write", () => {
 
   it("creates a missing directory chain for a new file", async () => {
     const target = join(fixture.root, "fresh", "deep", "new.txt");
+
     const result = await daemon.call("fs.write", {
       envelope: envelope(),
       path: target,
       options: { displayPrefix: PREFIX },
       content: "hello\n",
     });
+
     expect(result).toMatchObject({
       status: "success",
       operation: "write",
@@ -324,9 +339,11 @@ describe("fs.edit and fs.write", () => {
         options: { displayPrefix: PREFIX },
         content: `${name}\n`,
       });
+
     const results = await Promise.all(
       Array.from({ length: 8 }, (_unused, index) => write(`f${index}.txt`)),
     );
+
     for (const result of results)
       expect(result).toMatchObject({ status: "success" });
   });
@@ -362,6 +379,7 @@ describe("fs.edit and fs.write", () => {
       options: { displayPrefix: PREFIX },
       content: "no\n",
     });
+
     expect(outcome.error).toMatchObject(refusal("path_not_registered"));
   });
 });
@@ -373,20 +391,25 @@ describe("fs.bytes", () => {
     Buffer.from("\u0089PNG\r\n\u001a\n", "latin1").copy(bytes);
     await writeFile(png, bytes);
     const { channel, notifications } = daemon.open();
+
     const result = await channel.request("fs.bytes", {
       envelope: envelope(),
       path: png,
     });
+
     const chunks = notifications.filter(({ method }) => method === "bytes");
     expect(result).toEqual({ size: bytes.byteLength, mediaType: "image/png" });
     expect(chunks).toHaveLength(3);
+
     const reassembled = Buffer.concat(
       chunks.map((chunk) => {
         const params = chunk.params;
         const data = isSerializableRecord(params) ? params["data"] : undefined;
+
         return Buffer.from(isStringValue(data) ? data : "", "base64");
       }),
     );
+
     expect(reassembled.equals(bytes)).toBe(true);
     expect(chunks[0].params).toMatchObject({ seq: 1 });
     channel.close();
@@ -430,6 +453,7 @@ describe("proc.bash", () => {
       command: "pwd",
       cwd: fixture.root,
     });
+
     expect(result).toMatchObject({
       status: "success",
       exitCode: 0,
@@ -474,6 +498,7 @@ describe("proc.bash", () => {
       command: "pwd",
       cwd: fixture.outside,
     });
+
     expect(outcome.error).toMatchObject(refusal("path_not_registered"));
   });
 
@@ -483,6 +508,7 @@ describe("proc.bash", () => {
       command: "exit 3",
       cwd: fixture.root,
     });
+
     expect(result).toMatchObject({ status: "error", exitCode: 3 });
     expect(result).toHaveProperty("wallTimeMs", expect.any(Number));
   });
@@ -499,10 +525,12 @@ describe("proc.bash", () => {
   it("reports that it cannot run without a registered root", async () => {
     const rootless = startDaemon({ roots: [] });
     await rootless.hello();
+
     const mux = await rootless.attempt("proc.bash", {
       envelope: envelope(),
       command: "pwd",
     });
+
     expect(mux.error).toMatchObject({ code: "invalid_params" });
     rootless.input.end();
     await rootless.session.done;
@@ -524,6 +552,7 @@ describe("proc.bash", () => {
       command: "pwd",
       cwd: join(fixture.root, "not-there"),
     });
+
     expect(outcome.error).toMatchObject({
       code: "invalid_params",
       message: "proc.bash: the working directory is not a directory",
@@ -556,6 +585,7 @@ describe("Workspace MCP methods", () => {
       root: fixture.root,
       server: "storybook",
     });
+
     expect(outcome.error).toMatchObject({
       name: "MachineProtocolError",
       code: "invalid_params",

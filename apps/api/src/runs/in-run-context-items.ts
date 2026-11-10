@@ -79,10 +79,13 @@ interface StagedItem {
 /** The toolCallId of the last tool-result part of the last tool message. */
 function lastToolCallId(messages: ReadonlyArray<ModelMessage>): string | null {
   const toolMessage = messages.findLast((message) => message.role === 'tool');
+
   if (toolMessage?.role !== 'tool') return null;
+
   const result = toolMessage.content.findLast(
     (part) => part.type === 'tool-result',
   );
+
   return result?.type === 'tool-result' ? result.toolCallId : null;
 }
 
@@ -92,8 +95,10 @@ function isStagedCopy(
   texts: ReadonlySet<string>,
 ): boolean {
   if (message.role !== 'user' || !Array.isArray(message.content)) return false;
+
   if (message.content.length !== 1) return false;
   const part = message.content[0];
+
   return part?.type === 'text' && texts.has(part.text);
 }
 
@@ -107,17 +112,22 @@ function itemsAnchoredTo(
   placed: Set<StagedItem>,
 ): Array<ModelMessage> {
   if (message.role !== 'tool') return [];
+
   const toolCallIds = new Set(
     message.content.flatMap((part) =>
       part.type === 'tool-result' ? [part.toolCallId] : [],
     ),
   );
+
   return staged.flatMap((item) => {
     const anchor = item.anchorToolCallId;
+
     if (anchor === null || placed.has(item) || !toolCallIds.has(anchor)) {
       return [];
     }
+
     placed.add(item);
+
     return [
       { role: 'user', content: [{ type: 'text', text: item.part.data.text }] },
     ];
@@ -135,19 +145,24 @@ function spliceStagedItems(
   staged: ReadonlyArray<StagedItem>,
 ): Array<ModelMessage> {
   const texts = new Set(staged.map((item) => item.part.data.text));
+
   const region = messages
     .slice(runStart)
     .filter((message) => !isStagedCopy(message, texts));
+
   const placed = new Set<StagedItem>();
+
   const spliced = region.flatMap((message) => [
     message,
     ...itemsAnchoredTo(message, staged, placed),
   ]);
+
   // Staged before any Run tool result: the item belongs at the Run boundary,
   // which is where the transcript stores it and where replay puts it. An item
   // whose anchor is set but absent from this step goes last.
   const leading: Array<ModelMessage> = [];
   const unplaced: Array<ModelMessage> = [];
+
   for (const item of staged) {
     if (placed.has(item)) continue;
     const target = item.anchorToolCallId === null ? leading : unplaced;
@@ -156,6 +171,7 @@ function spliceStagedItems(
       content: [{ type: 'text', text: item.part.data.text }],
     });
   }
+
   return [...messages.slice(0, runStart), ...leading, ...spliced, ...unplaced];
 }
 
@@ -176,12 +192,15 @@ export function createInRunContextItems(): InRunContextItems {
           'Cannot stage an in-Run context item before beginStep().',
         );
       }
+
       staged.push({ part, anchorToolCallId });
     },
 
     applyToStep(messages): Array<ModelMessage> | undefined {
       const start = runStart;
+
       if (start === null || staged.length === 0) return undefined;
+
       return spliceStagedItems(messages, start, staged);
     },
 
@@ -359,7 +378,9 @@ export function composeAttemptProducers(
   const present = producers.filter(
     (producer): producer is InRunAttemptProducer => producer !== undefined,
   );
+
   if (present.length === 0) return undefined;
+
   return {
     async prepareStep(step): Promise<void> {
       for (const producer of present) await producer.prepareStep(step);

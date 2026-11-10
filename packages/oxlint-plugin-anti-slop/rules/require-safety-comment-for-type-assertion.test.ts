@@ -5,6 +5,7 @@ import { requireSafetyCommentForTypeAssertionRule } from "./require-safety-comme
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "missingSafetyComment" };
 
 tester.run(

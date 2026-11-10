@@ -22,7 +22,9 @@ import { SearchIndexService } from './search-index.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const TEST_UNPRIVILEGED_DB_URL = process.env['TEST_UNPRIVILEGED_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const STALE_DISCOVERY_LIMIT = 1_000_000;
 
 describeIfDb('search projection locator coverage and RLS', () => {
@@ -52,6 +54,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
         usage: { status: 'completed' },
       });
     });
+
     return chatId;
   }
 
@@ -109,6 +112,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
     indexService = new SearchIndexService(tenantDb);
     ownerA = crypto.randomUUID();
     ownerB = crypto.randomUUID();
+
     for (const id of [ownerA, ownerB]) {
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'Projection', ${`projection-${id}@test.com`})`;
     }
@@ -123,6 +127,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
 
   it('reindexes a giant multi-part message with complete locators on every current row', async () => {
     const parts: Array<unknown> = [];
+
     for (let index = 0; index < 8; index += 1) {
       parts.push(
         textPart(
@@ -143,6 +148,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
         },
       );
     }
+
     const chatId = await seedChat(ownerA, parts, 'Giant multi-part source');
 
     await indexService.reindexChat(chatId, ownerA);
@@ -172,6 +178,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('a source that needs a locator repair')],
       'Locator repair coverage',
     );
+
     await indexService.reindexChat(chatId, ownerA);
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
 
@@ -184,10 +191,12 @@ describeIfDb('search projection locator coverage and RLS', () => {
     );
 
     expect(await staleIds()).toContain(chatId);
+
     const incomplete = await getProjectionCoverageReport(
       tenantDb,
       CHUNKER_VERSION,
     );
+
     expect(incomplete.readyChatCount).toBe(before.readyChatCount - 1);
     expect(incomplete.staleChatCount).toBe(before.staleChatCount + 1);
     expect(incomplete.completeDocumentCount).toBe(
@@ -211,6 +220,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('freshness must be reflected in the readiness gate')],
       'Freshness gate',
     );
+
     await indexService.reindexChat(chatId, ownerA);
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
     expect(await staleIds()).not.toContain(chatId);
@@ -238,14 +248,17 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('boundary identities must remain inside this Chat')],
       'Boundary identity repair',
     );
+
     const foreignChatId = await seedChat(
       ownerB,
       [textPart('foreign boundary source')],
       'Foreign boundary source',
     );
+
     await indexService.reindexChat(chatId, ownerA);
     await indexService.reindexChat(foreignChatId, ownerB);
     const original = (await documentRowsAs(ownerA, chatId))[0];
+
     const foreignMessage = await tenantDb.runAs(ownerB, (tx) =>
       tx.execute<{ id: string }>(sql`
         SELECT id
@@ -255,9 +268,11 @@ describeIfDb('search projection locator coverage and RLS', () => {
         LIMIT 1
       `),
     );
+
     const foreignMessageId = [...foreignMessage][0].id;
 
     await sqlClient`ALTER TABLE search_chat_documents NO FORCE ROW LEVEL SECURITY`;
+
     try {
       await sqlClient`
         UPDATE search_chat_documents
@@ -269,10 +284,12 @@ describeIfDb('search projection locator coverage and RLS', () => {
     }
 
     expect(await staleIds()).toContain(chatId);
+
     const crossChatStale = await getProjectionCoverageReport(
       tenantDb,
       CHUNKER_VERSION,
     );
+
     expect(crossChatStale.staleChatCount).toBeGreaterThan(0);
     await indexService.reindexChat(chatId, ownerA);
     expect(await staleIds()).not.toContain(chatId);
@@ -282,6 +299,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
 
     const missingMessageId = crypto.randomUUID();
     await sqlClient`ALTER TABLE search_chat_documents NO FORCE ROW LEVEL SECURITY`;
+
     try {
       await sqlClient`
         UPDATE search_chat_documents
@@ -306,6 +324,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('deleting the only current document must not look ready')],
       'Deleted projection row',
     );
+
     await indexService.reindexChat(chatId, ownerA);
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
     const readyRows = await documentRowsAs(ownerA, chatId);
@@ -348,10 +367,12 @@ describeIfDb('search projection locator coverage and RLS', () => {
       ],
       'Zero-document chat',
     );
+
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
     await indexService.reindexChat(chatId, ownerA);
 
     expect(await documentRowsAs(ownerA, chatId)).toEqual([]);
+
     const state = await tenantDb.runAs(ownerA, (tx) =>
       tx.execute<{ expected_document_count: number }>(sql`
         SELECT expected_document_count
@@ -359,6 +380,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
         WHERE chat_id = ${chatId}
       `),
     );
+
     expect([...state][0].expected_document_count).toBe(0);
     expect(await staleIds()).not.toContain(chatId);
     const after = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
@@ -372,6 +394,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('legacy state has no expected document count')],
       'Legacy expected count',
     );
+
     await indexService.reindexChat(chatId, ownerA);
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
 
@@ -395,6 +418,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
         sql`SELECT * FROM llame_search_projection_coverage_v2(${CHUNKER_VERSION})`,
       ),
     );
+
     expect(Object.keys([...rows][0] ?? {}).sort()).toEqual(
       [
         'chunker_version',
@@ -413,6 +437,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('v1 freshness parity remains valid during rollback')],
       'v1 freshness parity',
     );
+
     await indexService.reindexChat(chatId, ownerA);
 
     const observeV1 = () =>
@@ -421,14 +446,17 @@ describeIfDb('search projection locator coverage and RLS', () => {
           sql`SELECT stale_chat_count
               FROM llame_search_projection_coverage(${CHUNKER_VERSION})`,
         );
+
         const staleRows = await tx.execute(
           sql`SELECT chat_id
               FROM llame_search_projection_stale_chats(${CHUNKER_VERSION}, ${STALE_DISCOVERY_LIMIT})`,
         );
+
         const [coverage] = z
           .object({ stale_chat_count: z.number() })
           .array()
           .parse([...coverageRows]);
+
         return {
           staleChatCount: coverage.stale_chat_count,
           discoveredCount: [...staleRows].length,
@@ -456,14 +484,17 @@ describeIfDb('search projection locator coverage and RLS', () => {
         sql`SELECT stale_chat_count
             FROM llame_search_projection_coverage_v2(${CHUNKER_VERSION})`,
       );
+
       const staleRows = await tx.execute(
         sql`SELECT chat_id
             FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, ${STALE_DISCOVERY_LIMIT})`,
       );
+
       const [coverage] = z
         .object({ stale_chat_count: z.number() })
         .array()
         .parse([...coverageRows]);
+
       return {
         staleChatCount: coverage.stale_chat_count,
         discoveredCount: [...staleRows].length,
@@ -479,6 +510,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('owner corruption must not make a projection look ready')],
       'Owner mismatch repair',
     );
+
     await indexService.reindexChat(chatId, ownerA);
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
 
@@ -486,6 +518,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
     // connection with FORCE temporarily disabled, then restore FORCE even if
     // the mutation fails. Normal tenant-scoped callers cannot forge this field.
     await sqlClient`ALTER TABLE search_chat_documents NO FORCE ROW LEVEL SECURITY`;
+
     try {
       await sqlClient`
         UPDATE search_chat_documents
@@ -509,6 +542,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
     ).resolves.toEqual(before);
     const repaired = await documentRowsAs(ownerA, chatId);
     expect(repaired).toHaveLength(1);
+
     const owner = await tenantDb.runAs(ownerA, (tx) =>
       tx.execute<{ owner_user_id: string }>(sql`
         SELECT owner_user_id
@@ -516,6 +550,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
         WHERE chat_id = ${chatId}
       `),
     );
+
     expect([...owner][0].owner_user_id).toBe(ownerA);
   });
 
@@ -525,12 +560,14 @@ describeIfDb('search projection locator coverage and RLS', () => {
       [textPart('state ownership corruption must not make a projection ready')],
       'State owner mismatch repair',
     );
+
     await indexService.reindexChat(chatId, ownerA);
     const before = await getProjectionCoverageReport(tenantDb, CHUNKER_VERSION);
 
     // Corrupt only derived state while FORCE is temporarily disabled. Restore
     // FORCE in all cases; ordinary tenant-scoped callers cannot forge this.
     await sqlClient`ALTER TABLE search_chat_state NO FORCE ROW LEVEL SECURITY`;
+
     try {
       await sqlClient`
         UPDATE search_chat_state
@@ -552,6 +589,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
     await expect(
       getProjectionCoverageReport(tenantDb, CHUNKER_VERSION),
     ).resolves.toEqual(before);
+
     const repaired = await tenantDb.runAs(ownerA, (tx) =>
       tx.execute<{ owner_user_id: string }>(sql`
         SELECT owner_user_id
@@ -559,7 +597,9 @@ describeIfDb('search projection locator coverage and RLS', () => {
         WHERE chat_id = ${chatId}
       `),
     );
+
     expect([...repaired][0].owner_user_id).toBe(ownerA);
+
     const hiddenFromOtherOwner = await tenantDb.runAs(ownerB, (tx) =>
       tx.execute<{ count: number }>(sql`
         SELECT count(*)::int AS count
@@ -567,6 +607,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
         WHERE chat_id = ${chatId}
       `),
     );
+
     expect([...hiddenFromOtherOwner][0].count).toBe(0);
   });
 
@@ -664,6 +705,7 @@ describeIfDb('search projection locator coverage and RLS', () => {
       )
       ORDER BY p.proname
     `;
+
     expect(aclRows).toEqual([
       {
         proname: 'llame_search_projection_coverage',
@@ -688,10 +730,13 @@ describeIfDb('search projection locator coverage and RLS', () => {
     ]);
 
     if (!TEST_UNPRIVILEGED_DB_URL) return;
+
     const ssl = /sslmode=require/.test(TEST_UNPRIVILEGED_DB_URL)
       ? 'require'
       : false;
+
     const unprivileged = postgres(TEST_UNPRIVILEGED_DB_URL, { ssl, max: 1 });
+
     try {
       await expect(
         unprivileged.unsafe(

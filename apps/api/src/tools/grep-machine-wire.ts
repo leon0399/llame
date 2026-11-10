@@ -27,6 +27,7 @@ export type DaemonAsk = {
 /** The path two parts join to: no separator for an empty relative part. */
 function machinePath(prefix: string, rel: string): string {
   if (rel.length === 0) return prefix;
+
   return prefix === '/' ? `/${rel}` : `${prefix}/${rel}`;
 }
 
@@ -49,6 +50,7 @@ export function namedUnfinished(
   admission: GrepReadAdmission,
 ): string | undefined {
   const locator = machineScopeLocator(scope, rel);
+
   return locator !== undefined && admission.admit(locator)
     ? locator
     : undefined;
@@ -62,6 +64,7 @@ export function requestOf(
 ): FsGrepParams {
   const { scope, args } = search;
   const { budget, cursor } = ask;
+
   return {
     envelope,
     path: scope.path,
@@ -130,19 +133,26 @@ export function mergePage(
   consumed.files += page.consumed.files;
   consumed.entries += page.consumed.entries;
   consumed.bytes += page.consumed.bytes;
+
   // The daemon's own time budget is the call's one stop however many pages it
   // ends, so the result never reports it twice.
   if (warnings.has('deadline')) warnings.set('deadline', 1);
+
   if (page.ignored === undefined) return;
+
   if (page.ignored.atLeast) ignored.atLeast = true;
+
   for (const rel of page.ignored.paths) {
     if (ignored.seen.has(rel)) continue;
+
     if (ignored.seen.size >= GREP_LIMITS.ignoredReported) {
       ignored.atLeast = true;
       break;
     }
+
     ignored.seen.add(rel);
     const locator = machineScopeLocator(ignored.scope, rel);
+
     if (locator === undefined) continue;
     ignored.paths.push(locator);
   }

@@ -39,9 +39,11 @@ describe('Knowledge filesystem I/O helpers', () => {
 
     const controller = new AbortController();
     let resolvePending!: (value: string) => void;
+
     const pending = new Promise<string>((resolve) => {
       resolvePending = resolve;
     });
+
     const observed = observe(pending, controller.signal);
     controller.abort();
     await expect(observed).rejects.toMatchObject({
@@ -63,9 +65,11 @@ describe('Knowledge filesystem I/O helpers', () => {
   it('closes a resource that resolves after cancellation', async () => {
     const controller = new AbortController();
     let resolveResource!: (resource: { close(): Promise<void> }) => void;
+
     const pending = new Promise<{ close(): Promise<void> }>((resolve) => {
       resolveResource = resolve;
     });
+
     const close = vi.fn(() => Promise.resolve());
     const observed = observeResource(() => pending, controller.signal);
     controller.abort();
@@ -110,10 +114,13 @@ describe('Knowledge filesystem I/O helpers', () => {
     ).rejects.toBe(failure);
 
     const controller = new AbortController();
+
     const close = vi.fn(() => {
       controller.abort();
+
       return Promise.reject(failure);
     });
+
     await expect(
       closeResource({ close }, controller.signal),
     ).rejects.toMatchObject({

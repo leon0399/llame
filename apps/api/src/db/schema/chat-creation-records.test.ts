@@ -55,7 +55,9 @@ const column = (name: string) => {
   const found = getTableConfig(chatCreationRecords).columns.find(
     (entry) => entry.name === name,
   );
+
   if (found === undefined) throw new Error(`No column ${name}`);
+
   return found;
 };
 

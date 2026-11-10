@@ -29,6 +29,7 @@ export function throwModelDomainError(error: unknown): never {
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
   }
+
   if (error instanceof ModelConfigurationError) {
     throw new HttpException(
       {
@@ -40,5 +41,6 @@ export function throwModelDomainError(error: unknown): never {
       HttpStatus.SERVICE_UNAVAILABLE,
     );
   }
+
   throw error;
 }

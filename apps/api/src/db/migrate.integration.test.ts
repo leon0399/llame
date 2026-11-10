@@ -17,6 +17,7 @@ import path from 'node:path';
 import postgres, { type Sql } from 'postgres';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'migrate.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration`.',
@@ -54,6 +55,7 @@ function runMigrate(): Promise<RunResult> {
       env: { ...process.env, POSTGRES_URL: TEST_DB_URL },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));

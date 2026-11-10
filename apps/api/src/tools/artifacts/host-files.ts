@@ -85,8 +85,10 @@ function chatsRoot(): string {
 async function verifiedChatsRoot(): Promise<string | undefined> {
   const parent = join(tmpdir(), 'llame');
   const root = chatsRoot();
+
   try {
     await mkdir(parent, { recursive: true, mode: PRIVATE_MODE });
+
     // Check the parent before creating anything below it: `mkdir` follows a
     // symlinked component, so a hostile `llame/` would otherwise get a
     // `chats/` child of its target.
@@ -95,9 +97,11 @@ async function verifiedChatsRoot(): Promise<string | undefined> {
   } catch {
     return refuseRoot();
   }
+
   if (!(await isPrivateDirectory(root))) return refuseRoot();
   // A later unsafe root is a new condition, so it logs again.
   rootWarned = false;
+
   return root;
 }
 
@@ -108,12 +112,14 @@ async function verifiedChatsRoot(): Promise<string | undefined> {
  */
 async function privateDirectory(path: string): Promise<boolean> {
   await mkdir(path, { recursive: true, mode: PRIVATE_MODE });
+
   return await isPrivateDirectory(path);
 }
 
 /** A real directory this user owns, with no group or other access. */
 async function isPrivateDirectory(path: string): Promise<boolean> {
   const stats = await lstat(path).catch(() => undefined);
+
   return (
     stats !== undefined &&
     stats.isDirectory() &&
@@ -126,6 +132,7 @@ function refuseRoot(): undefined {
   if (rootWarned) return undefined;
   rootWarned = true;
   logger.warn('Artifact host files disabled: the host root is not private');
+
   return undefined;
 }
 
@@ -148,25 +155,32 @@ export async function writeArtifactHostFiles(
   input: HostFileWrite,
 ): Promise<string | undefined> {
   const root = await verifiedChatsRoot();
+
   if (root === undefined || aborted(input)) return undefined;
+
   try {
     const chatDirectory = confined(root, input.chatId);
     const directory = confined(root, join(input.chatId, 'artifacts'));
+
     if (
       !(await privateDirectory(chatDirectory)) ||
       !(await privateDirectory(directory))
     ) {
       return undefined;
     }
+
     const written = await writeParts(input, directory);
+
     // A write that lands after the abort names no file, so it must not stay.
     if (aborted(input)) return await discard(directory, written);
     await touch(chatDirectory);
+
     // Every part is written unless the write aborted above, so the first
     // file's directory is the artifact's own.
     return dirname(join(directory, written[0]));
   } catch (error) {
     logger.warn(`Artifact host file write failed: ${errorCode(error)}`);
+
     return undefined;
   }
 }
@@ -190,12 +204,14 @@ async function writeParts(
   directory: string,
 ): Promise<Array<string>> {
   const written: Array<string> = [];
+
   for (const part of input.parts) {
     if (aborted(input)) break;
     const file = partFileName({ ...input, ...part });
     await writeFileAtomically(directory, file, part.content, input.createdAt);
     written.push(file);
   }
+
   return written;
 }
 
@@ -207,6 +223,7 @@ async function discard(
   for (const file of files) {
     await unlink(confined(directory, file)).catch(() => undefined);
   }
+
   return undefined;
 }
 
@@ -214,6 +231,7 @@ async function discard(
 function errorCode(error: unknown): string {
   if (!(error instanceof Error) || !('code' in error) || !isString(error.code))
     return 'unknown';
+
   return error.code;
 }
 
@@ -229,25 +247,32 @@ export async function reconcileArtifactFiles(
 ): Promise<void> {
   if (aborted(context)) return;
   const root = await verifiedChatsRoot();
+
   if (root === undefined) return;
   const chatDirectory = confined(root, context.chatId);
   const directory = confined(root, join(context.chatId, 'artifacts'));
+
   if (
     !(await privateDirectory(chatDirectory)) ||
     !(await privateDirectory(directory))
   ) {
     return;
   }
+
   const parts = await context.tenantDb.runAs(context.userId, (db) =>
     new ArtifactsRepository(db).listChatPartFiles(context.chatId),
   );
+
   const matches = await Promise.all(
     parts.map((part) => fileMatches(directory, part)),
   );
+
   for (const [index, part] of parts.entries()) {
     if (aborted(context)) return;
+
     if (!matches[index]) await repairPart(context, directory, part);
   }
+
   await touch(chatDirectory);
 }
 
@@ -258,7 +283,9 @@ async function fileMatches(
   const target = confined(directory, partFileName(part));
   // A symlink or a directory at the file's place never counts as current.
   const stored = await lstat(target).catch(() => undefined);
+
   if (stored === undefined || !stored.isFile()) return false;
+
   return (
     stored.size === part.byteSize &&
     Math.abs(stored.mtimeMs - part.createdAt.getTime()) < 1
@@ -282,6 +309,7 @@ async function repairPart(
         part.name,
       ),
     );
+
     if (row === undefined) return;
     await writeFileAtomically(
       directory,
@@ -311,13 +339,17 @@ export async function sweepArtifactDirectories(
   now: Date = new Date(),
 ): Promise<void> {
   const root = await verifiedChatsRoot();
+
   if (root === undefined) return;
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+
   for (const entry of entries) {
     if (!entry.isDirectory() || !UUID_NAME.test(entry.name)) continue;
     const directory = join(root, entry.name);
     const modified = await lstat(directory).catch(() => undefined);
+
     if (modified === undefined || !modified.isDirectory()) continue;
+
     if (now.getTime() - modified.mtimeMs <= SWEEP_AFTER_MS) continue;
     await rm(directory, { recursive: true }).catch(() => undefined);
   }
@@ -356,6 +388,7 @@ async function writeFileAtomically(
 ): Promise<void> {
   const target = confined(directory, file);
   const temporary = `${target}.${randomUUID()}.tmp`;
+
   try {
     if (!(await privateDirectory(dirname(target))))
       throw new Error('The artifact directory is not private.');
@@ -379,8 +412,10 @@ async function touch(directory: string): Promise<void> {
 function confined(root: string, relative: string): string {
   const target = resolve(root, relative);
   const base = resolve(root);
+
   if (!target.startsWith(`${base}${sep}`)) {
     throw new Error('An artifact path leaves its Chat directory.');
   }
+
   return target;
 }

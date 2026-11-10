@@ -93,9 +93,11 @@ export async function activateSkills(
   input: ActivationRequest,
 ): Promise<SkillActivationOutcome> {
   const admitted = input.mentions.slice(0, MAX_SKILL_ACTIVATIONS);
+
   const unattempted = input.mentions
     .slice(MAX_SKILL_ACTIVATIONS)
     .map((mention) => mention.name);
+
   // Every attempted name joins the set, success or failure alike: the user's
   // mention is what authorizes a later read of that package's resources — and a
   // skill a prior attempt resolved keeps that authorization too.
@@ -110,6 +112,7 @@ export async function activateSkills(
     { skills: unattempted, imports: unattemptedImports },
   );
   appendOmissionItem(input.runId, unattempted, unattemptedImports, items);
+
   return { items, selection };
 }
 
@@ -127,10 +130,12 @@ export async function activateSkills(
  */
 function instructionCeiling(input: ActivationRequest): number {
   if (input.mentions.length === 0) return MAX_SKILL_ACTIVATION_BYTES;
+
   const reserved = input.mentions
     .map((mention) => mention.name)
     .sort((left, right) => right.length - left.length)
     .slice(0, MAX_OMISSION_NAMES);
+
   const worstCase = createSkillActivationOmissionItem({
     runId: input.runId,
     // One more than the bound, so the reserve also covers the sentence that
@@ -149,6 +154,7 @@ function instructionCeiling(input: ActivationRequest): number {
       'x'.repeat(MAX_OMISSION_IMPORT_LOCATOR_LENGTH + 1),
     ),
   });
+
   return MAX_SKILL_ACTIVATION_BYTES - measureJson(worstCase);
 }
 
@@ -156,6 +162,7 @@ type ActivationAttempt = {
   readonly item: AuthoredContextItemPart;
   readonly omittedImports: ReadonlyArray<string>;
 };
+
 type ActivationBudget = {
   readonly selection: ReadonlySet<string>;
   readonly ordinal: number;
@@ -163,10 +170,12 @@ type ActivationBudget = {
   readonly bytes: number;
   readonly ceiling: number;
 };
+
 type ActivationRead = ActivationBudget & {
   readonly mention: SkillMention;
   readonly remainingMs: number;
 };
+
 type ActivationExpansion = {
   readonly mention: SkillMention;
   readonly read: SkillReadOutput;
@@ -209,6 +218,7 @@ async function attemptWithinBudget(
     // Already resolved by a prior attempt of this Run: its stored item is the
     // observation, and re-reading could report something different.
     if (input.resolved?.has(mention.name) === true) continue;
+
     const attempt = await attemptMention(
       input,
       {
@@ -220,10 +230,12 @@ async function attemptWithinBudget(
       },
       mention,
     );
+
     if (attempt.kind !== 'item') {
       omitted.skills.push(mention.name);
       continue;
     }
+
     bytes += attempt.bytes;
     omitted.imports.push(...attempt.omittedImports);
     items.push(attempt.item);
@@ -236,7 +248,9 @@ async function attemptMention(
   mention: SkillMention,
 ): Promise<MentionAttempt> {
   const remainingMs = budget.deadline - Date.now();
+
   if (remainingMs <= 0) return { kind: 'unattempted' };
+
   const activation = await attemptActivation(input, {
     mention,
     selection: budget.selection,
@@ -246,7 +260,9 @@ async function attemptMention(
     bytes: budget.bytes,
     ceiling: budget.ceiling,
   });
+
   const bytes = measureJson(activation.item);
+
   return budget.bytes + bytes > budget.ceiling
     ? { kind: 'unattempted' }
     : {
@@ -295,13 +311,16 @@ async function attemptActivation(
   const { mention } = one;
   const result = await readActivation(input, one);
   const read = readSkillReadOutput(result);
+
   if (read === undefined) {
     return {
       item: failureItem(input.runId, mention.name, failureReason(result)),
       omittedImports: [],
     };
   }
+
   const instructions = skillInstructionBody(read.content);
+
   return expandActivationImports(input, one, {
     mention,
     read,
@@ -321,6 +340,7 @@ async function expandActivationImports(
       activation.instructions,
       imports,
     );
+
   const expansion = await expandSkillImports({
     skill: activation.mention.name,
     runId: input.runId,
@@ -335,6 +355,7 @@ async function expandActivationImports(
     canAccept: (imports) =>
       one.bytes + measureJson(createItem(imports)) <= one.ceiling,
   });
+
   return {
     item: createItem(expansion.imports),
     omittedImports: expansion.omitted,
@@ -346,6 +367,7 @@ async function readActivation(
   activation: ActivationRead,
 ): Promise<ToolResult> {
   const toolCallId = `skill-activation-${input.runId}-${activation.ordinal}`;
+
   return readSkillActivationFile({
     readTool: input.readTool,
     toolContext: input.toolContext,
@@ -390,6 +412,7 @@ function failureItem(
  */
 function failureReason(result: ToolResult): SkillActivationFailureReason {
   if (result.status !== 'error') return 'read_failed';
+
   switch (result.type) {
     case 'not_found':
       return 'not_found';
@@ -421,6 +444,7 @@ function readSkillReadOutput(result: ToolResult): SkillReadOutput | undefined {
   const resolvedPath: unknown = result['resolvedPath'];
   const content: unknown = result['content'];
   const truncationNotice: unknown = result['truncationNotice'];
+
   if (
     !isString(skillDirectory) ||
     !isString(resolvedPath) ||
@@ -428,6 +452,7 @@ function readSkillReadOutput(result: ToolResult): SkillReadOutput | undefined {
   ) {
     return undefined;
   }
+
   return {
     skillDirectory,
     resolvedPath,

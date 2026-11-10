@@ -15,6 +15,7 @@ import {
 /** A labelled placeholder image of the given size, as a data URL. */
 function placeholderImage(width: number, height: number, label: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#e4e4e7"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="${Math.round(height / 8)}" fill="#18181b">${label}</text></svg>`;
+
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
@@ -56,6 +57,7 @@ const icon = {
  *  focus returns to whichever opener was activated. */
 function LightboxWithOpeners(args: MediaLightboxProps) {
   const [openKey, setOpenKey] = useState(args.openKey);
+
   return (
     <div className="flex gap-2">
       {args.slides.map((slide) => (
@@ -89,18 +91,21 @@ const meta = {
 } satisfies Meta<typeof MediaLightbox>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** The open lightbox, once its fade-in has finished. */
 async function openDialog() {
   const dialog = await screen.findByRole("dialog");
   await waitFor(() => expect(dialog).toBeVisible());
+
   return dialog;
 }
 
 /** The image's horizontal center is its scroll panel's. */
 async function expectCentered(image: HTMLElement) {
   const panel = image.closest(".overflow-auto");
+
   if (!panel) throw new Error("The image has no scroll panel");
   const imageRect = image.getBoundingClientRect();
   const panelRect = panel.getBoundingClientRect();
@@ -126,6 +131,7 @@ export const Basic: Story = {
     const opener = canvas.getByRole("button", {
       name: "Open Dashboard screenshot",
     });
+
     await userEvent.click(opener);
     const dialog = await openDialog();
     await expect(dialog).toHaveAccessibleName("Dashboard screenshot");
@@ -153,9 +159,11 @@ export const Navigation: Story = {
       canvas.getByRole("button", { name: "Open Dashboard screenshot" }),
     );
     const dialog = await openDialog();
+
     const previous = within(dialog).getByRole("button", {
       name: "Previous image",
     });
+
     const next = within(dialog).getByRole("button", { name: "Next image" });
     await expect(previous).toHaveAttribute("aria-disabled", "true");
 
@@ -217,16 +225,21 @@ export const FocusAtRowEnd: Story = {
  *  searched, so one inserted twice counts once) until `stop`. */
 function watchAddedImages(root: Node) {
   const added = new Set<HTMLImageElement>();
+
   const observer = new MutationObserver((records) => {
     for (const record of records) {
       for (const node of record.addedNodes) {
         if (!(node instanceof Element)) continue;
+
         if (node instanceof HTMLImageElement) added.add(node);
+
         for (const image of node.querySelectorAll("img")) added.add(image);
       }
     }
   });
+
   observer.observe(root, { childList: true, subtree: true });
+
   return { added, stop: () => observer.disconnect() };
 }
 
@@ -246,13 +259,17 @@ export const ActualSize: Story = {
       canvas.getByRole("button", { name: "Open Dashboard screenshot" }),
     );
     const dialog = await openDialog();
+
     const toggle = await within(dialog).findByRole("button", {
       name: "Actual size",
     });
+
     images.stop();
+
     const image = within(dialog).getByRole("img", {
       name: "Dashboard screenshot",
     });
+
     await expect([...images.added]).toEqual([image]);
     await expect([...images.added][0]).toBe(image);
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -272,6 +289,7 @@ export const ActualSize: Story = {
     const imageButton = within(dialog).getByRole("button", {
       name: "Dashboard screenshot",
     });
+
     imageButton.focus();
     await userEvent.keyboard("{Enter}");
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
@@ -315,9 +333,11 @@ export const ZoomResetsPerSlide: Story = {
     await waitFor(() =>
       expect(dialog).toHaveAccessibleDescription(SCREENSHOT_LOCATOR),
     );
+
     const toggle = await within(dialog).findByRole("button", {
       name: "Actual size",
     });
+
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(
       within(dialog).getByRole("img", { name: "Dashboard screenshot" }),

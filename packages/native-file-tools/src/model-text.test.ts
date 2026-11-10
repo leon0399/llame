@@ -534,6 +534,7 @@ describe("read text cap notice", () => {
 
 describe("edit text", () => {
   const locator = "apps/web/app/(chat)/components/chat-message-row.tsx";
+
   // Lines 161-164 of the 562-line fixture file, and a five-line replacement
   // that splits the first case's call over three lines.
   const oldText = [
@@ -542,6 +543,7 @@ describe("edit text", () => {
     '    case "bash":',
     "      return <BashTool {...props} />;",
   ].join("\n");
+
   const newText = [
     '    case "web_search":',
     "      return (",
@@ -549,6 +551,7 @@ describe("edit text", () => {
     "      );",
     '    case "bash":',
   ].join("\n");
+
   // Lines 159-167 of the post-edit file: two live context lines, the five
   // replacement lines, and two more.
   const region = [
@@ -562,6 +565,7 @@ describe("edit text", () => {
     "166:       return <BashTool {...props} />;",
     '167:     case "edit":',
   ].join("\n");
+
   const header = `edited ${locator}: line 161, 4 -> 5 lines (563 lines total)`;
 
   function editResult(overrides: UnknownRecord = {}) {
@@ -792,6 +796,7 @@ describe("singular counts", () => {
       nextOffset: 1,
       lineCount: 2,
     });
+
     expect(renderReadText(result)).toBe(
       "src/app.ts: line 1 exceeds the result bound and was skipped\n[1 more line. Use src/app.ts:2- to continue]",
     );
@@ -816,6 +821,7 @@ describe("singular counts", () => {
       nextOffset: 1,
       entryCount: 2,
     });
+
     expect(text.split("\n").at(-1)).toBe(
       "[1 more entry. Use src:2- to continue]",
     );
@@ -830,6 +836,7 @@ describe("singular counts", () => {
         lineCount: 42,
       }),
     );
+
     expect(text.split("\n").at(-1)).toBe(
       "[1 more line not shown; this locator takes no line selector]",
     );
@@ -847,6 +854,7 @@ describe("singular counts", () => {
       lineCount: 1,
       display: { startLine: 1, oldText: "x", newText: "y" },
     });
+
     expect(text.split("\n")[0]).toBe(
       "edited a.txt: line 1, 1 -> 1 line (1 line total)",
     );
@@ -864,6 +872,7 @@ describe("singular counts", () => {
       lineCount: 3,
       display: { startLine: 1, oldText: "x\ny", newText: "z" },
     });
+
     expect(text.split("\n")[0]).toBe(
       "edited a.txt: line 1, 2 -> 1 line (3 lines total)",
     );

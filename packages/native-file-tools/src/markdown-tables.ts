@@ -73,7 +73,9 @@ const MAX_ROW_INDENT = 3;
 function measureLine(text: string): MeasuredLine {
   const body = expandTabs(stripTerminator(text));
   let indent = 0;
+
   while (body[indent] === " ") indent += 1;
+
   return {
     body,
     indent,
@@ -91,6 +93,7 @@ function rowCells(text: string, firstLine: boolean): Array<string> {
   let field = "";
   let escapes = 0;
   let pipes = 0;
+
   for (const char of body) {
     if (char === "|" && escapes % 2 === 0) {
       fields.push(field);
@@ -99,14 +102,19 @@ function rowCells(text: string, firstLine: boolean): Array<string> {
       pipes += 1;
       continue;
     }
+
     escapes = char === "\\" ? escapes + 1 : 0;
     field += char;
   }
+
   fields.push(field);
+
   if (pipes > 0) {
     if (BLANK_FIELD.test(fields[0] ?? "")) fields.shift();
+
     if (BLANK_FIELD.test(fields.at(-1) ?? "")) fields.pop();
   }
+
   return fields;
 }
 
@@ -116,9 +124,12 @@ function rowCells(text: string, firstLine: boolean): Array<string> {
  *  interrupts a paragraph. */
 function startsInterruptingBlock(measured: MeasuredLine): boolean {
   if (ATX.test(measured.content)) return true;
+
   if (fenceOpen(measured.content) !== undefined) return true;
+
   if (THEMATIC.test(measured.content)) return true;
   const html = htmlStartKind(measured.content, true);
+
   return html > 0 && html !== 7;
 }
 
@@ -126,10 +137,14 @@ function startsInterruptingBlock(measured: MeasuredLine): boolean {
  *  reading it as a body row. */
 function startsBlock(measured: MeasuredLine): boolean {
   if (measured.indent > MAX_ROW_INDENT) return true;
+
   if (measured.content.startsWith(">")) return true;
+
   if (listItemStart(measured.body, 0, measured.indent, false) !== undefined)
     return true;
+
   if (startsInterruptingBlock(measured)) return true;
+
   return htmlStartKind(measured.content, true) === 7;
 }
 
@@ -150,10 +165,12 @@ export class MarkdownRootTableTracker {
    *  the line is one of that table's body rows. */
   accept(line: MarkdownLine): RootTableHeaderPair | undefined {
     const measured = measureLine(line.text);
+
     const rootText =
       line.role === "content" &&
       line.rootParagraph === true &&
       measured.indent <= MAX_ROW_INDENT;
+
     if (this.table !== undefined) {
       if (
         line.role !== "heading" &&
@@ -164,20 +181,27 @@ export class MarkdownRootTableTracker {
           this.excerpt.first ??= line;
           this.excerpt.last = line;
         }
+
         return this.table;
       }
+
       this.table = undefined;
       this.excerpt = undefined;
       this.candidate = undefined;
       this.suppression = this.followingBlock(measured, rootText);
+
       return undefined;
     }
+
     const suppression = this.suppression;
+
     if (suppression !== undefined) {
       const next = this.followSuppression(suppression, measured);
       this.suppression = next;
+
       if (next !== undefined) return undefined;
     }
+
     return this.open(line, measured, rootText);
   }
 
@@ -190,6 +214,7 @@ export class MarkdownRootTableTracker {
   ): Suppression | undefined {
     if (measured.blank || !rootText) return undefined;
     const item = listItemStart(measured.body, 0, measured.indent, false);
+
     if (item !== undefined)
       return {
         kind: "list",
@@ -197,7 +222,9 @@ export class MarkdownRootTableTracker {
         lazy: measured.body.slice(item.offset).trim() !== "",
         afterBlank: false,
       };
+
     if (htmlStartKind(measured.content, true) === 7) return { kind: "html" };
+
     // A root paragraph line blocks a table only as a GFM-only list item or as a
     // type-7 HTML line: every other block start leaves the line non-root.
     return undefined;
@@ -211,9 +238,11 @@ export class MarkdownRootTableTracker {
   ): Suppression | undefined {
     if (suppression.kind === "html")
       return measured.blank ? undefined : suppression;
+
     if (measured.blank) return { ...suppression, afterBlank: true };
     const paragraphOpen = suppression.lazy && !suppression.afterBlank;
     const relativeIndent = measured.indent - suppression.required;
+
     if (relativeIndent >= 0)
       return relativeIndent > MAX_ROW_INDENT
         ? { ...suppression, lazy: paragraphOpen, afterBlank: false }
@@ -222,18 +251,24 @@ export class MarkdownRootTableTracker {
             lazy: !startsInterruptingBlock(measured),
             afterBlank: false,
           };
+
     // A thematic break ends the list; a line indented past a row's limit only
     // continues the open paragraph, since indented code cannot interrupt one.
     if (measured.indent <= MAX_ROW_INDENT && THEMATIC.test(measured.content))
       return undefined;
+
     if (measured.indent > MAX_ROW_INDENT && paragraphOpen) return suppression;
     const item = listItemStart(measured.body, 0, measured.indent, false);
+
     if (item !== undefined) {
       const lazy = measured.body.slice(item.offset).trim() !== "";
+
       return { kind: "list", required: item.required, lazy, afterBlank: false };
     }
+
     if (startsBlock(measured)) {
       if (htmlStartKind(measured.content, true) !== 7) return undefined;
+
       // A lone type-7 line cannot interrupt an open item paragraph, so it stays
       // in the item; with no paragraph open it starts a root HTML block, which
       // then runs to the next blank line.
@@ -241,7 +276,9 @@ export class MarkdownRootTableTracker {
         ? { ...suppression, lazy: false, afterBlank: false }
         : { kind: "html" };
     }
+
     if (suppression.afterBlank || !suppression.lazy) return undefined;
+
     return suppression;
   }
 
@@ -255,10 +292,13 @@ export class MarkdownRootTableTracker {
   ): RootTableHeaderPair | undefined {
     if (!rootText || startsBlock(measured)) {
       this.candidate = undefined;
+
       return undefined;
     }
+
     const cells = rowCells(line.text, line.line === 1);
     const candidate = this.candidate;
+
     if (
       candidate !== undefined &&
       cells.length > 0 &&
@@ -268,9 +308,12 @@ export class MarkdownRootTableTracker {
       this.table = { header: candidate.line, delimiter: line };
       this.excerpt = { header: candidate.line, delimiter: line };
       this.candidate = undefined;
+
       return undefined;
     }
+
     this.candidate = { line, cells: cells.length };
+
     return undefined;
   }
 }

@@ -128,10 +128,12 @@ describe('createKnowledgeInstructionProbe', () => {
 
   it('stops on a cancelled Run instead of reporting the entry missing', async () => {
     const controller = new AbortController();
+
     const scope = await probeOver(
       new KnowledgeFilesystemAdapter(bindingOf(SPACE)),
       controller.signal,
     )(SPACE);
+
     controller.abort();
 
     await expect(scope?.probe('CLAUDE.md')).rejects.toMatchObject({
@@ -141,6 +143,7 @@ describe('createKnowledgeInstructionProbe', () => {
 
   it('resolves no scope for a Space whose own directory is not inside it', async () => {
     const real = new KnowledgeFilesystemAdapter(bindingOf(SPACE));
+
     const outside = (hostPath: string) =>
       Promise.resolve(hostPath !== path.join(root, SPACE));
 
@@ -152,27 +155,33 @@ describe('createKnowledgeInstructionProbe', () => {
       resolveHostPath: (relativePath, options) =>
         real.resolveHostPath(relativePath, options),
     })(SPACE);
+
     expect(scope).toBeUndefined();
   });
 
   it('asks the trusted resolver with the Space root, a may-be-missing path, and the Run signal', async () => {
     const real = new KnowledgeFilesystemAdapter(bindingOf(SPACE));
+
     const calls: Array<{
       readonly relativePath: string | undefined;
       readonly options: unknown;
     }> = [];
+
     const containment: Array<AbortSignal | undefined> = [];
     const controller = new AbortController();
     writeFileSync(path.join(root, SPACE, 'CLAUDE.md'), 'space rules\n');
+
     const scope = await probeOver(
       {
         search: (query, limit, options) => real.search(query, limit, options),
         isInsideSpace: (hostPath, signal) => {
           containment.push(signal);
+
           return real.isInsideSpace(hostPath, signal);
         },
         resolveHostPath: (relativePath, options) => {
           calls.push({ relativePath, options });
+
           return real.resolveHostPath(relativePath, options);
         },
       },
@@ -198,12 +207,14 @@ describe('createKnowledgeInstructionProbe', () => {
     // walk additionally asks for a path that may be absent rather than as an
     // error the walk has to catch.
     expect(calls[0]?.options).toEqual({ signal: controller.signal });
+
     for (const call of calls.slice(1)) {
       expect(call.options).toEqual({
         allowMissing: true,
         signal: controller.signal,
       });
     }
+
     // A cancelled Run reaches every call, so the walk stops where the
     // producer's own abort check would.
     expect(containment.every((signal) => signal === controller.signal)).toBe(
@@ -225,12 +236,14 @@ describe('createKnowledgeInstructionProbe', () => {
     const scope = await probeOver(
       new KnowledgeFilesystemAdapter(bindingOf(SPACE)),
     )(SPACE);
+
     // A socket is a real entry the reader could never open as a file: it is
     // skipped exactly like a device node, never selected as a candidate.
     const server = createServer();
     await new Promise<void>((resolve) =>
       server.listen(path.join(root, SPACE, 'socket'), resolve),
     );
+
     try {
       expect(await scope?.probe('socket')).toEqual({ kind: 'missing' });
     } finally {
@@ -243,6 +256,7 @@ describe('createKnowledgeInstructionProbe', () => {
     writeFileSync(path.join(root, SPACE, 'CLAUDE.md'), 'space rules\n');
     mkdirSync(path.join(root, SPACE, 'notes'), { recursive: true });
     writeFileSync(path.join(root, SPACE, 'notes/AGENTS.md'), 'note rules\n');
+
     const scope = await probeOver({
       search: (query, limit, options) => honest.search(query, limit, options),
       isInsideSpace: (hostPath) =>

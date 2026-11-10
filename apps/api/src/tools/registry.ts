@@ -75,26 +75,33 @@ export function buildRegistry(
   tools: ReadonlyArray<ToolRegistrationCandidate>,
 ): ReadonlyMap<string, Tool> {
   const registry = new Map<string, Tool>();
+
   for (const tool of tools) {
     const id: unknown = tool.id;
+
     if (isString(id) && id.startsWith('mcp__')) {
       throw new Error(
         `Tool registration failed: id "${id}" uses the reserved mcp__ namespace.`,
       );
     }
+
     if (!isToolId(id)) {
       throw new Error(`Tool registration failed: invalid id "${String(id)}".`);
     }
+
     if (!isClassifiedTool(tool)) {
       throw new Error(
         `Tool registration failed: "${id}" has no classification (SPEC §13.5 requires one).`,
       );
     }
+
     if (registry.has(id)) {
       throw new Error(`Tool registration failed: duplicate id "${id}".`);
     }
+
     registry.set(id, tool);
   }
+
   return registry;
 }
 
@@ -134,11 +141,14 @@ export function resolveAdvertisedTools(
   candidates: Iterable<Tool> = TOOL_REGISTRY.values(),
 ): Array<Tool> {
   const allowedRules = Array.isArray(allowed) ? allowed : [...allowed];
+
   return [...candidates].filter((tool) => {
     const mcp = tool.id.startsWith('mcp__');
+
     const sourceEligible = mcp
       ? tool.classification === 'unverified'
       : tool.classification === 'read_only' || isHostCapabilityTool(tool);
+
     return (
       sourceEligible &&
       (mcp

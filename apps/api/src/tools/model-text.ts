@@ -96,6 +96,7 @@ type ToolResultRendering =
 function normalizedResult(result: ToolResult): ToolResult {
   if (result.status !== 'error') return result;
   const { rejectedUrl } = result;
+
   return {
     status: 'error',
     type: result.type,
@@ -122,15 +123,19 @@ interface ModelView {
  */
 function modelView(toolName: string, result: ToolResult): ModelView {
   const normalized = normalizedResult(result);
+
   if (normalized.status === 'success' && isTextResultTool(toolName)) {
     const text = TEXT_RESULT_RENDERERS[toolName](normalized);
+
     if (text !== undefined)
       return {
         text: neutralizeReservedDelimiters(text),
         escapedAsText: true,
       };
   }
+
   const visible = modelVisibleResult(normalized);
+
   // The deep neutralizer escapes one key and one value at a time, so an object
   // holding both a key and that key's escaped spelling would keep only the
   // later member. Escaping the serialized JSON as one text cannot collide, and
@@ -141,6 +146,7 @@ function modelView(toolName: string, result: ToolResult): ModelView {
       escapedAsText: true,
     };
   }
+
   return { text: serializeNativeModelOutput(visible), escapedAsText: false };
 }
 
@@ -189,10 +195,13 @@ export function renderToolResultForModel(
   result: ToolResult,
 ): ToolResultRendering {
   const { text, escapedAsText } = modelView(toolName, result);
+
   if (isTextResultTool(toolName)) return { kind: 'text', text };
+
   // Escaping the text as a whole leaves two members with the same spelling,
   // and a JSON value would keep one; its text keeps both values visible.
   if (escapedAsText) return { kind: 'text', text };
+
   // The SDK serializes a JSON output with `JSON.stringify`, so the value is the
   // rendering's own round trip: an undefined member, a `toJSON` method, or a
   // bare payload becomes exactly the JSON text the model would have read.
@@ -220,10 +229,13 @@ export function renderToolResultForSpill(
   result: ToolResult,
 ): SpillRendering {
   const { text, escapedAsText } = modelView(toolName, result);
+
   if (isTextResultTool(toolName) || escapedAsText) {
     return { text, contentType: 'text/plain', content: text };
   }
+
   const value: unknown = JSON.parse(text);
+
   return {
     text,
     contentType: 'application/json',

@@ -45,6 +45,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -84,6 +85,7 @@ describe("useCreateProject", () => {
     fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useCreateProject(), {
       wrapper: wrapperWithClient(queryClient),
     });
@@ -149,6 +151,7 @@ describe("useUpdateProject", () => {
     fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useUpdateProject(), {
       wrapper: wrapperWithClient(queryClient),
     });
@@ -170,6 +173,7 @@ describe("useSetProjectArchive", () => {
     fetchMock.mockResolvedValue(jsonResponse({ id: "p1" }));
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useSetProjectArchive(), {
       wrapper: wrapperWithClient(queryClient),
     });
@@ -229,6 +233,7 @@ describe("useDeleteProject", () => {
     fetchMock.mockResolvedValue(emptyResponse());
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useDeleteProject(), {
       wrapper: wrapperWithClient(queryClient),
     });

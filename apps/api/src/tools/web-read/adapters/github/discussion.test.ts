@@ -16,6 +16,7 @@ import type { WebAdapterOutcome } from '../contract';
 
 const SOURCE = 'https://github.com/acme/project/discussions/5';
 const GRAPHQL_URL = `${API_ORIGIN}/graphql`;
+
 const SENT_BODY = z.object({
   query: z.string(),
   variables: z.object({
@@ -85,19 +86,23 @@ function failure(
     message: `HTTP ${httpStatus}`,
     httpStatus,
   };
+
   return rateLimit === undefined ? result : { ...result, rateLimit };
 }
 
 async function readDiscussion(reply: Reply, token = 'secret-value') {
   const run = scriptedIo(new Map([[GRAPHQL_URL, [reply]]]));
+
   const outcome = await createGithubAdapter(config(token), {
     apiOrigin: API_ORIGIN,
   }).read(new URL(SOURCE), run.io);
+
   return { outcome, requests: run.requests };
 }
 
 function contentOf(outcome: WebAdapterOutcome): string {
   if (outcome.kind !== 'rendered') throw new Error('expected a render');
+
   return outcome.content;
 }
 
@@ -126,6 +131,7 @@ describe('GitHub discussion adapter', () => {
 
   it('renders the answer, body, comments, and replies in the issue layout', async () => {
     const answer = authored('bob', 7, 'Use X.');
+
     const { outcome } = await readDiscussion(
       data(
         discussion({
@@ -220,6 +226,7 @@ describe('GitHub discussion adapter', () => {
         }),
       ),
     );
+
     const reopened = await readDiscussion(
       data(discussion({ stateReason: 'REOPENED', labels: null })),
     );
@@ -290,6 +297,7 @@ describe('GitHub discussion adapter', () => {
         `replies truncated: the first 1 of 140 under ${SOURCE}#discussioncomment-7`,
       ],
     });
+
     const whole = await readDiscussion(
       data(
         discussion({
@@ -297,6 +305,7 @@ describe('GitHub discussion adapter', () => {
         }),
       ),
     );
+
     expect(whole.outcome).toMatchObject({ kind: 'rendered', notes: [] });
   });
 
@@ -374,6 +383,7 @@ describe('GitHub discussion adapter', () => {
       type: 'aborted',
       message: 'The web read was cancelled.',
     };
+
     await expect(readDiscussion(aborted)).resolves.toMatchObject({
       outcome: { kind: 'failed', failure: 'transport', fatal: aborted },
     });

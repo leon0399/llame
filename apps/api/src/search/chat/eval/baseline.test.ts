@@ -22,35 +22,45 @@ const BASELINE_MD = readFileSync(join(__dirname, 'BASELINE.md'), 'utf8');
 
 function extractSection(markdown: string, heading: string): string {
   const start = markdown.indexOf(heading);
+
   if (start === -1) {
     throw new Error(`BASELINE.md is missing the "${heading}" section`);
   }
+
   const nextHeading = markdown.indexOf('\n## ', start + heading.length);
+
   return markdown.slice(start, nextHeading === -1 ? undefined : nextHeading);
 }
 
 const overallSection = extractSection(BASELINE_MD, '## Overall');
+
 const overallQueriesMatch = /\|\s*queries\s*\|\s*(\d+)\s*\|/.exec(
   overallSection,
 );
+
 if (!overallQueriesMatch) {
   throw new Error(
     'BASELINE.md: could not find a "queries" row in the Overall table',
   );
 }
+
 const recordedOverallQueries = Number(overallQueriesMatch[1]);
 
 const byCategorySection = extractSection(BASELINE_MD, '## By category');
 const recordedCategoryCounts = new Map<string, number>();
+
 for (const match of byCategorySection.matchAll(
   /^\|\s*([a-z][a-z-]*)\s*\|\s*(\d+)\s*\|/gm,
 )) {
   const [, category, n] = match;
+
   if (category === undefined || n === undefined || category === 'category') {
     continue;
   }
+
   recordedCategoryCounts.set(category, Number(n));
 }
+
 if (recordedCategoryCounts.size === 0) {
   throw new Error(
     'BASELINE.md: could not parse any rows from the By category table',
@@ -58,6 +68,7 @@ if (recordedCategoryCounts.size === 0) {
 }
 
 const actualCategoryCounts = new Map<string, number>();
+
 for (const q of EVAL_QUERIES) {
   actualCategoryCounts.set(
     q.category,
@@ -77,12 +88,14 @@ describe('BASELINE.md matches dataset.ts (counts only, not scores)', () => {
             `queries: BASELINE.md says ${recordedOverallQueries}, ` +
               `dataset.ts has ${EVAL_QUERIES.length}`,
           ];
+
     expect(violations).toEqual([]);
   });
 
   it('has a By-category row for every category in EVAL_QUERIES, and vice versa', () => {
     const recorded = new Set(recordedCategoryCounts.keys());
     const actual = new Set(actualCategoryCounts.keys());
+
     const violations = [
       ...[...recorded].flatMap((c) =>
         actual.has(c) ? [] : [`${c}: in BASELINE.md but not in dataset.ts`],
@@ -91,13 +104,16 @@ describe('BASELINE.md matches dataset.ts (counts only, not scores)', () => {
         recorded.has(c) ? [] : [`${c}: in dataset.ts but not in BASELINE.md`],
       ),
     ];
+
     expect(violations).toEqual([]);
   });
 
   it('records the same per-category query count as EVAL_QUERIES', () => {
     const violations: Array<string> = [];
+
     for (const [category, actualN] of actualCategoryCounts) {
       const recordedN = recordedCategoryCounts.get(category);
+
       if (recordedN !== actualN) {
         violations.push(
           `${category}: BASELINE.md says n=${recordedN ?? '(missing)'}, ` +
@@ -105,6 +121,7 @@ describe('BASELINE.md matches dataset.ts (counts only, not scores)', () => {
         );
       }
     }
+
     // Re-run RUN_SEARCH_EVAL=1 and update BASELINE.md's By category table if
     // this fails.
     expect(violations).toEqual([]);

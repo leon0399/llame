@@ -30,6 +30,7 @@ function isRootsDocument(value: unknown): value is RootsDocument {
   if (typeof value !== "object" || value === null || !("roots" in value))
     return false;
   const roots = value.roots;
+
   return (
     Array.isArray(roots) &&
     roots.every((root) => isString(root) && isAbsolute(root))
@@ -43,22 +44,27 @@ function isRootsDocument(value: unknown): value is RootsDocument {
  */
 export function readRoots(file: string): Array<string> {
   let text: string;
+
   try {
     text = readFileSync(file, "utf8");
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") return [];
     throw new RootsFileError(`The roots file ${file} could not be read.`);
   }
+
   let document: unknown;
+
   try {
     document = JSON.parse(text);
   } catch {
     throw new RootsFileError(`The roots file ${file} is not valid JSON.`);
   }
+
   if (!isRootsDocument(document))
     throw new RootsFileError(
       `The roots file ${file} must hold {"roots": ["/absolute/path", ...]}.`,
     );
+
   return [...document.roots];
 }
 
@@ -68,6 +74,7 @@ function writeRoots(file: string, roots: ReadonlyArray<string>): void {
   writeFileSync(temporary, `${JSON.stringify({ roots }, null, 2)}\n`, {
     mode: 0o600,
   });
+
   try {
     renameSync(temporary, file);
   } catch (error) {
@@ -76,6 +83,7 @@ function writeRoots(file: string, roots: ReadonlyArray<string>): void {
     } catch {
       // The temporary is already gone; the rename failure is the report.
     }
+
     throw error;
   }
 }
@@ -87,13 +95,17 @@ function writeRoots(file: string, roots: ReadonlyArray<string>): void {
  */
 function canonicalDirectory(directory: string, required = true): string {
   const literal = resolve(directory);
+
   try {
     const canonical = realpathSync(literal);
+
     if (required && !statSync(canonical).isDirectory())
       throw new RootsFileError(`Not a directory: ${directory}`);
+
     return canonical;
   } catch (error) {
     if (error instanceof RootsFileError) throw error;
+
     if (!required) return literal;
     throw new RootsFileError(`Directory does not exist: ${directory}`);
   }
@@ -103,7 +115,9 @@ function canonicalDirectory(directory: string, required = true): string {
 export function addRoot(file: string, directory: string): string {
   const canonical = canonicalDirectory(directory);
   const roots = readRoots(file);
+
   if (!roots.includes(canonical)) writeRoots(file, [...roots, canonical]);
+
   return canonical;
 }
 
@@ -112,8 +126,10 @@ export function removeRoot(file: string, directory: string): string {
   const canonical = canonicalDirectory(directory, false);
   const roots = readRoots(file);
   const remaining = roots.filter((root) => root !== canonical);
+
   if (remaining.length === roots.length)
     throw new RootsFileError(`Root is not registered: ${canonical}`);
   writeRoots(file, remaining);
+
   return canonical;
 }

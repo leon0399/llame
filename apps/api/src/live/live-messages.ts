@@ -75,6 +75,7 @@ function isRunStatus(value: string | undefined): value is RunStatus {
 /** Field reader over a parsed payload; `undefined` unless it is a non-empty string. */
 function str(record: UnknownRecord, key: string): string | undefined {
   const value = record[key];
+
   return isString(value) && value !== '' ? value : undefined;
 }
 
@@ -87,20 +88,26 @@ export function parseChangeNotification(
   raw: string,
 ): ChangeNotification | undefined {
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(raw);
   } catch {
     return undefined;
   }
+
   if (!isRecord(parsed)) return undefined;
+
   if (parsed['k'] === 'machine') {
     const machine = str(parsed, 'machine');
     const deleted = parsed['deleted'];
+
     return machine && isBoolean(deleted)
       ? { k: 'machine', machine, deleted }
       : undefined;
   }
+
   const owner = str(parsed, 'owner');
+
   return owner ? parseKind(parsed, owner) : undefined;
 }
 
@@ -111,6 +118,7 @@ function parseKind(
   const deleted = parsed['deleted'];
   const chat = str(parsed, 'chat');
   const run = str(parsed, 'run');
+
   switch (parsed['k']) {
     case 'chat':
       return chat && isBoolean(deleted)
@@ -120,34 +128,42 @@ function parseKind(
       return chat ? { k: 'chat_deliveries', owner, chat } : undefined;
     case 'project': {
       const project = str(parsed, 'project');
+
       return project && isBoolean(deleted)
         ? { k: 'project', owner, project, deleted }
         : undefined;
     }
+
     case 'pin':
       return { k: 'pin', owner };
     case 'run': {
       const status = str(parsed, 'status');
+
       return run && isRunStatus(status)
         ? { k: 'run', owner, run, status }
         : undefined;
     }
+
     case 'run_event': {
       const type = str(parsed, 'type');
+
       return chat && run && type
         ? { k: 'run_event', owner, chat, run, type }
         : undefined;
     }
+
     default:
       return undefined;
   }
 }
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(TERMINAL_RUN_STATUSES);
+
 /** `run.<status>` events that end a Run. */
 const TERMINAL_EVENTS: ReadonlySet<string> = new Set(
   TERMINAL_RUN_STATUSES.map((status) => `run.${status}`),
 );
+
 const FINISHED_CAP = 1024;
 
 /** Phase implied by one run event type; `undefined` leaves the phase unchanged. */
@@ -183,22 +199,30 @@ export class RunProgressTracker {
   apply(n: ChangeNotification): RunProgressMessage | undefined {
     if (n.k === 'run' && TERMINAL.has(n.status)) {
       this.finish(n.run);
+
       return undefined;
     }
+
     if (n.k !== 'run_event') return undefined;
+
     if (TERMINAL_EVENTS.has(n.type)) {
       this.finish(n.run);
+
       return undefined;
     }
+
     if (this.finished.has(n.run)) return undefined;
     const phase = phaseOfEvent(n.type);
     const stepped = n.type === 'model.requested' ? 1 : 0;
+
     if (!phase && !stepped) return undefined;
     const previous = this.runs.get(n.run);
+
     const next: RunProgress = {
       phase: phase ?? previous?.phase ?? 'queued',
       step: (previous?.step ?? 0) + stepped,
     };
+
     if (
       previous !== undefined &&
       previous.phase === next.phase &&
@@ -206,7 +230,9 @@ export class RunProgressTracker {
     ) {
       return undefined;
     }
+
     this.runs.set(n.run, next);
+
     return {
       type: 'run.progress',
       runId: n.run,
@@ -218,6 +244,7 @@ export class RunProgressTracker {
 
   private finish(runId: string): void {
     this.runs.delete(runId);
+
     // Bounded: past the cap a very late straggler can at worst emit one stale
     // progress message, which a client ignores for a finished Run.
     if (this.finished.size >= FINISHED_CAP) this.finished.clear();
@@ -279,6 +306,7 @@ function chatJob(owner: string, chatId: string): RecordJob {
     key: `chat:${chatId}`,
     load: async (loader) => {
       const chat = await loader.chat(owner, chatId);
+
       return chat && { type: 'chat.upserted', chat };
     },
   };
@@ -289,6 +317,7 @@ function machineJob(name: string): RecordJob {
     key: `machine:${name}`,
     load: async (loader) => {
       const machine = await loader.machine(name);
+
       return machine && { type: 'machine.upserted', machine };
     },
   };
@@ -299,6 +328,7 @@ function projectJob(owner: string, projectId: string): RecordJob {
     key: `project:${projectId}`,
     load: async (loader) => {
       const project = await loader.project(owner, projectId);
+
       return project && { type: 'project.upserted', project };
     },
   };
@@ -309,6 +339,7 @@ function runJob(owner: string, runId: string): RecordJob {
     key: `run:${runId}`,
     load: async (loader) => {
       const run = await loader.run(owner, runId);
+
       return run && { type: 'run.updated', run };
     },
   };

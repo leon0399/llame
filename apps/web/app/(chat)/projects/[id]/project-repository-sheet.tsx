@@ -49,6 +49,7 @@ function SheetSection({
   children: ReactNode;
 }) {
   const headingId = useId();
+
   return (
     <section aria-labelledby={headingId} className="space-y-1 px-4 py-3">
       <div className="flex h-8 items-center justify-between gap-2">
@@ -102,6 +103,7 @@ function PropertyRow({
 function useLinkSettings(projectId: string, link: ProjectRepositoryLink) {
   const update = useUpdateProjectRepositoryLink();
   const [failure, setFailure] = useState<string | null>(null);
+
   const save = (patch: {
     alias?: string;
     isPrimary?: boolean;
@@ -116,6 +118,7 @@ function useLinkSettings(projectId: string, link: ProjectRepositoryLink) {
       },
     );
   };
+
   return { save, failure, pending: update.isPending };
 }
 
@@ -129,11 +132,15 @@ function NameField({
   onCommit: (alias: string) => void;
 }) {
   const [value, setValue] = useState(alias);
+
   const commit = () => {
     const next = value.trim();
+
     if (next === "") return setValue(alias);
+
     if (next !== alias) onCommit(next);
   };
+
   return (
     <Input
       id={id}
@@ -199,6 +206,7 @@ function PrimaryRow({
   onChange: (isPrimary: boolean) => void;
 }) {
   const id = useId();
+
   return (
     <PropertyRow label="Primary" htmlFor={id}>
       <span className="flex h-8 items-center">
@@ -223,6 +231,7 @@ function IsolationRow({
   onChange: (isolation: IsolationPolicy) => void;
 }) {
   const id = useId();
+
   return (
     <PropertyRow
       label="Worktrees"
@@ -251,6 +260,7 @@ function SettingsSection({
 }) {
   const settings = useLinkSettings(projectId, link);
   const nameId = useId();
+
   return (
     <SheetSection title="In this project">
       <PropertyRow label="Name" htmlFor={nameId}>
@@ -292,6 +302,7 @@ function ofKind(
   kind: CheckoutResponse["kind"],
 ): CheckoutsRead {
   if (read.status !== "loaded") return read;
+
   return {
     status: "loaded",
     rows: read.rows.filter((checkout) => checkout.kind === kind),
@@ -313,6 +324,7 @@ function RowList({
   draft?: ReactNode;
 }) {
   if (read.status === "loading") return <Skeleton className="h-10 w-full" />;
+
   if (read.status === "error") {
     return (
       <p className="py-1 text-sm text-muted-foreground">
@@ -320,9 +332,11 @@ function RowList({
       </p>
     );
   }
+
   if (read.rows.length === 0 && draft === undefined) {
     return <p className="py-1 text-sm text-muted-foreground">{empty}</p>;
   }
+
   return (
     <ul className="-mx-2 flex flex-col gap-1">
       {read.rows.map(row)}
@@ -351,6 +365,7 @@ function CheckoutsSection({
   checkouts: CheckoutsRead;
 }) {
   const [drafting, setDrafting] = useState(false);
+
   return (
     <SheetSection
       title="Checkouts"
@@ -422,6 +437,7 @@ export function RepositorySheet({
   const { projectId, link, checkouts } = props;
   // Focused on open instead of the first control, whose tooltip would open.
   const body = useRef<HTMLDivElement>(null);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent

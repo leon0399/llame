@@ -36,6 +36,7 @@ describeIfDb('git context items — cross-tenant isolation', () => {
       await tx.execute(
         dsql`select set_config('app.current_user_id', ${userId}, true)`,
       );
+
       return fn(tx);
     });
 
@@ -61,10 +62,12 @@ describeIfDb('git context items — cross-tenant isolation', () => {
   // Scenario: Another owner cannot read git items
   it('owner B reads no git item of owner A, and told state follows the rows read', async () => {
     const chatId = crypto.randomUUID();
+
     const item = createGitItem({
       runId: crypto.randomUUID(),
       observation: OBSERVATION,
     });
+
     await asUser(userAId, async (tx) => {
       await tx.execute(
         dsql`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Git Chat')`,
@@ -74,10 +77,12 @@ describeIfDb('git context items — cross-tenant isolation', () => {
           VALUES (${chatId}, 1, 'user', ${JSON.stringify([item])}::jsonb)`,
       );
     });
+
     try {
       const own = await asUser(userAId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userAId),
       );
+
       const foreign = await asUser(userBId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userBId),
       );
@@ -94,6 +99,7 @@ describeIfDb('git context items — cross-tenant isolation', () => {
       const raw = await asUser(userBId, (tx) =>
         tx.execute(dsql`SELECT id FROM messages WHERE chat_id = ${chatId}`),
       );
+
       expect(raw).toHaveLength(0);
     } finally {
       await asUser(userAId, (tx) =>

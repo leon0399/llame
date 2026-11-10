@@ -55,14 +55,17 @@ export function refuseUnsearchableKnowledgeScope(
   const separator = rest.indexOf('/');
   const spaceId = separator < 0 ? rest : rest.slice(0, separator);
   const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
+
   if (hasGlobOperator(spaceId)) {
     return invalidPathResult(
       'A Knowledge Space identifier cannot hold a glob.',
     );
   }
+
   // A colon is path text here: grep parses no read selector.
   if (rawPath.includes(':')) return selectorColonResult('kb');
   const split = splitGrepScope(rawPath);
+
   return 'error' in split ? unsupportedGlobResult(split.operator) : undefined;
 }
 
@@ -74,14 +77,17 @@ export async function resolveKnowledgeScope(
 ): Promise<ScopeOutcome> {
   if (rest.length === 0) return resolveEverySpace(context, index, admission);
   const refused = refuseUnsearchableKnowledgeScope(rest);
+
   if (refused !== undefined) return { result: refused };
   const separator = rest.indexOf('/');
   const spaceId = separator < 0 ? rest : rest.slice(0, separator);
   const rawPath = separator < 0 ? '' : rest.slice(separator + 1);
+
   // `read` refuses a Space that is not a current id of the owner, and so does
   // this: another owner's Space is indistinguishable from an absent one.
   if (!isKnowledgeSpaceId(spaceId))
     return { result: knowledgeNotFoundResult() };
+
   return resolveKnowledgeSpace({ context, spaceId, rawPath, index, admission });
 }
 
@@ -91,11 +97,15 @@ async function resolveEverySpace(
   admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
   const spaces = await listSpaces(context);
+
   if ('result' in spaces) return spaces;
+
   if (spaces.ids.length === 0) {
     return { result: knowledgeNotConfiguredResult() };
   }
+
   const scopes: Array<GrepScope> = [];
+
   for (const spaceId of spaces.ids) {
     const outcome = await resolveKnowledgeSpace({
       context,
@@ -104,9 +114,11 @@ async function resolveEverySpace(
       index,
       admission,
     });
+
     if ('result' in outcome || 'machine' in outcome) return outcome;
     scopes.push(...outcome.scopes);
   }
+
   return { scopes };
 }
 
@@ -117,13 +129,17 @@ async function listSpaces(
   { readonly ids: ReadonlyArray<string> } | { readonly result: GrepToolError }
 > {
   const resolver = context.knowledgeResolver;
+
   if (resolver === undefined) return { result: knowledgeUnavailableResult() };
   const ids: Array<string> = [];
+
   try {
     let after: KnowledgeSpaceCursor | undefined;
+
     while (true) {
       const page = await resolver.listForOwnerPage(context.userId, after);
       ids.push(...page.spaces.map((space) => space.id));
+
       if (page.nextCursor === undefined) break;
       after = page.nextCursor;
     }
@@ -134,11 +150,14 @@ async function listSpaces(
     ) {
       throw error;
     }
+
     return { result: knowledgeUnavailableResult() };
   }
+
   ids.sort((left, right) =>
     Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')),
   );
+
   return { ids };
 }
 
@@ -155,16 +174,21 @@ async function resolveKnowledgeSpace(
 ): Promise<ScopeOutcome> {
   const { context, spaceId, rawPath, index, admission } = input;
   const parsed = splitScopePath(rawPath, isKnowledgePath);
+
   if ('status' in parsed) return { result: parsed };
 
   const access = await resolveKnowledgeSpaceAccess(context, spaceId);
+
   if ('status' in access) {
     if (!isGrepToolError(access)) {
       throw new Error('A Knowledge access refusal must be an error result.');
     }
+
     return { result: access };
   }
+
   const binding = access.binding;
+
   return buildScope({
     index,
     locatorFor: knowledgeLocatorFor(spaceId, parsed.prefixPath),
@@ -180,8 +204,10 @@ async function resolveKnowledgeSpace(
 
 function isKnowledgePath(relativePath: string): boolean {
   if (relativePath.length === 0) return true;
+
   try {
     validatePath(relativePath);
+
     return true;
   } catch {
     return false;
@@ -191,6 +217,7 @@ function isKnowledgePath(relativePath: string): boolean {
 function knowledgeLocatorFor(spaceId: string, prefixPath: string) {
   return (rel: string) => {
     const relativePath = joinedPath(prefixPath, rel);
+
     return formatKnowledgeLocator(
       relativePath.length === 0
         ? { knowledgeSpaceId: spaceId }

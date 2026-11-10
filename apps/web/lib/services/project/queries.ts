@@ -48,6 +48,7 @@ export function projectListFiltersFromKey(
   queryKey: QueryKey,
 ): ProjectListFilters | undefined {
   if (queryKey[0] !== "projects" || queryKey[1] !== "list") return undefined;
+
   return projectListFiltersSchema.safeParse(queryKey[2]).data ?? {};
 }
 
@@ -74,6 +75,7 @@ export function useProjectById(id: string | undefined, enabled = true) {
     { archived: "with" },
     enabled && id !== undefined,
   );
+
   return {
     projects,
     isLoading,

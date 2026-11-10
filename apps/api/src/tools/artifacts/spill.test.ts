@@ -66,6 +66,7 @@ function noticeOf(result: ToolResult): string {
   if (result.status !== 'success' || !isString(result.truncationNotice)) {
     throw new Error(`Expected a capped result, got ${JSON.stringify(result)}`);
   }
+
   return result.truncationNotice;
 }
 
@@ -107,12 +108,14 @@ function hostTmpdir(): string {
   const root = mkdtempSync(join(tmpdir(), 'head-spill-host-'));
   hostRoots.push(root);
   vi.stubEnv('TMPDIR', root);
+
   return root;
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+
   for (const root of hostRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -127,9 +130,11 @@ describe('capHeadResult', () => {
     );
 
     expect(result).toMatchObject({ status: 'success', truncated: true });
+
     if (result.status !== 'success' || !isString(result.output)) {
       throw new Error('Expected a capped success result.');
     }
+
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
       RESULT_TRUNCATE_CHARS,
     );
@@ -141,6 +146,7 @@ describe('capHeadResult', () => {
     spyStorage(4);
     const hostRoot = mkdtempSync(join(tmpdir(), 'head-spill-host-'));
     vi.stubEnv('TMPDIR', hostRoot);
+
     try {
       const result = await capHeadResult(
         context({ artifactHostFiles: true }),
@@ -163,6 +169,7 @@ describe('capHeadResult', () => {
 
   it('does not cap a result that fits', async () => {
     const storage = spyStorage();
+
     const result = await capHeadResult(context(), TOOL, {
       status: 'success',
       output: 'fits',
@@ -186,6 +193,7 @@ describe('capHeadResult', () => {
       }),
     );
     const stored = storage.insertParts.mock.calls[0]?.[1][0];
+
     if (stored === undefined) throw new Error('Expected a stored part.');
     expect(stored.contentType).toBe('application/json');
     // The part holds the whole rendering, pretty-printed, not the cut result.
@@ -199,6 +207,7 @@ describe('capHeadResult', () => {
 
   it('does not store a rendering above the byte bound', async () => {
     const storage = spyStorage();
+
     const result = await capHeadResult(
       context({ artifactMaxBytes: 131_072 }),
       TOOL,
@@ -224,6 +233,7 @@ describe('capHeadResult', () => {
 
   it('stores nothing when the Run cannot read artifacts', async () => {
     const storage = spyStorage();
+
     const result = await capHeadResult(
       context({ artifactReadable: false, permissionPolicy: undefined }),
       TOOL,
@@ -302,6 +312,7 @@ describe('capHeadResult', () => {
 
   it('stores nothing outside a Run', async () => {
     const storage = spyStorage();
+
     const result = await capHeadResult(
       context({ runId: undefined }),
       TOOL,
@@ -316,6 +327,7 @@ describe('capHeadResult', () => {
   it('stores a text rendering as rendered', async () => {
     const storage = spyStorage(4);
     const body = 'passage\n'.repeat(3000);
+
     const result = await capHeadResult(context(), 'read', {
       status: 'success',
       kind: 'file',
@@ -325,6 +337,7 @@ describe('capHeadResult', () => {
     });
 
     const stored = storage.insertParts.mock.calls[0]?.[1][0];
+
     if (stored === undefined) throw new Error('Expected a stored part.');
     expect(stored.contentType).toBe('text/plain');
     const text = stored.content.toString('utf8');
@@ -336,11 +349,13 @@ describe('capHeadResult', () => {
 
   it('never spills an error result', async () => {
     const storage = spyStorage();
+
     const errorResult: ToolResult = {
       status: 'error',
       type: 'command_failed',
       message: 'x'.repeat(20_000),
     };
+
     const result = await capHeadResult(context(), 'bash', errorResult);
 
     expect(result).toBe(errorResult);
@@ -349,6 +364,7 @@ describe('capHeadResult', () => {
 
   it('does not advertise a locator the read group refuses after allocation', async () => {
     const storage = spyStorage(4);
+
     const result = await capHeadResult(
       context({
         permissionPolicy: compileToolPermissionMap(
@@ -375,6 +391,7 @@ describe('capHeadResult', () => {
   it('keeps a rendering exactly at the cap inline', async () => {
     const storage = spyStorage();
     const framing = JSON.stringify({ status: 'success', output: '' }).length;
+
     const result = await capHeadResult(context(), TOOL, {
       status: 'success',
       output: 'x'.repeat(RESULT_TRUNCATE_CHARS - framing),
@@ -395,11 +412,13 @@ describe('capHeadResult', () => {
         }),
     );
     const controller = new AbortController();
+
     const pending = capHeadResult(
       context({ abortSignal: controller.signal }),
       TOOL,
       hugeResult(),
     );
+
     controller.abort();
     const result = await pending;
 
@@ -416,6 +435,7 @@ describe('capHeadResult', () => {
       new Error('refused'),
     );
     const controller = new AbortController();
+
     const result = await capHeadResult(
       context({ abortSignal: controller.signal }),
       TOOL,
@@ -429,6 +449,7 @@ describe('capHeadResult', () => {
   it('removes the abort listener once the write settles', async () => {
     spyStorage(4);
     const controller = new AbortController();
+
     const result = await capHeadResult(
       context({ abortSignal: controller.signal }),
       TOOL,
@@ -441,6 +462,7 @@ describe('capHeadResult', () => {
 
   it('does not write past the deadline', async () => {
     const storage = spyStorage();
+
     const result = await capHeadResult(
       context({ abortSignal: AbortSignal.abort() }),
       TOOL,
@@ -467,6 +489,7 @@ describe('the shared single-part store', () => {
 
   it('stores the findings document of a part that carries one', async () => {
     const spies = spyStorage(4);
+
     const written = await storeSinglePartArtifact(context(), 'grep', {
       contentType: 'text/markdown',
       content: '## /r/a.ts\n*1: x\n',
@@ -502,6 +525,7 @@ describe('the shared store on a bash-only route', () => {
     const file = join(blocker, 'file');
     writeFileSync(file, 'x');
     process.env['TMPDIR'] = file;
+
     return callback().finally(() => {
       if (previous === undefined) delete process.env['TMPDIR'];
       else process.env['TMPDIR'] = previous;
@@ -512,6 +536,7 @@ describe('the shared store on a bash-only route', () => {
   it('stores nothing when the host file is missing and read denies it', async () => {
     await withoutHostFiles(async () => {
       const spies = spyStorage(6);
+
       const written = await storeSinglePartArtifact(
         context({
           artifactReadable: false,
@@ -535,6 +560,7 @@ describe('the shared store on a bash-only route', () => {
   it('stores the artifact when read reaches it without host files', async () => {
     await withoutHostFiles(async () => {
       spyStorage(7);
+
       const written = await storeSinglePartArtifact(
         context({
           artifactHostFiles: true,

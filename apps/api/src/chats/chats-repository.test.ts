@@ -27,6 +27,7 @@ type LoggedQuery = {
 // Db-compatible fluent builder.
 function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -67,14 +68,17 @@ function querySqlContains(
 
 function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
   const query = queries.at(-1);
+
   if (!query) {
     throw new Error('expected a logged database query');
   }
+
   return query;
 }
 
 function updateSetSql(queries: Array<LoggedQuery>): string {
   const sql = lastQuery(queries).sql;
+
   return sql.slice(sql.indexOf(' set ') + 5, sql.indexOf(' where '));
 }
 
@@ -82,6 +86,7 @@ function whereSql(queries: Array<LoggedQuery>): string {
   const sql = lastQuery(queries).sql;
   const start = sql.indexOf(' where ');
   const end = sql.indexOf(' returning ');
+
   return sql.slice(start, end === -1 ? undefined : end);
 }
 
@@ -492,6 +497,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
 
   it('setRecencyDigestIfAbsent writes only when the baseline is still null', async () => {
     const { db, queries } = makeMockDb();
+
     const baseline = {
       pinned: [],
       recent: [],
@@ -501,6 +507,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       recentTotal: 0,
       compiledOn: '2026-09-03',
     };
+
     await new ChatsRepository(db)
       .setRecencyDigestIfAbsent(chatId, ownerUserId, baseline, [])
       .catch(() => null);
@@ -591,6 +598,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     const statements: Array<unknown> = [];
     vi.spyOn(db, 'execute').mockImplementation((statement) => {
       statements.push(statement);
+
       return asDbQuery(Promise.resolve([]));
     });
 
@@ -601,19 +609,25 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     );
 
     const strings: Array<string> = [];
+
     const walk = (value: unknown): void => {
       if (isString(value)) {
         strings.push(value);
+
         return;
       }
+
       if (Array.isArray(value)) {
         for (const item of value) walk(item);
+
         return;
       }
+
       if (isRecord(value)) {
         for (const item of Object.values(value)) walk(item);
       }
     };
+
     walk(statements);
     expect(strings).toEqual(
       expect.arrayContaining([
@@ -744,6 +758,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       workspaceToldAvailable: null,
       workspaceDetachReason: null,
     };
+
     const { db, queries } = makeMockDb();
     stubFindById(() => Promise.resolve(archived));
     await new ChatsRepository(db)
@@ -796,10 +811,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
 
   it('deleteById is true only when a row is actually removed', async () => {
     const { db } = makeMockDb();
+
     const returning = vi
       .fn()
       .mockResolvedValueOnce([{ id: chatId }])
       .mockResolvedValueOnce([]);
+
     vi.spyOn(db, 'delete').mockImplementation(() =>
       asDbQuery({ where: () => ({ returning }) }),
     );
@@ -902,6 +919,7 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
 
   it('createMany issues one INSERT for a batch under the chunk size', async () => {
     const { db, queries } = makeMockDb();
+
     const rows = Array.from({ length: 3 }, (_, i) => ({
       id: `copy-${i}`,
       chatId,

@@ -32,14 +32,19 @@ export const noStackedJsdocRule = defineRule({
         const { sourceCode } = context;
         const text = sourceCode.text;
         const comments = sourceCode.getAllComments();
+
         for (let index = 0; index < comments.length - 1; index += 1) {
           const current = comments[index];
           const next = comments[index + 1];
+
           if (!isJsdoc(current) || !isJsdoc(next)) {
             continue;
           }
+
           const between = text.slice(current.range[1], next.range[0]);
+
           if (between.trim() !== "") continue;
+
           if (beginsFile(text, current.range[0])) continue;
           context.report({ node: current, messageId: "stacked" });
         }

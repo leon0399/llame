@@ -35,16 +35,20 @@ function routeFetch() {
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
+
       if (key === "PATCH /api/v1/chats/c1") {
         return Promise.resolve(emptyResponse());
       }
+
       if (key === "DELETE /api/v1/chats/c1") {
         return new Promise<Response>((resolve) => {
           releaseDelete = () => resolve(emptyResponse());
         });
       }
+
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -56,6 +60,7 @@ async function openedDialog(role: "dialog" | "alertdialog", name: string) {
   // The dialog portals into document.body, outside the story canvas.
   const dialog = await screen.findByRole(role, { name });
   await waitFor(() => expect(dialog).toBeVisible());
+
   return within(dialog);
 }
 
@@ -64,6 +69,7 @@ async function sentRequest() {
   const request = await waitFor(() => requestFromCall(fetchMock));
   await expect(fetchMock).toHaveBeenCalledTimes(1);
   await expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+
   return request;
 }
 
@@ -80,7 +86,9 @@ const meta = {
 } satisfies Meta<typeof RenameChatDialog>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
+
 type DeleteStory = StoryObj<typeof DeleteChatDialog>;
 
 /**
@@ -160,6 +168,7 @@ export const RenameChangedWithEnter: Story = {
 function RenameFromSidebar({ chat }: ComponentProps<typeof RenameChatDialog>) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(chat.title);
+
   return (
     <>
       <Button onClick={() => setOpen(true)}>Rename</Button>

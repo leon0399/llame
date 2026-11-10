@@ -135,6 +135,7 @@ describe("turnActionVisibility", () => {
       }),
       status: "ready",
     });
+
     expect(visibility).toEqual({ continueTurn: false });
   });
 
@@ -273,6 +274,7 @@ describe("discardedCallNames", () => {
             input: {},
             errorText: "The call failed.",
           };
+
     return {
       ...settled,
       ...(input.classification !== undefined && {
@@ -299,6 +301,7 @@ describe("discardedCallNames", () => {
         classification: "write_low_risk",
       }),
     ]);
+
     expect(names).toEqual(["edit", "bash"]);
   });
 

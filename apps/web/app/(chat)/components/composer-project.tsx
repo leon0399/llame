@@ -53,7 +53,9 @@ export type ChatPageProject = {
 export function useChatPageProject(exists: boolean): ChatPageProject {
   const projects = useProjectsQuery(undefined, !exists).data ?? [];
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
+
   if (exists) return { project: undefined, draftProjectId: null };
+
   return {
     project: {
       projects,
@@ -68,6 +70,7 @@ export function useChatPageProject(exists: boolean): ChatPageProject {
  *  project removes it, as the sidebar's "Move to project" does. */
 function ProjectPickerItems({ project }: { project: ComposerProject }) {
   const [filter, setFilter] = useState("");
+
   return (
     <>
       {project.projects.length > 0 && (
@@ -153,9 +156,12 @@ export function ChipRemoveButton({
  */
 export function ComposerProjectChip({ project }: { project: ComposerProject }) {
   const selected = project.selected;
+
   if (selected === null) return null;
+
   if (project.locked === true)
     return <LockedProjectChip name={selected.name} />;
+
   return (
     <ButtonGroup>
       <DropdownMenu>

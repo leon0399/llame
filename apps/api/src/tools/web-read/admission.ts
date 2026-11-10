@@ -98,6 +98,7 @@ export function evaluateWebLocatorRead(
   url: string,
 ): PermissionDecision | undefined {
   const options = { toolId: 'read', args: { path: url } };
+
   return admitPermission(context, (evaluate) =>
     evaluateSubmittedThenProjected(evaluate, options, {
       ...options,
@@ -120,15 +121,18 @@ export function createAddressAdmission(context: ToolContext): AdmitAddress {
 
   return (address, locator) => {
     const decision = evaluateWebLocatorRead(context, locator);
+
     if (decision === undefined) return false;
 
     const refused =
       decision.decision === 'reject' &&
       (decision.reason === 'explicit_reject' ||
         decision.reason === 'input_limit');
+
     if (!refused) return true;
 
     const key = JSON.stringify([address, decision.reason, decision.reference]);
+
     if (!reportedRefusals.has(key)) {
       reportedRefusals.add(key);
       report?.({ kind: 'address', url: locator, decision });
@@ -162,9 +166,11 @@ export function createDerivedAdmission(
   context: ToolContext,
 ): AdmitDerivedLocator {
   const report = context.onDerivedDecision;
+
   return (kind, url) => {
     const decision = evaluateWebLocatorRead(context, url) ?? NO_POLICY;
     report?.({ kind, url, decision });
+
     return decision;
   };
 }

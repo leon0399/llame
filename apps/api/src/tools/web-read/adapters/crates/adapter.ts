@@ -18,8 +18,10 @@ import {
 export const CRATES_ORIGIN = 'https://crates.io';
 
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
+
 /** With any `include`, crates.io returns only the listed crate fields. */
 const INCLUDE = 'default_version,keywords,categories,downloads';
+
 /** An anchor with no content. crates.io READMEs open each heading with one,
  *  `<h2><a href="#usage" id="user-content-usage"></a>Usage</h2>`, which
  *  would render as `## [](#usage)Usage`. */
@@ -32,6 +34,7 @@ const CRATE_PATH =
 
 const SKIPPED = z.unknown().transform(() => undefined);
 const TEXT = z.string().or(SKIPPED).optional();
+
 const VERSION = z.object({
   num: z.string(),
   license: TEXT,
@@ -42,7 +45,9 @@ const VERSION = z.object({
   features: z.record(z.string(), z.unknown()).or(SKIPPED).optional(),
   published_by: z.object({ login: z.string() }).or(SKIPPED).optional(),
 });
+
 type Version = z.infer<typeof VERSION>;
+
 const CRATE_PAGE = z.object({
   crate: z.object({
     name: z.string(),
@@ -61,8 +66,11 @@ const CRATE_PAGE = z.object({
   }),
   versions: z.array(VERSION),
 });
+
 type Crate = z.infer<typeof CRATE_PAGE>['crate'];
+
 const VERSION_PAGE = z.object({ version: VERSION });
+
 const DEPENDENCY_PAGE = z.object({
   dependencies: z.array(
     z.object({
@@ -73,6 +81,7 @@ const DEPENDENCY_PAGE = z.object({
     }),
   ),
 });
+
 type Dependency = z.infer<typeof DEPENDENCY_PAGE>['dependencies'][number];
 
 /** Matches `crates.io/crates/{name}` and `/crates/{name}/{version}`, also on
@@ -84,9 +93,12 @@ export function parseCratesUrl(source: URL): CratesTarget | undefined {
   ) {
     return undefined;
   }
+
   const match = CRATE_PATH.exec(source.pathname);
+
   if (match === null) return undefined;
   const [, name = '', version] = match;
+
   return version === undefined ? { name } : { name, version };
 }
 
@@ -96,6 +108,7 @@ export function createCratesAdapter(
   options: { readonly origin?: string } = {},
 ): WebAdapter {
   const origin = options.origin ?? CRATES_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
@@ -115,28 +128,36 @@ async function readCrate(
     `${origin}/api/v1/crates/${target.name}?include=${INCLUDE}`,
     JSON_INIT,
   );
+
   if ('type' in fetched) return primaryFailure(fetched);
   const page = parseJsonBody(fetched.body, CRATE_PAGE);
+
   if (page === undefined) return { kind: 'failed', failure: 'parse' };
   // Later requests use the canonical name: crates.io accepts `-` for `_` and
   // any case, but its README redirect answers 403 for another spelling.
   const api = `${origin}/api/v1/crates/${page.crate.name}`;
   const version = await resolveVersion(target, page, api, io);
+
   if ('outcome' in version) return version.outcome;
 
   const notes: Array<string> = [];
   const versionApi = `${api}/${version.num}`;
+
   const dependencies = await loadSection(
     'dependencies',
     io.fetch(`${versionApi}/dependencies`, JSON_INIT),
     notes,
   );
+
   if ('fatal' in dependencies) return primaryFailure(dependencies.fatal);
+
   const readme =
     dependencies.spent === undefined
       ? await loadSection('readme', io.fetch(`${versionApi}/readme`), notes)
       : skipSection('readme', dependencies.spent, notes);
+
   if ('fatal' in readme) return primaryFailure(readme.fatal);
+
   return {
     kind: 'rendered',
     content: renderCrate(
@@ -156,7 +177,9 @@ function parseDependencies(
 ): ReadonlyArray<Dependency> | undefined {
   if (body === undefined) return undefined;
   const page = parseJsonBody(body, DEPENDENCY_PAGE);
+
   if (page === undefined) notes.push('dependencies omitted: parse');
+
   return page?.dependencies;
 }
 
@@ -167,6 +190,7 @@ function skipSection(
   notes: Array<string>,
 ) {
   notes.push(omissionNote(section, spent));
+
   return { body: undefined };
 }
 
@@ -179,14 +203,19 @@ async function resolveVersion(
 ): Promise<Version | { readonly outcome: WebAdapterOutcome }> {
   // crates.io may report no default version; only a pinned URL reads then.
   const wanted = target.version ?? page.crate.default_version;
+
   if (wanted === undefined) {
     return { outcome: { kind: 'failed', failure: 'empty' } };
   }
+
   const included = page.versions.find(({ num }) => num === wanted);
+
   if (included !== undefined) return included;
   const fetched = await io.fetch(`${api}/${wanted}`, JSON_INIT);
+
   if ('type' in fetched) return { outcome: primaryFailure(fetched) };
   const parsed = parseJsonBody(fetched.body, VERSION_PAGE);
+
   return parsed === undefined
     ? { outcome: { kind: 'failed', failure: 'parse' } }
     : parsed.version;
@@ -200,7 +229,9 @@ function renderCrate(
 ): string {
   const lines = [`# ${crate.name} ${version.num}`, ''];
   const description = crate.description?.trim();
+
   if (description) lines.push(description, '');
+
   const fields: Array<[string, string | undefined]> = [
     ['Yanked', version.yanked === true ? 'yes' : undefined],
     ['License', version.license],
@@ -224,21 +255,27 @@ function renderCrate(
         `${version.created_at}${version.published_by ? ` by ${version.published_by.login}` : ''}`,
     ],
   ];
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   lines.push(`URL: https://crates.io/crates/${crate.name}/${version.num}`);
   const markdown = readme && convertToMarkdown(readme).trim();
+
   if (markdown) lines.push('', '## README', '', markdown);
+
   return lines.join('\n');
 }
 
 function downloads(crate: Crate): string | undefined {
   if (crate.downloads === undefined) return undefined;
+
   const recent =
     crate.recent_downloads === undefined
       ? ''
       : ` (${crate.recent_downloads.toLocaleString('en-US')} in the last 90 days)`;
+
   return `${crate.downloads.toLocaleString('en-US')}${recent}`;
 }
 
@@ -251,10 +288,12 @@ function dependencyFields(
     ['build', 'Build dependencies'],
     ['dev', 'Dev dependencies'],
   ];
+
   return kinds.map(([kind, label]) => {
     const ofKind = (dependencies ?? []).filter(
       (dependency) => dependency.kind === kind,
     );
+
     return [
       label,
       ofKind.length === 0

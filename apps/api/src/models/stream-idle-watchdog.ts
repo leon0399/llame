@@ -55,10 +55,12 @@ function createIdleWatchdog(
 
   const settle = (): void => {
     settled = true;
+
     if (timer !== undefined) {
       clearTimeout(timer);
       timer = undefined;
     }
+
     // The linked signal aborts on its own; the window is all that's left.
     runSignal?.removeEventListener('abort', settle);
   };
@@ -76,6 +78,7 @@ function createIdleWatchdog(
         : AbortSignal.any([callSignal, idle.signal]),
     arm: () => {
       if (settled) return;
+
       if (timer !== undefined) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = undefined;
@@ -101,10 +104,13 @@ async function watchStream(
   runSignal: AbortSignal | undefined,
 ): Promise<LanguageModelV3StreamResult> {
   const watchdog = createIdleWatchdog(runSignal, params.abortSignal);
+
   const stalled = new Promise<never>((_, reject) => {
     watchdog.onExpiry(reject);
   });
+
   watchdog.arm();
+
   try {
     const result = await Promise.race([
       model.doStream({ ...params, abortSignal: watchdog.signal }),
@@ -112,6 +118,7 @@ async function watchStream(
       // instead: this promise has no reader left.
       stalled,
     ]);
+
     return { ...result, stream: watchedParts(result.stream, watchdog) };
   } catch (error) {
     watchdog.settle();
@@ -132,6 +139,7 @@ function watchedParts(
   watchdog: IdleWatchdog,
 ): ReadableStream<LanguageModelV3StreamPart> {
   const reader = source.getReader();
+
   return new ReadableStream<LanguageModelV3StreamPart>({
     start(controller) {
       watchdog.onExpiry((error) => {
@@ -144,22 +152,28 @@ function watchedParts(
     async pull(controller) {
       try {
         const next = await reader.read();
+
         if (next.done) {
           watchdog.settle();
           controller.close();
+
           return;
         }
+
         controller.enqueue(next.value);
       } catch (error) {
         watchdog.settle();
         controller.enqueue({ type: 'error', error });
         controller.close();
+
         return;
       }
+
       watchdog.arm();
     },
     cancel(reason) {
       watchdog.settle();
+
       return reader.cancel(reason);
     },
   });

@@ -62,6 +62,7 @@ export class SearchReindexDispatchService {
         this.queueReady = undefined;
         throw error;
       });
+
     return this.queueReady;
   }
 }

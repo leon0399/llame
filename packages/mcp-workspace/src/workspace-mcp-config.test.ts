@@ -23,9 +23,11 @@ function configured(
   id: string,
 ): Extract<WorkspaceMcpServerConfig, { state: 'configured' }> {
   const entry = entries.find((candidate) => candidate.id === id);
+
   if (entry?.state !== 'configured') {
     throw new Error(`expected configured server ${id}`);
   }
+
   return entry;
 }
 
@@ -34,9 +36,11 @@ function unavailable(
   id: string,
 ): Extract<WorkspaceMcpServerConfig, { state: 'unavailable' }> {
   const entry = entries.find((candidate) => candidate.id === id);
+
   if (entry?.state !== 'unavailable') {
     throw new Error(`expected unavailable server ${id}`);
   }
+
   return entry;
 }
 
@@ -126,8 +130,10 @@ describe('readWorkspaceMcpConfig', () => {
       OUTER: '${INNER}',
       LLAME_AMBIENT_ONLY: 'ambient-secret',
     });
+
     const local = configured(entries, 'local');
     const remote = configured(entries, 'remote');
+
     if (local.definition.transport !== 'stdio') {
       throw new Error('expected a stdio definition');
     }
@@ -374,9 +380,11 @@ describe('readWorkspaceMcpConfig', () => {
     const entries = await readWorkspaceMcpConfig(root, { EMPTY: '' });
     const local = configured(entries, 'local');
     expect(local.protectedValues).toEqual([]);
+
     if (local.definition.transport !== 'stdio') {
       throw new Error('expected a stdio definition');
     }
+
     expect(local.definition.args).toEqual(['']);
   });
 
@@ -433,6 +441,7 @@ describe('readWorkspaceMcpConfig', () => {
     const entries = await readWorkspaceMcpConfig(root, {
       MCP_TOKEN: '  padded-secret  ',
     });
+
     expect(configured(entries, 'remote').protectedValues).toEqual([
       'padded-secret',
     ]);

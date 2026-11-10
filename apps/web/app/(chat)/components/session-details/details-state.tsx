@@ -26,6 +26,7 @@ export function SessionDetailsProvider({
   children: ReactNode;
 }) {
   const [open, setOpenState] = useState(defaultOpen);
+
   const setOpen = useCallback((next: boolean) => {
     setOpenState(next);
     document.cookie = `${SESSION_DETAILS_COOKIE}=${String(next)}; path=/; max-age=${String(COOKIE_MAX_AGE_SECONDS)}`;

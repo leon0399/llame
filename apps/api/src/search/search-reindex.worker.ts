@@ -41,6 +41,7 @@ async function enqueueRowsBounded(
   enqueueOne: (chatId: string, ownerUserId: string) => Promise<void>,
 ): Promise<void> {
   const CONCURRENCY = 20;
+
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     await Promise.all(
       rows
@@ -114,9 +115,11 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     // writes still enqueue fine from any process — SearchReindexDispatchService
     // ensures its own queue independently on the enqueue side.
     const concurrency = this.workerProfile.concurrencyFor('search-reindex');
+
     if (concurrency === null) {
       return;
     }
+
     await this.assertDiscoveryProvisioned();
     await this.queue.ensureQueue(SEARCH_REINDEX_QUEUE);
     await this.queue.ensureQueue(SEARCH_SWEEP_QUEUE);
@@ -221,6 +224,7 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
         this.tenantDb,
         functionName,
       );
+
       if (!provisioned) {
         this.logger.error(unprovisionedMessage);
       }
@@ -241,13 +245,16 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
         FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, ${SEARCH_SWEEP_BATCH})
       `),
     );
+
     const rows = [...stale];
     await enqueueRowsBounded(rows, (chatId, ownerUserId) =>
       this.dispatch.enqueueChatReindex(chatId, ownerUserId),
     );
+
     if (rows.length > 0) {
       this.logger.log(`Sweep enqueued ${rows.length} chat reindex job(s)`);
     }
+
     await this.runEmbedBacklogSweep();
   }
 
@@ -264,9 +271,11 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
    */
   async runEmbedBacklogSweep(): Promise<void> {
     const modelId = this.instanceConfig.config.search.chats.embeddingModelId;
+
     if (!modelId) {
       return;
     }
+
     // D6 gate: no ledger row means this model has never persisted a real
     // vector — a freshly declared model or a corpus newly pointed at one,
     // i.e. BULK work. The sweep must enqueue nothing for it; see the class
@@ -276,19 +285,23 @@ export class SearchReindexWorker implements OnApplicationBootstrap {
     const binding = await this.tenantDb.runAsPublic((tx) =>
       findEmbeddingBinding(tx, modelId),
     );
+
     if (!binding) {
       return;
     }
+
     const backlog = await this.tenantDb.runAsPublic((tx) =>
       tx.execute<SweepRow>(sql`
         SELECT chat_id, owner_user_id
         FROM llame_search_embedding_backlog(${SEARCH_SWEEP_BATCH})
       `),
     );
+
     const rows = [...backlog];
     await enqueueRowsBounded(rows, (chatId, ownerUserId) =>
       this.embedDispatch.enqueueChatEmbed(chatId, ownerUserId),
     );
+
     if (rows.length > 0) {
       this.logger.log(`Sweep enqueued ${rows.length} chat embed job(s)`);
     }

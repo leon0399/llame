@@ -39,6 +39,7 @@ describe('evaluateCase', () => {
         costUsd: 0.001,
       },
     ]);
+
     expect(rows[1]).toMatchObject({
       ranker: 'jev',
       ndcg5: 1,

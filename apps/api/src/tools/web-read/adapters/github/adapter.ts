@@ -45,29 +45,35 @@ import { readGithubRelease } from './release';
 
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 const PAGE_SIZE = 100;
+
 type RequestContext = GithubRequestContext;
+
 type PageStep<T> = (
   body: string,
   page: number,
   loaded: number,
 ) => PageResult<T> | undefined;
+
 type PageResult<T> = {
   readonly items: ReadonlyArray<T>;
   readonly done?: boolean;
   readonly totalCount?: number;
 };
+
 type PageSpec<T> = {
   readonly section: string;
   readonly path: string;
   readonly context: RequestContext;
   readonly step: PageStep<T>;
 };
+
 type PullListSpec<T> = {
   readonly section: string;
   readonly path: string;
   readonly parse: (body: string) => ReadonlyArray<T> | undefined;
   readonly context: RequestContext;
 };
+
 /** Creates the native GitHub adapter. */
 export function createGithubAdapter(
   config: GithubWebAdapterConfig,
@@ -75,12 +81,14 @@ export function createGithubAdapter(
 ): WebAdapter {
   const apiOrigin = options.apiOrigin ?? GITHUB_API_ORIGIN;
   const init = requestInit(config.token, apiOrigin);
+
   return {
     id: config.id,
     route: 'native',
     // Discussions are served only by GraphQL, which answers no anonymous call.
     match: (source) => {
       const target = parseGithubUrl(source);
+
       return (
         target !== undefined &&
         (target.kind !== 'discussion' || config.token !== undefined)
@@ -123,6 +131,7 @@ function readGithubTarget(
       return readGithubCode(target, { source, ...options });
   }
 }
+
 async function readGithubThread(
   target: GithubThreadTarget,
   io: WebAdapterIo,
@@ -131,7 +140,9 @@ async function readGithubThread(
 ): Promise<WebAdapterOutcome> {
   const context: RequestContext = { io, init, apiOrigin, notes: [] };
   const primary = await requestJson(primaryUrl(target, apiOrigin), context);
+
   if (primary.kind === 'failed') return primaryFailure(primary.failure);
+
   return target.kind === 'issue'
     ? renderIssue(target, primary.body, context)
     : renderPull(target, primary.body, context);
@@ -143,7 +154,9 @@ async function renderIssue(
   context: RequestContext,
 ): Promise<WebAdapterOutcome> {
   const document = parseIssuePayload(body, target);
+
   if (document === undefined) return { kind: 'failed', failure: 'parse' };
+
   const comments = (
     await loadList({
       section: 'comments',
@@ -152,6 +165,7 @@ async function renderIssue(
       context,
     })
   ).items;
+
   return finish({ ...document, comments }, context);
 }
 
@@ -161,8 +175,10 @@ async function renderPull(
   context: RequestContext,
 ): Promise<WebAdapterOutcome> {
   const primary = parsePullPayload(body, target);
+
   if (primary === undefined) return { kind: 'failed', failure: 'parse' };
   const sections = await loadPullSections(target, primary.headSha, context);
+
   return finish({ ...primary.document, ...sections }, context);
 }
 
@@ -178,6 +194,7 @@ async function loadPullSections(
 > {
   const lists = await loadPullLists(target, context);
   const checks = await loadChecks(target, headSha, context);
+
   return { ...lists, checks };
 }
 
@@ -195,6 +212,7 @@ async function loadPullLists(
       context,
     })
   ).items;
+
   const reviews = (
     await loadList({
       section: 'reviews',
@@ -203,6 +221,7 @@ async function loadPullLists(
       context,
     })
   ).items;
+
   const reviewComments = (
     await loadList({
       section: 'review comments',
@@ -211,6 +230,7 @@ async function loadPullLists(
       context,
     })
   ).items;
+
   const files = (
     await loadList({
       section: 'files',
@@ -219,6 +239,7 @@ async function loadPullLists(
       context,
     })
   ).items;
+
   return { comments, reviews, reviewComments, files };
 }
 
@@ -227,6 +248,7 @@ async function loadList<T>(spec: PullListSpec<T>): Promise<PageResult<T>> {
     ...spec,
     step: (body) => {
       const items = spec.parse(body);
+
       return items === undefined
         ? undefined
         : { items, done: items.length < PAGE_SIZE };
@@ -240,24 +262,31 @@ async function loadChecks(
   context: RequestContext,
 ): Promise<GithubChecks> {
   const page = checkPageStep();
+
   const loaded = await loadPaged({
     section: 'check runs',
     path: `${checkRunsPath(target, headSha)}?filter=latest`,
     context,
     step: page,
   });
+
   return countGithubChecks(loaded.items, loaded.totalCount);
 }
 
 function checkPageStep(): PageStep<GithubCheckRun> {
   let totalCount: number | undefined;
+
   return (body, page, loaded) => {
     const parsed = parseCheckPage(body, page === 1);
+
     if (parsed === undefined) return undefined;
+
     if (page === 1) totalCount = parsed.totalCount;
+
     if (parsed.runs.length === 0 && loaded < (totalCount ?? 0)) {
       return undefined;
     }
+
     return {
       items: parsed.runs,
       done:
@@ -270,28 +299,37 @@ function checkPageStep(): PageStep<GithubCheckRun> {
 async function loadPaged<T>(spec: PageSpec<T>): Promise<PageResult<T>> {
   const items: Array<T> = [];
   let totalCount: number | undefined;
+
   for (let page = 1; ; page += 1) {
     if (spec.context.halted !== undefined) {
       recordSecondaryFailure(spec.section, spec.context.halted, spec.context);
       break;
     }
+
     const result = await requestJson(
       `${spec.context.apiOrigin}${spec.path}${spec.path.includes('?') ? '&' : '?'}per_page=${PAGE_SIZE}&page=${page}`,
       spec.context,
     );
+
     if (result.kind === 'failed') {
       recordSecondaryFailure(spec.section, result.failure, spec.context);
       break;
     }
+
     const parsed = spec.step(result.body, page, items.length);
+
     if (parsed === undefined) {
       recordSecondaryFailure(spec.section, PARSE_FAILURE, spec.context);
       break;
     }
+
     items.push(...parsed.items);
+
     if (parsed.totalCount !== undefined) totalCount = parsed.totalCount;
+
     if (parsed.done) return { items, totalCount };
   }
+
   return { items, totalCount };
 }
 
@@ -307,6 +345,7 @@ function requestInit(
   apiOrigin: string,
 ): WebRequestInit {
   if (token === undefined) return { accept: 'application/vnd.github+json' };
+
   return {
     accept: 'application/vnd.github+json',
     authorization: { origin: apiOrigin, value: `Bearer ${token}` },
@@ -315,6 +354,7 @@ function requestInit(
 
 function primaryUrl(target: GithubThreadTarget, apiOrigin: string): string {
   const resource = target.kind === 'issue' ? 'issues' : 'pulls';
+
   return `${apiOrigin}${repoPath(target)}/${resource}/${target.number}`;
 }
 

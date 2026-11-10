@@ -67,6 +67,7 @@ function passThroughServerResultsFilter(
   keywords?: Array<string>,
 ): number {
   if (value.startsWith(SEARCH_RESULT_VALUE_PREFIX)) return 1;
+
   return defaultFilter(value, search, keywords);
 }
 
@@ -75,11 +76,13 @@ const CommandPaletteContext = createContext<{ open: () => void } | null>(null);
 /** Opens the command palette (for a trigger button anywhere in the chat app). */
 export function useCommandPalette() {
   const ctx = useContext(CommandPaletteContext);
+
   if (!ctx) {
     throw new Error(
       "useCommandPalette must be used within CommandPaletteProvider",
     );
   }
+
   return ctx;
 }
 
@@ -93,14 +96,18 @@ function usePaletteToggleShortcut(
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
     );
+
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat) return; // a held chord must not flicker open/close
+
       if (isPaletteToggle(e, isMac)) {
         e.preventDefault();
         setOpen((o) => !o);
       }
     };
+
     document.addEventListener("keydown", onKey);
+
     return () => document.removeEventListener("keydown", onKey);
   }, [setOpen]);
 }
@@ -122,8 +129,10 @@ function useCommandPaletteState() {
   // crossing MIN doesn't flash an empty "search" state for the debounce window.
   const [query, setQuery] = useState("");
   const debounced = useDebouncedValue(query, 300);
+
   const { data: searchResults, isFetching: isSearching } =
     useChatSearchQuery(debounced);
+
   const searching = debounced.trim().length >= MIN_SEARCH_LENGTH;
   // `query` has moved on but the 300ms debounce timer hasn't caught up yet —
   // `searchResults` still answers the PREVIOUS debounced term. Now that
@@ -136,6 +145,7 @@ function useCommandPaletteState() {
   usePaletteToggleShortcut(setOpen);
 
   const openPalette = useCallback(() => setOpen(true), []);
+
   // Close FIRST, then act — so navigation doesn't leave the dialog's focus
   // trap / scroll lock behind. The action itself is deferred past the
   // dialog's own close animation (duration-200): running router.push() in
@@ -298,6 +308,7 @@ function CommandPaletteRecentChats({
   onSelectChat: (chatId: string) => void;
 }) {
   if (chats.length === 0) return null;
+
   return (
     <CommandGroup heading="Chats">
       {chats.map((chat) => (

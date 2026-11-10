@@ -44,6 +44,7 @@ let degenerateZoneLogged = false;
  */
 export function resolveInstanceTimezone(logger?: Logger): string {
   const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   if (!resolved || resolved === 'Etc/Unknown' || !isIanaTimeZone(resolved)) {
     if (!degenerateZoneLogged) {
       degenerateZoneLogged = true;
@@ -51,8 +52,10 @@ export function resolveInstanceTimezone(logger?: Logger): string {
         `Instance timezone resolved to ${String(resolved)}; falling back to UTC. Set TZ to a valid IANA zone (e.g. Europe/Madrid), not a POSIX offset.`,
       );
     }
+
     return UTC_ZONE;
   }
+
   return resolved;
 }
 
@@ -70,7 +73,9 @@ const formatters = new Map<string, Intl.DateTimeFormat>();
  */
 function formatterFor(timeZone: string): Intl.DateTimeFormat {
   const cached = formatters.get(timeZone);
+
   if (cached) return cached;
+
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
@@ -81,7 +86,9 @@ function formatterFor(timeZone: string): Intl.DateTimeFormat {
     hourCycle: 'h23',
     timeZoneName: 'longOffset',
   });
+
   formatters.set(timeZone, formatter);
+
   return formatter;
 }
 
@@ -100,6 +107,7 @@ export function formatTemporalAnchor(
   const formatter = formatterFor(timeZone);
 
   const parts = formatter.formatToParts(instant);
+
   const get = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((p) => p.type === type)?.value ?? '';
 
@@ -110,6 +118,7 @@ export function formatTemporalAnchor(
   const minute = get('minute');
 
   const rawOffset = get('timeZoneName');
+
   // `timeZoneName: 'longOffset'` yields `GMT+05:45` or bare `GMT` for UTC.
   const offset =
     rawOffset === 'GMT' ? UTC_OFFSET : rawOffset.replace(/^GMT/, '');

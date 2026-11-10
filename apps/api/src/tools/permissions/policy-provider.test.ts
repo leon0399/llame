@@ -48,6 +48,7 @@ describe('buildToolPermissionPolicy', () => {
     const policy = await buildToolPermissionPolicy({
       read: { allow: [{ field: 'path', literal: '/notes' }] },
     });
+
     expect(policy.groups.has('read')).toBe(true);
   });
 
@@ -55,6 +56,7 @@ describe('buildToolPermissionPolicy', () => {
     const policy = await buildToolPermissionPolicy({
       grep: { allow: [{ field: 'scopes', literal: '/home/u/' }] },
     });
+
     expect(policy.groups.has('grep')).toBe(true);
     await expect(
       buildToolPermissionPolicy({
@@ -75,6 +77,7 @@ describe('buildToolPermissionPolicy', () => {
     const policy = await buildToolPermissionPolicy({
       mcp__docs__fetch: { allow: [{ field: 'anything', literal: 'x' }] },
     });
+
     expect(policy.groups.has('mcp__docs__fetch')).toBe(true);
   });
 });
@@ -90,6 +93,7 @@ describe('ToolPermissionPolicyModule boot', () => {
         toolPermissionPolicyProvider,
       ],
     }).compile();
+
     await expect(moduleRef).rejects.toBeInstanceOf(PermissionCompileError);
   });
 
@@ -105,6 +109,7 @@ describe('ToolPermissionPolicyModule boot', () => {
         toolPermissionPolicyProvider,
       ],
     }).compile();
+
     const policy = moduleRef.get<CompiledPolicy>(TOOL_PERMISSION_POLICY);
     expect(policy.groups.has('bash')).toBe(true);
   });

@@ -19,6 +19,7 @@ const REPOSITORY_ID = '22222222-2222-4222-8222-222222222222';
 
 function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -27,12 +28,15 @@ function makeMockDb() {
       },
     },
   });
+
   return { db, queries };
 }
 
 function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
   const query = queries.at(-1);
+
   if (!query) throw new Error('expected a logged database query');
+
   return query;
 }
 
@@ -107,6 +111,7 @@ function asDbQuery<T>(query: T): never {
 function queryResult<T>(rows: Array<T>) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -139,6 +144,7 @@ function makeStubDb(rows: {
   vi.spyOn(db, 'delete').mockImplementation(() =>
     asDbQuery(queryResult(rows.delete ?? [])),
   );
+
   return db;
 }
 

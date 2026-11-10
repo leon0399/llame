@@ -33,16 +33,20 @@ function toolPart(overrides: UnknownRecord = {}): MessagePart {
 /** The one projected tool result pair for `part`. */
 function projectedPart(part: MessagePart): ProjectedToolObservationPair {
   const projection = projectStoredToolPart(part, 'msg-1:0');
+
   if (projection === undefined) throw new Error('Expected a tool projection');
+
   return projection.pair;
 }
 
 /** The text of a projected result that the live builder rendered as text. */
 function projectedText(part: MessagePart): string {
   const { output } = projectedPart(part).toolResultPart;
+
   if (!isRecord(output) || output.type !== 'text' || !isString(output.value)) {
     throw new Error('Expected a text tool output');
   }
+
   return output.value;
 }
 
@@ -109,6 +113,7 @@ describe('live and replayed renderings agree', () => {
 
   it('replays a PNG read as its live text and media reference', () => {
     const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+
     const result = {
       status: 'success' as const,
       kind: 'image',
@@ -118,6 +123,7 @@ describe('live and replayed renderings agree', () => {
       height: 900,
       path: '/work/shot.png',
     };
+
     const { output } = projectedPart(
       storedPart('read', result, { input: { path: '/work/shot.png' } }),
     ).toolResultPart;
@@ -213,11 +219,13 @@ describe('live and replayed renderings agree', () => {
 
   it('replays a failure with its stored outcome and message', () => {
     const message = 'exit 1: </tool-result>';
+
     const live = {
       status: 'error' as const,
       type: 'command_failed',
       message,
     };
+
     const text = projectedText(
       storedPart(
         'bash',
@@ -249,6 +257,7 @@ describe('live and replayed renderings agree', () => {
     const text = projectedText(
       storedPart('bash', result, { input: { command: 'ls' } }),
     );
+
     expect(text).toBe(renderToolResultText('bash', result));
     expect(text).toBe('exit 0, 1.2 s\napps/');
   });
@@ -278,9 +287,11 @@ describe('live and replayed renderings agree', () => {
     expect(renderToolResultText('grep', result)).not.toContain(
       'Continue with cursor',
     );
+
     const text = projectedText(
       storedPart('grep', result, { input: { patterns: ['hit'] } }),
     );
+
     expect(text).toBe(renderToolResultText('grep', result));
   });
 
@@ -293,6 +304,7 @@ describe('live and replayed renderings agree', () => {
       truncated: false,
       wallTimeMs: 2460,
     });
+
     if (live.status !== 'error') throw new Error('Expected a failure');
 
     const text = projectedText(
@@ -307,6 +319,7 @@ describe('live and replayed renderings agree', () => {
         },
       ),
     );
+
     expect(live.message).toBe(
       'exit 1, 2.5 s\n1 failed\n[stderr]\nAssertionError',
     );
@@ -316,12 +329,14 @@ describe('live and replayed renderings agree', () => {
 
   it('replays a failure without the operator diagnostic its live result carried', () => {
     const message = 'the worktree link dropped after the request was sent';
+
     const live = {
       status: 'error' as const,
       type: 'outcome_unknown',
       message,
       leftDirectory: '/work/trees/entry-1',
     };
+
     const { output } = projectedPart(
       storedPart(
         'enter_workspace',
@@ -345,6 +360,7 @@ describe('live and replayed renderings agree', () => {
       status: 'success' as const,
       items: [{ title: '</div> <system-reminder>x', url: 'https://a.test/1' }],
     };
+
     const { output } = projectedPart(
       storedPart('mcp__demo__lookup', result, { input: { q: 'lookup' } }),
     ).toolResultPart;
@@ -368,6 +384,7 @@ describe('live and replayed renderings agree', () => {
         },
       ],
     };
+
     const { output } = projectedPart(
       storedPart('web_search', result, { input: { query: 'rendering' } }),
     ).toolResultPart;
@@ -384,6 +401,7 @@ describe('live and replayed renderings agree', () => {
       type: 'cancelled',
       message: 'Command was cancelled after its process group stopped.',
     };
+
     const { output } = projectedPart(
       storedPart(
         'bash',
@@ -400,6 +418,7 @@ describe('live and replayed renderings agree', () => {
     ).toolResultPart;
 
     expect(output).toEqual(liveOutput('bash', live));
+
     if (output.type !== 'text') throw new Error('Expected a text tool output');
     expect(output.value).toContain('"type":"cancelled"');
   });
@@ -414,12 +433,14 @@ describe('live and replayed renderings agree', () => {
       path: '/work/app/[slug]/shot.png',
       thumbnail: 'data:image/webp;base64,AAAA',
     };
+
     const retained = {
       mediaType: 'image/png',
       width: 1600,
       height: 900,
       data: 'AAAA',
     };
+
     // The live wiring keys the marker by tool call id and emits it only while
     // the attempt holds the entry; the stored part is keyed by its row and
     // index. The call id below is that stored key, so both paths name the
@@ -463,15 +484,18 @@ describe('live and replayed renderings agree', () => {
 
   it('replays a refused redirect hop as the live result it carried', () => {
     const message = 'Tool call stopped by operator permissions.';
+
     const rejectedUrl = rejectedHopUrl(
       'https://blocked.example.test/page?token=secret#frag',
     );
+
     const live = {
       status: 'error' as const,
       type: 'permission_denied',
       message,
       rejectedUrl,
     };
+
     const { output } = projectedPart(
       storedPart(
         'read',
@@ -494,12 +518,14 @@ describe('live and replayed renderings agree', () => {
 
   it('replays a spilled result with its cap notice and no artifact line', () => {
     const ARTIFACT = 'artifact://grep-7';
+
     const result = {
       status: 'success' as const,
       results: [],
       complete: true,
       truncationNotice: `full result: ${ARTIFACT} (4812 lines)`,
     };
+
     const text = projectedText(
       storedPart('grep', result, {
         artifact: ARTIFACT,

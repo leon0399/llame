@@ -32,6 +32,7 @@ import { IdentityService } from './identity.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
@@ -52,6 +53,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
     owner = crypto.randomUUID();
     member = crypto.randomUUID();
     stranger = crypto.randomUUID();
+
     for (const id of [owner, member, stranger]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'Org', ${`org-${id}@t.com`})`;
     }
@@ -66,13 +68,16 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       for (const creator of [owner, member, stranger]) {
         await sql.begin(async (tx: SqlClient) => {
           await tx`SELECT set_config('app.current_user_id', ${creator}, true)`;
+
           const units =
             await tx`SELECT id FROM org_units WHERE created_by = ${creator} ORDER BY length(path) DESC`;
+
           for (const u of units) {
             await tx`DELETE FROM org_units WHERE id = ${u.id}`;
           }
         });
       }
+
       await sql`DELETE FROM users WHERE id IN (${owner}, ${member}, ${stranger})`;
       await sql.end();
     }
@@ -84,6 +89,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -123,6 +129,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
 
   it('a cross-tenant admin cannot grant into another org', async () => {
     await identity.createRootOrg({ userId: owner, name: 'Mine' });
+
     const theirs = await identity.createRootOrg({
       userId: stranger,
       name: 'Theirs',
@@ -164,6 +171,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       userId: owner,
       name: 'RosterOrg',
     });
+
     await identity.grantMembership({
       callerId: owner,
       userId: member,
@@ -176,6 +184,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       (tx) =>
         tx`SELECT user_id FROM memberships WHERE org_unit_id = ${unit.id}`,
     );
+
     expect(
       roster.map((r) => r.user_id).sort((a, b) => a.localeCompare(b)),
     ).toEqual([owner, member].sort());
@@ -184,6 +193,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       stranger,
       (tx) => tx`SELECT id FROM memberships WHERE org_unit_id = ${unit.id}`,
     );
+
     expect(strangerView.length).toBe(0);
   });
 
@@ -192,6 +202,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       userId: owner,
       name: 'AdminOpsOrg',
     });
+
     const target = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${target}, 'Target', ${`target-${target}@t.com`})`;
     await identity.grantMembership({
@@ -209,11 +220,13 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       (tx) =>
         tx`UPDATE memberships SET role = 'viewer' WHERE user_id = ${target} AND org_unit_id = ${unit.id}`,
     );
+
     const changed = await asUser(
       owner,
       (tx) =>
         tx`SELECT role FROM memberships WHERE user_id = ${target} AND org_unit_id = ${unit.id}`,
     );
+
     expect(changed).toEqual([{ role: 'viewer' }]);
 
     await asUser(
@@ -221,10 +234,12 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       (tx) =>
         tx`DELETE FROM memberships WHERE user_id = ${target} AND org_unit_id = ${unit.id}`,
     );
+
     const gone = await asUser(
       target,
       (tx) => tx`SELECT id FROM memberships WHERE org_unit_id = ${unit.id}`,
     );
+
     expect(gone.length).toBe(0);
 
     await sql`DELETE FROM users WHERE id = ${target}`;
@@ -235,6 +250,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       userId: owner,
       name: 'ServiceOwnerOrg',
     });
+
     const adminUser = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${adminUser}, 'Admin', ${`admin-${adminUser}@t.com`})`;
     await identity.grantMembership({
@@ -270,6 +286,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       userId: owner,
       name: 'EnrichOrg',
     });
+
     await identity.grantMembership({
       callerId: owner,
       userId: member,
@@ -294,6 +311,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       userId: owner,
       name: 'HiddenOrg',
     });
+
     await identity.grantMembership({
       callerId: owner,
       userId: member,
@@ -310,6 +328,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       userId: owner,
       name: 'DeepOrg',
     });
+
     const child = await identity.createChildOrg({
       userId: owner,
       parentId: root.id,
@@ -337,6 +356,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
       (tx: SqlClient) =>
         tx`SELECT id FROM memberships WHERE org_unit_id = ${unit.id}`,
     );
+
     expect(rows.length).toBe(0);
 
     await expect(

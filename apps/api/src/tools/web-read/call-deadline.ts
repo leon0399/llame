@@ -7,15 +7,19 @@ const CALL_TIMEOUT_MS = 30_000;
 const ECHO_BOUND = 64;
 const CONTROL_CHARACTERS = /\p{Cc}/gu;
 const URL_IN_MESSAGE = /https?:\/\//iu;
+
 /** How many errors to inspect: the rejection itself and up to three `cause`
  *  links beneath it — undici nests the socket error once or twice under
  *  `fetch failed`. */
 const CAUSE_DEPTH = 4;
+
 /** A platform error code is an identifier, safe to echo; anything else is
  *  not a code. */
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{1,47}$/u;
+
 const TLS_CODE =
   /^(?:ERR_TLS_|ERR_SSL_|CERT_|UNABLE_TO_)|^(?:DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|EPROTO|HOSTNAME_MISMATCH)$/u;
+
 /** The kind of a connection failure, named from its code (#930): the locator
  *  already says which host, so the kind is what tells "this host is down"
  *  from "try again". */
@@ -63,12 +67,14 @@ export function abortFailure(reason: AbortReason | undefined): WebFetchFailure {
       message: 'The server sent no response headers within 10 seconds.',
     };
   }
+
   if (reason === 'call_timeout') {
     return {
       type: 'call_timeout',
       message: 'The web read exceeded its 30-second budget.',
     };
   }
+
   return { type: 'aborted', message: 'The web read was cancelled.' };
 }
 
@@ -78,18 +84,22 @@ export function startCallDeadline(options: WebFetchOptions): CallDeadline {
   const controller = new AbortController();
   let reason: AbortReason | undefined;
   const currentReason = (): AbortReason | undefined => reason;
+
   const abort = (next: AbortReason): void => {
     reason ??= next;
     controller.abort();
   };
+
   const onCallerAbort = (): void => abort('aborted');
   options.signal?.addEventListener('abort', onCallerAbort, { once: true });
+
   const callTimer = setTimeout(
     () => abort('call_timeout'),
     // A caller with less budget left may tighten this bound, but no caller can
     // extend the 30 seconds the tool guarantees.
     Math.min(options.deadlineMs ?? CALL_TIMEOUT_MS, CALL_TIMEOUT_MS),
   );
+
   return {
     startFetch: () => startFetchDeadline(controller.signal, currentReason),
     untilDeadline: (run) => beforeAbort(controller.signal, currentReason, run),
@@ -109,6 +119,7 @@ async function beforeAbort<T>(
   const { promise, resolve } = Promise.withResolvers<WebFetchFailure>();
   const onAbort = () => resolve(abortFailure(reason()));
   signal.addEventListener('abort', onAbort);
+
   try {
     return await Promise.race([run(signal), promise]);
   } finally {
@@ -123,6 +134,7 @@ function startFetchDeadline(
   const headers = new AbortController();
   let headersTimedOut = false;
   let headersTimer: NodeJS.Timeout | undefined;
+
   return {
     signal: AbortSignal.any([callSignal, headers.signal]),
     // Every request of the locator gets the full header bound; a hop may not
@@ -160,11 +172,15 @@ export function transportFailure(
   deadline: FetchDeadline,
 ): WebFetchFailure {
   const reason = deadline.reason();
+
   if (reason !== undefined) return abortFailure(reason);
   const kind = connectionFailureKind(error);
+
   if (kind !== undefined) return { type: 'network_error', message: kind };
+
   const message =
     error instanceof Error ? error.message.replace(CONTROL_CHARACTERS, '') : '';
+
   return {
     type: 'network_error',
     message:
@@ -180,15 +196,21 @@ export function transportFailure(
  *  diagnosis (`CERT_HAS_EXPIRED`), and only when it is an identifier. */
 function connectionFailureKind(error: unknown): string | undefined {
   let current = error;
+
   for (let depth = 0; depth < CAUSE_DEPTH; depth += 1) {
     if (!(current instanceof Error)) return undefined;
     const code: unknown = 'code' in current ? current.code : undefined;
+
     if (isString(code) && ERROR_CODE.test(code)) {
       const known = CONNECTION_FAILURES.get(code);
+
       if (known !== undefined) return known;
+
       if (TLS_CODE.test(code)) return `The TLS handshake failed (${code}).`;
     }
+
     current = current.cause;
   }
+
   return undefined;
 }

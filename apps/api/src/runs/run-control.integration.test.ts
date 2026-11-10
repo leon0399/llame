@@ -71,6 +71,7 @@ describe('run control across processes', () => {
         const events = await api.tenantDb.runAs(userId, (tx) =>
           new RunEventsRepository(tx).listByRunId(seed.runId, userId),
         );
+
         return events.some((event) => event.eventType === 'model.requested')
           ? true
           : undefined;
@@ -80,6 +81,7 @@ describe('run control across processes', () => {
     );
     expect(workerRegistry.ownerOf(seed.runId)).toBe(userId);
     expect(apiRegistry.ownerOf(seed.runId)).toBeUndefined();
+
     return seed;
   }
 
@@ -90,6 +92,7 @@ describe('run control across processes', () => {
     waitFor(
       async () => {
         const run = await runOf(runId);
+
         return run &&
           TERMINAL_STATUSES.includes(run.status) &&
           !executingInWorker(runId)
@@ -138,6 +141,7 @@ describe('run control across processes', () => {
 
   it('chat deletion reaches a worker in another process', async () => {
     const seed = await hangingRun();
+
     const chats = new ChatsService(
       api.tenantDb,
       noopReindexDispatch(),
@@ -163,6 +167,7 @@ describe('run control across processes', () => {
         seed.chatId,
         userId,
       );
+
       await createRunForMessage(
         tx,
         {

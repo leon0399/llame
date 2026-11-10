@@ -35,8 +35,10 @@ function readLocatorPath(
 ): { readonly value: string } | undefined {
   if (!isText(value)) return undefined;
   const prefix = `${MACHINE_SCHEME}://${machine}`;
+
   if (!value.startsWith(`${prefix}/`)) return undefined;
   const locator = formatMachineLocator(machine, value.slice(prefix.length));
+
   return locator === undefined ? undefined : { value: locator };
 }
 
@@ -46,6 +48,7 @@ function readOptionalLocator(
   value: SerializableValue,
 ): { readonly value: string | null } | undefined {
   if (value === null || value === undefined) return { value: null };
+
   return readLocatorPath(machine, value);
 }
 
@@ -54,6 +57,7 @@ function readOptionalText(
   value: SerializableValue,
 ): { readonly value: string | null } | undefined {
   if (value === null || value === undefined) return { value: null };
+
   return isText(value) ? { value } : undefined;
 }
 
@@ -79,14 +83,18 @@ function readGitFailure(value: JsonValue): GitFailure | undefined {
   if (!isSerializableRecord(value) || value['status'] !== 'error')
     return undefined;
   const type = value['type'];
+
   if (type === 'invalid_input') {
     const message = value['message'];
+
     return isText(message)
       ? { status: 'error', type: 'invalid_input', message }
       : undefined;
   }
+
   if (!isStderrFailureType(type)) return undefined;
   const stderr = value['stderr'];
+
   return isText(stderr) ? { status: 'error', type, stderr } : undefined;
 }
 
@@ -95,13 +103,16 @@ function readGitRemotes(
 ): ReadonlyArray<GitRepositoryRemote> | undefined {
   if (!Array.isArray(value)) return undefined;
   const remotes: Array<GitRepositoryRemote> = [];
+
   for (const entry of value) {
     if (!isSerializableRecord(entry)) return undefined;
     const name = entry['name'];
     const url = entry['url'];
+
     if (!isText(name) || !isText(url)) return undefined;
     remotes.push({ name, url });
   }
+
   return remotes;
 }
 
@@ -111,7 +122,9 @@ export function readGitInspectResult(
   machine: string,
 ): GitInspectResult | undefined {
   const failure = readGitFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
   const toplevel = readLocatorPath(machine, value['toplevel']);
@@ -121,6 +134,7 @@ export function readGitInspectResult(
   const head = readOptionalText(value['head']);
   const linked = value['linked'];
   const repositoryRemotes = readGitRemotes(value['remotes'] ?? null);
+
   if (
     toplevel === undefined ||
     commonDir === undefined ||
@@ -131,6 +145,7 @@ export function readGitInspectResult(
     repositoryRemotes === undefined
   )
     return undefined;
+
   return {
     status: 'ok',
     toplevel: toplevel.value,
@@ -149,18 +164,24 @@ export function readGitLocateResult(
   machine: string,
 ): GitLocateResult | undefined {
   const failure = readGitFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
   const gitEntry = readLocatorPath(machine, value['gitEntry']);
   const kind = value['kind'];
+
   if (gitEntry === undefined || (kind !== 'directory' && kind !== 'file'))
     return undefined;
+
   return { status: 'ok', gitEntry: gitEntry.value, kind };
 }
 
 type StateUpstream = NonNullable<GitStateSuccess['upstream']>;
+
 type StateOperation = NonNullable<GitStateSuccess['operation']>;
+
 type Writable<T> = { -readonly [K in keyof T]: T[K] };
 
 const STATE_OPERATION_KINDS = [
@@ -177,6 +198,7 @@ function readNullableCount(
   value: SerializableValue,
 ): { readonly value: number | null } | undefined {
   if (value === null || value === undefined) return { value: null };
+
   return isCount(value) ? { value } : undefined;
 }
 
@@ -184,11 +206,13 @@ function readStateUpstream(
   value: SerializableValue,
 ): { readonly value: StateUpstream | null } | undefined {
   if (value === null || value === undefined) return { value: null };
+
   if (!isSerializableRecord(value)) return undefined;
   const { name, gone } = value;
   const ahead = readNullableCount(value['ahead']);
   const behind = readNullableCount(value['behind']);
   const updatedAt = readOptionalText(value['updatedAt']);
+
   if (
     !isText(name) ||
     !isFlag(gone) ||
@@ -197,6 +221,7 @@ function readStateUpstream(
     updatedAt === undefined
   )
     return undefined;
+
   return {
     value: {
       name,
@@ -212,15 +237,22 @@ function readStateOperation(
   value: SerializableValue,
 ): { readonly value: StateOperation | null } | undefined {
   if (value === null || value === undefined) return { value: null };
+
   if (!isSerializableRecord(value)) return undefined;
   const kind = STATE_OPERATION_KINDS.find((known) => known === value['kind']);
   const { step, total } = value;
+
   if (kind === undefined) return undefined;
+
   if (step !== undefined && !isCount(step)) return undefined;
+
   if (total !== undefined && !isCount(total)) return undefined;
   const operation: Writable<StateOperation> = { kind };
+
   if (step !== undefined) operation.step = step;
+
   if (total !== undefined) operation.total = total;
+
   return { value: operation };
 }
 
@@ -229,6 +261,7 @@ function readStateCounts(
 ): GitStateSuccess['counts'] | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { staged, unstaged, untracked, conflicted } = value;
+
   if (
     !isCount(staged) ||
     !isCount(unstaged) ||
@@ -236,6 +269,7 @@ function readStateCounts(
     !isCount(conflicted)
   )
     return undefined;
+
   return { staged, unstaged, untracked, conflicted };
 }
 
@@ -244,13 +278,17 @@ function readStateEntries(
 ): GitStateSuccess['entries'] | undefined {
   if (!Array.isArray(value)) return undefined;
   const entries: Array<GitStateSuccess['entries'][number]> = [];
+
   for (const entry of value) {
     if (!isSerializableRecord(entry)) return undefined;
     const { xy, path, from } = entry;
+
     if (!isText(xy) || !isText(path)) return undefined;
+
     if (from !== undefined && !isText(from)) return undefined;
     entries.push(from === undefined ? { xy, path } : { xy, path, from });
   }
+
   return entries;
 }
 
@@ -259,12 +297,15 @@ function readStateCommits(
 ): GitStateSuccess['commits'] | undefined {
   if (!Array.isArray(value)) return undefined;
   const commits: Array<GitStateSuccess['commits'][number]> = [];
+
   for (const commit of value) {
     if (!isSerializableRecord(commit)) return undefined;
     const { short, subject } = commit;
+
     if (!isText(short) || !isText(subject)) return undefined;
     commits.push({ short, subject });
   }
+
   return commits;
 }
 
@@ -272,6 +313,7 @@ type StateHead = Pick<
   GitStateSuccess,
   'branch' | 'detached' | 'head' | 'upstream' | 'operation'
 >;
+
 type StateChanges = Pick<
   GitStateSuccess,
   'counts' | 'entries' | 'omitted' | 'submodules' | 'commits' | 'remotes'
@@ -285,6 +327,7 @@ function readStateHead(
   const upstream = readStateUpstream(value['upstream']);
   const operation = readStateOperation(value['operation']);
   const { detached } = value;
+
   if (
     branch === undefined ||
     head === undefined ||
@@ -293,6 +336,7 @@ function readStateHead(
     !isFlag(detached)
   )
     return undefined;
+
   return {
     branch: branch.value,
     detached,
@@ -311,6 +355,7 @@ function readStateChanges(
   const commits = readStateCommits(value['commits']);
   const remotes = readGitRemotes(value['remotes']);
   const { omitted } = value;
+
   if (
     counts === undefined ||
     entries === undefined ||
@@ -320,6 +365,7 @@ function readStateChanges(
     remotes === undefined
   )
     return undefined;
+
   return { counts, entries, omitted, submodules, commits, remotes };
 }
 
@@ -329,13 +375,16 @@ export function readGitStateResult(
   machine: string,
 ): GitStateResult | undefined {
   const failure = readGitFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
   const toplevel = readLocatorPath(machine, value['toplevel']);
   const head = readStateHead(value);
   const changes = readStateChanges(value);
   const { rootRelative } = value;
+
   if (
     toplevel === undefined ||
     !isText(rootRelative) ||
@@ -343,6 +392,7 @@ export function readGitStateResult(
     changes === undefined
   )
     return undefined;
+
   return {
     status: 'ok',
     toplevel: toplevel.value,
@@ -358,12 +408,16 @@ export function readGitWorktreeAddResult(
   machine: string,
 ): GitWorktreeAddResult | undefined {
   const failure = readGitFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
   const path = readLocatorPath(machine, value['path']);
   const { branch, head } = value;
+
   if (path === undefined || !isText(branch) || !isText(head)) return undefined;
+
   return { status: 'ok', path: path.value, branch, head };
 }
 
@@ -373,12 +427,16 @@ export function readGitWorktreeListResult(
   machine: string,
 ): GitWorktreeListResult | undefined {
   const failure = readGitFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value) || value['status'] !== 'ok')
     return undefined;
   const entries = value['worktrees'];
+
   if (!Array.isArray(entries)) return undefined;
   const worktrees: Array<GitWorktreeEntry> = [];
+
   for (const entry of entries) {
     if (!isSerializableRecord(entry)) return undefined;
     const path = readLocatorPath(machine, entry['path']);
@@ -386,6 +444,7 @@ export function readGitWorktreeListResult(
     const head = readOptionalText(entry['head']);
     const locked = entry['locked'];
     const prunable = entry['prunable'];
+
     if (
       path === undefined ||
       branch === undefined ||
@@ -402,6 +461,7 @@ export function readGitWorktreeListResult(
       prunable,
     });
   }
+
   return { status: 'ok', worktrees };
 }
 
@@ -410,7 +470,9 @@ export function readGitWorktreeRemoveResult(
   value: JsonValue,
 ): GitWorktreeRemoveResult | undefined {
   const failure = readGitFailure(value);
+
   if (failure !== undefined) return failure;
+
   return isSerializableRecord(value) && value['status'] === 'ok'
     ? { status: 'ok' }
     : undefined;

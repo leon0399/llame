@@ -31,5 +31,6 @@ export function useLatestRef<T>(value: T): RefObject<T> {
   useLayoutEffect(() => {
     ref.current = value;
   }, [value]);
+
   return ref;
 }

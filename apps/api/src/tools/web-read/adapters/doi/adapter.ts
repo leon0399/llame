@@ -6,8 +6,10 @@ import { parseJsonBody, primaryFailure, type WebAdapter } from '../contract';
 /** OpenAlex: keyless scholarly metadata, abstracts included, for Crossref
  *  and other registrars' DOIs. */
 export const OPENALEX_API_ORIGIN = 'https://api.openalex.org';
+
 const SELECT =
   'display_name,type,publication_date,authorships,primary_location,cited_by_count,open_access,abstract_inverted_index,is_retracted';
+
 const DOI = /^10\.\d{4,9}\/.+$/u;
 
 const WORK = z.object({
@@ -34,6 +36,7 @@ const WORK = z.object({
     .default(null),
   is_retracted: z.boolean().nullable().default(null),
 });
+
 type Work = z.infer<typeof WORK>;
 
 /** Matches `doi.org/{doi}` and `dx.doi.org/{doi}`, the DOI percent-decoded. */
@@ -44,13 +47,16 @@ export function parseDoiUrl(source: URL): string | undefined {
   ) {
     return undefined;
   }
+
   // Decoded first, so a DOI written with an escaped `/` is claimed too.
   let doi: string;
+
   try {
     doi = decodeURIComponent(source.pathname.slice(1));
   } catch {
     return undefined;
   }
+
   return DOI.test(doi) ? doi : undefined;
 }
 
@@ -60,6 +66,7 @@ export function createDoiAdapter(
   options: { readonly apiOrigin?: string } = {},
 ): WebAdapter {
   const api = options.apiOrigin ?? OPENALEX_API_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
@@ -67,13 +74,17 @@ export function createDoiAdapter(
     read: async (source, io) => {
       const doi = parseDoiUrl(source)!;
       const path = doi.split('/').map(encodeURIComponent).join('/');
+
       const fetched = await io.fetch(
         `${api}/works/doi:${path}?select=${SELECT}`,
         { accept: 'application/json' },
       );
+
       if ('type' in fetched) return primaryFailure(fetched);
       const work = parseJsonBody(fetched.body, WORK);
+
       if (work === undefined) return { kind: 'failed', failure: 'parse' };
+
       return {
         kind: 'rendered',
         content: renderWork(doi, work),
@@ -86,6 +97,7 @@ export function createDoiAdapter(
 
 function renderWork(doi: string, work: Work): string {
   const venue = work.primary_location?.source?.display_name;
+
   const published = [
     work.publication_date,
     venue && `in ${venue}`,
@@ -93,6 +105,7 @@ function renderWork(doi: string, work: Work): string {
   ]
     .filter(Boolean)
     .join(' ');
+
   const fields: Array<[string, string | null | undefined]> = [
     ['Retracted', work.is_retracted ? 'yes' : undefined],
     [
@@ -104,12 +117,17 @@ function renderWork(doi: string, work: Work): string {
     ['Open access', work.open_access?.oa_url],
     ['DOI', `https://doi.org/${doi}`],
   ];
+
   const lines = [`# ${work.display_name ?? doi}`, ''];
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   const abstract = abstractText(work.abstract_inverted_index);
+
   if (abstract) lines.push('', '## Abstract', '', abstract);
+
   return lines.join('\n');
 }
 

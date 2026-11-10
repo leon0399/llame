@@ -9,9 +9,11 @@ export type Signal<T> = {
 
 export function createSignal<T>(): Signal<T> {
   let settle: ((value: T) => void) | undefined;
+
   const promise = new Promise<T>((resolve) => {
     settle = resolve;
   });
+
   return {
     promise,
     resolve: (value) => {

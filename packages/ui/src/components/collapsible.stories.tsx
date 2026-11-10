@@ -291,6 +291,7 @@ function renderFileTreeItem(fileItem: FileTreeItem) {
       </Collapsible>
     );
   }
+
   return (
     <Button
       key={fileItem.name}

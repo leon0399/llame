@@ -123,6 +123,18 @@ test("nearby edits coalesce into one range and distant ones stay separate", () =
   ]);
 });
 
+test("inserted blank lines name no mutant, while an edit beside them still does", () => {
+  const directory = repository({ [`${workspace}/src/a.ts`]: lines(40) });
+  const edited = lines(40).split("\n");
+  for (const index of [5, 10, 15]) edited[index] = `\n${edited[index]}`;
+  edited[30] = "const x = 2;";
+  commit(directory, { [`${workspace}/src/a.ts`]: edited.join("\n") });
+
+  assert.deepEqual(changedLineRanges("HEAD~1", directory)[workspace], [
+    { file: "src/a.ts", ranges: [[34, 34]] },
+  ]);
+});
+
 test("a file edited in many places stays a list of ranges, never the whole file", () => {
   const directory = repository({ [`${workspace}/src/a.ts`]: lines(200) });
   const edited = lines(200).split("\n");

@@ -11,6 +11,7 @@ import {
 /** A solid square with a letter, as a self-contained data URL. */
 function swatch(letter: string, fill: string): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="${fill}"/><text x="48" y="62" font-size="44" text-anchor="middle" fill="white" font-family="sans-serif">${letter}</text></svg>`;
+
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
@@ -20,12 +21,14 @@ const A: MediaThumbnailItem = {
   src: swatch("A", "#2563eb"),
   alt: "a.png",
 };
+
 const B: MediaThumbnailItem = {
   key: "b",
   kind: "image",
   src: swatch("B", "#16a34a"),
   alt: "b.png",
 };
+
 const C: MediaThumbnailItem = {
   key: "c",
   kind: "image",
@@ -46,12 +49,14 @@ const meta = {
 } satisfies Meta<typeof MediaThumbnailRow>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** Applies `onRemove` and `onRetry` (the tile goes back to `uploading`) to
  *  local state so edit stories show the result. */
 function EditableRow(args: MediaThumbnailRowProps) {
   const [items, setItems] = React.useState(args.items);
+
   return (
     <MediaThumbnailRow
       {...args}
@@ -171,6 +176,7 @@ export const ReadOnly: Story = {
       "b.png",
       "c.png",
     ]);
+
     for (const image of canvas.getAllByRole("img")) {
       await expect(image).toHaveAttribute("loading", "lazy");
     }
@@ -199,6 +205,7 @@ export const StoredPdf: Story = {
     const link = canvas.getByRole("link", {
       name: "Open paper.pdf in a new tab",
     });
+
     await expect(link.getAttribute("href")).toMatch(/\/original$/);
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");

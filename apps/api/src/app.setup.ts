@@ -30,6 +30,7 @@ export function configureApp(
   // caller (main.ts) resolves precedence via InstanceConfigService and
   // passes the already-resolved value in.
   const resolvedTrustProxy = getTrustProxySetting(trustProxy);
+
   if (resolvedTrustProxy !== undefined) {
     app.getHttpAdapter().getInstance().set('trust proxy', resolvedTrustProxy);
   }
@@ -54,19 +55,24 @@ export function getTrustProxySetting(
   trustProxy: string | null | undefined,
 ): number | boolean | string | undefined {
   const raw = trustProxy?.trim();
+
   if (!raw) {
     return undefined;
   }
+
   // Users WILL write true/false — forward them as real booleans (as a string,
   // Express would treat 'true' as a subnet list and fail to parse it,
   // silently trusting nothing).
   if (raw.toLowerCase() === 'true') {
     return true;
   }
+
   if (raw.toLowerCase() === 'false') {
     return undefined;
   }
+
   const hops = Number(raw);
+
   if (Number.isFinite(hops)) {
     // Express expects a non-negative integer hop count; -1 or 1.5 would be
     // forwarded silently and skew req.ip. Misconfiguration fails loud.
@@ -75,8 +81,10 @@ export function getTrustProxySetting(
         `trust proxy (http.trustProxy in llame.config.jsonc, or the TRUST_PROXY env var) must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
       );
     }
+
     return hops;
   }
+
   return raw;
 }
 
@@ -94,22 +102,26 @@ export function getAllowedWebOrigins(
     // value silently fails every preflight at runtime, so fail closed at startup.
     for (const origin of configured) {
       let parsed: URL;
+
       try {
         parsed = new URL(origin);
       } catch {
         throw new Error(`WEB_ORIGIN entry "${origin}" is not a valid origin`);
       }
+
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         throw new Error(
           `WEB_ORIGIN entry "${origin}" must be an http(s) origin`,
         );
       }
+
       if (parsed.origin !== origin) {
         throw new Error(
           `WEB_ORIGIN entry "${origin}" must be a bare origin with no path or trailing slash (e.g. ${parsed.origin})`,
         );
       }
     }
+
     return configured;
   }
 
@@ -156,5 +168,6 @@ export function setupOpenApi(app: INestApplication): OpenAPIObject {
     jsonDocumentUrl: 'docs/json',
     yamlDocumentUrl: 'docs/yaml',
   });
+
   return document;
 }

@@ -15,6 +15,7 @@ import { copyText } from "@/lib/clipboard";
  */
 export function MessageCopyButton({ parts }: { parts: UIMessage["parts"] }) {
   const [copied, setCopied] = useState(false);
+
   const markdown = parts
     .flatMap((part) => (part.type === "text" ? [part.text.trim()] : []))
     .filter((text) => text !== "")

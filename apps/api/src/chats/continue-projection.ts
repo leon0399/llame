@@ -61,7 +61,9 @@ export function continueStateFromEvents(
   const event = events.find(
     (candidate) => candidate.eventType === 'run.continued',
   );
+
   const payload = event?.payload;
+
   if (!isRecord(payload) || !Array.isArray(payload['parts'])) return undefined;
   // SAFETY: `run.continued` stores the reply's own JSONB parts array, written by
   // `createRunForMessage` from `continueKeptParts`; nothing here narrows them,
@@ -71,6 +73,7 @@ export function continueStateFromEvents(
   // numbers in its `steps` map — already offset by the chain it inherited — so
   // a Run admitted then keeps its boundaries and its offset after the deploy.
   const numbers = storedStepNumbers(payload['steps']);
+
   return {
     parts: numbers === undefined ? parts : withKeptSteps(parts, numbers),
   };
@@ -79,9 +82,11 @@ export function continueStateFromEvents(
 /** The numbers a stored `steps` map records, or undefined when it has none. */
 function storedStepNumbers(value: unknown): KeptStepNumbers | undefined {
   if (!isRecord(value)) return undefined;
+
   const recorded = Object.entries(value).filter(
     (entry): entry is [string, number] => isNumber(entry[1]),
   );
+
   return recorded.length === 0 ? undefined : Object.fromEntries(recorded);
 }
 
@@ -94,10 +99,13 @@ function storedStepNumbers(value: unknown): KeptStepNumbers | undefined {
 export function continueStepOffset(state: ContinueState | undefined): number {
   if (state === undefined) return 0;
   let offset = 0;
+
   for (const part of state.parts) {
     const step = partStep(part);
+
     if (step !== undefined) offset = Math.max(offset, step + 1);
   }
+
   return offset;
 }
 
@@ -106,6 +114,7 @@ function storedToolCallId(part: unknown): string | undefined {
   if (!isRecord(part)) return undefined;
   const type = part['type'];
   const toolCallId = part['toolCallId'];
+
   return isString(type) &&
     type.startsWith(TOOL_PART_PREFIX) &&
     isString(toolCallId)
@@ -129,9 +138,12 @@ function callStep(
 ): number | undefined {
   if (toolCallId === undefined) return undefined;
   const recorded = partStep(part);
+
   if (recorded !== undefined) return recorded;
+
   if (!Object.hasOwn(numbers, toolCallId)) return undefined;
   const derived = numbers[toolCallId];
+
   return isNumber(derived) ? derived : undefined;
 }
 
@@ -146,16 +158,22 @@ function adjacentCallSteps(
 ) {
   const before: Array<number | undefined> = [];
   let previous: number | undefined;
+
   for (const [index, step] of steps.entries()) {
     before.push(previous);
+
     if (callIds[index] !== undefined) previous = step;
   }
+
   const after: Array<number | undefined> = steps.map(() => undefined);
   let next: number | undefined;
+
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     after[index] = next;
+
     if (callIds[index] !== undefined) next = steps[index];
   }
+
   return { before, after };
 }
 
@@ -173,16 +191,22 @@ export function withKeptSteps(
   numbers: KeptStepNumbers,
 ): Array<MessagePart> {
   const callIds = parts.map((part) => storedToolCallId(part));
+
   const calls = parts.map((part, index) =>
     callStep(part, callIds[index], numbers),
   );
+
   const { before, after } = adjacentCallSteps(calls, callIds);
+
   return parts.map((part, index) => {
     if (partStep(part) !== undefined) return part;
     const own = calls[index];
+
     if (own !== undefined) return { ...part, step: own };
+
     if (!isTextPart(part) && !isReasoningPart(part)) return part;
     const step = after[index] ?? before[index];
+
     return step === undefined ? part : { ...part, step };
   });
 }
@@ -193,9 +217,11 @@ function recordedCallSteps(
   kept: ReadonlySet<string>,
 ): Map<string, number> {
   const steps = new Map<string, number>();
+
   for (const part of parts) {
     const toolCallId = storedToolCallId(part);
     const step = partStep(part);
+
     if (
       toolCallId !== undefined &&
       step !== undefined &&
@@ -204,6 +230,7 @@ function recordedCallSteps(
       steps.set(toolCallId, step);
     }
   }
+
   return steps;
 }
 
@@ -226,9 +253,11 @@ export function continuedCallSteps(input: {
   const onParts = recordedCallSteps(input.keptParts, kept);
   const inherited = recordedCallSteps(input.sourceContinued?.parts ?? [], kept);
   const steps = new Map<string, number>();
+
   for (const [toolCallId, step] of inherited) {
     if (!onParts.has(toolCallId)) steps.set(toolCallId, step);
   }
+
   // A chained Continue renumbers: the steps its source Run itself continued
   // keep their numbering, and the steps that Run made follow them, so two
   // calls from different Runs never share a step.
@@ -236,12 +265,15 @@ export function continuedCallSteps(input: {
     continueStepOffset({ parts: input.keptParts }),
     continueStepOffset(input.sourceContinued),
   );
+
   for (const event of input.sourceEvents) {
     if (event.eventType !== 'tool.requested' || !isRecord(event.payload)) {
       continue;
     }
+
     const toolCallId = event.payload['toolCallId'];
     const stepNumber = event.payload['stepNumber'];
+
     if (
       !isString(toolCallId) ||
       !isNumber(stepNumber) ||
@@ -251,8 +283,10 @@ export function continuedCallSteps(input: {
     ) {
       continue;
     }
+
     steps.set(toolCallId, offset + stepNumber);
   }
+
   return Object.fromEntries(steps);
 }
 

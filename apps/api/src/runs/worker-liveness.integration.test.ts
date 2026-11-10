@@ -88,16 +88,19 @@ describeIfDb(
           const run = await harness.tenantDb.runAs(userId, (tx) =>
             new RunsRepository(tx).findById(seed.runId, userId),
           );
+
           return run?.status === 'expired' ? run : undefined;
         },
         15_000,
         'the overrunning run to be aborted on its in-process budget and reach expired',
       );
+
       expect(expired.status).toBe('expired');
 
       const events = await harness.tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(seed.runId, userId),
       );
+
       const expiredEvent = events.find((e) => e.eventType === 'run.expired');
       expect(expiredEvent).toBeDefined();
       const expiredPayload = expiredEvent?.payload;
@@ -137,6 +140,7 @@ describeIfDb(
           const run = await harness.tenantDb.runAs(userId, (tx) =>
             new RunsRepository(tx).findById(seed.runId, userId),
           );
+
           return run?.status === 'running_model' ? run : undefined;
         },
         10_000,
@@ -154,16 +158,19 @@ describeIfDb(
           const run = await harness.tenantDb.runAs(userId, (tx) =>
             new RunsRepository(tx).findById(seed.runId, userId),
           );
+
           return run?.status === 'cancelled' ? run : undefined;
         },
         15_000,
         'the genuinely-cancelled run to reach cancelled',
       );
+
       expect(cancelled.status).toBe('cancelled');
 
       const events = await harness.tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(seed.runId, userId),
       );
+
       expect(events.map((e) => e.eventType)).toContain('run.cancelled');
       expect(events.map((e) => e.eventType)).not.toContain('run.expired');
     });
@@ -191,16 +198,19 @@ describeIfDb(
           const run = await harness.tenantDb.runAs(userId, (tx) =>
             new RunsRepository(tx).findById(seed.runId, userId),
           );
+
           return run?.status === 'expired' ? run : undefined;
         },
         20_000,
         'the run to reach terminal expired via retry exhaustion',
       );
+
       expect(expired.status).toBe('expired');
 
       const events = await harness.tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(seed.runId, userId),
       );
+
       const expiredEvent = events.find((e) => e.eventType === 'run.expired');
       expect(expiredEvent).toBeDefined();
       const expiredPayload = expiredEvent?.payload;

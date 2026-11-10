@@ -123,6 +123,7 @@ export type ScriptedBehavior = {
 
 /** The subset `HarnessModelClient` actually streams; `infra-throw` never reaches it. */
 type HarnessBehavior = Exclude<ScriptedBehavior, { kind: 'infra-throw' }>;
+
 type ConversationRecallBehavior = Extract<
   ScriptedBehavior,
   { kind: 'conversation-recall' }
@@ -137,10 +138,12 @@ interface CancelableDelay {
 function cancelableDelay(ms: number): CancelableDelay {
   let timer: ReturnType<typeof setTimeout>;
   let resolveDelay: () => void = noop;
+
   const promise = new Promise<void>((resolve) => {
     resolveDelay = resolve;
     timer = setTimeout(resolve, ms);
   });
+
   return {
     promise,
     cancel: () => {
@@ -156,9 +159,11 @@ function enqueueAnswerParts(
   text: string,
 ): void {
   controller.enqueue({ type: 'text-start', id: 'answer' });
+
   if (text.length > 0) {
     controller.enqueue({ type: 'text-delta', id: 'answer', delta: text });
   }
+
   controller.enqueue({ type: 'text-end', id: 'answer' });
   controller.enqueue({
     type: 'finish',
@@ -174,9 +179,11 @@ function enqueueRecallParts(
   behavior: ConversationRecallBehavior,
 ): void {
   const parts = conversationRecallParts(prompt, behavior);
+
   for (const part of parts) {
     controller.enqueue(part);
   }
+
   controller.enqueue({
     type: 'finish',
     finishReason: {
@@ -207,6 +214,7 @@ function createHangOrDelayGate(
 ): HangOrDelayGate | undefined {
   if (behavior.kind === 'hang') {
     let unblock: () => void = noop;
+
     return {
       wait: () =>
         new Promise<void>((resolve) => {
@@ -215,10 +223,13 @@ function createHangOrDelayGate(
       cancel: () => unblock(),
     };
   }
+
   if (delayMs) {
     const delay = cancelableDelay(delayMs);
+
     return { wait: () => delay.promise, cancel: delay.cancel };
   }
+
   return undefined;
 }
 
@@ -234,6 +245,7 @@ function enqueueScriptedCompletion(
   scriptedStep: ScriptedStep | undefined,
 ): boolean {
   controller.enqueue({ type: 'stream-start', warnings: [] });
+
   if (behavior.kind === 'step-script') {
     if (scriptedStep === undefined) {
       enqueueAnswerParts(controller, '');
@@ -252,13 +264,18 @@ function enqueueScriptedCompletion(
       behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '',
     );
   }
+
   // A step with a `hold` keeps the stream open for the abort to end.
   const hold = scriptedStep === undefined ? undefined : stepHold(scriptedStep);
+
   if (hold !== undefined) {
     hold.onHeld?.();
+
     return true;
   }
+
   controller.close();
+
   return false;
 }
 
@@ -268,17 +285,23 @@ function enqueueToolScript(
   behavior: Extract<ScriptedBehavior, { kind: 'tool-script' }>,
 ): void {
   const completed = new Set<string>();
+
   for (const message of prompt) {
     if (message.role !== 'tool') continue;
+
     for (const part of message.content) {
       if (part.type === 'tool-result') completed.add(part.toolCallId);
     }
   }
+
   const next = behavior.calls.find((call) => !completed.has(call.id));
+
   if (!next) {
     enqueueAnswerParts(controller, behavior.finalText);
+
     return;
   }
+
   controller.enqueue({
     type: 'tool-call',
     toolCallId: next.id,
@@ -307,27 +330,35 @@ function createScriptedStream(options: {
   scriptedStep: ScriptedStep | undefined;
 }): ReadableStream<LanguageModelV3StreamPart> {
   const { abortSignal, prompt, behavior, delayMs, scriptedStep } = options;
+
   return new ReadableStream<LanguageModelV3StreamPart>({
     async start(controller) {
       const gate = createHangOrDelayGate(behavior, delayMs);
+
       const onAbort = () => {
         gate?.cancel();
         controller.error(new DOMException('Aborted', 'AbortError'));
       };
+
       if (abortSignal?.aborted) {
         onAbort();
+
         return;
       }
+
       abortSignal?.addEventListener('abort', onAbort, { once: true });
 
       let holding = false;
+
       try {
         if (gate) {
           await gate.wait();
         }
+
         if (behavior.kind === 'hang' || abortSignal?.aborted) {
           return;
         }
+
         holding = enqueueScriptedCompletion(
           controller,
           prompt,
@@ -392,18 +423,23 @@ class HarnessModelClient implements ModelClient {
           modelId: this.model,
           tools: providerDeclarations(tools),
         });
+
         if (behavior.kind === 'provider-error') {
           throw new Error(behavior.message ?? 'simulated provider failure');
         }
+
         const stepIndex = this.scriptedStepIndex;
+
         const scriptedStep =
           behavior.kind === 'step-script'
             ? behavior.steps[this.scriptedStepIndex++]
             : undefined;
+
         // The hook runs while the model "responds": before its stream opens.
         if (behavior.kind === 'step-script') {
           await behavior.beforeStep?.(stepIndex);
         }
+
         return {
           stream: createScriptedStream({
             abortSignal,
@@ -437,7 +473,9 @@ class HarnessModelClient implements ModelClient {
       ...scriptedStreamHandlers(input, settlement),
       ...(wholeStep && { onChunk: undefined }),
     };
+
     applyRequestUsageCallback(streamOptions, input);
+
     // The exact record the request streams with is the one the executor's
     // additions mutate in place (`AttemptToolAdditions.bindToolRecord`), which
     // is what every production client binds through
@@ -446,19 +484,24 @@ class HarnessModelClient implements ModelClient {
     if (!wholeStep && input.tools !== undefined) {
       input.onToolSet?.(input.tools);
     }
+
     const gate = createToolCallGate();
+
     if (wholeStep) {
       // The production tool loop for a whole-step script: execution and
       // refusal report behind the reasoning consumer, schema validation, and
       // the SDK's own error object stored per refused call (design D3/A8).
       applyToolCallingOptions(streamOptions, input, gate);
     }
+
     // The same step preparation every production client installs: the
     // composer on every step, `onStepStart` and the cap only with tools.
     installStepPreparation(streamOptions, input, this);
+
     if (!wholeStep) {
       return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
     }
+
     return runStreamChannel({
       streamOptions,
       input,
@@ -481,6 +524,7 @@ function harnessSystemPromptTemplate(
   referencesSkills: boolean,
 ): string {
   const identity = `Harness prompt for ${modelId}`;
+
   return referencesSkills
     ? `${identity}\n{{#if skills}}{{#each skills.entries}}<skill name="{{name}}">{{description}}</skill>{{/each}}{{/if}}`
     : identity;
@@ -534,8 +578,10 @@ export class ScriptedModelsService implements ModelSelectionValidator {
 
   validateModelSelection(modelId: string) {
     const reasoning = this.reasoning.get(modelId);
+
     const referencesSkills =
       this.behaviors.get(modelId)?.referencesSkills === true;
+
     return {
       id: modelId,
       source: 'system' as const,
@@ -577,16 +623,19 @@ export class ScriptedModelsService implements ModelSelectionValidator {
   createClient(modelId: string): ModelClient {
     this.createClientCalls.push({ modelId });
     const behavior = this.behaviors.get(modelId);
+
     if (!behavior) {
       throw new Error(
         `ScriptedModelsService: no behavior registered for modelId "${modelId}"`,
       );
     }
+
     if (behavior.kind === 'infra-throw') {
       throw new Error(
         behavior.message ?? `simulated infra failure for ${modelId}`,
       );
     }
+
     return new HarnessModelClient(
       modelId,
       behavior,

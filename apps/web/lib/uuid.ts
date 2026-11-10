@@ -35,11 +35,13 @@ export function safeRandomUUID(): string {
   // it was never declared throws a ReferenceError instead of evaluating to
   // `undefined`.
   const cryptoRef: MinimalCrypto | undefined = globalThis.crypto;
+
   if (supportsRandomUUID(cryptoRef)) {
     return cryptoRef.randomUUID();
   }
 
   const bytes = new Uint8Array(16);
+
   if (supportsGetRandomValues(cryptoRef)) {
     cryptoRef.getRandomValues(bytes);
   } else {
@@ -52,6 +54,7 @@ export function safeRandomUUID(): string {
   bytes[8] = (bytes[8]! & 0x3f) | 0x80; // variant 10xx
 
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+
   return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex
     .slice(6, 8)
     .join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;

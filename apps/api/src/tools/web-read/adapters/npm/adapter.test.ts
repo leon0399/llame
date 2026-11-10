@@ -11,10 +11,12 @@ import {
 import { createNpmAdapter } from './adapter';
 
 const FILES_ORIGIN = 'http://127.0.0.1:43124/npm';
+
 const adapter = createNpmAdapter(
   { id: 'npm', use: 'npm' },
   { registryOrigin: API_ORIGIN, filesOrigin: FILES_ORIGIN },
 );
+
 const MANIFEST_URL = `${API_ORIGIN}/@scope/pkg/latest`;
 const TAGS_URL = `${API_ORIGIN}/-/package/@scope/pkg/dist-tags`;
 const README_URL = `${FILES_ORIGIN}/@scope/pkg@1.2.3/README.md`;
@@ -50,6 +52,7 @@ const readme = {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
@@ -128,6 +131,7 @@ describe('npm adapter read', () => {
 
   it('requests the version in the URL', async () => {
     const pinned = `${API_ORIGIN}/@scope/pkg/1.0.0`;
+
     const notFound: WebFetchFailure = {
       type: 'http_status',
       message: 'HTTP 404',

@@ -54,10 +54,13 @@ export type RetainedMedia = RetainedImage | RetainedPdf | RetainedExceeded;
 /** The persisted record an entry keeps in its part, event, or import entry. */
 export function retainedMediaJson(entry: RetainedMedia): RetainedMediaJson {
   if ('exceeded' in entry) return { exceeded: true };
+
   if ('pages' in entry) {
     return { mediaType: 'application/pdf', data: entry.data };
   }
+
   const { mediaType, width, height, data } = entry.model;
+
   return { mediaType, width, height, data };
 }
 
@@ -72,13 +75,16 @@ export function retainedEntry(
   subject: UnstoredMedia,
 ): RetainedMedia | undefined {
   if ('exceeded' in record) return { ...subject, exceeded: true };
+
   if ('pages' in subject) {
     return record.mediaType === 'application/pdf'
       ? { locator: subject.locator, pages: subject.pages, data: record.data }
       : undefined;
   }
+
   if (record.mediaType === 'application/pdf') return undefined;
   const { mediaType, width, height, data } = record;
+
   return { ...subject, model: { mediaType, width, height, data } };
 }
 
@@ -97,6 +103,7 @@ export function exceededEntry(entry: RetainedMedia): RetainedMedia {
 /** The base64 bytes an entry counts toward a message's retained bound. */
 export function retainedEntrySize(entry: RetainedMedia): number {
   if ('exceeded' in entry) return 0;
+
   return ('pages' in entry ? entry.data : entry.model.data).length;
 }
 
@@ -117,6 +124,7 @@ export function boundRetained(
   used: number,
 ): RetainedSettlement {
   const size = retainedEntrySize(entry);
+
   return used + size <= RETAINED_MESSAGE_BOUND
     ? { record: retainedMediaJson(entry), used: used + size }
     : { record: { exceeded: true }, used };

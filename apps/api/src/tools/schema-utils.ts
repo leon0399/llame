@@ -60,7 +60,9 @@ function resolveAjvConstructor(
   doc: JsonSchemaDocument,
 ): typeof Ajv | undefined {
   const dialect = doc.$schema;
+
   if (!isString(dialect)) return Ajv;
+
   return DIALECT_CONSTRUCTORS.get(normalizedDialectUri(dialect));
 }
 
@@ -76,9 +78,11 @@ function addDraft07HttpsMetaSchemaAlias(ajv: Ajv, dialect: unknown): void {
   const draft07MetaSchema = ajv.getSchema(
     'http://json-schema.org/draft-07/schema',
   )?.schema;
+
   if (!isRecord(draft07MetaSchema)) {
     throw new Error('draft-07 meta-schema is unavailable');
   }
+
   ajv.addMetaSchema({
     ...draft07MetaSchema,
     $id: 'https://json-schema.org/draft-07/schema',
@@ -97,6 +101,7 @@ export function compileJsonSchemaValidator(
 ): JsonSchemaCompilation {
   const dialect = schemaDialect(doc);
   const AjvCtor = resolveAjvConstructor(doc);
+
   if (!AjvCtor) {
     return {
       success: false,
@@ -107,6 +112,7 @@ export function compileJsonSchemaValidator(
   }
 
   let validate: import('ajv').ValidateFunction;
+
   try {
     const ajv = new AjvCtor({ allErrors: true, strict: false });
     addDraft07HttpsMetaSchemaAlias(ajv, doc.$schema);
@@ -128,9 +134,11 @@ export function compileJsonSchemaValidator(
       if (validate(value)) {
         return { success: true, value };
       }
+
       const message =
         validate.errors?.map((e) => e.message).join('; ') ??
         'validation failed';
+
       return { success: false, error: new Error(message) };
     },
   };
@@ -141,6 +149,7 @@ export function buildJsonSchemaValidator(
   doc: JsonSchemaDocument,
 ): JsonSchemaValidator | undefined {
   const compilation = compileJsonSchemaValidator(doc);
+
   return compilation.success ? compilation.validate : undefined;
 }
 
@@ -158,6 +167,7 @@ export async function admitToolInputSchema(
 ): Promise<ToolSchemaAdmission> {
   if (isZodSchema(schema)) {
     const generatedSchema = await asSchema(schema).jsonSchema;
+
     return {
       success: true,
       inputSchema: { ...generatedSchema },
@@ -165,6 +175,7 @@ export async function admitToolInputSchema(
   }
 
   const compilation = compileJsonSchemaValidator(schema);
+
   return compilation.success
     ? { success: true, inputSchema: schema }
     : compilation;
@@ -185,8 +196,11 @@ export function toFlexibleSchema(
   if (isZodSchema(schema)) {
     return asSchema(schema);
   }
+
   const validator = buildJsonSchemaValidator(schema);
+
   if (!validator) return null;
+
   return jsonSchema(schema, { validate: validator });
 }
 
@@ -202,13 +216,17 @@ export function safeParseArgs(
 ): { success: true; data: unknown } | { success: false } {
   if (isZodSchema(schema)) {
     const result = schema.safeParse(args);
+
     return result.success
       ? { success: true, data: result.data }
       : { success: false };
   }
+
   const validator = buildJsonSchemaValidator(schema);
+
   if (!validator) return { success: false };
   const result = validator(args);
+
   return result.success
     ? { success: true, data: result.value }
     : { success: false };
@@ -224,7 +242,9 @@ export async function resolveJsonSchema(
 ): Promise<JsonSchemaDocument> {
   if (isZodSchema(schema)) {
     const generatedSchema = await asSchema(schema).jsonSchema;
+
     return { ...generatedSchema };
   }
+
   return schema;
 }

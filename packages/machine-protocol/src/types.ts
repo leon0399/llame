@@ -40,13 +40,16 @@ export type IncompatibleVersionData = {
 };
 
 export type RootsListParams = { readonly envelope: RequestEnvelope };
+
 export type RootsListResult = { readonly roots: ReadonlyArray<string> };
 
 export type FsStatKind = "file" | "directory" | "other" | "missing";
+
 export type FsStatParams = {
   readonly envelope: RequestEnvelope;
   readonly path: string;
 };
+
 export type FsStatResult = {
   readonly kind: FsStatKind;
   readonly size?: number;
@@ -56,14 +59,17 @@ export type FsStatResult = {
 };
 
 export type FsListEntryKind = "file" | "directory" | "link" | "other";
+
 export type FsListEntry = {
   readonly name: string;
   readonly kind: FsListEntryKind;
 };
+
 export type FsListParams = {
   readonly envelope: RequestEnvelope;
   readonly path: string;
 };
+
 export type FsListResult =
   | {
       readonly entries: ReadonlyArray<FsListEntry>;
@@ -218,10 +224,12 @@ export type FsBytesParams = {
   readonly envelope: RequestEnvelope;
   readonly path: string;
 };
+
 export type FsBytesChunk = {
   readonly seq: number;
   readonly data: string;
 };
+
 export type FsBytesResult =
   | { readonly size: number; readonly mediaType: string }
   | NativeFailureResult;
@@ -376,7 +384,9 @@ export type ProcBashResult =
     };
 
 export type McpTransportKind = "stdio" | "http";
+
 export type McpServerState = "available" | "unavailable";
+
 export type McpServerEntry = {
   readonly name: string;
   /** Absent when the entry never resolved far enough to name its transport:
@@ -386,26 +396,34 @@ export type McpServerEntry = {
   readonly state: McpServerState;
   readonly diagnostic?: string;
 };
+
 export type McpServersParams = {
   readonly envelope: RequestEnvelope;
   readonly root: string;
 };
+
 export type McpServersResult = {
   readonly servers: ReadonlyArray<McpServerEntry>;
 };
+
 export type McpOpenParams = {
   readonly envelope: RequestEnvelope;
   readonly root: string;
   readonly server: string;
 };
+
 export type McpOpenResult = {
   readonly protectedValues: ReadonlyArray<string>;
 };
+
 export type McpMessageNotification = { readonly message: JsonValue };
+
 export type McpStderrNotification = { readonly text: string };
+
 export type McpProtectedNotification = {
   readonly values: ReadonlyArray<string>;
 };
+
 export type McpSetProtocolVersionNotification = { readonly version: string };
 
 /** One configured remote of a repository, as an inspection reports it. */
@@ -448,6 +466,7 @@ export type GitInspectParams = {
   readonly path: string;
   readonly options: NativeDisplayOptions;
 };
+
 export type GitInspectSuccess = {
   readonly status: "ok";
   readonly toplevel: string;
@@ -458,6 +477,7 @@ export type GitInspectSuccess = {
   readonly branch: string | null;
   readonly head: string | null;
 };
+
 export type GitInspectResult = GitInspectSuccess | GitFailure;
 
 /** `git.locate`: the nearest `.git` entry at or above `path`, found by a stat
@@ -467,11 +487,13 @@ export type GitLocateParams = {
   readonly path: string;
   readonly options: NativeDisplayOptions;
 };
+
 export type GitLocateSuccess = {
   readonly status: "ok";
   readonly gitEntry: string;
   readonly kind: "directory" | "file";
 };
+
 export type GitLocateResult = GitLocateSuccess | GitFailure;
 
 /** `git.state`: the observed state of the repository whose entry was located. */
@@ -485,6 +507,7 @@ export type GitStateParams = {
   readonly timeoutMs?: number;
   readonly options: NativeDisplayOptions;
 };
+
 export type GitStateSuccess = {
   readonly status: "ok";
   /** The absolute directory that holds the git entry. */
@@ -539,6 +562,7 @@ export type GitStateSuccess = {
   /** Raw URLs; the hub normalizes them. */
   readonly remotes: ReadonlyArray<GitRepositoryRemote>;
 };
+
 export type GitStateResult = GitStateSuccess | GitFailure;
 
 /** `git.worktreeAdd`: a new worktree of `source` on a new branch. */
@@ -551,6 +575,7 @@ export type GitWorktreeAddParams = {
   readonly directory: string;
   readonly options: NativeDisplayOptions;
 };
+
 export type GitWorktreeAddSuccess = {
   readonly status: "ok";
   readonly path: string;
@@ -558,6 +583,7 @@ export type GitWorktreeAddSuccess = {
   /** The commit the new worktree's HEAD names. */
   readonly head: string;
 };
+
 export type GitWorktreeAddResult = GitWorktreeAddSuccess | GitFailure;
 
 /** One registered worktree of a repository. */
@@ -576,6 +602,7 @@ export type GitWorktreeListParams = {
   readonly source: string;
   readonly options: NativeDisplayOptions;
 };
+
 export type GitWorktreeListResult =
   | {
       readonly status: "ok";
@@ -589,6 +616,7 @@ export type GitWorktreeRemoveParams = {
   readonly path: string;
   readonly options: NativeDisplayOptions;
 };
+
 export type GitWorktreeRemoveResult = { readonly status: "ok" } | GitFailure;
 
 /** Every method's params, keyed by its wire name. */

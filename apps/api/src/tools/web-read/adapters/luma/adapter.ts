@@ -25,6 +25,7 @@ export const LUMA_API_ORIGIN = 'https://api.lu.ma';
 const CANONICAL_ORIGIN = 'https://luma.com';
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
 const HOSTS = new Set(['luma.com', 'www.luma.com', 'lu.ma', 'www.lu.ma']);
+
 /** One public slug. Dots occur (`maxima.ai`); slashes do not. */
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/u;
 const SAFE_URL = /^https?:\/\/[^\s)]+$/u;
@@ -33,6 +34,7 @@ const HOST = z.object({
   name: z.string().nullish(),
   username: z.string().nullish(),
 });
+
 const GEO = z.object({
   mode: z.string().nullish(),
   address: z.string().nullish(),
@@ -42,10 +44,12 @@ const GEO = z.object({
   region: z.string().nullish(),
   country: z.string().nullish(),
 });
+
 const PRICE = z.object({
   cents: z.number().nullish(),
   currency: z.string().nullish(),
 });
+
 const TICKET_TYPE = z.object({
   name: z.string().nullish(),
   cents: z.number().nullish(),
@@ -58,6 +62,7 @@ const TICKET_TYPE = z.object({
   valid_start_at: z.string().nullish(),
   valid_end_at: z.string().nullish(),
 });
+
 const TICKET_INFO = z.object({
   is_free: z.boolean().nullish(),
   is_sold_out: z.boolean().nullish(),
@@ -66,6 +71,7 @@ const TICKET_INFO = z.object({
   price: PRICE.nullish(),
   max_price: PRICE.nullish(),
 });
+
 const EVENT = z.object({
   name: z.string().min(1),
   url: z.string().nullish(),
@@ -109,24 +115,32 @@ const EVENT_PAYLOAD = z.object({
 });
 
 type EventPayload = z.infer<typeof EVENT_PAYLOAD>;
+
 type EventRecord = EventPayload['data']['event'];
+
 type Geo = z.infer<typeof GEO>;
+
 type Host = z.infer<typeof HOST>;
+
 type Calendar = NonNullable<EventPayload['data']['calendar']>;
 
 /** Matches a single-segment `luma.com` or `lu.ma` slug, including `www`. */
 export function parseLumaUrl(source: URL): string | undefined {
   if (source.protocol !== 'https:' || !HOSTS.has(source.host)) return undefined;
   const segments = source.pathname.split('/').filter((part) => part.length > 0);
+
   if (segments.length !== 1) return undefined;
   const raw = segments[0];
+
   if (raw === undefined) return undefined;
   let slug: string;
+
   try {
     slug = decodeURIComponent(raw);
   } catch {
     return undefined;
   }
+
   return SLUG.test(slug) ? slug : undefined;
 }
 
@@ -136,6 +150,7 @@ export function createLumaAdapter(
   options: { readonly origin?: string } = {},
 ): WebAdapter {
   const origin = options.origin ?? LUMA_API_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
@@ -150,15 +165,21 @@ async function readEvent(
   origin: string,
 ): Promise<WebAdapterOutcome> {
   const slug = parseLumaUrl(source);
+
   if (slug === undefined) return { kind: 'failed', failure: 'parse' };
   const fetched = await io.fetch(requestUrl(origin, slug), JSON_INIT);
+
   if ('type' in fetched) return primaryFailure(fetched);
+
   // An admitted redirect may leave api.lu.ma; only Luma's answer is an event.
   if (new URL(fetched.finalUrl).origin !== origin) {
     return { kind: 'failed', failure: 'status' };
   }
+
   const payload = parseJsonBody(fetched.body, EVENT_PAYLOAD);
+
   if (payload === undefined) return { kind: 'failed', failure: 'parse' };
+
   return {
     kind: 'rendered',
     content: renderEvent(payload, slug),
@@ -177,6 +198,7 @@ function renderEvent(payload: EventPayload, slug: string): string {
   appendOffer(lines, payload);
   lines.push(`URL: ${canonicalUrl(payload.data.event.url, slug)}`);
   appendDescription(lines, payload.data.description_mirror);
+
   return lines.join('\n');
 }
 
@@ -186,6 +208,7 @@ function appendFacts(lines: Array<string>, payload: EventPayload): void {
   pushField(lines, 'Visibility', visibilityOf(event.visibility));
   pushField(lines, 'Start', formatEventTime(event.start_at, event.timezone));
   pushField(lines, 'End', formatEventTime(event.end_at, event.timezone));
+
   for (const line of locationLines(event)) lines.push(line);
   pushField(lines, 'Hosts', hostsOf(payload.data.hosts));
   pushField(lines, 'Organizer', organizerOf(payload.data.calendar));
@@ -194,6 +217,7 @@ function appendFacts(lines: Array<string>, payload: EventPayload): void {
     'Registration',
     textOrUndefined(payload.data.registration_availability),
   );
+
   if (payload.data.ticket_info?.require_approval === true) {
     lines.push('Approval: required');
   }
@@ -203,6 +227,7 @@ function appendOffer(lines: Array<string>, payload: EventPayload): void {
   const { event } = payload.data;
   pushField(lines, 'Price', priceOf(payload.data.ticket_info));
   const tickets = ticketLines(payload.data.ticket_types, event.timezone);
+
   if (tickets.length > 0) lines.push('Tickets:', ...tickets);
   pushField(
     lines,
@@ -218,6 +243,7 @@ function appendDescription(
   mirror: MirrorNode | null | undefined,
 ): void {
   const description = renderMirror(mirror);
+
   if (description !== '') lines.push('', description);
 }
 
@@ -231,16 +257,21 @@ function pushField(
 
 function statusOf(payload: EventPayload): string | undefined {
   const end = payload.data.event.end_at;
+
   if (hasEnded(end)) return 'ended';
   const parts: Array<string> = [];
+
   if (isSoldOut(payload)) parts.push('sold out');
+
   if (isWaitlist(payload)) parts.push('waitlist');
+
   return parts.length === 0 ? undefined : parts.join(', ');
 }
 
 function hasEnded(iso: string | null | undefined): boolean {
   if (iso === null || iso === undefined) return false;
   const time = Date.parse(iso);
+
   return Number.isFinite(time) && time < Date.now();
 }
 
@@ -263,6 +294,7 @@ function visibilityOf(
   visibility: string | null | undefined,
 ): string | undefined {
   const text = textOrUndefined(visibility);
+
   return text === undefined || text === 'public' ? undefined : text;
 }
 
@@ -270,24 +302,30 @@ function locationLines(event: EventRecord): Array<string> {
   const online = onlineLocation(event);
   const place = placeOf(event.geo_address_info, event.geo_address_visibility);
   const lines: Array<string> = [];
+
   if (online !== undefined) lines.push(`Location: ${online}`);
+
   if (place !== undefined) {
     lines.push(`${online === undefined ? 'Location' : 'Venue'}: ${place}`);
   } else if (online === undefined && event.location_type === 'offline') {
     lines.push('Location: In person');
   }
+
   return lines;
 }
 
 function onlineLocation(event: EventRecord): string | undefined {
   const join = joinUrl(event.virtual_info);
   const type = event.location_type;
+
   const online =
     type === 'online' ||
     type === 'virtual' ||
     type === 'zoom' ||
     join !== undefined;
+
   if (!online) return undefined;
+
   return join === undefined ? 'Online' : `Online — ${join}`;
 }
 
@@ -296,6 +334,7 @@ function joinUrl(info: EventRecord['virtual_info']): string | undefined {
   if (info === null || info === undefined || info.has_access !== true) {
     return undefined;
   }
+
   return httpUrl(info.raw_join_url);
 }
 
@@ -308,14 +347,18 @@ function placeOf(
   visibility: string | null | undefined,
 ): string | undefined {
   if (geo === null || geo === undefined) return undefined;
+
   if (
     geo.mode === 'shown' ||
     (modeMissing(geo.mode) && visibility === 'public')
   ) {
     return shownPlace(geo);
   }
+
   const city = cityOf(geo);
+
   if (city === undefined) return undefined;
+
   return geo.mode === 'obfuscated'
     ? `${city} (street address shared with guests)`
     : city;
@@ -323,21 +366,28 @@ function placeOf(
 
 function shownPlace(geo: Geo): string | undefined {
   const full = textOrUndefined(geo.full_address);
+
   if (full !== undefined) return full;
   const address = textOrUndefined(geo.address);
   const city = cityOf(geo);
+
   if (address !== undefined && city !== undefined) return `${address}, ${city}`;
+
   return address ?? city;
 }
 
 function cityOf(geo: Geo): string | undefined {
   const cityState = textOrUndefined(geo.city_state);
+
   if (cityState !== undefined) return cityState;
   const parts: Array<string> = [];
+
   for (const part of [geo.city, geo.region, geo.country]) {
     const text = textOrUndefined(part);
+
     if (text !== undefined) parts.push(text);
   }
+
   return parts.length === 0 ? undefined : parts.join(', ');
 }
 
@@ -346,10 +396,13 @@ function hostsOf(
 ): string | undefined {
   if (hosts === null || hosts === undefined) return undefined;
   const names: Array<string> = [];
+
   for (const host of hosts) {
     const label = hostLabel(host.name, host.username);
+
     if (label !== undefined) names.push(label);
   }
+
   return names.length === 0 ? undefined : names.join(', ');
 }
 
@@ -357,6 +410,7 @@ function organizerOf(
   calendar: Calendar | null | undefined,
 ): string | undefined {
   if (calendar === null || calendar === undefined) return undefined;
+
   return hostLabel(calendar.name, calendar.slug);
 }
 
@@ -366,12 +420,15 @@ function hostLabel(
 ): string | undefined {
   const label = textOrUndefined(name);
   const link = slugLink(slug);
+
   if (label !== undefined && link !== undefined) return `${label} (${link})`;
+
   return label ?? link;
 }
 
 function slugLink(slug: string | null | undefined): string | undefined {
   if (slug === null || slug === undefined || !SLUG.test(slug)) return undefined;
+
   return `${CANONICAL_ORIGIN}/${slug}`;
 }
 
@@ -383,6 +440,7 @@ function httpUrl(value: string | null | undefined): string | undefined {
   if (value === null || value === undefined || !SAFE_URL.test(value)) {
     return undefined;
   }
+
   return value;
 }
 
@@ -394,5 +452,6 @@ function canonicalUrl(
     eventUrl !== null && eventUrl !== undefined && SLUG.test(eventUrl)
       ? eventUrl
       : slug;
+
   return `${CANONICAL_ORIGIN}/${path}`;
 }

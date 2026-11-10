@@ -64,7 +64,9 @@ export async function isFunctionOwnedByBypassRlsRole(
       WHERE p.proname = ${functionName}
     `),
   );
+
   const row = [...result][0];
+
   return Boolean(row?.bypass);
 }
 
@@ -83,6 +85,7 @@ export async function assertDiscoveryFunctionProvisioned(
     tenantDb,
     functionName,
   );
+
   if (!provisioned) {
     throw new Error(
       `Discovery function '${functionName}' is not owned by a BYPASSRLS role — its cross-tenant results would be silently empty, not truly empty. Run 'pnpm db:provision-rls' (or your deployment's equivalent) and re-run this command.`,

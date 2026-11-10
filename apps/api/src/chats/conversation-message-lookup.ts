@@ -32,6 +32,7 @@ type ConversationMessageLookupRow = {
 function parseSafePositiveSequence(value: string | null): number | undefined {
   if (value === null) return undefined;
   const parsed = Number(value);
+
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
@@ -110,12 +111,15 @@ function toConversationMessageLookup(
   }
 
   const seq = parseSafePositiveSequence(row.message_seq);
+
   if (seq === undefined) return undefined;
 
   const previousMessageSeq = parseSafePositiveSequence(
     row.previous_message_seq,
   );
+
   const nextMessageSeq = parseSafePositiveSequence(row.next_message_seq);
+
   const createdAt =
     row.message_created_at instanceof Date
       ? row.message_created_at
@@ -129,12 +133,15 @@ function toConversationMessageLookup(
     usage: row.message_usage,
     createdAt,
   };
+
   if (previousMessageSeq !== undefined) {
     result.previousMessageSeq = previousMessageSeq;
   }
+
   if (nextMessageSeq !== undefined) {
     result.nextMessageSeq = nextMessageSeq;
   }
+
   return result;
 }
 
@@ -155,6 +162,7 @@ export async function findConversationMessage(
       'MessagesRepository.findConversationMessage requires a non-empty userId',
     );
   }
+
   if (!Number.isSafeInteger(messageSeq) || messageSeq <= 0) {
     return undefined;
   }

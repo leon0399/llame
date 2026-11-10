@@ -36,6 +36,7 @@ describe("alpha acceptance workflow", () => {
 
     const initial = await readFile({ path });
     expect(initial).toMatchObject({ status: "success" });
+
     if (initial.status !== "success" || initial.kind !== "file") return;
     expect(initial.content).toContain("draft");
 
@@ -43,7 +44,9 @@ describe("alpha acceptance workflow", () => {
       { command: "grep", args: ["-n", "draft", "alpha.json"] },
       context(directory),
     );
+
     expect(grep).toMatchObject({ status: "success" });
+
     if (!("stdout" in grep)) return;
     expect(grep.stdout).toContain("draft");
     expect(grep.truncated).toBe(false);
@@ -53,10 +56,12 @@ describe("alpha acceptance workflow", () => {
       oldText: '"status":"draft"',
       newText: '"status":"ready"',
     });
+
     expect(edited).toMatchObject({ status: "success" });
 
     const reread = await readFile({ path });
     expect(reread).toMatchObject({ status: "success" });
+
     if (reread.status !== "success" || reread.kind !== "file") return;
     expect(reread.content).toContain("ready");
     expect(reread.content).not.toContain("draft");
@@ -71,6 +76,7 @@ describe("alpha acceptance workflow", () => {
       },
       context(directory),
     );
+
     expect(python).toMatchObject({ status: "success", stdout: "ready\n" });
   });
 });

@@ -65,6 +65,7 @@ export function assertBindingConsistent(
 ): void {
   if (!existing) return;
   const declaredRecord = toComparisonRecord(declared);
+
   for (const field of BINDING_COMPARISON_FIELDS) {
     if (declaredRecord[field] !== existing[field]) {
       throw new InstanceConfigError(

@@ -47,10 +47,12 @@ export function isContextItemPart(
   ) {
     return false;
   }
+
   // SAFETY: `keysMatch` above confirmed `value` has exactly the `type` and
   // `data` keys; both are read here still unvalidated, and checked on the
   // following lines before this function returns true.
   const { type, data } = value as { type: unknown; data: unknown };
+
   return type === "data-context" && isNonNullObject(data);
 }
 
@@ -77,6 +79,7 @@ function isNoticeEnvelope(data: unknown): data is NoticeEnvelope {
   if (!isNonNullObject(data)) return false;
   const requiredKeys = ["v", "producer", "form", "runId", "payload"];
   const actualKeys = Object.keys(data);
+
   return (
     keysMatch(actualKeys, requiredKeys) ||
     keysMatch(actualKeys, [...requiredKeys, "text"])
@@ -110,6 +113,8 @@ export function contextItemEnvelope(
 ): NoticeEnvelope | undefined {
   if (!isContextItemPart(value)) return undefined;
   const data = value.data;
+
   if (!isNoticeEnvelope(data)) return undefined;
+
   return isNoticeEnvelopeOf(data, producer) ? data : undefined;
 }

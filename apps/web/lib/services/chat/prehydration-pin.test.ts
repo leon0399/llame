@@ -34,6 +34,7 @@ describe("PREHYDRATION_PIN_SCRIPT", () => {
     });
     log.append(scroller);
     document.body.append(log);
+
     return scroller;
   }
 

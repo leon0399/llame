@@ -86,6 +86,7 @@ function workingDirectoriesOf(
   input: DeriveLocationViewInput,
 ): Array<WorkingDirectoryOption> {
   const linked = new Set(input.links.map((link) => link.repositoryId));
+
   return input.checkouts
     .filter((checkout) => checkout.kind === "main")
     .map((checkout) => ({
@@ -108,6 +109,7 @@ function deriveLocationView(
   input: DeriveLocationViewInput,
 ): ComposerLocationView {
   const { draft, preview } = input;
+
   const location = resolveLocation({
     preview: preview.data,
     previewFailed: preview.isError,
@@ -115,6 +117,7 @@ function deriveLocationView(
     machines: input.machines,
     failed: input.failed,
   });
+
   return {
     workingDirectories: workingDirectoriesOf(input),
     machineOptions: executorOptions({
@@ -144,6 +147,7 @@ function localPreview(
       row.repositoryId === draft.repositoryId &&
       row.executorId === draft.executorId,
   );
+
   const row = draft.cleared
     ? undefined
     : draft.checkoutId === undefined
@@ -151,6 +155,7 @@ function localPreview(
         ? mains[0]
         : undefined
       : checkouts.find((checkout) => checkout.id === draft.checkoutId);
+
   return {
     projectId: "",
     repositoryId: row?.repositoryId ?? null,
@@ -213,10 +218,12 @@ function useSelectionDraft(
   onChange?: () => void,
 ): ComposerLocationActions & { draft: SelectionDraft } {
   const [draft, setDraft] = useState(() => initialDraft(initial));
+
   const actions = draftActions((change) => {
     setDraft(change);
     onChange?.();
   });
+
   return { draft, ...actions };
 }
 
@@ -246,10 +253,13 @@ function useLocationPreview(
 ): PreviewState & { refetch: () => void } {
   const served = enabled && projectId !== null && !draft.cleared;
   const remote = useStartLocationPreview(projectId ?? "", draft, served);
+
   const refetch = () => {
     void remote.refetch();
   };
+
   if (served) return { ...remote, refetch };
+
   return {
     data: localPreview(draft, checkouts),
     isPending: false,
@@ -267,13 +277,16 @@ export function useComposerLocation({
   enabled = true,
 }: ComposerLocationArgs): ComposerLocation {
   const { draft, ...actions } = useSelectionDraft(initial, onChange);
+
   const links = useProjectRepositoryLinksQuery(
     projectId ?? "",
     enabled && projectId !== null,
   );
+
   const checkouts = useCheckoutsQuery(undefined, enabled).data ?? [];
   const machines = useMachinesQuery(enabled);
   const preview = useLocationPreview(projectId, draft, checkouts, enabled);
+
   return {
     ...deriveLocationView({
       draft,

@@ -97,6 +97,7 @@ describe('Machine Workspaces through the durable worker', () => {
   let machines: MachinesConfig;
   let devl: FakeMachine;
   let gpu: FakeMachine;
+
   const allowedTools = [
     'read',
     'enter_workspace',
@@ -203,6 +204,7 @@ describe('Machine Workspaces through the durable worker', () => {
     const snapshot = (await workspaceItems(chatId, read.runId, owner)).find(
       (item) => item['form'] === 'snapshot',
     );
+
     expect(snapshot?.['text']).toContain(`machine://devl${shop}`);
     expect(snapshot?.['text']).toContain('on Machine `devl`');
     expect(snapshot?.['text']).toContain('no isolation between them');
@@ -304,6 +306,7 @@ describe('Machine Workspaces through the durable worker', () => {
     await writeFile(join(gpuRoot, 'GPU.md'), 'gpu readme\n');
 
     devl.disconnect();
+
     const offlineCalls = [
       { id: 'relative', name: 'read', input: { path: 'README.md' } },
       {
@@ -312,6 +315,7 @@ describe('Machine Workspaces through the durable worker', () => {
         input: { path: `machine://gpu${gpuRoot}/GPU.md` },
       },
     ];
+
     const run1 = await runScript({
       userId: owner,
       chatId,
@@ -337,9 +341,11 @@ describe('Machine Workspaces through the durable worker', () => {
       workspaceDetachReason: null,
       workspaceToldAvailable: false,
     });
+
     const notices = (await workspaceItems(chatId, run1.runId, owner)).filter(
       (item) => item['form'] === 'notice',
     );
+
     expect(notices).toHaveLength(1);
     expect(notices[0]?.['text']).toContain(
       'Machine `devl` is unreachable, so this Workspace is offline for now.',
@@ -352,6 +358,7 @@ describe('Machine Workspaces through the durable worker', () => {
       tag: 'machine-offline-2',
       calls: offlineCalls,
     });
+
     expect(
       (await workspaceItems(chatId, run2.runId, owner)).filter(
         (item) => item['form'] === 'notice',
@@ -365,21 +372,25 @@ describe('Machine Workspaces through the durable worker', () => {
     // Recovery: one further transition, and relative paths resolve again with
     // no new entry.
     devl.reconnect();
+
     const run3 = await runScript({
       userId: owner,
       chatId,
       tag: 'machine-recovered',
       calls: [{ id: 'recovered', name: 'read', input: { path: 'README.md' } }],
     });
+
     expect(await completedOutput(run3.runId, owner, 'recovered')).toMatchObject(
       {
         status: 'success',
         path: `machine://devl${shop}/README.md`,
       },
     );
+
     const recovered = (await workspaceItems(chatId, run3.runId, owner)).filter(
       (item) => item['form'] === 'notice',
     );
+
     expect(recovered).toHaveLength(1);
     expect(recovered[0]?.['text']).toContain(
       'Machine `devl` is reachable again',
@@ -396,6 +407,7 @@ describe('Machine Workspaces through the durable worker', () => {
       tag: 'machine-steady',
       calls: [{ id: 'steady', name: 'read', input: { path: 'README.md' } }],
     });
+
     expect(
       (await workspaceItems(chatId, run4.runId, owner)).filter(
         (item) => item['form'] === 'notice',
@@ -406,12 +418,14 @@ describe('Machine Workspaces through the durable worker', () => {
     // it: the Machine is never asked.
     devl.disconnect();
     const requestsBeforeExit = devl.calls().length;
+
     const run5 = await runScript({
       userId: owner,
       chatId,
       tag: 'machine-exit-offline',
       calls: [{ id: 'exit', name: 'exit_workspace', input: {} }],
     });
+
     expect(await completedOutput(run5.runId, owner, 'exit')).toMatchObject({
       status: 'success',
       state: 'exited',
@@ -444,12 +458,14 @@ describe('Machine Workspaces through the durable worker', () => {
       },
       { id: `call-${tag}`, name: 'mcp__repo__deploy', input: {} },
     ];
+
     const own = await runScript({
       userId: owner,
       chatId: ownChat,
       tag: 'machine-isolation-a',
       calls: scriptFor(ownRoot, 'A'),
     });
+
     const others = await runScript({
       userId: other,
       chatId: otherChat,
@@ -477,10 +493,12 @@ describe('Machine Workspaces through the durable worker', () => {
       own.declaredTools,
       'mcp__repo__deploy',
     );
+
     const otherDeclaration = declarationOf(
       others.declaredTools,
       'mcp__repo__deploy',
     );
+
     expect(ownDeclaration).toContain('Deploy A');
     expect(ownDeclaration).toContain('[REDACTED]');
     expect(ownDeclaration).not.toContain('token-A');
@@ -503,9 +521,11 @@ describe('Machine Workspaces through the durable worker', () => {
     const ownResult = JSON.stringify(
       await completedOutput(own.runId, owner, 'call-A'),
     );
+
     const otherResult = JSON.stringify(
       await completedOutput(others.runId, other, 'call-B'),
     );
+
     expect(ownResult).toContain('deployed A');
     expect(ownResult).toContain('[REDACTED]');
     expect(ownResult).not.toContain('token-A');
@@ -516,6 +536,7 @@ describe('Machine Workspaces through the durable worker', () => {
 
   it('lists the registered roots as Machine locators and discloses no route', async () => {
     const chatId = await createChat(owner);
+
     const listed = await runScript({
       userId: owner,
       chatId,
@@ -543,6 +564,7 @@ describe('Machine Workspaces through the durable worker', () => {
     await mkdir(root, { recursive: true });
     await writeWorkspaceServer(root, 'read-only');
     const chatId = await createChat(owner);
+
     const openedBefore = devl
       .calls()
       .filter((call) => call.method === 'mcp.open').length;
@@ -566,6 +588,7 @@ describe('Machine Workspaces through the durable worker', () => {
       owner,
       'enter-read-only',
     );
+
     expect(output).toMatchObject({
       status: 'success',
       root: `machine://devl${root}`,
@@ -607,6 +630,7 @@ describe('Machine Workspaces through the durable worker', () => {
     // The operator drops the Machine from the configuration. The next Run
     // detaches the binding as `executor_absent` and names the Machine.
     delete machines.hosts['devl'];
+
     const run = await runScript({
       userId: owner,
       chatId,
@@ -629,9 +653,11 @@ describe('Machine Workspaces through the durable worker', () => {
       workspaceExecutorId: null,
       workspaceDetachReason: null,
     });
+
     const detach = (await workspaceItems(chatId, run.runId, owner)).find(
       (item) => item['form'] === 'notice',
     );
+
     expect(detach?.['text']).toContain(
       'Machine `devl` is no longer configured on this instance',
     );
@@ -675,6 +701,7 @@ describe('Machine Workspaces through the durable worker', () => {
     permissionMode?: PermissionMode;
   }): Promise<ScriptedRun> {
     const modelId = `${input.tag}-${randomUUID()}`;
+
     const behavior: Extract<ScriptedBehavior, { kind: 'tool-script' }> = {
       kind: 'tool-script',
       finalText: input.finalText ?? 'Done.',
@@ -683,9 +710,11 @@ describe('Machine Workspaces through the durable worker', () => {
       // skills reach a model only through the skill-referencing system prompt.
       referencesSkills: true,
     };
+
     harness.models.register(modelId, behavior);
     const promptsFrom = harness.models.prompts.length;
     const declarationsFrom = harness.models.declarations.length;
+
     const seeded = await seedAndDispatchRun(harness, {
       userId: input.userId,
       modelId,
@@ -694,7 +723,9 @@ describe('Machine Workspaces through the durable worker', () => {
         permissionMode: input.permissionMode,
       }),
     });
+
     await terminal(seeded.runId, input.userId);
+
     return {
       runId: seeded.runId,
       chatId: input.chatId,
@@ -722,6 +753,7 @@ describe('Machine Workspaces through the durable worker', () => {
         title: 'Machine workspace chat',
       }),
     );
+
     return chatId;
   }
 
@@ -731,6 +763,7 @@ describe('Machine Workspaces through the durable worker', () => {
         const run = await harness.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(runId, userId),
         );
+
         return run &&
           ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
           ? run
@@ -750,19 +783,23 @@ describe('Machine Workspaces through the durable worker', () => {
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, userId),
     );
+
     const completed = events.find(
       (event) =>
         event.eventType === 'tool.completed' &&
         isRecord(event.payload) &&
         event.payload['toolCallId'] === toolCallId,
     );
+
     const output = isRecord(completed?.payload)
       ? completed.payload['output']
       : undefined;
+
     if (!isRecord(output))
       throw new Error(
         `The Run recorded no completed output for ${toolCallId}.`,
       );
+
     return output;
   }
 
@@ -781,6 +818,7 @@ describe('Machine Workspaces through the durable worker', () => {
     const messages = await harness.tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     return messages.flatMap((message) =>
       message.parts.flatMap((part) =>
         isContextItemPart(part) &&
@@ -801,6 +839,7 @@ describe('Machine Workspaces through the durable worker', () => {
     const receipts = await harness.tenantDb.runAs(userId, (tx) =>
       new SystemPromptReceiptsRepository(tx).findByOwnedRun(runId, userId),
     );
+
     return receipts.map((receipt) => receipt.systemPrompt).join('\n');
   }
 
@@ -809,8 +848,10 @@ describe('Machine Workspaces through the durable worker', () => {
     toolId: string,
   ): string {
     const entry = declared.find((candidate) => candidate.toolId === toolId);
+
     if (entry === undefined)
       throw new Error(`The Run never declared ${toolId}.`);
+
     return entry.description;
   }
 });
@@ -858,6 +899,7 @@ function createFakeMachine(input: {
 }): FakeMachine {
   const registered = [...input.roots];
   const state = { down: false };
+
   const peer = createProtocolPeer({
     roots: registered,
     openFailure: () =>
@@ -870,16 +912,19 @@ function createFakeMachine(input: {
     answers: { 'mcp.open': { hold: true } },
     answer: (call) => {
       if (call.method === 'mcp.open') holdOpenChannel(peer, call);
+
       return answerMachineRequest(registered, call);
     },
     onNotification: (method, notification) => {
       if (method === 'mcp.open') relayMcpTraffic(peer, notification);
     },
   });
+
   return {
     peer,
     disconnect: () => {
       state.down = true;
+
       for (const session of peer.sessions) session.drop();
     },
     reconnect: () => {
@@ -902,9 +947,11 @@ function createMachineFactory(
   return {
     open: (request) => {
       const machine = byName[request.name];
+
       if (machine === undefined) {
         throw new Error(`No fake Machine is named ${request.name}.`);
       }
+
       return machine.peer.factory.open(request);
     },
   };
@@ -952,9 +999,12 @@ async function answerFileRequest(
   call: PeerCall,
 ): Promise<MachineAnswer> {
   const path = paramsOf(call, 'path');
+
   if (!isString(path)) return { error: 'path_not_registered' };
   const guarded = await guardPath(roots, path);
+
   if (guarded === undefined) return { error: 'path_not_registered' };
+
   if (call.method === 'fs.stat') {
     return {
       value: {
@@ -967,6 +1017,7 @@ async function answerFileRequest(
       } satisfies FsStatResult,
     };
   }
+
   if (call.method === 'fs.list') {
     if (guarded.kind !== 'directory') {
       return {
@@ -977,7 +1028,9 @@ async function answerFileRequest(
         } satisfies FsListResult,
       };
     }
+
     const entries = await directoryEntries(guarded.path);
+
     return {
       value: {
         entries: entries.slice(0, DIRECTORY_TRAVERSAL_BUDGET),
@@ -986,15 +1039,18 @@ async function answerFileRequest(
       } satisfies FsListResult,
     };
   }
+
   // The same reader the daemon reads with, so a Machine read returns exactly
   // what a local read of those bytes returns.
   const selector = readSelector(paramsOf(call, 'selector', 'options'));
+
   const result = await readResolvedFile(guarded.canonical, {
     displayPath: `${displayPrefixOf(call)}${guarded.path}`,
     followSymlinks: true,
     linkTargets: false,
     ...selector,
   });
+
   return {
     value:
       result.status === 'success' &&
@@ -1027,13 +1083,17 @@ async function guardPath(
 ): Promise<GuardedPath | undefined> {
   if (!path.startsWith('/')) return undefined;
   const lexical = resolve(path);
+
   if (!roots.some((root) => isInside(root, lexical))) return undefined;
   const canonical = await realpath(lexical).catch(() => lexical);
+
   if (!roots.some((root) => isInside(root, canonical))) return undefined;
   const entry = await stat(lexical).catch(() => undefined);
+
   if (entry === undefined) {
     return { path: lexical, canonical, kind: 'missing' };
   }
+
   return {
     path: lexical,
     canonical,
@@ -1049,6 +1109,7 @@ function isInside(root: string, path: string): boolean {
 /** One directory's entries, in the order the daemon lists them. */
 async function directoryEntries(path: string): Promise<Array<FsListEntry>> {
   const dirents = await readdir(path, { withFileTypes: true });
+
   const entries: Array<FsListEntry> = dirents.map((dirent) => ({
     name: dirent.name,
     kind: dirent.isSymbolicLink()
@@ -1059,9 +1120,11 @@ async function directoryEntries(path: string): Promise<Array<FsListEntry>> {
           ? 'file'
           : 'other',
   }));
+
   return entries.sort((left, right) => {
     const leftDirectory = left.kind === 'directory' ? 0 : 1;
     const rightDirectory = right.kind === 'directory' ? 0 : 1;
+
     return leftDirectory === rightDirectory
       ? left.name.localeCompare(right.name)
       : leftDirectory - rightDirectory;
@@ -1071,7 +1134,9 @@ async function directoryEntries(path: string): Promise<Array<FsListEntry>> {
 /** The servers the Machine resolved for the root the hub asked about. */
 function resolvedServers(call: PeerCall): ReadonlyArray<McpServerEntry> {
   const root = paramsOf(call, 'root');
+
   if (!isString(root)) return [];
+
   return readWorkspaceServers(root).map((server) => ({
     name: server.name,
     transport: server.transport,
@@ -1083,10 +1148,13 @@ function resolvedServers(call: PeerCall): ReadonlyArray<McpServerEntry> {
 function openedValues(call: PeerCall): ReadonlyArray<string> {
   const root = paramsOf(call, 'root');
   const server = paramsOf(call, 'server');
+
   if (!isString(root) || !isString(server)) return [];
+
   const declared = readWorkspaceServers(root).find(
     (candidate) => candidate.name === server,
   );
+
   return declared?.token === undefined ? [] : [declared.token];
 }
 
@@ -1099,17 +1167,21 @@ function readWorkspaceServers(
   root: string,
 ): ReadonlyArray<WorkspaceServerDeclaration> {
   let raw: unknown;
+
   try {
     raw = JSON.parse(readFileSync(join(root, '.mcp.json'), 'utf8'));
   } catch {
     return [];
   }
+
   if (!isRecord(raw) || !isRecord(raw['mcpServers'])) return [];
+
   return Object.entries(raw['mcpServers']).flatMap(([name, entry]) => {
     if (!isRecord(entry)) return [];
     const env = isRecord(entry['env']) ? entry['env'] : {};
     const tag = env['REPO_TAG'];
     const token = env['REPO_TOKEN'];
+
     return [
       {
         name,
@@ -1132,12 +1204,16 @@ function relayMcpTraffic(
   notification: JsonRpcNotification,
 ): void {
   if (notification.method !== 'mcp.message') return;
+
   const call = jsonRpcCall(
     isRecord(notification.params) ? notification.params['message'] : undefined,
   );
+
   const session = peer.sessions.at(-1);
+
   if (call === undefined || session === undefined) return;
   const answer = mcpServerAnswer(call, openedServer(session));
+
   if (answer === undefined) return;
   session.notify('mcp.open', 'mcp.message', { message: answer });
 }
@@ -1149,9 +1225,12 @@ function openedServer(
   const opened = session.calls
     .filter((call) => call.method === 'mcp.open')
     .at(-1);
+
   const root = opened === undefined ? undefined : paramsOf(opened, 'root');
   const server = opened === undefined ? undefined : paramsOf(opened, 'server');
+
   if (!isString(root) || !isString(server)) return undefined;
+
   return readWorkspaceServers(root).find(
     (candidate) => candidate.name === server,
   );
@@ -1165,6 +1244,7 @@ function mcpServerAnswer(
   if (server === undefined) return undefined;
   const tag = server.tag ?? 'unknown';
   const token = server.token ?? '';
+
   switch (call.method) {
     case 'initialize':
       return {
@@ -1207,8 +1287,10 @@ function jsonRpcCall(message: JsonValue | undefined): JsonRpcCall | undefined {
   if (!isRecord(message)) return undefined;
   const id = message['id'];
   const method = message['method'];
+
   if (!isString(method) || (!isString(id) && !isNumber(id))) return undefined;
   const params = message['params'];
+
   return params === undefined ? { id, method } : { id, method, params };
 }
 
@@ -1225,6 +1307,7 @@ function paramsOf(
 ): JsonValue | undefined {
   const params = call?.params;
   const source = container === undefined ? params : field(params, container);
+
   return field(source, key);
 }
 
@@ -1234,6 +1317,7 @@ function field(
 ): JsonValue | undefined {
   if (!isRecord(value)) return undefined;
   const entry = value[key];
+
   return isString(entry) ||
     isNumber(entry) ||
     isBoolean(entry) ||
@@ -1254,6 +1338,7 @@ function readSelector(
 /** The `machine://<name>` display prefix the hub asked a read to report under. */
 function displayPrefixOf(call: PeerCall | undefined): string {
   const prefix = paramsOf(call, 'displayPrefix', 'options');
+
   return isString(prefix) ? prefix : '';
 }
 
@@ -1265,12 +1350,16 @@ function displayPrefixOf(call: PeerCall | undefined): string {
  */
 function promptTextOf(prompt: unknown): string {
   if (!Array.isArray(prompt)) return '';
+
   return prompt
     .flatMap((message) => {
       if (!isRecord(message)) return [];
       const content = message['content'];
+
       if (isString(content)) return [content];
+
       if (!Array.isArray(content)) return [];
+
       return content.flatMap((part) =>
         isRecord(part) && part['type'] === 'text' && isString(part['text'])
           ? [part['text']]

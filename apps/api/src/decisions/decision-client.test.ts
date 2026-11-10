@@ -74,21 +74,26 @@ function scripted(
   handler: (index: number, call: Call) => Response | Promise<Response>,
 ) {
   const calls: Array<Call> = [];
+
   const fetch = async (url: string, init: RequestInit) => {
     const call = { url, init };
     calls.push(call);
+
     return handler(calls.length - 1, call);
   };
+
   return { calls, fetch };
 }
 
 /** A sleep that records its waits and returns at once. */
 function recordedSleep() {
   const waits: Array<number> = [];
+
   return {
     waits,
     sleep: (ms: number) => {
       waits.push(ms);
+
       return Promise.resolve();
     },
   };
@@ -113,10 +118,12 @@ function decide(
 
 function streamOf(chunks: ReadonlyArray<Uint8Array>, onCancel: () => void) {
   let index = 0;
+
   return new ReadableStream<Uint8Array>({
     pull(controller) {
       const chunk = chunks[index];
       index += 1;
+
       if (chunk === undefined) controller.close();
       else controller.enqueue(chunk);
     },
@@ -167,17 +174,21 @@ describe('decision client request', () => {
       undefined,
       provider({ headers: { Authorization: ['Bearer other'] } }),
     );
+
     const headers = z
       .record(z.string(), z.string())
       .parse(calls[0]?.init.headers);
+
     const auth = Object.entries(headers).filter(
       ([name]) => name.toLowerCase() === 'authorization',
     );
+
     expect(auth).toEqual([['Authorization', 'Bearer other']]);
   });
 
   it('refuses redirects without a second call', async () => {
     let cancelled = false;
+
     const { calls, fetch } = scripted(
       () =>
         new Response(
@@ -189,6 +200,7 @@ describe('decision client request', () => {
           { status: 307, headers: { location: 'https://evil.example/' } },
         ),
     );
+
     await expect(decide(fetch)).resolves.toMatchObject({
       status: 'unavailable',
       reason: 'rejected',
@@ -204,6 +216,7 @@ describe('decision client answers', () => {
     const { fetch } = scripted(() =>
       json(okBody({ id: 'gen-1', provider: 'X', extra: { a: 1 } })),
     );
+
     await expect(decide(fetch)).resolves.toMatchObject({
       status: 'answered',
       model: 'jev-1.14-20261014',
@@ -216,6 +229,7 @@ describe('decision client answers', () => {
     const { fetch } = scripted(() =>
       json(okBody({ usage: { input_tokens: 10, output_tokens: 2 } })),
     );
+
     await expect(decide(fetch)).resolves.toMatchObject({
       status: 'answered',
       usage: { inputTokens: 10, outputTokens: 2, costUsd: null },
@@ -285,6 +299,7 @@ describe('decision client usage validation', () => {
       '"cost":0.002',
       '"cost":1e999',
     );
+
     const { fetch } = scripted(() => new Response(text));
     await expect(decide(fetch)).resolves.toMatchObject({
       status: 'unavailable',
@@ -298,6 +313,7 @@ describe('decision client usage validation', () => {
       output_tokens: Number.MAX_SAFE_INTEGER,
       cost: 0,
     };
+
     const { fetch } = scripted(() => json(okBody({ usage })));
     await expect(decide(fetch)).resolves.toMatchObject({
       status: 'answered',
@@ -315,6 +331,7 @@ describe('decision client credential safety', () => {
     const { fetch } = scripted(() =>
       json(okBody({ model: `prefix-${KEY}-suffix` })),
     );
+
     const outcome = await decide(fetch);
     expect(outcome).toMatchObject({
       status: 'unavailable',
@@ -327,6 +344,7 @@ describe('decision client credential safety', () => {
     const { fetch } = scripted(() => {
       throw new Error(`failed with ${KEY}`);
     });
+
     const outcome = await decide(fetch);
     expect(outcome.status).toBe('unavailable');
     expect(JSON.stringify(outcome)).not.toContain(KEY);
@@ -337,10 +355,12 @@ describe('decision client body bound', () => {
   it('cancels a stream without Content-Length at the byte bound', async () => {
     let cancelled = false;
     const chunk = new Uint8Array(64 * 1024).fill(0x20);
+
     const chunks = Array.from(
       { length: DECISION_RESPONSE_MAX_BYTES / chunk.byteLength + 8 },
       () => chunk,
     );
+
     const { fetch } = scripted(
       () =>
         new Response(
@@ -392,6 +412,7 @@ describe('decision client retries', () => {
           )
         : json(okBody()),
     );
+
     await expect(decide(fetch)).resolves.toMatchObject({ status: 'answered' });
     expect(calls).toHaveLength(2);
   });
@@ -408,6 +429,7 @@ describe('decision client retries', () => {
 
   it('reads an HTTP-date retry-after against the injected clock', async () => {
     const now = Date.parse('2026-11-06T10:00:00Z');
+
     const { fetch } = scripted((index) =>
       index < 2
         ? new Response('', {
@@ -420,6 +442,7 @@ describe('decision client retries', () => {
           })
         : json(okBody()),
     );
+
     const { waits, sleep } = recordedSleep();
     await decide(fetch, { sleep, now: () => now });
     expect(waits).toEqual([2000, 0]);
@@ -429,6 +452,7 @@ describe('decision client retries', () => {
     const { calls, fetch } = scripted((index) =>
       index === 0 ? new Response('', { status: 503 }) : json(okBody()),
     );
+
     const { waits, sleep } = recordedSleep();
     await expect(decide(fetch, { sleep })).resolves.toMatchObject({
       status: 'answered',
@@ -441,6 +465,7 @@ describe('decision client retries', () => {
     const { calls, fetch } = scripted((index) =>
       index === 0 ? new Response('', { status }) : json(okBody()),
     );
+
     await decide(fetch);
     expect(calls).toHaveLength(2);
   });
@@ -448,8 +473,10 @@ describe('decision client retries', () => {
   it('retries a transport failure', async () => {
     const { calls, fetch } = scripted((index) => {
       if (index === 0) throw new TypeError('socket hang up');
+
       return json(okBody());
     });
+
     await expect(decide(fetch)).resolves.toMatchObject({ status: 'answered' });
     expect(calls).toHaveLength(2);
   });
@@ -492,6 +519,7 @@ describe('decision client retries', () => {
           })
         : json(okBody()),
     );
+
     const { waits, sleep } = recordedSleep();
     await decide(fetch, { sleep });
     expect(waits).toEqual([2000, 5000]);
@@ -503,6 +531,7 @@ describe('decision client retries', () => {
         ? new Response('', { status: 429, headers: { 'retry-after': '' } })
         : json(okBody()),
     );
+
     const { waits, sleep } = recordedSleep();
     await decide(fetch, { sleep });
     expect(waits).toEqual([500]);
@@ -518,6 +547,7 @@ describe('decision client retries', () => {
           })
         : json(okBody()),
     );
+
     await expect(
       decide(fetch, { attemptTimeoutMs: 20 }),
     ).resolves.toMatchObject({
@@ -535,6 +565,7 @@ describe('decision client retries', () => {
           });
         }),
     );
+
     await expect(
       decide(fetch, { attemptTimeoutMs: 10 }),
     ).resolves.toMatchObject({
@@ -558,6 +589,7 @@ describe('decision client abort', () => {
 
   it('aborts the in-flight fetch and rejects instead of retrying', async () => {
     const controller = new AbortController();
+
     const { calls, fetch } = scripted(
       (_index, call) =>
         new Promise<Response>((_resolve, reject) => {
@@ -567,6 +599,7 @@ describe('decision client abort', () => {
           controller.abort(new Error('deadline'));
         }),
     );
+
     await expect(decide(fetch, {}, controller.signal)).rejects.toThrow(
       'deadline',
     );
@@ -576,6 +609,7 @@ describe('decision client abort', () => {
   it('stops a retry wait on abort and starts no retry', async () => {
     const controller = new AbortController();
     const { calls, fetch } = scripted(() => new Response('', { status: 503 }));
+
     // The real default sleep: 500 ms backoff, aborted after 20 ms.
     const pending = createDecisionClient(provider(), 'jev-latest', {
       fetch,
@@ -584,6 +618,7 @@ describe('decision client abort', () => {
       questions: QUESTIONS,
       signal: controller.signal,
     });
+
     const startedAt = Date.now();
     setTimeout(() => controller.abort(new Error('cancelled')), 20);
     await expect(pending).rejects.toThrow('cancelled');
@@ -593,6 +628,7 @@ describe('decision client abort', () => {
 
   it('rejects when the signal aborts while the body is read', async () => {
     const controller = new AbortController();
+
     const { fetch } = scripted(() => {
       const body = new ReadableStream<Uint8Array>({
         pull() {
@@ -600,8 +636,10 @@ describe('decision client abort', () => {
           throw new Error('stream broken');
         },
       });
+
       return new Response(body);
     });
+
     await expect(decide(fetch, {}, controller.signal)).rejects.toThrow(
       'mid-body',
     );

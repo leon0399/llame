@@ -254,6 +254,7 @@ describe('classifySshBashOutcome', () => {
       stderr: '',
       status: 0,
     };
+
     expect(classifySshBashOutcome(OVERFLOWED, marked)).toEqual({
       kind: 'unknown',
     });

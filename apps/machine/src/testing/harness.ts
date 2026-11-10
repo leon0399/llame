@@ -69,6 +69,7 @@ function collectFrames(
     for (const event of framer.push(chunk)) {
       if (event.kind !== "line") continue;
       const decoded = decodeFrame(event.line);
+
       if (decoded.ok) onFrame(decoded.frame);
     }
   });
@@ -80,6 +81,7 @@ function openChannel(multiplexer: FrameMultiplexer): TestChannel {
   channel.onNotification((message) => {
     notifications.push({ method: message.method, params: message.params });
   });
+
   return { channel, notifications };
 }
 
@@ -90,6 +92,7 @@ async function attemptOn<M extends MachineMethod>(
   options?: { readonly signal?: AbortSignal },
 ): Promise<Attempt> {
   const { channel } = openChannel(multiplexer);
+
   try {
     return { ok: true, value: await channel.request(method, params, options) };
   } catch (error) {
@@ -119,15 +122,18 @@ async function helloOn(
 /** A hub-side client: ids, framing, and requests, as the hub would run them. */
 function createClient(input: Writable, output: Readable) {
   const frames: Array<Frame> = [];
+
   const multiplexer = createFrameMultiplexer({
     send: (frame) => {
       input.write(encodeFrame(frame));
     },
   });
+
   collectFrames(output, (frame) => {
     frames.push(frame);
     multiplexer.handle(frame);
   });
+
   return {
     frames,
     multiplexer,
@@ -144,11 +150,14 @@ function createClient(input: Writable, output: Readable) {
 export function startDaemon(options: ServeMachineOptions = {}): TestDaemon {
   const input = new PassThrough();
   const output = new PassThrough();
+
   const session = serveMachine(input, output, {
     heartbeatIntervalMs: 60_000,
     ...options,
   });
+
   const client = createClient(input, output);
+
   return {
     session,
     input,
@@ -159,7 +168,9 @@ export function startDaemon(options: ServeMachineOptions = {}): TestDaemon {
       helloOn(client.multiplexer, protocolVersion),
     call: async (method, params, callOptions) => {
       const outcome = await client.attempt(method, params, callOptions);
+
       if (!outcome.ok) throw outcome.error;
+
       return outcome.value ?? null;
     },
     write: (text) => {
@@ -176,6 +187,7 @@ export async function waitFor(
   timeoutMs = 3000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+
   while (!condition()) {
     if (Date.now() > deadline)
       throw new Error("Timed out waiting for a change.");
@@ -187,6 +199,7 @@ export async function waitFor(
 export function isGone(pid: number): boolean {
   try {
     process.kill(pid, 0);
+
     return false;
   } catch {
     return true;

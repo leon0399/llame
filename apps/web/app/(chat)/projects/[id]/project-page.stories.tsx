@@ -24,6 +24,7 @@ const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
 // The composer unlocks with a loaded catalog; the default model is the one a
 // send carries.
 const MODEL_ID = "system:openai:model-one";
+
 const MODEL_CATALOG = {
   defaultModelId: MODEL_ID,
   models: [
@@ -46,10 +47,13 @@ const routerPush = fn().mockName("router.push");
 // them, so a story can observe the page while they are still in flight. An
 // unrouted request fails the story.
 const PROJECTS_ROUTE = "GET /api/v1/projects?archived=with";
+
 const PINNED_CHATS_ROUTE =
   "GET /api/v1/chats?projectId=p1&pinned=only&archived=with";
+
 const CHATS_ROUTE = "GET /api/v1/chats?projectId=p1&pinned=exclude";
 const PINS_ROUTE = "GET /api/v1/pins";
+
 // The side panel's Repositories section: the project's links, the owner's
 // repository catalog, and the checkouts the worktree list narrows. These
 // stories leave all three empty; the section's own stories cover their
@@ -57,6 +61,7 @@ const PINS_ROUTE = "GET /api/v1/pins";
 const PROJECT_LINKS_ROUTE = "GET /api/v1/projects/p1/repositories";
 const REPOSITORIES_ROUTE = "GET /api/v1/repositories";
 const CHECKOUTS_ROUTE = "GET /api/v1/checkouts";
+
 // The composer's location preview: no link, so no working directory resolves
 // and the send creates an unbound chat.
 const START_LOCATION_ROUTE = "GET /api/v1/projects/p1/start-location";
@@ -71,17 +76,21 @@ const tripPlanning = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
 const otherProject = { ...tripPlanning, id: "p2", name: "Acme relaunch" };
 
 let fetchMock: Mock<typeof fetch>;
+
 let createChatResponse = {
   status: 201,
   body: createdChat("created-1", { status: "unbound" }),
 };
+
 let projects: Array<typeof tripPlanning>;
 let holdRequests: boolean;
 let releaseProjects: () => void;
 let releaseChats: () => void;
+
 /** A created chat, as `POST /api/v1/chats` answers it. */
 function createdChat(
   id: string,
@@ -107,12 +116,14 @@ function createdChat(
 function routeOf(input: RequestInfo | URL, init?: RequestInit) {
   const request = input instanceof Request ? input : new Request(input, init);
   const url = new URL(request.url);
+
   return `${request.method} ${url.pathname}${url.search}`;
 }
 
 /** A response now, or — while a story holds requests — once released. */
 function answer(body: Array<object>, onHold: (release: () => void) => void) {
   if (!holdRequests) return Promise.resolve(jsonResponse(body));
+
   return new Promise<Response>((resolve) => {
     onHold(() => resolve(jsonResponse(body)));
   });
@@ -122,17 +133,25 @@ function routeFetch() {
   fetchMock = stubFetch();
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
+
     if (key === PROJECTS_ROUTE) {
       return answer(projects, (release) => (releaseProjects = release));
     }
+
     if (key === PINNED_CHATS_ROUTE) return Promise.resolve(jsonResponse([]));
+
     if (key === CHATS_ROUTE) {
       return answer([], (release) => (releaseChats = release));
     }
+
     if (key === PINS_ROUTE) return Promise.resolve(jsonResponse([]));
+
     if (key === PROJECT_LINKS_ROUTE) return Promise.resolve(jsonResponse([]));
+
     if (key === REPOSITORIES_ROUTE) return Promise.resolve(jsonResponse([]));
+
     if (key === CHECKOUTS_ROUTE) return Promise.resolve(jsonResponse([]));
+
     if (key === START_LOCATION_ROUTE) {
       return Promise.resolve(
         jsonResponse({
@@ -146,11 +165,13 @@ function routeFetch() {
         }),
       );
     }
+
     if (key === CREATE_CHAT_ROUTE) {
       return Promise.resolve(
         jsonResponse(createChatResponse.body, createChatResponse.status),
       );
     }
+
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -185,6 +206,7 @@ const meta = {
     });
     routerPush.mockClear();
     routeFetch();
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -199,6 +221,7 @@ const meta = {
 } satisfies Meta<typeof ProjectPage>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -301,9 +324,11 @@ export const NoChats: Story = {
       canvas.queryByRole("button", { name: /^Folder, / }),
     ).not.toBeInTheDocument();
     await expect(canvas.queryByText("Acme relaunch")).not.toBeInTheDocument();
+
     const chats = within(
       canvas.getByRole("region", { name: "Chats in this project" }),
     );
+
     await expect(
       chats.getByText("No chats in this project yet."),
     ).toBeVisible();
@@ -335,6 +360,7 @@ export const SidePanelDemo: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+
     const panel = within(
       await canvas.findByRole("complementary", { name: "Project settings" }),
     );
@@ -385,9 +411,11 @@ export const SendCreatesFiledChat: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+
     const composer = await canvas.findByPlaceholderText(
       "Describe a task or ask a question",
     );
+
     await userEvent.type(composer, "Start here");
     await waitFor(() =>
       expect(
@@ -445,9 +473,11 @@ export const SendKeepsDraftOnWorkspaceFailure: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+
     const composer = await canvas.findByPlaceholderText(
       "Describe a task or ask a question",
     );
+
     await userEvent.type(composer, "Fix the base ref");
     await waitFor(() =>
       expect(
@@ -467,9 +497,11 @@ export const SendKeepsDraftOnWorkspaceFailure: Story = {
       const posts = sentRoutes().filter((route) => route === CREATE_CHAT_ROUTE);
       expect(posts).toHaveLength(2);
     });
+
     const indices = sentRoutes()
       .map((route, index) => (route === CREATE_CHAT_ROUTE ? index : -1))
       .filter((index) => index >= 0);
+
     const first = await requestFromCall(fetchMock, indices[0]).clone().json();
     const second = await requestFromCall(fetchMock, indices[1]).clone().json();
     // The first send chose a client id; the resend must reuse it, because the

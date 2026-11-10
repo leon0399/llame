@@ -23,6 +23,7 @@ import * as schema from './schema';
 
 function makeFakeDb() {
   const fakeTx: Db = drizzle.mock({ schema });
+
   const executeSpy = vi.spyOn(fakeTx, 'execute').mockResolvedValue(
     Object.assign([], {
       columns: [],
@@ -32,9 +33,11 @@ function makeFakeDb() {
       state: { status: 'I', pid: 0, secret: 0 },
     }),
   );
+
   const db: TenantTransactionExecutor = {
     transaction: <T>(fn: (tx: Db) => Promise<T>) => fn(fakeTx),
   };
+
   const transactionSpy = vi.spyOn(db, 'transaction');
 
   return { db, fakeTx, executeSpy, transactionSpy };
@@ -64,9 +67,11 @@ describe('TenantDbService.runAs', () => {
     // assertion fails if the config KEY changes or is_local is flipped to false —
     // not just if the userId happens to appear somewhere.
     const executed = executeSpy.mock.calls[0][0];
+
     if (!is(executed, SQL)) {
       throw new Error('Expected a compiled SQL query object');
     }
+
     const dialect = new PgDialect();
     const { sql: compiled, params } = dialect.sqlToQuery(executed);
 
@@ -83,6 +88,7 @@ describe('TenantDbService.runAs', () => {
 
     await svc.runAs(userId, (tx) => {
       capturedTx = tx;
+
       return Promise.resolve(undefined);
     });
 

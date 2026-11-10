@@ -27,5 +27,6 @@ export function mediaLocator(id: string): string {
 export function parseMediaLocator(locator: string): string | undefined {
   if (!locator.startsWith(MEDIA_SCHEME)) return undefined;
   const id = locator.slice(MEDIA_SCHEME.length);
+
   return isCanonicalMediaId(id) ? id : undefined;
 }

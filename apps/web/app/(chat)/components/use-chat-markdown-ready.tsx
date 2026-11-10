@@ -49,9 +49,12 @@ function loadChatMarkdownRenderers(): Promise<ChatMarkdownRenderers> {
           MessageResponse: messageResponse.MessageResponse,
           ReasoningContent: reasoningContent.ReasoningContent,
         };
+
         cachedRenderers = loaded;
+
         return loaded;
       });
+
   return loadPromise;
 }
 
@@ -59,6 +62,7 @@ function useChatMarkdownLoad(): ChatMarkdownLoadState {
   const [loaded, setLoaded] = useState<ChatMarkdownRenderers | null>(() =>
     loadOverride ? null : cachedRenderers,
   );
+
   const [failed, setFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
@@ -88,6 +92,7 @@ function useChatMarkdownLoad(): ChatMarkdownLoadState {
         if (!cancelled) setFailed(true);
       },
     );
+
     return () => {
       cancelled = true;
     };
@@ -104,6 +109,7 @@ function useChatMarkdownLoad(): ChatMarkdownLoadState {
  */
 export function ChatMarkdownProvider({ children }: { children: ReactNode }) {
   const state = useChatMarkdownLoad();
+
   return (
     <ChatMarkdownContext.Provider value={state}>
       {children}

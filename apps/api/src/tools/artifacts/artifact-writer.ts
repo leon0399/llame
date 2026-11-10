@@ -12,6 +12,7 @@ import { formatArtifactLocator } from './locator';
 
 /** The one tool whose artifact has a part for each stream. */
 const STREAMED_TOOL = 'bash';
+
 /** A part name a host-file path can be built from. */
 const PART_NAME = /^[a-z][a-z0-9_-]*$/u;
 
@@ -72,6 +73,7 @@ export async function writeToolArtifact(
   const parts = prepareParts(request, options.maxBytes);
   const seq = await nextSeq(tenantDb, request);
   const written = await commitArtifact(tenantDb, request, seq, parts);
+
   const hostDirectory =
     options.hostFiles === true
       ? await writeArtifactHostFiles({
@@ -103,9 +105,11 @@ async function nextSeq(
   const seq = await tenantDb.runAs(request.userId, (db) =>
     new ArtifactsRepository(db).nextSeq(request.chatId, request.userId),
   );
+
   if (seq === undefined) {
     throw new Error('The Chat cannot store an artifact.');
   }
+
   return seq;
 }
 
@@ -121,6 +125,7 @@ function commitArtifact(
 ): Promise<{ id: string; createdAt: Date }> {
   return tenantDb.runAs(request.userId, async (db) => {
     const repository = new ArtifactsRepository(db);
+
     const artifact = await repository.insertArtifact({
       chatId: request.chatId,
       seq,
@@ -129,7 +134,9 @@ function commitArtifact(
       runId: request.runId,
       complete: request.complete,
     });
+
     await repository.insertParts(artifact.id, parts);
+
     return artifact;
   });
 }
@@ -147,11 +154,13 @@ function prepareParts(
   if (!TOOL_ID_PATTERN.test(request.toolName)) {
     throw new Error(`"${request.toolName}" is not a usable artifact tool name`);
   }
+
   const parts = request.parts.map((part) => preparePart(part, maxBytes));
   assertPartNames(
     request.toolName,
     parts.map((part) => part.name),
   );
+
   return parts;
 }
 
@@ -166,20 +175,25 @@ function assertPartNames(toolName: string, names: ReadonlyArray<string>): void {
   if (names.length === 0) {
     throw new Error('An artifact needs at least one part.');
   }
+
   if (toolName !== STREAMED_TOOL) {
     if (names.length !== 1 || names[0] !== '') {
       throw new Error('An artifact of this tool has one unnamed part.');
     }
+
     return;
   }
+
   if (names.some((name) => name === '')) {
     throw new Error('A bash artifact names every part by stream.');
   }
+
   for (const name of names) {
     if (!PART_NAME.test(name)) {
       throw new Error(`"${name}" is not a usable artifact part name`);
     }
   }
+
   if (new Set(names).size !== names.length) {
     throw new Error('An artifact part names must be distinct.');
   }
@@ -197,6 +211,7 @@ function preparePart(
   if (part.content.byteLength > maxBytes) {
     throw new Error('An artifact part exceeds tools.artifacts.maxBytes.');
   }
+
   return {
     name: part.name ?? '',
     contentType: part.contentType,

@@ -98,9 +98,11 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // profile doesn't include the `runs` group registers NOTHING for it — not
     // even at concurrency 1 (e.g. an api process running the `web` profile).
     const concurrency = this.workerProfile.concurrencyFor('runs');
+
     if (concurrency === null) {
       return;
     }
+
     // Host artifact files of Chats no attempt reconciled for seven days
     // (tool-result-artifacts D10). Only a worker that can write those files
     // sweeps them; the sweep swallows its own failures, so it cannot fail
@@ -142,6 +144,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
   private async expireDeadLetteredRun(job: RunJob): Promise<void> {
     const message =
       'Run retries exhausted: the worker repeatedly failed to complete it.';
+
     const settlement = await this.runExecution.settleTerminalRun({
       runId: job.runId,
       userId: job.userId,
@@ -149,6 +152,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       runPayload: { status: 'expired', message },
       error: { message },
     });
+
     if (settlement.outcome === 'won') {
       this.logger.warn(`Expired run ${job.runId} (retries exhausted)`);
     }
@@ -165,9 +169,11 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // also rejects cancellation that wins this pickup/claim TOCTOU.
     const pickup = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
+
       if (!run || isTerminalRunStatus(run.status)) {
         return { skip: true as const, settleCancellation: false as const };
       }
+
       if (run.cancelRequestedAt === null) {
         return {
           skip: false as const,
@@ -175,16 +181,20 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           followUpAction: run.followUpAction,
         };
       }
+
       return { skip: true as const, settleCancellation: true as const };
     });
+
     if (pickup.skip && pickup.settleCancellation) {
       await this.settleCancelledBeforeStart(job);
     }
+
     if (pickup.skip) {
       return;
     }
 
     let client: ReturnType<ModelsService['createClient']>;
+
     try {
       client = this.models.createClient(pickup.modelId);
     } catch (error) {
@@ -201,8 +211,10 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           runPayload: { status: 'failed', message: error.message },
           error: { message: error.message },
         });
+
         return;
       }
+
       throw error;
     }
 
@@ -222,12 +234,15 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           job.runId,
           job.userId,
         );
+
         return run?.cancelRequestedAt != null;
       },
     );
+
     if (cancelledMeanwhile) {
       this.aborts.unregister(job.runId);
       await this.settleCancelledBeforeStart(job);
+
       return;
     }
 
@@ -245,6 +260,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // so the recorded message never names a budget the operator did not set.
     const budgetSeconds = runTimeoutSeconds(this.instanceConfig.config);
     const limitMs = (budgetSeconds ?? RUN_EXECUTION_CEILING_SECONDS) * 1000;
+
     const timeoutTimer = setTimeout(() => {
       abort.abort(
         budgetSeconds === null
@@ -277,6 +293,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
         new RunsRepository(tx).findById(job.runId, job.userId),
       );
+
       if (persisted && !isTerminalRunStatus(persisted.status)) {
         throw new Error(
           `Run ${job.runId} stream drained without a durable terminal state.`,
@@ -292,8 +309,10 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       // else is an infrastructure failure → queue retry.
       if (error instanceof RunNotRunnableError) {
         this.logger.warn(`Run ${job.runId} was terminal at claim; skipping`);
+
         return;
       }
+
       if (
         error instanceof ModelContextExecutionError &&
         (await this.isRunSettledDurably(job))
@@ -301,8 +320,10 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         this.logger.warn(
           `Run ${job.runId} has incompatible bound model context; already failed durably`,
         );
+
         return;
       }
+
       throw error;
     } finally {
       clearTimeout(timeoutTimer);
@@ -315,6 +336,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
       new RunsRepository(tx).findById(job.runId, job.userId),
     );
+
     return persisted !== undefined && isTerminalRunStatus(persisted.status);
   }
 

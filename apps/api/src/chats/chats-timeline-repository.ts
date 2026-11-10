@@ -37,12 +37,15 @@ function buildMessageRangeFilter(options: {
   before?: Date;
 }): SQL {
   const clauses: Array<SQL> = [];
+
   if (options.after) {
     clauses.push(sql`m.created_at >= ${tstz(options.after)}`);
   }
+
   if (options.before) {
     clauses.push(sql`m.created_at < ${tstz(options.before)}`);
   }
+
   return clauses.length > 0 ? sql`AND ${sql.join(clauses, sql` AND `)}` : sql``;
 }
 
@@ -72,6 +75,7 @@ export async function timelineByOwner(
   if (!ownerUserId.trim()) {
     throw new Error('timelineByOwner requires a non-empty userId');
   }
+
   await db.execute(sql`SET LOCAL statement_timeout = 3000`);
   const rangeFilter = buildMessageRangeFilter(options);
 
@@ -93,5 +97,6 @@ export async function timelineByOwner(
     ORDER BY MAX(m.created_at) DESC, c.id
     LIMIT ${options.limit + 1}
   `);
+
   return [...rows].map(toTimelineRegionRow);
 }

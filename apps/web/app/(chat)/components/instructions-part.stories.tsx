@@ -19,6 +19,7 @@ const meta = {
 } satisfies Meta<typeof InstructionsPart>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -50,9 +51,11 @@ export const LoadedTruncatedDenied: Story = {
     const loaded = canvas.getByLabelText(
       "Loaded instruction file: /home/operator/repo/AGENTS.md",
     );
+
     const truncated = canvas.getByLabelText(
       "Truncated instruction file: /home/operator/repo/apps/api/AGENTS.md",
     );
+
     const denied = canvas.getByLabelText(
       "Denied instruction file: /srv/AGENTS.md",
     );
@@ -74,13 +77,17 @@ export const LoadedTruncatedDenied: Story = {
     // The visible badge truncates a long path; the tooltip carries the
     // selected path and, for a symlinked candidate, the canonical target.
     await userEvent.hover(truncated);
+
     const tooltip = await waitFor(() => {
       const content = document.querySelector<HTMLElement>(
         "[data-slot='tooltip-content']",
       );
+
       expect(content).toBeVisible();
+
       return content;
     });
+
     await expect(tooltip).toHaveTextContent(
       "/home/operator/repo/apps/api/AGENTS.md → /home/operator/dotfiles/AGENTS.md",
     );
@@ -120,9 +127,11 @@ export const Imported: Story = {
     const importer = canvas.getByLabelText(
       "Loaded instruction file: /home/operator/repo/AGENTS.md",
     );
+
     const imported = canvas.getByLabelText(
       "Loaded instruction file: /home/operator/repo/docs/README.md",
     );
+
     const chain = canvas.getByLabelText(
       "Loaded instruction file: /home/operator/repo/docs/AGENTS.md",
     );
@@ -130,9 +139,11 @@ export const Imported: Story = {
     await expect(importer).toBeVisible();
     await expect(imported).toBeVisible();
     await expect(chain).toBeVisible();
+
     const labels = canvas
       .getAllByLabelText(/instruction file:/i)
       .map((chip) => chip.getAttribute("aria-label"));
+
     await expect(labels).toEqual([
       "Loaded instruction file: /home/operator/repo/AGENTS.md",
       "Loaded instruction file: /home/operator/repo/docs/AGENTS.md",

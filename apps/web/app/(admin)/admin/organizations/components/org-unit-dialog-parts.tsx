@@ -42,6 +42,7 @@ export function OrgUnitTypePicker({
           const meta = ORG_UNIT_TYPE_META[candidateType];
           const Icon = meta.icon;
           const selected = type === candidateType;
+
           return (
             <button
               key={candidateType}
@@ -99,6 +100,7 @@ function MoveCandidateOption({
   onSelect: () => void;
 }) {
   const Icon = ORG_UNIT_TYPE_META[candidate.type].icon;
+
   return (
     <button
       type="button"

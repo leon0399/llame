@@ -34,12 +34,15 @@ export const OutboundLinks: Story = {
     const docs = await canvas.findByRole("button", {
       name: "Docs opens in a new tab",
     });
+
     const email = canvas.getByRole("button", {
       name: "Email opens in a new tab",
     });
+
     const phone = canvas.getByRole("button", {
       name: "Phone opens in a new tab",
     });
+
     const settings = canvas.getByRole("button", { name: "Settings" });
     const section = canvas.getByRole("button", { name: "Section" });
     const broken = canvas.getByText(/Broken/);
@@ -61,6 +64,7 @@ export const OutboundLinks: Story = {
       await expect(link.querySelector("svg")).toBeNull();
       await expect(link.querySelector(".sr-only")).toBeNull();
     }
+
     await expect(broken.closest("button")).toBeNull();
     await expect(broken.closest("a")).toBeNull();
     await expect(broken.querySelector("svg")).toBeNull();

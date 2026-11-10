@@ -22,6 +22,7 @@ function handlerFor(options: {
   const onSent = vi.fn();
   const onFailure = vi.fn();
   const onWorkspaceFailure = vi.fn();
+
   const handler = createSubmitHandler({
     input: "Start here.",
     attachments: {
@@ -51,6 +52,7 @@ function handlerFor(options: {
     onWorkspaceFailure,
     onSent,
   });
+
   return { handler, onRetain, onSent, onFailure, onWorkspaceFailure };
 }
 
@@ -63,9 +65,11 @@ function formEvent() {
 describe("createSubmitHandler", () => {
   it("retains the Chat id across a lost response and reuses it", async () => {
     const sent: Array<string> = [];
+
     const failed = handlerFor({
       mutateAsync: (request) => {
         sent.push(request.id);
+
         return Promise.reject(new Error("network down"));
       },
     });
@@ -80,12 +84,14 @@ describe("createSubmitHandler", () => {
       retryChatId: retained,
       mutateAsync: (request) => {
         sent.push(request.id);
+
         return Promise.resolve({
           chat: { id: request.id },
           workspace: { status: "bound", root: "/srv/llame" },
         });
       },
     });
+
     retried.handler(formEvent());
     await vi.waitFor(() => expect(retried.onSent).toHaveBeenCalledTimes(1));
 

@@ -183,10 +183,12 @@ describe('evaluateGrepPermission', () => {
     const context = contextWith({
       grep: { allow: [{ field: 'scopes', literal: '/home/u/repo/src/' }] },
     });
+
     const decision = evaluateGrepPermission(
       { patterns: ['x'], scopes: ['/home/u/repo/src/**/*.ts'] },
       context,
     );
+
     expect(decision?.decision).toBe('allow');
   });
 
@@ -197,10 +199,12 @@ describe('evaluateGrepPermission', () => {
         reject: [{ field: 'scopes', literal: '/etc/' }],
       },
     });
+
     const decision = evaluateGrepPermission(
       { patterns: ['x'], scopes: ['/home/u/repo/**', '/etc/**'] },
       context,
     );
+
     expect(decision).toMatchObject({
       decision: 'reject',
       reason: 'explicit_reject',
@@ -211,6 +215,7 @@ describe('evaluateGrepPermission', () => {
     const context = contextWith({
       grep: { allow: true, reject: [{ allFields: true, regex: 'BEGIN RSA' }] },
     });
+
     expect(
       evaluateGrepPermission(
         { patterns: ['BEGIN RSA'], scopes: ['/home/u/repo/**'] },
@@ -223,6 +228,7 @@ describe('evaluateGrepPermission', () => {
     const context = contextWith({
       grep: { allow: true, reject: [{ allFields: true, literal: '.env' }] },
     });
+
     expect(
       evaluateGrepPermission(
         { patterns: ['x'], scopes: ['/repo/**/.env'] },
@@ -241,6 +247,7 @@ describe('evaluateGrepPermission', () => {
       },
       '/home/u/repo',
     );
+
     expect(evaluateGrepPermission({ patterns: ['x'] }, context)?.decision).toBe(
       'reject',
     );
@@ -274,6 +281,7 @@ describe('evaluateGrepPermission', () => {
         ],
       },
     });
+
     const decision = evaluateGrepPermission(
       {
         patterns: ['x'],
@@ -295,6 +303,7 @@ describe('evaluateGrepPermission', () => {
         reject: [{ field: 'scopes', literal: '/home/u/repo/app/[id]' }],
       },
     });
+
     expect(
       evaluateGrepPermission(
         { patterns: ['x'], scopes: ['/home/u/repo/app/%5Bid%5D'] },
@@ -310,6 +319,7 @@ describe('evaluateGrepPermission', () => {
         reject: [{ field: 'scopes', literal: 'machine://build/srv/100A' }],
       },
     });
+
     expect(
       evaluateGrepPermission(
         { patterns: ['x'], scopes: ['machine://build/srv/100%41'] },
@@ -332,6 +342,7 @@ describe('evaluateGrepPermission', () => {
 describe('createGrepReadAdmission', () => {
   it('hides a file the read group rejects and records one counted decision', () => {
     const derived: Array<DerivedDecision> = [];
+
     const context = contextWith(
       {
         grep: { allow: true },
@@ -340,6 +351,7 @@ describe('createGrepReadAdmission', () => {
       undefined,
       (decision) => derived.push(decision),
     );
+
     const admission = createGrepReadAdmission(context);
     expect(admission.admit('/home/u/repo/src/index.ts')).toBe(true);
     expect(admission.admit('/home/u/repo/.env')).toBe(false);
@@ -361,6 +373,7 @@ describe('createGrepReadAdmission', () => {
         read: { allow: true, reject: [{ field: 'path', regex: '\\.env$' }] },
       }),
     );
+
     expect(admission.admit('/home/u/repo/.env')).toBe(false);
     expect(admission.admit('/home/u/repo/.env')).toBe(false);
     expect(admission.refused).toBe(1);
@@ -370,6 +383,7 @@ describe('createGrepReadAdmission', () => {
     const admission = createGrepReadAdmission(
       contextWith({ grep: { allow: true } }),
     );
+
     expect(admission.admit(`kb://${SPACE}/notes/a.md`)).toBe(false);
   });
 
@@ -383,12 +397,14 @@ describe('createGrepReadAdmission', () => {
         },
       }),
     );
+
     expect(admission.admit(`kb://${SPACE}/notes/%61.md`)).toBe(false);
     expect(admission.refused).toBe(1);
   });
 
   it('judges directory locators without a refused-file record', () => {
     const derived: Array<DerivedDecision> = [];
+
     const admission = createGrepReadAdmission(
       contextWith(
         {
@@ -401,15 +417,19 @@ describe('createGrepReadAdmission', () => {
         (decision) => derived.push(decision),
       ),
     );
+
     let admitted = 0;
+
     for (let index = 0; index < 12; index += 1) {
       const locator =
         index < 2
           ? `/home/u/repo/secrets${String(index)}`
           : `/home/u/repo/dir${String(index)}`;
+
       if (admission.allows(locator) && admission.allows(`${locator}/`))
         admitted += 1;
     }
+
     expect(admitted).toBe(10);
     expect(admission.refused).toBe(0);
     admission.recordRefusals();
@@ -425,6 +445,7 @@ describe('createGrepReadAdmission', () => {
         },
       }),
     );
+
     expect(admission.allows('/home/u/.ssh')).toBe(true);
     expect(admission.allows('/home/u/.ssh/')).toBe(false);
   });
@@ -434,17 +455,20 @@ describe('createGrepReadAdmission', () => {
       ...contextWith({ read: {} }),
       permissionMode: 'bypass',
     };
+
     const admission = createGrepReadAdmission(context);
     expect(admission.allows('/home/u/repo/node_modules')).toBe(true);
   });
 
   it('records nothing when no file was refused', () => {
     const derived: Array<DerivedDecision> = [];
+
     const admission = createGrepReadAdmission(
       contextWith({ read: { allow: true } }, undefined, (decision) =>
         derived.push(decision),
       ),
     );
+
     expect(admission.admit('/home/u/a.md')).toBe(true);
     admission.recordRefusals();
     expect(derived).toHaveLength(0);

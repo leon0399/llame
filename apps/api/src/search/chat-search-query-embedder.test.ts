@@ -74,6 +74,7 @@ describe('ChatSearchQueryEmbedder', () => {
       embedQuery: vi.fn(),
       embedDocuments: vi.fn(),
     });
+
     const embedder = new ChatSearchQueryEmbedder(
       configWith({
         embeddingModels: [TEST_MODEL],
@@ -89,6 +90,7 @@ describe('ChatSearchQueryEmbedder', () => {
         search: { chats: { embeddingModelId: 'test-embed' } },
       }),
     );
+
     const result = await embedder.embedQueryForSearch('tool', '   ');
     expect(result).toEqual({ fallback: 'empty' });
   });
@@ -168,11 +170,13 @@ describe('ChatSearchQueryEmbedder', () => {
           }),
       );
       const embedder = createEmbedder();
+
       const promise = embedder.embedQueryForSearch(
         'tool',
         'test',
         controller.signal,
       );
+
       controller.abort();
       const result = await promise;
       expect(result).toEqual({ fallback: 'timeout' });
@@ -191,11 +195,13 @@ describe('ChatSearchQueryEmbedder', () => {
           }),
       );
       const embedder = createEmbedder();
+
       const promise = embedder.embedQueryForSearch(
         'tool',
         'test',
         controller.signal,
       );
+
       controller.abort('run-timeout');
       const result = await promise;
       expect(result).toEqual({ fallback: 'timeout' });

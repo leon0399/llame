@@ -54,6 +54,7 @@ export const monoFontStyleOptions = [
 ] as const;
 
 export type FontStyle = (typeof fontStyleOptions)[number]["value"] | string;
+
 export type MonoFontStyle =
   | (typeof monoFontStyleOptions)[number]["value"]
   | string;

@@ -31,6 +31,7 @@ describe('HTTP hardening', () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [ItemsController],
     }).compile();
+
     app = moduleRef.createNestApplication<NestExpressApplication>({
       logger: false,
     });

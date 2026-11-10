@@ -30,6 +30,7 @@ const menuPortalA11y = {
 
 function PinnedChatRowStory(props: { pin: PinnedChat }) {
   const dragControls = useDragControls();
+
   return <PinnedChatRow pin={props.pin} dragControls={dragControls} />;
 }
 
@@ -58,6 +59,7 @@ const meta = {
 } satisfies Meta<typeof PinnedChatRowStory>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

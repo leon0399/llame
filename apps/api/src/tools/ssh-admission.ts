@@ -139,17 +139,21 @@ function refusedBashArguments(
           'The command must not contain NUL: the remote shell drops it, so the command that would run is not the text the permission rules matched.',
       },
     };
+
   for (const [key, value] of Object.entries(args.env ?? {})) {
     if (!ENV_KEY_PATTERN.test(key))
       return unavailableResult(
         `Environment key ${JSON.stringify(key)} is not a valid name; an ssh:// bash environment key must match [A-Za-z_][A-Za-z0-9_]*.`,
       );
+
     if (value.includes('\0'))
       return unavailableResult(
         `Environment entry ${JSON.stringify(key)} must not contain NUL.`,
       );
   }
+
   const collision = managedEnvironmentCollision(args.env ?? {});
+
   return collision === undefined
     ? undefined
     : unavailableResult(
@@ -195,10 +199,13 @@ async function resolveSshDestination(
     }),
     ...(signal !== undefined && { signal }),
   });
+
   if (resolution.outcome === 'cancelled')
     return { kind: 'refused', result: cancelledResult(toolId) };
+
   if (resolution.outcome === 'failed')
     return { kind: 'refused', result: sshUnavailableResult(resolution.reason) };
+
   return resolution.destination;
 }
 
@@ -222,14 +229,19 @@ function decideResolvedSsh(
   resolved: SshResolvedDestination,
 ): SshAdmission {
   const locator = formatSshLocator(resolved, call.parsed.path);
+
   if (locator === undefined)
     return { kind: 'refused', result: sshUnavailableResult('config') };
   const decision = evaluateSshLocator(context, call, locator);
+
   if (decision === undefined) return { kind: 'none' };
+
   if (locator !== call.submitted)
     context.onDerivedDecision?.({ kind: 'canonical', url: locator, decision });
+
   if (decision.decision === 'reject')
     return { kind: 'decided', decision, context };
+
   return {
     kind: 'decided',
     decision,
@@ -249,6 +261,7 @@ async function admitSshLocator(
   client: NonNullable<ToolContext['sshClient']>,
 ): Promise<SshAdmission> {
   const submittedDecision = evaluateSshLocator(context, call, call.submitted);
+
   if (
     submittedDecision !== undefined &&
     submittedDecision.decision === 'reject' &&
@@ -263,7 +276,9 @@ async function admitSshLocator(
     context.abortSignal,
     call.toolId,
   );
+
   if ('kind' in resolved) return resolved;
+
   return decideResolvedSsh(context, call, resolved);
 }
 
@@ -273,6 +288,7 @@ export async function admitSshRead(
   context: ToolContext,
 ): Promise<SshAdmission> {
   const client = context.sshClient;
+
   // Without the section the scheme stays unknown: the normal path evaluates
   // policy and execution refuses it, and there is nothing to resolve with. A
   // missing trusted policy denies the call before any process, exactly as the
@@ -281,13 +297,16 @@ export async function admitSshRead(
     return { kind: 'none' };
 
   const parsed = parseSshLocator(args.path);
+
   // A bare locator is answered by the `ssh` dispatch, which owns the fixed
   // message; this layer leaves it to the normal path so an admitted `ssh://`
   // read stays fail-closed until that dispatch lands.
   if (parsed.kind === 'help') return { kind: 'none' };
+
   if (parsed.kind === 'invalid') return invalidPathResult(parsed.message);
 
   const submitted = withoutReadSelector(args.path);
+
   return admitSshLocator(
     { toolId: 'read', field: 'path', args, submitted, parsed },
     context,
@@ -305,22 +324,28 @@ export async function admitSshBash(
   context: ToolContext,
 ): Promise<SshAdmission> {
   const client = context.sshClient;
+
   if (client === undefined || context.permissionPolicy === undefined)
     return { kind: 'none' };
 
   const refusedArguments = refusedBashArguments(args);
+
   if (refusedArguments !== undefined) return refusedArguments;
 
   const parsed = parseSshLocator(args.cwd);
+
   if (parsed.kind === 'help')
     return invalidPathResult(
       'An ssh:// working directory needs an absolute path after the destination, like ssh://box/tmp.',
     );
+
   if (parsed.kind === 'invalid') return invalidPathResult(parsed.message);
+
   if (parsed.selector !== undefined)
     return invalidPathResult(
       'An ssh:// working directory is one absolute path without a selector.',
     );
+
   return admitSshLocator(
     { toolId: 'bash', field: 'cwd', args, submitted: args.cwd, parsed },
     context,
@@ -338,6 +363,8 @@ export function admitSshCall(
   context: ToolContext,
 ): Promise<SshAdmission> | undefined {
   if (isSshRead(tool, args)) return admitSshRead(args, context);
+
   if (isSshBash(tool, args)) return admitSshBash(args, context);
+
   return undefined;
 }

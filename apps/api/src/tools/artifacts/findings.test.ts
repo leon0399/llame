@@ -53,13 +53,16 @@ function trackedContext(
   mode?: PermissionMode,
 ): TrackedContext {
   let reads = 0;
+
   const context: ToolContext = {
     ...contextOf(compiled, mode),
     get permissionPolicy() {
       reads += 1;
+
       return compiled;
     },
   };
+
   return { context, reads: () => reads };
 }
 
@@ -76,11 +79,14 @@ function withheld(
   options: { selector?: string; contentType?: string } = {},
 ): string {
   const target = applySelectorSuffix('artifact://grep-1', options.selector);
+
   const part: FindingPart = {
     findings,
     contentType: options.contentType ?? MARKDOWN,
   };
+
   const ended = text.endsWith('\n');
+
   return withholdFindings(context, part, text, {
     ...target,
     lineCount: ended ? text.split('\n').length - 1 : text.split('\n').length,
@@ -208,6 +214,7 @@ describe('withholdFindings', () => {
         read: { allow: [{ field: 'path', regex: '^/home/u/secrets/' }] },
       }),
     );
+
     const text = `## ${GREP_LOCATOR}\n1: token\nbody\n`;
 
     expect(withheld(context, text, grepFinding(1, 2))).toBe(text);
@@ -276,6 +283,7 @@ describe('withholdFindings', () => {
 
   it('uses the grown comma windows the reader reads', () => {
     const text = `${'line\n'.repeat(9)}line\n`;
+
     const document = artifactFindings([
       { locators: [GREP_LOCATOR], rule: 'allow_only', start: 4, end: 4 },
       { locators: [GREP_LOCATOR], rule: 'allow_only', start: 8, end: 8 },
@@ -294,9 +302,11 @@ describe('withholdFindings', () => {
     const context = contextOf(
       policy({ read: { reject: [{ field: 'path', regex: 'example\\.com' }] } }),
     );
+
     const document = artifactFindings([
       { locators: [ANSWER_URL], rule: 'reject_only', start: 1, end: 1 },
     ]);
+
     const text = `## 1. Report\n${ANSWER_URL}\n> snippet\n`;
 
     expect(withheld(context, text, document)).toBe(
@@ -308,10 +318,12 @@ describe('withholdFindings', () => {
     const context = contextOf(
       policy({ read: { reject: [{ field: 'path', regex: 'example\\.com' }] } }),
     );
+
     const document = artifactFindings([
       { locators: [OTHER_URL], rule: 'reject_only', start: 1, end: 3 },
       { locators: [ANSWER_URL], rule: 'reject_only', start: 4, end: 6 },
     ]);
+
     const text = `## 1. Guide\n${OTHER_URL}\n> ok\n## 2. Report\n${ANSWER_URL}\n> secret\n`;
 
     // A `1-3` read serves line 4 as trailing context.
@@ -324,9 +336,11 @@ describe('withholdFindings', () => {
     const context = contextOf(
       policy({ read: { allow: [{ field: 'path', regex: '^/home/' }] } }),
     );
+
     const document = artifactFindings([
       { locators: [OTHER_URL], rule: 'reject_only', start: 1, end: 1 },
     ]);
+
     const text = `## 1. Guide\n${OTHER_URL}\n`;
 
     expect(withheld(context, text, document)).toBe(text);
@@ -334,9 +348,11 @@ describe('withholdFindings', () => {
 
   it('keeps a web result on a whole-tool reject, which removed nothing', () => {
     const context = contextOf(policy({ read: { reject: true } }));
+
     const document = artifactFindings([
       { locators: [OTHER_URL], rule: 'reject_only', start: 1, end: 1 },
     ]);
+
     const text = `## 1. Guide\n${OTHER_URL}\n`;
 
     expect(withheld(context, text, document)).toBe(text);
@@ -346,6 +362,7 @@ describe('withholdFindings', () => {
     const context = contextOf(
       policy({ read: { reject: [{ field: 'path', regex: 'example\\.com' }] } }),
     );
+
     const document = artifactFindings([
       {
         locators: [OTHER_URL, ANSWER_URL],
@@ -354,6 +371,7 @@ describe('withholdFindings', () => {
         end: 2,
       },
     ]);
+
     const text = `## Answer\n${OTHER_URL} ${ANSWER_URL}\n`;
 
     expect(withheld(context, text, document)).toBe('[withheld]\n[withheld]\n');
@@ -365,9 +383,11 @@ describe('withholdFindings', () => {
         contentType: PLAIN,
       }),
     ).toContain('[withheld]');
+
     const web = artifactFindings([
       { locators: [OTHER_URL], rule: 'reject_only', start: 1, end: 1 },
     ]);
+
     expect(
       withheld(contextOf(undefined), `## Guide\n${OTHER_URL}\n`, web),
     ).toBe('[withheld]\nhttps://docs.example.test/guide\n');
@@ -396,6 +416,7 @@ describe('withholdFindings', () => {
 
   it('evaluates each distinct rule and locator once per read', () => {
     const tracked = trackedContext(allowNothing);
+
     const document = artifactFindings([
       { locators: [GREP_LOCATOR], rule: 'allow_only', start: 1, end: 1 },
       { locators: [GREP_LOCATOR], rule: 'allow_only', start: 2, end: 2 },

@@ -61,6 +61,7 @@ describeIfDb(
 
       ownerA = crypto.randomUUID();
       ownerB = crypto.randomUUID();
+
       for (const [id, name] of [
         [ownerA, 'Receipt Owner A'],
         [ownerB, 'Receipt Owner B'],
@@ -83,12 +84,14 @@ describeIfDb(
           ownerUserId: owner,
           title: 'Receipt RLS',
         });
+
         const message = await new MessagesRepository(tx).create({
           chatId: chat.id,
           role: 'user',
           senderUserId: owner,
           parts: [{ type: 'text', text: 'receipt rls' }],
         });
+
         return new RunsRepository(tx).create({
           chatId: chat.id,
           messageId: message.id,
@@ -101,6 +104,7 @@ describeIfDb(
     it('runs under a meaningful role with receipt RLS enabled and forced, and only SELECT/INSERT policies', async () => {
       const [role] =
         await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
       expect(role.rolsuper).toBe(false);
       expect(role.rolbypassrls).toBe(false);
 
@@ -108,6 +112,7 @@ describeIfDb(
         SELECT relrowsecurity, relforcerowsecurity
         FROM pg_class
         WHERE relname = 'system_prompt_receipts'`;
+
       expect(table.relrowsecurity).toBe(true);
       expect(table.relforcerowsecurity).toBe(true);
 
@@ -116,6 +121,7 @@ describeIfDb(
         FROM pg_policies
         WHERE tablename = 'system_prompt_receipts'
         ORDER BY policyname`;
+
       expect(policies).toEqual([
         { policyname: 'system_prompt_receipts_owner_insert', cmd: 'INSERT' },
         { policyname: 'system_prompt_receipts_owner_select', cmd: 'SELECT' },
@@ -124,6 +130,7 @@ describeIfDb(
 
     it('hides a stored receipt from every other owner and from an identity-absent scope', async () => {
       const run = await seedOwnedRun(ownerA);
+
       const stored = await tenantDb.runAs(ownerA, (tx) =>
         new SystemPromptReceiptsRepository(tx).create(
           receiptInput(ownerA, run.id),
@@ -135,6 +142,7 @@ describeIfDb(
           .select()
           .from(schema.systemPromptReceipts)
           .where(eq(schema.systemPromptReceipts.id, stored.id));
+
         expect(rows).toEqual([]);
         await expect(
           new SystemPromptReceiptsRepository(tx).findByOwnedRun(run.id, ownerB),
@@ -145,6 +153,7 @@ describeIfDb(
       // matches nothing, so the row stays invisible even to a raw read.
       const absentIdentity = await sql`
         SELECT id FROM system_prompt_receipts WHERE id = ${stored.id}`;
+
       expect(absentIdentity).toEqual([]);
     });
 

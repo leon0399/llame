@@ -60,14 +60,17 @@ async function write(path: string, content: string): Promise<void> {
 function pageReader() {
   const reads: Array<string> = [];
   const canonicalPaths: Array<string | undefined> = [];
+
   const readPage: ReadPage = async (selectorPath, canonicalPath) => {
     reads.push(selectorPath);
     canonicalPaths.push(canonicalPath);
     const marker = selectorPath.lastIndexOf(':raw:');
     const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
     const content = await readFile(path, 'utf8');
+
     return { status: 'success', kind: 'file', content, truncated: false };
   };
+
   return { readPage, reads, canonicalPaths };
 }
 
@@ -86,11 +89,14 @@ function attemptOf(
   } = {},
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
+
   const readPage =
     input.readPage === null
       ? undefined
       : (input.readPage ?? pageReader().readPage);
+
   const space = input.space;
+
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
@@ -102,6 +108,7 @@ function attemptOf(
       knowledge: { readPage: space.readPage, probe: space.knowledge },
     }),
   });
+
   return {
     producer,
     staged,
@@ -120,11 +127,14 @@ function attemptOf(
 /** The selected paths an item discloses, in block order. */
 function blockPaths(part: AuthoredContextItemPart): Array<string> {
   const payload = part.data.payload;
+
   if (!isInstructionsPayload(payload)) {
     throw new Error('the staged part is not an instructions payload');
   }
+
   return payload.files.map((file) => file.path);
 }
+
 function loadedFiles(part: AuthoredContextItemPart): ReadonlyArray<{
   readonly path: string;
   readonly canonicalPath: string;
@@ -132,16 +142,21 @@ function loadedFiles(part: AuthoredContextItemPart): ReadonlyArray<{
   readonly importedBy?: string;
 }> {
   const payload = part.data.payload;
+
   if (!isInstructionsPayload(payload)) {
     throw new Error('the staged part is not an instructions payload');
   }
+
   return payload.files;
 }
+
 function deniedPaths(part: AuthoredContextItemPart): Array<string> {
   const payload = part.data.payload;
+
   if (!isInstructionsPayload(payload)) {
     throw new Error('the staged part is not an instructions payload');
   }
+
   return [...payload.denied];
 }
 
@@ -160,7 +175,9 @@ function lastStaged(
   staged: ReadonlyArray<AuthoredContextItemPart>,
 ): AuthoredContextItemPart {
   const part = staged.at(-1);
+
   if (part === undefined) throw new Error('the step staged no item');
+
   return part;
 }
 
@@ -180,31 +197,38 @@ function spaceOf(
   const probes: Array<string> = [];
   const asked: Array<string> = [];
   const directories = new Set<string>(['']);
+
   for (const key of Object.keys(files)) {
     for (let parent = parentKey(key, ''); ; parent = parentKey(parent, '')) {
       directories.add(parent);
+
       if (parent === '') break;
     }
   }
+
   const entries = [...directories, ...Object.keys(files)];
+
   // A real probe resolves the Space under RLS, which matches an identifier
   // whatever its case, so this one does too: an upper-case id names the same
   // Space. Only the producer's own canonical-only rule keeps such a locator
   // from ever reaching it.
   const knowledge: KnowledgeInstructionProbe = (spaceId) => {
     asked.push(spaceId);
+
     return Promise.resolve(
       spaceId.toLowerCase() === knowledgeSpaceId.toLowerCase()
         ? {
             probe(relativePath) {
               probes.push(relativePath);
               const body = files[relativePath];
+
               if (body !== undefined) {
                 return Promise.resolve({
                   kind: 'file' as const,
                   size: Buffer.byteLength(body),
                 });
               }
+
               return Promise.resolve(
                 directories.has(relativePath)
                   ? { kind: 'directory' as const, size: 0 }
@@ -213,8 +237,10 @@ function spaceOf(
             },
             list(relativeDirectory) {
               probes.push(relativeDirectory);
+
               const prefix =
                 relativeDirectory === '' ? 0 : relativeDirectory.length + 1;
+
               return Promise.resolve(
                 entries.flatMap((key) =>
                   parentKey(key, '') === relativeDirectory
@@ -227,14 +253,18 @@ function spaceOf(
         : undefined,
     );
   };
+
   const readPage: ReadPage = (selectorPath) => {
     reads.push(selectorPath);
+
     // Only a canonical lower-case id reaches a read at all, so the locator
     // prefix strips a Space id that identifies this Space here.
     const key = selectorPath
       .replace(/^kb:\/\/[^/]+\//iu, '')
       .replace(/:raw:\d+-\d+$/u, '');
+
     const body = files[key];
+
     return Promise.resolve(
       body === undefined
         ? { status: 'error', type: 'not_found', message: 'No such file.' }
@@ -246,6 +276,7 @@ function spaceOf(
           },
     );
   };
+
   return { knowledge, readPage, reads, probes, asked };
 }
 
@@ -265,12 +296,14 @@ function spaceCall(
 describe('instructions producer Knowledge Space triggers', () => {
   it("loads the Space root's chain and the touched directory's, labelled by locator", async () => {
     await write(join(root, 'AGENTS.md'), 'host rules\n');
+
     const space = spaceOf({
       'CLAUDE.md': 'space rules\n',
       'notes/AGENTS.md': 'note rules\n',
       'notes/lore/x.md': 'lore\n',
       'other/AGENTS.md': 'other rules\n',
     });
+
     const { producer, staged, prepare } = attemptOf({ space });
 
     producer.observeToolCall?.(spaceCall('notes/lore/x.md'));
@@ -320,6 +353,7 @@ describe('instructions producer Knowledge Space triggers', () => {
       'notes/y.md': 'second\n',
       'notes/AGENTS.md': 'note rules\n',
     });
+
     const { producer, staged, prepare } = attemptOf({ space });
 
     // Only the lower-case id llame itself formats is a trigger, so an
@@ -341,6 +375,7 @@ describe('instructions producer Knowledge Space triggers', () => {
       'notes/y.md': 'second\n',
       'notes/AGENTS.md': 'note rules\n',
     });
+
     const { producer, staged, prepare } = attemptOf({ space });
 
     // The upper-case call is not a trigger and the lower-case one is, so the
@@ -400,7 +435,9 @@ describe('instructions producer Knowledge Space triggers', () => {
       'notes/y.md': 'y\n',
       'notes/AGENTS.md': 'note rules\n',
     });
+
     const { producer, staged, prepare } = attemptOf({ space });
+
     const tooDeep = [
       ...Array.from(
         { length: KNOWLEDGE_MAX_PATH_COMPONENTS },
@@ -423,6 +460,7 @@ describe('instructions producer Knowledge Space triggers', () => {
 
   it('loads nothing when the Space binding cannot be resolved', async () => {
     const failure = `Space directory ${root}/spaces/${SPACE} is unreadable`;
+
     const resolver: KnowledgeToolResolver = {
       listForOwnerPage: () => Promise.reject(new Error(failure)),
       resolveBindingForOwnerById: () => Promise.reject(new Error(failure)),
@@ -430,7 +468,9 @@ describe('instructions producer Knowledge Space triggers', () => {
         throw new Error(failure);
       },
     };
+
     const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+
     const { producer, staged, prepare } = attemptOf({
       space: {
         readPage: space.readPage,
@@ -467,6 +507,7 @@ describe('instructions producer Knowledge Space triggers', () => {
         workspaceRoot: root,
       });
     }
+
     await prepare();
 
     expect(staged).toEqual([]);
@@ -478,6 +519,7 @@ describe('instructions producer Knowledge Space triggers', () => {
       'notes/AGENTS.md': 'note rules\n',
       'notes/CLAUDE.local.md': 'local rules\n',
     });
+
     const { producer, staged, prepare } = attemptOf({ space });
 
     producer.observeToolCall?.(spaceCall('notes/AGENTS.md'));
@@ -526,6 +568,7 @@ describe('instructions producer Knowledge Space triggers', () => {
       // dismissed as a read that disclosed the file it named.
       producer.observeToolCall?.(readCall(`${scheme}://${SPACE}/notes/x.md`));
     }
+
     await prepare();
 
     expect(staged).toEqual([]);
@@ -670,7 +713,9 @@ describe('instructions producer triggers', () => {
       readCall('media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f'),
       readCall(join(root, 'apps/api/x.ts'), 'search_conversations'),
     ];
+
     const { producer, staged, prepare } = attemptOf();
+
     for (const call of ignored) producer.observeToolCall?.(call);
     await prepare();
     expect(staged).toEqual([]);
@@ -737,6 +782,7 @@ describe('instructions producer triggers', () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     const canonical = await realpath(join(root, 'AGENTS.md'));
     const { readPage, reads } = pageReader();
+
     const { producer, staged, prepare } = attemptOf({
       seenKeys: new Set([canonical]),
       readPage,
@@ -883,6 +929,7 @@ describe('instructions producer triggers', () => {
     const newRoot = await mkdtemp(join(tmpdir(), 'llame-instructions-new-'));
     await write(join(newRoot, 'AGENTS.md'), 'new root rules\n');
     await write(join(newRoot, 'apps/api/AGENTS.md'), 'new api rules\n');
+
     try {
       const { producer, staged, prepare } = attemptOf();
 
@@ -1037,8 +1084,10 @@ describe('instructions producer triggers', () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     let deny = true;
     const reads: Array<string> = [];
+
     const readPage: ReadPage = (selectorPath) => {
       reads.push(selectorPath);
+
       if (deny) {
         return Promise.resolve({
           status: 'error',
@@ -1046,6 +1095,7 @@ describe('instructions producer triggers', () => {
           message: 'Denied by policy.',
         });
       }
+
       return Promise.resolve({
         status: 'success',
         kind: 'file',
@@ -1053,6 +1103,7 @@ describe('instructions producer triggers', () => {
         truncated: false,
       });
     };
+
     const { producer, staged, prepare } = attemptOf({ readPage });
 
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
@@ -1160,6 +1211,7 @@ describe('instructions producer imports', () => {
   it('limits an ordinary import chain to five hops', async () => {
     const rootFile = join(root, 'AGENTS.md');
     await write(rootFile, '@a.md\n');
+
     for (const [index, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
       await write(
         join(root, `${name}.md`),
@@ -1183,6 +1235,7 @@ describe('instructions producer imports', () => {
     const rootFile = join(root, 'AGENTS.md');
     await write(rootFile, '@a/a.md\n');
     let directory = root;
+
     for (const [index, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
       directory = join(directory, name);
       const next = String.fromCharCode(name.charCodeAt(0) + 1);
@@ -1198,10 +1251,12 @@ describe('instructions producer imports', () => {
 
     const expected: Array<string> = [rootFile];
     let expectedDirectory = root;
+
     for (const name of ['a', 'b', 'c', 'd', 'e']) {
       expectedDirectory = join(expectedDirectory, name);
       expected.push(join(expectedDirectory, `${name}.md`));
     }
+
     expect(blockPaths(lastStaged(staged))).toEqual(expected);
     expect(lastStaged(staged).data.text).toContain('@f/f.md');
   });
@@ -1211,6 +1266,7 @@ describe('instructions producer imports', () => {
     await write(rootFile, '@foo/doc.md\n');
     await write(join(root, 'foo/doc.md'), 'doc\n');
     await write(join(root, 'foo/AGENTS.md'), '@a.md\n');
+
     for (const [index, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
       await write(
         join(root, `foo/${name}.md`),
@@ -1234,24 +1290,29 @@ describe('instructions producer imports', () => {
 
   it('leaves missing, schemed, home, and selector targets literal', async () => {
     const rootFile = join(root, 'AGENTS.md');
+
     const literalTargets = [
       join(root, '~', 'x.md'),
       join(root, 'foo.md:30-35'),
       join(root, 'https:', 'x'),
       join(root, 'kb:', 's', 'x'),
     ];
+
     for (const target of literalTargets) {
       await write(target, 'must stay literal\n');
     }
+
     await write(
       rootFile,
       '@missing.md @~/x.md @https://x @kb://s/x @foo.md:30-35\n',
     );
     const reads: Array<string> = [];
     const admitted: Array<string> = [];
+
     const readPage: ReadPage = async (selectorPath) => {
       reads.push(selectorPath);
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+
       return {
         status: 'success',
         kind: 'file',
@@ -1259,19 +1320,23 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
+
     const { producer, staged, prepare } = attemptOf({
       readPage,
       admitsRead: (path) => {
         admitted.push(path);
+
         return true;
       },
     });
+
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
 
     expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
     expect(reads).toEqual([`${rootFile}:raw:1-2000`]);
     expect(admitted).toEqual([`${join(root, 'missing.md')}:raw:1-2000`]);
+
     for (const target of literalTargets) {
       expect(admitted).not.toContain(target);
     }
@@ -1308,6 +1373,7 @@ describe('instructions producer imports', () => {
       '../outside.md': 'outside the Space\n',
       '/x.md': 'absolute outside the Space\n',
     });
+
     const { producer, staged, prepare } = attemptOf({ space });
     producer.observeToolCall?.(spaceCall('entry.md'));
     await prepare();
@@ -1327,6 +1393,7 @@ describe('instructions producer imports', () => {
       'Stryker was here!': 'the fallback spelling must not be imported\n',
       'Stryker%20was%20here!': 'the fallback spelling must not be imported\n',
     });
+
     const { producer, staged, prepare } = attemptOf({ space });
     producer.observeToolCall?.(spaceCall('entry.md'));
     await prepare();
@@ -1338,14 +1405,17 @@ describe('instructions producer imports', () => {
 
   it('does not repeat a denied Knowledge import when its marker repeats', async () => {
     const target = `kb://${SPACE}/notes/doc.md`;
+
     const space = spaceOf({
       'AGENTS.md': '@notes/doc.md @notes/doc.md\n',
       'notes/doc.md': 'private notes\n',
     });
+
     const { producer, staged, prepare } = attemptOf({
       space,
       admitsRead: (path) => path !== `${target}:raw:1-2000`,
     });
+
     producer.observeToolCall?.(spaceCall('entry.md'));
     await prepare();
 
@@ -1365,6 +1435,7 @@ describe('instructions producer imports', () => {
       },
       SPACE,
     );
+
     const second = spaceOf(
       {
         'AGENTS.md': '@notes/doc.md\n',
@@ -1372,12 +1443,15 @@ describe('instructions producer imports', () => {
       },
       OTHER_SPACE,
     );
+
     const readPage: ReadPage = (selectorPath) =>
       selectorPath.startsWith(`kb://${SPACE}/`)
         ? first.readPage(selectorPath)
         : second.readPage(selectorPath);
+
     const knowledge: KnowledgeInstructionProbe = (spaceId) =>
       spaceId === SPACE ? first.knowledge(spaceId) : second.knowledge(spaceId);
+
     const { producer, staged, prepare } = attemptOf({
       space: { readPage, knowledge },
     });
@@ -1399,8 +1473,10 @@ describe('instructions producer imports', () => {
     const target = join(root, 'missing.md');
     await write(rootFile, '@missing.md\n');
     const reads: Array<string> = [];
+
     const readPage: ReadPage = async (selectorPath) => {
       reads.push(selectorPath);
+
       if (selectorPath.startsWith(`${target}:raw:`)) {
         return {
           status: 'error',
@@ -1408,7 +1484,9 @@ describe('instructions producer imports', () => {
           message: 'Denied by policy.',
         };
       }
+
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+
       return {
         status: 'success',
         kind: 'file',
@@ -1416,10 +1494,12 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
+
     const { producer, staged, prepare } = attemptOf({
       readPage,
       admitsRead: (path) => path !== `${target}:raw:1-2000`,
     });
+
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
 
@@ -1435,8 +1515,10 @@ describe('instructions producer imports', () => {
     const load = async () => {
       const reads: Array<string> = [];
       const admitted: Array<string> = [];
+
       const readPage: ReadPage = async (selectorPath) => {
         reads.push(selectorPath);
+
         if (selectorPath.startsWith(`${target}:raw:`)) {
           return {
             status: 'error',
@@ -1444,7 +1526,9 @@ describe('instructions producer imports', () => {
             message: 'Denied by policy.',
           };
         }
+
         const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+
         return {
           status: 'success',
           kind: 'file',
@@ -1452,15 +1536,19 @@ describe('instructions producer imports', () => {
           truncated: false,
         };
       };
+
       const { producer, staged, prepare } = attemptOf({
         readPage,
         admitsRead: (path) => {
           admitted.push(path);
+
           return path !== `${target}:raw:1-2000`;
         },
       });
+
       producer.observeToolCall?.(readCall(join(root, 'x.ts')));
       await prepare();
+
       return {
         part: lastStaged(staged),
         reads,
@@ -1490,8 +1578,10 @@ describe('instructions producer imports', () => {
     await write(rootFile, '@shared.md\n');
     await write(nestedFile, '@../shared.md\n');
     const reads: Array<string> = [];
+
     const readPage: ReadPage = async (selectorPath) => {
       reads.push(selectorPath);
+
       if (selectorPath.startsWith(`${target}:raw:`)) {
         return {
           status: 'error',
@@ -1499,7 +1589,9 @@ describe('instructions producer imports', () => {
           message: 'Denied by policy.',
         };
       }
+
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+
       return {
         status: 'success',
         kind: 'file',
@@ -1507,10 +1599,12 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
+
     const attempt = attemptOf({
       readPage,
       admitsRead: (path) => path !== `${target}:raw:1-2000`,
     });
+
     attempt.producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await attempt.prepare();
     attempt.producer.observeToolCall?.(readCall(join(root, 'nested/x.ts')));
@@ -1526,6 +1620,7 @@ describe('instructions producer imports', () => {
     const doc = join(root, 'foo/doc.md');
     await write(rootFile, '@foo/doc.md\n');
     await write(doc, 'doc\n');
+
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: root,
@@ -1533,6 +1628,7 @@ describe('instructions producer imports', () => {
       admitsRead: () => true,
       seenKeys: new Set(),
     });
+
     if (part === undefined) throw new Error('the accepted turn loaded nothing');
 
     expect(blockPaths(part)).toEqual([rootFile, doc]);
@@ -1565,8 +1661,10 @@ describe('instructions producer imports', () => {
     await write(first, 'foo\n');
     await write(second, 'bar\n');
     const reads: Array<string> = [];
+
     const readPage: ReadPage = async (selectorPath) => {
       reads.push(selectorPath);
+
       if (selectorPath.startsWith(`${denied}:raw:`)) {
         return {
           status: 'error',
@@ -1574,7 +1672,9 @@ describe('instructions producer imports', () => {
           message: 'Denied by policy.',
         };
       }
+
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+
       return {
         status: 'success',
         kind: 'file',
@@ -1582,6 +1682,7 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
+
     const { producer, staged, prepare } = attemptOf({ readPage });
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
@@ -1603,8 +1704,10 @@ describe('instructions producer imports', () => {
 
     const linkFile = join(root, 'link/AGENTS.md');
     const reads: Array<readonly [string, string | undefined]> = [];
+
     const readPage: ReadPage = async (selectorPath, canonicalPath) => {
       reads.push([selectorPath, canonicalPath]);
+
       if (canonicalPath === chain) {
         return {
           status: 'error',
@@ -1612,8 +1715,10 @@ describe('instructions producer imports', () => {
           message: 'Canonical path rejected.',
         };
       }
+
       const marker = selectorPath.lastIndexOf(':raw:');
       const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
+
       return {
         status: 'success',
         kind: 'file',
@@ -1621,6 +1726,7 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
+
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: join(root, 'foo'),
@@ -1628,6 +1734,7 @@ describe('instructions producer imports', () => {
       admitsRead: () => true,
       seenKeys: new Set(),
     });
+
     if (part === undefined) throw new Error('the bound turn loaded nothing');
 
     expect(blockPaths(part)).toEqual([rootFile, chain]);
@@ -1690,9 +1797,11 @@ describe('instructions producer imports', () => {
 
     const reads: Array<string> = [];
     const admitted: Array<string> = [];
+
     const readPage: ReadPage = async (selectorPath) => {
       reads.push(selectorPath);
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+
       return {
         status: 'success',
         kind: 'file',
@@ -1700,13 +1809,16 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
+
     const { producer, staged, prepare } = attemptOf({
       readPage,
       admitsRead: (path) => {
         admitted.push(path);
+
         return splitSelectorSuffix(path).path !== target;
       },
     });
+
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
 
@@ -1727,6 +1839,7 @@ describe('instructions producer imports', () => {
     await write(chain, 'foo rules\n');
     await symlink(target, link);
     const reader = pageReader();
+
     const { producer, staged, prepare } = attemptOf({
       readPage: reader.readPage,
     });
@@ -1758,8 +1871,10 @@ describe('instructions producer imports', () => {
     await write(target, 'target\n');
     await symlink(target, link);
     const reads: Array<readonly [string, string | undefined]> = [];
+
     const readPage: ReadPage = async (selectorPath, canonicalPath) => {
       reads.push([selectorPath, canonicalPath]);
+
       if (canonicalPath === target) {
         return {
           status: 'error',
@@ -1767,8 +1882,10 @@ describe('instructions producer imports', () => {
           message: 'Canonical path rejected.',
         };
       }
+
       const marker = selectorPath.lastIndexOf(':raw:');
       const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
+
       return {
         status: 'success',
         kind: 'file',
@@ -1776,6 +1893,7 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
+
     const { producer, staged, prepare } = attemptOf({
       readPage,
       admitsRead: () => true,
@@ -1822,6 +1940,7 @@ describe('instructions producer accepted turn', () => {
       admitsRead: () => true,
       seenKeys: new Set(),
     });
+
     if (part === undefined) throw new Error('the accepted turn loaded nothing');
 
     const loaded = withinRoot(blockPaths(part));
@@ -1829,11 +1948,13 @@ describe('instructions producer accepted turn', () => {
       join(root, 'AGENTS.md'),
       join(root, 'apps/api/AGENTS.md'),
     ]);
+
     for (const path of loaded) expect(seenKeys(part)).toContain(path);
   });
 
   it('adds nothing when every root-chain file is already seen', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
+
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: root,
@@ -1860,6 +1981,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
     }>;
   }) {
     const { workspaceRoot, hostPage, space } = input;
+
     return createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       admitsRead: () => true,
@@ -1883,6 +2005,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
       hostPage: pageReader().readPage,
       triggers: [{ key: join(root, 'apps/api/doc.md') }],
     });
+
     if (part === undefined) throw new Error('the unbound turn loaded nothing');
 
     expect(withinRoot(blockPaths(part))).toEqual([
@@ -1898,6 +2021,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
       hostPage: pageReader().readPage,
       triggers: [{ key: join(root, 'apps/api') }],
     });
+
     if (part === undefined)
       throw new Error('the directory trigger loaded nothing');
 
@@ -1909,6 +2033,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
 
   it('loads a Space chain on an unbound turn with only a Knowledge world', async () => {
     await write(join(root, 'AGENTS.md'), 'host rules\n');
+
     const space = spaceOf({
       'CLAUDE.md': 'space rules\n',
       'notes/AGENTS.md': 'note rules\n',
@@ -1922,6 +2047,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
         { key: join(root, 'AGENTS.md') },
       ],
     });
+
     if (part === undefined) throw new Error('the unbound turn loaded nothing');
 
     expect(blockPaths(part)).toEqual([
@@ -1948,6 +2074,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
 
   it('does not load an instruction file its own import names', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
+
     const part = await turn({
       hostPage: pageReader().readPage,
       triggers: [{ key: join(root, 'AGENTS.md') }],
@@ -1965,6 +2092,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
       hostPage: pageReader().readPage,
       triggers: [{ key: candidate }, { key: join(root, 'other.md') }],
     });
+
     if (part === undefined) throw new Error('the imports loaded nothing');
 
     expect(blockPaths(part)).toEqual([candidate]);
@@ -1979,6 +2107,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
       hostPage: pageReader().readPage,
       triggers: [{ key: join(nested, 'AGENTS.md') }],
     });
+
     if (part === undefined) throw new Error('the root touch loaded nothing');
 
     expect(withinRoot(blockPaths(part))).toEqual([join(root, 'AGENTS.md')]);
@@ -2013,11 +2142,13 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
 
   it('still loads the imported instruction file from the same turn root load', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
+
     const part = await turn({
       workspaceRoot: root,
       hostPage: pageReader().readPage,
       triggers: [{ key: join(root, 'AGENTS.md') }],
     });
+
     if (part === undefined) throw new Error('the bound turn loaded nothing');
 
     expect(blockPaths(part)).toEqual([join(root, 'AGENTS.md')]);
@@ -2026,11 +2157,13 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
   it('loads the imported instruction file for a root below its directory', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     await mkdir(join(root, 'apps/api'), { recursive: true });
+
     const part = await turn({
       workspaceRoot: join(root, 'apps/api'),
       hostPage: pageReader().readPage,
       triggers: [{ key: join(root, 'AGENTS.md') }],
     });
+
     if (part === undefined) throw new Error('the bound turn loaded nothing');
 
     expect(blockPaths(part)).toEqual([join(root, 'AGENTS.md')]);
@@ -2039,6 +2172,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
   it('loads the imported instruction file for another import below its directory', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     await write(join(root, 'apps/api/doc.md'), 'doc\n');
+
     const part = await turn({
       hostPage: pageReader().readPage,
       triggers: [
@@ -2046,6 +2180,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
         { key: join(root, 'apps/api/doc.md') },
       ],
     });
+
     if (part === undefined) throw new Error('the unbound turn loaded nothing');
 
     expect(withinRoot(blockPaths(part))).toEqual([join(root, 'AGENTS.md')]);
@@ -2061,6 +2196,7 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
       hostPage: pageReader().readPage,
       triggers: [{ key: join(root, 'apps/api/doc.md') }],
     });
+
     if (part === undefined) throw new Error('the bound turn loaded nothing');
 
     expect(withinRoot(blockPaths(part))).toEqual([

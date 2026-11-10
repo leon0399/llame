@@ -21,16 +21,20 @@ export async function countSourceLines(
   let position = 0;
   let terminators = 0;
   let last = 0;
+
   for (;;) {
     signal?.throwIfAborted();
     const { bytesRead } = await file.read(buffer, 0, buffer.length, position);
+
     if (bytesRead === 0) break;
     const chunk = buffer.subarray(0, bytesRead);
+
     for (let at = chunk.indexOf(LF); at !== -1; at = chunk.indexOf(LF, at + 1))
       terminators += 1;
     last = buffer[bytesRead - 1];
     position += bytesRead;
   }
+
   return position > 0 ? terminators + (last === LF ? 0 : 1) : 0;
 }
 
@@ -47,5 +51,6 @@ export async function storedLineCount(
   signal: AbortSignal | undefined,
 ): Promise<number | undefined> {
   if (size > READ_LINE_COUNT_MAX_BYTES) return undefined;
+
   return counted ?? (await countSourceLines(file, signal));
 }

@@ -48,6 +48,7 @@ d('fork artifact copy', () => {
     );
     owner = crypto.randomUUID();
     stranger = crypto.randomUUID();
+
     for (const id of [owner, stranger]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'F', ${`f-${id}@t.com`})`;
     }
@@ -69,10 +70,12 @@ d('fork artifact copy', () => {
     const fork = await service.forkChat(source.chatId, owner);
 
     expect(await artifactText(fork.id, GREP_ONE)).toContain('passage');
+
     const next = await writeArtifact(fork.id, {
       toolName: 'web_search',
       content: 'result\n',
     });
+
     expect(next.locator).toBe('artifact://web_search-2');
   });
 
@@ -81,6 +84,7 @@ d('fork artifact copy', () => {
       parts: [toolPart(GREP_ONE)],
       artifactContent: 'kept\n',
     });
+
     const fork = await service.forkChat(source.chatId, owner);
     await service.deleteChat(owner, source.chatId);
 
@@ -92,26 +96,32 @@ d('fork artifact copy', () => {
       parts: [toolPart(GREP_ONE)],
       artifactContent: 'before\n',
     });
+
     const anchor = await tenantDb.runAs(owner, async (tx) => {
       const messages = new MessagesRepository(tx);
+
       const user = await messages.create({
         chatId: source.chatId,
         role: 'user',
         senderUserId: owner,
         parts: [{ type: 'text', text: 'next' }],
       });
+
       await messages.create({
         chatId: source.chatId,
         role: 'assistant',
         parts: [toolPart('artifact://bash-2/stdout')],
       });
+
       return user.id;
     });
+
     const bash = await writeArtifact(source.chatId, {
       toolName: 'bash',
       part: 'stdout',
       content: 'after\n',
     });
+
     expect(bash.locator).toBe('artifact://bash-2');
 
     const fork = await service.forkChat(source.chatId, owner, anchor);
@@ -142,11 +152,13 @@ d('fork artifact copy', () => {
     // A name no earlier case can have written, so only a lookup that ignored
     // the source Chat could find it.
     const elsewhere = 'artifact://hunt-1';
+
     const other = await seedSource({
       parts: [],
       artifactContent: 'elsewhere\n',
       toolName: 'hunt',
     });
+
     const source = await seedSource({
       parts: [toolPart(elsewhere)],
       artifactContent: undefined,
@@ -176,27 +188,33 @@ d('fork artifact copy', () => {
         title: 'Source',
         visibility: input.visibility ?? 'private',
       });
+
       const messages = new MessagesRepository(tx);
+
       const user = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: owner,
         parts: [{ type: 'text', text: 'q' }],
       });
+
       await messages.create({
         chatId: chat.id,
         role: 'assistant',
         parts: input.parts,
         inReplyTo: user.id,
       });
+
       return chat.id;
     });
+
     if (input.artifactContent !== undefined) {
       await writeArtifact(chatId, {
         content: input.artifactContent,
         ...(input.toolName !== undefined && { toolName: input.toolName }),
       });
     }
+
     return { chatId };
   }
 
@@ -253,17 +271,21 @@ d('fork artifact copy', () => {
 
   async function artifactText(chatId: string, locator: string) {
     const result = await read(chatId, locator);
+
     if (result.status !== 'success' || !isString(result['content'])) {
       throw new Error(`Expected a read success, got ${JSON.stringify(result)}`);
     }
+
     return result['content'];
   }
 
   async function listCount(chatId: string, userId = owner): Promise<number> {
     const result = await read(chatId, 'artifact://', userId);
+
     if (result.status !== 'success' || !isNumber(result['entryCount'])) {
       throw new Error(`Expected a listing, got ${JSON.stringify(result)}`);
     }
+
     return result['entryCount'];
   }
 });

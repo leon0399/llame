@@ -42,6 +42,7 @@ export const ORIGIN_PROMPT_IMPORT: ToolActivityOrigin = 'prompt-import';
  */
 export function isSystemOriginPayload(payload: unknown): boolean {
   if (!isRecord(payload)) return false;
+
   return (
     payload['origin'] === ORIGIN_SKILL_ACTIVATION ||
     payload['origin'] === ORIGIN_INSTRUCTIONS ||

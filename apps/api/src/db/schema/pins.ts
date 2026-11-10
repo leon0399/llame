@@ -90,4 +90,5 @@ export const pins = pgTable(
 ).enableRLS();
 
 export type Pin = InferSelectModel<typeof pins>;
+
 export type PinItemType = (typeof pinItemType.enumValues)[number];

@@ -43,8 +43,10 @@ function sectionIds(values: Array<string>): Array<SessionDetailsSectionId> {
 
 function readStoredLayout(raw: string | undefined): StoredLayout {
   if (raw === undefined) return EMPTY_LAYOUT;
+
   try {
     const result = storedLayout.safeParse(JSON.parse(raw));
+
     return result.success ? result.data : EMPTY_LAYOUT;
   } catch {
     return EMPTY_LAYOUT;
@@ -62,6 +64,7 @@ export function parseSessionDetailsLayout(
   const stored = readStoredLayout(raw);
   const order = sectionIds(stored.order);
   const missing = SESSION_DETAILS_SECTIONS.filter((id) => !order.includes(id));
+
   return {
     order: [...order, ...missing],
     collapsed: sectionIds(stored.collapsed),

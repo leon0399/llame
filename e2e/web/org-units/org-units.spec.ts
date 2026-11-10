@@ -45,6 +45,7 @@ test.describe("org-units admin UI", () => {
     // `data-state="open"`, which silently matches nothing since the #238
     // migration (this exact selector kept this suite red for 10 days).
     const openDialog = () => page.locator('[role="dialog"][data-open]');
+
     const openAlertDialog = () =>
       page.locator('[role="alertdialog"][data-open]');
 

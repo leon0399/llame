@@ -5,6 +5,7 @@ import { noChainedTypeAssertionsRule } from "./no-chained-type-assertions.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "chained" };
 
 tester.run(

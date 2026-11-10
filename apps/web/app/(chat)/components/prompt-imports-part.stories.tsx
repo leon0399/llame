@@ -27,6 +27,7 @@ const meta = {
 } satisfies Meta<typeof PromptImportsPart>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -63,9 +64,11 @@ export const ImportedDeniedFailedOmitted: Story = {
     const imported = canvas.getByLabelText(
       "Imported prompt file: docs/GUIDE.md",
     );
+
     const truncated = canvas.getByLabelText(
       "Truncated prompt file: ~/notes/long.md",
     );
+
     const denied = canvas.getByLabelText("Denied prompt file: /srv/secret.md");
     const failed = canvas.getByLabelText("Failed prompt file: missing.md");
     const omitted = canvas.getByLabelText("Omitted prompt file: extra.md");
@@ -89,13 +92,17 @@ export const ImportedDeniedFailedOmitted: Story = {
     // The visible badge truncates a long locator; the tooltip carries the
     // locator as written and the path it resolved to.
     await userEvent.hover(truncated);
+
     const tooltip = await waitFor(() => {
       const content = document.querySelector<HTMLElement>(
         "[data-slot='tooltip-content']",
       );
+
       expect(content).toBeVisible();
+
       return content;
     });
+
     await expect(tooltip).toHaveTextContent(
       "~/notes/long.md → /home/operator/notes/long.md",
     );
@@ -260,9 +267,11 @@ export const WithPdfEntry: Story = {
     await expect(
       canvas.getByLabelText(`Imported prompt file: ${MEDIA_LOCATOR}`),
     ).toBeVisible();
+
     const tile = canvas.getByRole("link", {
       name: `Open ${MEDIA_LOCATOR} in a new tab`,
     });
+
     await expect(tile.getAttribute("href")).toMatch(
       /\/api\/v1\/media\/0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f\/original$/,
     );

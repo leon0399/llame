@@ -14,6 +14,7 @@ import {
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
 import { WorkspaceMcpClients } from './workspace-mcp-clients';
+
 describe('McpRuntimeModule', () => {
   it('keeps the default production runtime inert over the frozen empty definition map', async () => {
     const moduleRef = await Test.createTestingModule({
@@ -28,6 +29,7 @@ describe('McpRuntimeModule', () => {
     const definitions = moduleRef.get<
       typeof EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS
     >(MCP_RUNTIME_SERVER_DEFINITIONS);
+
     const runtime = moduleRef.get(McpRuntimeService);
 
     expect(definitions).toBe(EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS);
@@ -83,6 +85,7 @@ describe('McpRuntimeModule', () => {
       MODULE_METADATA.IMPORTS,
       RunWorkerModule,
     );
+
     const workerProviders: unknown = Reflect.getMetadata(
       MODULE_METADATA.PROVIDERS,
       RunWorkerModule,
@@ -95,15 +98,18 @@ describe('McpRuntimeModule', () => {
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
       useExisting: McpRuntimeService,
     });
+
     // Built by factory so the Machine connector reaches it: a Workspace bound
     // to a Machine resolves its MCP servers there.
     const providers: ReadonlyArray<unknown> = Array.isArray(workerProviders)
       ? workerProviders
       : [];
+
     const workspaceProvider = providers.find(
       (provider) =>
         isRecord(provider) && provider['provide'] === WorkspaceMcpClients,
     );
+
     expect(workspaceProvider).toMatchObject({
       provide: WorkspaceMcpClients,
       inject: [McpRuntimeService, MachineConnector],
@@ -117,6 +123,7 @@ describe('McpRuntimeModule', () => {
       .overrideProvider(InstanceConfigService)
       .useValue({ config: { ...BUILT_IN_DEFAULTS, mcpServers: {} } })
       .compile();
+
     const secondGraph = await Test.createTestingModule({
       imports: [McpRuntimeModule],
     })

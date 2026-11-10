@@ -22,8 +22,10 @@ import { expect, test } from "../../support/fixtures";
 
 const STDIO_PROMPT =
   "Please look up the local stdio fixture evidence for this deterministic run.";
+
 const FIXTURE_ANSWER =
   "Local stdio evidence: deterministic local MCP lookup succeeded.";
+
 const STDIO_SECRET = process.env.E2E_STDIO_MCP_SECRET ?? "stdio-e2e-secret";
 
 test("local stdio MCP tool settles, redacts its secret, and replays from history", async ({
@@ -38,6 +40,7 @@ test("local stdio MCP tool settles, redacts its secret, and replays from history
   await send.click();
 
   const log = page.getByRole("log");
+
   const settledToolActivities = log
     .getByRole("button")
     .filter({ hasText: "Completed" });

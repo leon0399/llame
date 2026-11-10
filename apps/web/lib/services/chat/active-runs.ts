@@ -29,6 +29,7 @@ export async function fetchRun(runId: string): Promise<Run | null> {
     if (getApiErrorStatus(error) === 404) {
       return null;
     }
+
     throw error;
   }
 }

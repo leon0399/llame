@@ -51,6 +51,7 @@ describe("useLatestRef", () => {
         initialProps: { value: 1 },
       },
     );
+
     const first = result.current;
 
     rerender({ value: 2 });

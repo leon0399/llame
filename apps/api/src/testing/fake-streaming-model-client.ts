@@ -88,9 +88,11 @@ function answerResponseChunks(
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'answer' },
   ];
+
   if (response.length > 0) {
     chunks.push({ type: 'text-delta', id: 'answer', delta: response });
   }
+
   chunks.push(
     { type: 'text-end', id: 'answer' },
     {
@@ -99,6 +101,7 @@ function answerResponseChunks(
       usage,
     },
   );
+
   return chunks;
 }
 
@@ -111,10 +114,12 @@ interface CancelableDelay {
 function cancelableDelay(ms: number): CancelableDelay {
   let timer: ReturnType<typeof setTimeout>;
   let resolveDelay: () => void = NOOP;
+
   const promise = new Promise<void>((resolve) => {
     resolveDelay = resolve;
     timer = setTimeout(resolve, ms);
   });
+
   return {
     promise,
     cancel: () => {
@@ -141,18 +146,23 @@ function createAnswerStream(
   options: AnswerStreamOptions,
 ): ReadableStream<LanguageModelV3StreamPart> {
   const { abortSignal, turn, delayMs, response, usage } = options;
+
   return new ReadableStream<LanguageModelV3StreamPart>({
     async start(controller) {
       let delay: CancelableDelay | undefined;
+
       const onAbort = () => {
         turn.aborted = true;
         delay?.cancel();
         controller.error(new DOMException('Aborted', 'AbortError'));
       };
+
       if (abortSignal?.aborted) {
         onAbort();
+
         return;
       }
+
       abortSignal?.addEventListener('abort', onAbort, { once: true });
 
       try {
@@ -160,12 +170,15 @@ function createAnswerStream(
           delay = cancelableDelay(delayMs);
           await delay.promise;
         }
+
         if (abortSignal?.aborted) {
           return;
         }
+
         for (const chunk of answerResponseChunks(response, usage)) {
           controller.enqueue(chunk);
         }
+
         controller.close();
       } catch (error) {
         controller.error(error);
@@ -185,6 +198,7 @@ function createAnswerModel(options: {
 }): MockLanguageModelV3 {
   const { modelId, turn, delayMs, response, usage } = options;
   const providerUsage = toProviderUsage(usage);
+
   return new MockLanguageModelV3({
     provider: 'fake',
     modelId,
@@ -215,10 +229,13 @@ function createTitleStream(
       const onAbort = () => {
         controller.error(new DOMException('Aborted', 'AbortError'));
       };
+
       if (abortSignal?.aborted) {
         onAbort();
+
         return;
       }
+
       abortSignal?.addEventListener('abort', onAbort, { once: true });
 
       void Promise.resolve(titleResponse)
@@ -226,9 +243,11 @@ function createTitleStream(
           if (abortSignal?.aborted) {
             return;
           }
+
           for (const chunk of titleResponseChunks(title)) {
             controller.enqueue(chunk);
           }
+
           controller.close();
         })
         .catch((error: unknown) => {
@@ -259,6 +278,7 @@ export interface AbortSettlement {
 export function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
   let settlement = Promise.resolve();
   let settlementError: { error: unknown } | undefined;
+
   return {
     onAbort: () => {
       settlement = Promise.resolve(
@@ -271,6 +291,7 @@ export function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
     },
     wait: async () => {
       await settlement;
+
       if (settlementError) {
         throw settlementError.error;
       }
@@ -283,12 +304,15 @@ function resolveToolOptions(
   input: ModelStreamInput,
 ): Pick<ModelStreamInput, 'tools' | 'toolChoice'> {
   const toolOptions: Pick<ModelStreamInput, 'tools' | 'toolChoice'> = {};
+
   if (input.tools) {
     toolOptions.tools = input.tools;
+
     if (input.toolChoice !== undefined) {
       toolOptions.toolChoice = input.toolChoice;
     }
   }
+
   return toolOptions;
 }
 
@@ -302,6 +326,7 @@ function answerStreamHandlers(
   'onChunk' | 'onError' | 'onAbort' | 'onFinish'
 > {
   const onFinish = createModelStreamFinishCallback(input.onFinish);
+
   return {
     onChunk: ({ chunk }) => forwardChunk(chunk, input),
     onError: (event) => {
@@ -385,9 +410,11 @@ export class FakeStreamingModelClient {
 
   streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
     this.chatIdentities.push(input.chat);
+
     if (input.system === TITLE_SYSTEM_PROMPT) {
       return this.streamTitleText(input);
     }
+
     return this.streamAnswerText(input);
   }
 
@@ -396,6 +423,7 @@ export class FakeStreamingModelClient {
   ): ReturnType<typeof sdkStreamText> {
     this.titleTurns.push(input.messages);
     const titleResponse = this.titleResponse;
+
     const streamOptions: Parameters<typeof sdkStreamText>[0] & {
       model: LanguageModelV3;
     } = {
@@ -412,7 +440,9 @@ export class FakeStreamingModelClient {
       abortSignal: input.abortSignal,
       onFinish: createModelStreamFinishCallback(input.onFinish),
     };
+
     applyRequestUsageCallback(streamOptions, input);
+
     return sdkStreamText(streamOptions);
   }
 
@@ -421,15 +451,19 @@ export class FakeStreamingModelClient {
   ): ReturnType<typeof sdkStreamText> {
     const response =
       this.responses[this.turns.length] ?? this.responses[0] ?? '';
+
     const delayMs = this.delayMs;
     const usage = this.usage;
+
     const turn: FakeTurn = {
       messages: input.messages,
       abortSignal: input.abortSignal,
       aborted: false,
     };
+
     this.turns.push(turn);
     const settlement = trackAbortSettlement(input);
+
     const model = createAnswerModel({
       modelId: this.model,
       turn,
@@ -437,6 +471,7 @@ export class FakeStreamingModelClient {
       response,
       usage,
     });
+
     const streamOptions = {
       model,
       messages: input.messages,
@@ -447,6 +482,7 @@ export class FakeStreamingModelClient {
         this.onFinishCalls += 1;
       }),
     };
+
     // A text-only fake: it declares no `input`.
     installStepPreparation(streamOptions, input, this);
     applyRequestUsageCallback(streamOptions, input);
@@ -486,7 +522,9 @@ export class FakeModelsService implements ModelSelectionValidator {
     if (!this.isAvailable(modelId)) {
       throw new ModelNotAvailableError(modelId);
     }
+
     const reasoning = this.reasoning.get(modelId);
+
     return {
       id: modelId,
       source: 'system' as const,

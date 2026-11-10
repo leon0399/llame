@@ -39,15 +39,18 @@ export function useUpdateMemoryMutation() {
     mutationFn: updateMemory,
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: memoryQueryKeys.mine() });
+
       const previous = queryClient.getQueryData<MemoryResponse>(
         memoryQueryKeys.mine(),
       );
+
       if (previous) {
         queryClient.setQueryData<MemoryResponse>(memoryQueryKeys.mine(), {
           ...previous,
           ...input,
         });
       }
+
       return { previous };
     },
     onError: (_error, _input, context) => {

@@ -36,11 +36,13 @@ export const noUntrackedTodoRule = defineRule({
           // Reset between comments: the matcher is global and stateful.
           MARKER.lastIndex = 0;
           const found = MARKER.exec(comment.value);
+
           if (!found) continue;
 
           // Only the first marker in a comment is reported; a block comment
           // listing several deferrals is one problem, not four.
           const trailing = comment.value.slice(found.index);
+
           if (TRACKED.test(trailing)) continue;
 
           context.report({

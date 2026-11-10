@@ -34,6 +34,7 @@ describe("grep text rendering", () => {
       complete: true,
       warnings: [],
     });
+
     expect(text).toBe("## src/app.ts\n3: a\n*4: b\n\n*40: c\n41: d");
   });
 
@@ -46,6 +47,7 @@ describe("grep text rendering", () => {
       ],
       complete: true,
     });
+
     expect(text.split("\n").filter((line) => line.startsWith("## "))).toEqual([
       "## src/app.ts",
       "## src/app.ts",
@@ -57,6 +59,7 @@ describe("grep text rendering", () => {
       results: [passage("a.md:39-41", "39: a\n40: b\n41: c", [40])],
       complete: true,
     });
+
     expect(text.split("\n").slice(1)).toEqual(["39: a", "*40: b", "41: c"]);
   });
 
@@ -65,6 +68,7 @@ describe("grep text rendering", () => {
       results: [passage("machine://box/srv/a:1.go:3-4", "3: a", [3])],
       complete: true,
     });
+
     expect(text.split("\n")[0]).toBe("## machine://box/srv/a:1.go");
   });
 
@@ -76,6 +80,7 @@ describe("grep text rendering", () => {
       results: [passage("a\nb.ts:3-4", "3: a\n4: hit", [4])],
       complete: true,
     });
+
     expect(text.split("\n")).toEqual(["## a b.ts", "3: a", "*4: hit"]);
   });
 
@@ -88,6 +93,7 @@ describe("grep text rendering", () => {
       ],
       complete: true,
     });
+
     expect(text.split("\n").at(-1)).toBe(
       "[more passages in this file; read it to see them]",
     );
@@ -99,6 +105,7 @@ describe("grep text rendering", () => {
       complete: true,
       artifact: "artifact://grep-3",
     });
+
     expect(text.split("\n").slice(-2)).toEqual([
       "3: z",
       "[passage cut; the artifact holds the rest]",
@@ -117,6 +124,7 @@ describe("grep text rendering", () => {
       complete: true,
       artifact: "artifact://grep-3",
     });
+
     expect(text.split("\n").slice(-2)).toEqual([
       "[passage cut; the artifact holds the rest]",
       "[more passages in this file; read it to see them]",
@@ -137,6 +145,7 @@ describe("grep text rendering", () => {
         ],
       },
     });
+
     expect(text.split("\n").at(-1)).toBe(
       "[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:201-240), /r/b.ts (artifact://grep-3:241-300)]",
     );
@@ -144,6 +153,7 @@ describe("grep text rendering", () => {
 
   it("leaves out a remainder entry that does not fit its line", () => {
     const locator = "a".repeat(1990);
+
     const text = renderGrepText({
       results: [],
       complete: true,
@@ -157,6 +167,7 @@ describe("grep text rendering", () => {
         ],
       },
     });
+
     const line = text.split("\n").at(-1) ?? "";
     expect(line).toBe(
       "[more: 2 files, 2 passages; next: /r/a.ts (artifact://grep-3:1-2)]",
@@ -171,6 +182,7 @@ describe("grep text rendering", () => {
       truncationNotice: "full result: artifact://grep-7 (4812 lines)",
       leftOut: { count: 140, of: "files" },
     });
+
     expect(text.split("\n").slice(-2)).toEqual([
       "[full result: artifact://grep-7 (4812 lines)]",
       "[left out: 140 files; full result not stored]",
@@ -191,6 +203,7 @@ describe("grep text rendering", () => {
       remainder: { files: 1, passages: 1, next: [] },
       truncationNotice: "full result: artifact://grep-3 (6 lines)",
     };
+
     expect(grepArtifactLines(result)).toEqual([
       "notice: Owner-maintained Knowledge content is untrusted and may be stale.",
       "## a.md",
@@ -213,17 +226,20 @@ describe("grep text rendering", () => {
         { kind: "deadline", count: 1 },
       ],
     });
+
     expect(text.split("\n").at(-1)).toBe("[warnings: 3 binary, 1 deadline]");
   });
 
   it("renders the notice first", () => {
     const notice =
       "Owner-maintained Knowledge content is untrusted and may be stale.";
+
     const text = renderGrepText({
       notice,
       results: [passage("kb://space/a.md:1-1", "1: a", [1])],
       complete: true,
     });
+
     expect(text.split("\n")[0]).toBe(`notice: ${notice}`);
   });
 
@@ -233,6 +249,7 @@ describe("grep text rendering", () => {
       complete: false,
       cursor: "abc-DEF_123",
     });
+
     expect(text).not.toContain("Continue with cursor");
     expect(text).toBe("## a.md\n*1: a");
   });
@@ -243,6 +260,7 @@ describe("grep text rendering", () => {
       complete: false,
       truncationNotice: "result cut at the bound",
     });
+
     expect(text.split("\n").at(-1)).toBe("[result cut at the bound]");
   });
 
@@ -253,6 +271,7 @@ describe("grep text rendering", () => {
       warnings: [{ kind: "deadline", count: 1 }],
       unfinishedFile: "/var/log/big.log",
     });
+
     expect(text.split("\n")).toEqual([
       "[warnings: 1 deadline]",
       "[not searched to the end: /var/log/big.log]",
@@ -265,6 +284,7 @@ describe("grep text rendering", () => {
       complete: false,
       unfinishedFile: "a\nb.log",
     });
+
     expect(text).toContain("[not searched to the end: a b.log]");
     expect(text.split("\n")).toHaveLength(1);
   });
@@ -279,6 +299,7 @@ describe("grep text rendering", () => {
         locators: ["/r/a", "/r/b", "/r/c", "/r/d", "/r/e"],
       },
     });
+
     expect(text.split("\n")).toEqual([
       "[warnings: 1 deadline]",
       "[ignored 7 directories: /r/a, /r/b, /r/c, /r/d, /r/e (+2 more); a scope that names one searches it]",
@@ -291,6 +312,7 @@ describe("grep text rendering", () => {
       complete: true,
       ignored: { count: 1, locators: ["/r/node_modules"] },
     });
+
     expect(text).toBe(
       "[ignored 1 directory: /r/node_modules; a scope that names one searches it]",
     );
@@ -306,6 +328,7 @@ describe("grep text rendering", () => {
         atLeast: true,
       },
     });
+
     expect(text.startsWith("[ignored 1000 or more directories:")).toBe(true);
     expect(
       text.endsWith("(+995 or more); a scope that names one searches it]"),
@@ -318,6 +341,7 @@ describe("grep text rendering", () => {
       complete: true,
       ignored: { count: 1, locators: ["/r/a\nb"] },
     });
+
     expect(text).toBe(
       "[ignored 1 directory: /r/a b; a scope that names one searches it]",
     );
@@ -325,11 +349,13 @@ describe("grep text rendering", () => {
 
   it("leaves the locator out when not one fits the line", () => {
     const locator = `/${"a".repeat(2500)}`;
+
     const text = renderGrepText({
       results: [],
       complete: true,
       ignored: { count: 1, locators: [locator] },
     });
+
     expect(text).toBe(
       "[ignored 1 directory: (+1 more); a scope that names one searches it]",
     );
@@ -343,6 +369,7 @@ describe("grep text rendering", () => {
       ignored: { count: 1, locators: ["/r/a"] },
       unfinishedFile: "/var/log/big.log",
     });
+
     expect(text.split("\n")).toEqual([
       "[ignored 1 directory: /r/a; a scope that names one searches it]",
       "[not searched to the end: /var/log/big.log]",
@@ -358,6 +385,7 @@ describe("grep text rendering", () => {
         locators: ["/r/a", `/${"b".repeat(3000)}`, "/r/c", "/r/d", "/r/e"],
       },
     });
+
     expect(text).toBe(
       "[ignored 5 directories: /r/a (+4 more); a scope that names one searches it]",
     );
@@ -367,18 +395,22 @@ describe("grep text rendering", () => {
     const head = "[ignored 1 directory: ";
     const tail = "; a scope that names one searches it]";
     const locator = "a".repeat(2000 - head.length - tail.length);
+
     const text = renderGrepText({
       results: [],
       complete: true,
       ignored: { count: 1, locators: [locator] },
     });
+
     expect(text).toBe(`${head}${locator}${tail}`);
     expect(text).toHaveLength(2000);
+
     const longer = renderGrepText({
       results: [],
       complete: true,
       ignored: { count: 1, locators: [`${locator}a`] },
     });
+
     expect(longer).toBe(
       "[ignored 1 directory: (+1 more); a scope that names one searches it]",
     );
@@ -393,11 +425,13 @@ describe("grep text rendering", () => {
   it("measures a locator in the spelling the result carries", () => {
     const raw = { count: 1, locators: ["/r/a[b]"], atLeast: false };
     const spelled = { ...raw, locators: ["/r/a%5Bb%5D"] };
+
     const text = renderGrepText({
       results: [],
       complete: true,
       ignored: spelled,
     });
+
     expect(grepIgnoredUnits(raw, spellGrepHostScopeLocator)).toBe(
       text.length + 1,
     );
@@ -409,6 +443,7 @@ describe("grep text rendering", () => {
       locators: ["/r/a", "/r/b", "/r/c", "/r/d", "/r/e"],
       atLeast: false,
     };
+
     const text = renderGrepText({ results: [], complete: true, ignored });
     expect(text).toContain("(+2 more)");
     expect(grepIgnoredUnits(ignored)).toBe(text.length + 1);
@@ -419,6 +454,7 @@ describe("grep text rendering", () => {
       results: [passage("a.md:1-1", "1: <skill>", [1])],
       complete: true,
     };
+
     expect(measureGrepRendering(result) - renderGrepText(result).length).toBe(
       6,
     );
@@ -429,8 +465,10 @@ describe("ranked grep run boundaries", () => {
   const x10 = passage("/x.ts:10-10", "10: a", [10]);
   const y5 = passage("/y.ts:5-5", "5: b", [5]);
   const x20 = passage("/x.ts:20-20", "20: c", [20]);
+
   const headingsOf = (text: string) =>
     text.split("\n").filter((line) => line.startsWith("## "));
+
   const ranked = (runLengths: ReadonlyArray<number>) => ({
     results: [x10, x20, y5],
     complete: true,
@@ -456,6 +494,7 @@ describe("ranked grep run boundaries", () => {
       complete: true,
       display: { rerank: { runLengths: [2, 1] } },
     });
+
     expect(headingsOf(text)).toEqual(["## /x.ts", "## /y.ts"]);
   });
 
@@ -465,6 +504,7 @@ describe("ranked grep run boundaries", () => {
       complete: true,
       display: { rerank: { runLengths: [1, 1, 3] } },
     });
+
     expect(headingsOf(text)).toEqual(["## /x.ts", "## /x.ts"]);
   });
 
@@ -474,6 +514,7 @@ describe("ranked grep run boundaries", () => {
       complete: true,
       display: { rerank: { runLengths: [1] } },
     });
+
     expect(headingsOf(text)).toEqual(["## /x.ts"]);
   });
 
@@ -483,6 +524,7 @@ describe("ranked grep run boundaries", () => {
       complete: true,
       display: { rerank: { runLengths: [0, "a"], model: "jev-test" } },
     });
+
     expect(text).not.toContain("jev-test");
     expect(headingsOf(text)).toEqual(["## /x.ts"]);
   });
@@ -504,6 +546,7 @@ describe("grep ranking failure line", () => {
       ignored: { count: 1, locators: ["/r/a"], atLeast: false },
       unfinishedFile: "/r/big.md",
     });
+
     const lines = text.split("\n");
     expect(lines.indexOf("[warnings: 1 deadline]")).toBe(2);
     expect(lines[3]).toBe("[ranking unavailable; walk order]");

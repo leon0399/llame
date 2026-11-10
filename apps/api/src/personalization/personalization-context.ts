@@ -49,6 +49,7 @@ export function resolvePromptUserInput(input: {
   // That is the "indistinguishable from disabled" behavior the spec requires,
   // and it falls out of the defaults rather than needing a branch.
   const enabled = profile?.enabled ?? true;
+
   if (!enabled) {
     // The master switch. Turning it off stops account identity too, not just
     // authored text — an owner disabling personalization is not opting into

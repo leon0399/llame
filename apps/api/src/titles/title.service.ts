@@ -60,15 +60,18 @@ export class TitleService {
     userText: string;
   }): Promise<void> {
     const userText = titlePromptInput(input.userText);
+
     if (userText.length === 0) {
       return;
     }
 
     const titleModel = this.models.resolveTitleModelConfig();
+
     if (!titleModel) {
       this.logger.error(
         'TITLE_GENERATION_MODEL_ID is missing or does not reference an available model; skipping title generation.',
       );
+
       return;
     }
 
@@ -77,6 +80,7 @@ export class TitleService {
     const title = sanitizeTitle(
       await this.requestTitle(client, input.chatId, userText),
     );
+
     if (title.length === 0) {
       return;
     }
@@ -109,6 +113,7 @@ export class TitleService {
     const messages = [
       { role: 'user', content: titleUserPrompt(userText) },
     ] as Array<AiModelMessage>;
+
     // One deadline for the whole attempt: the chat loop awaits titling before
     // the stream closes, so a stalled model call must not hold the turn open.
     const abortSignal = AbortSignal.timeout(TITLE_GENERATION_TIMEOUT_MS);

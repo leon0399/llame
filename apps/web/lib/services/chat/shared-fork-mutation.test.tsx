@@ -48,12 +48,14 @@ describe("useForkSharedChat", () => {
   it("toasts on failure instead of failing silently", async () => {
     fetchMock.mockRejectedValue(new Error("network down"));
     const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
+
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
         mutations: { retry: false },
       },
     });
+
     const { result } = renderHook(() => useForkSharedChat(), {
       wrapper: makeWrapper(queryClient),
     });
@@ -68,13 +70,16 @@ describe("useForkSharedChat", () => {
 
   it("invalidates the chat list on success, so the new chat appears without a refresh", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ id: "new-chat" }));
+
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
         mutations: { retry: false },
       },
     });
+
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useForkSharedChat(), {
       wrapper: makeWrapper(queryClient),
     });

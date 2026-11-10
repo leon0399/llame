@@ -71,13 +71,16 @@ function hub(
   tools: Partial<LlameConfig['tools']> = { nativeExecutorId: LOCAL_EXECUTOR },
 ) {
   const peer = createProtocolPeer({ roots: ['/srv'], ...options });
+
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     machines: MACHINE_ENDPOINTS,
     transportFactory: peer.factory,
     idleCloseMs: 1000,
   });
+
   opened.push(connector);
+
   return {
     executors: new ExecutorGit(configWith(tools), connector, local),
     peer,
@@ -92,7 +95,9 @@ function unconfiguredHub(): ExecutorGit {
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
   });
+
   opened.push(connector);
+
   return new ExecutorGit(
     configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
     connector,
@@ -115,9 +120,11 @@ const created: Array<string> = [];
 
 afterEach(() => {
   for (const connector of opened.splice(0)) connector.onModuleDestroy();
+
   for (const directory of created.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
+
   vi.restoreAllMocks();
 });
 
@@ -131,12 +138,14 @@ async function rejectionOf(
     if (error instanceof ExecutorGitError) return error;
     throw error;
   }
+
   throw new Error('The call resolved instead of failing.');
 }
 
 function tempDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), 'executor-git-'));
   created.push(directory);
+
   return directory;
 }
 
@@ -273,6 +282,7 @@ describe('ExecutorGit.canonical', () => {
       methods: ['git.inspect'],
       answers: { 'fs.stat': { error: 'path_not_registered' } },
     });
+
     await expect(
       refused.executors.canonical(refused.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toMatchObject({ code: 'path_not_registered' });
@@ -285,6 +295,7 @@ describe('ExecutorGit.canonical', () => {
         'fs.stat': { value: { kind: 'file', isLink: false, size: 12 } },
       },
     });
+
     await expect(
       executors.canonical(executors.locate(LOCATOR), LOCATOR),
     ).rejects.toMatchObject({ code: 'not_a_directory' });
@@ -293,6 +304,7 @@ describe('ExecutorGit.canonical', () => {
       methods: ['git.inspect'],
       answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
     });
+
     await expect(
       unusable.executors.canonical(unusable.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toMatchObject({ code: 'git_failed' });
@@ -342,13 +354,16 @@ describe('ExecutorGit.canonicalTarget', () => {
 
   it('walks a Machine path through the daemon and renders one locator', async () => {
     const asked: Array<string> = [];
+
     const { executors } = hub({
       methods: ['git.inspect'],
       answer: (call) => {
         if (call.method !== 'fs.stat') return undefined;
         const path = isRecord(call.params) ? call.params['path'] : undefined;
+
         if (!isString(path)) return undefined;
         asked.push(path);
+
         return path === '/srv'
           ? { value: { kind: 'directory', isLink: false, realPath: '/srv' } }
           : { value: { kind: 'missing', isLink: false } };
@@ -454,6 +469,7 @@ describe('ExecutorGit.exists', () => {
             }
           : undefined,
     });
+
     const target = executors.locate(LOCATOR);
 
     await expect(executors.exists(target, LOCATOR)).resolves.toBe(true);
@@ -488,6 +504,7 @@ describe('ExecutorGit.inspect', () => {
         },
       },
     });
+
     const target = executors.locate(LOCATOR);
 
     await expect(executors.inspect(target, LOCATOR)).resolves.toMatchObject({
@@ -519,6 +536,7 @@ describe('ExecutorGit.inspect', () => {
       openFailure: () =>
         'ssh: connect to host nas.example port 22: No route to host',
     });
+
     const target = executors.locate(LOCATOR);
 
     const error = await rejectionOf(executors.inspect(target, LOCATOR));
@@ -538,12 +556,15 @@ describe('ExecutorGit.inspect', () => {
       answer: (call) =>
         call.method === 'git.worktreeAdd' ? { hold: true } : undefined,
     });
+
     const target = added.executors.locate(LOCATOR);
+
     const add = added.executors.worktreeAdd(target, {
       source: LOCATOR,
       branch: 'llame/probe',
       directory: `${LOCATOR}/.llame-worktrees/probe/probe`,
     });
+
     const addSession = await added.peer.session(0);
     await addSession.awaitRequests(1);
     addSession.drop();
@@ -559,10 +580,12 @@ describe('ExecutorGit.inspect', () => {
       answer: (call) =>
         call.method === 'git.worktreeRemove' ? { hold: true } : undefined,
     });
+
     const removal = removed.executors.removeWorktree(
       removed.executors.locate(LOCATOR),
       `${LOCATOR}/.llame-worktrees/probe/probe`,
     );
+
     const removeSession = await removed.peer.session(0);
     await removeSession.awaitRequests(1);
     removeSession.drop();
@@ -578,10 +601,12 @@ describe('ExecutorGit.inspect', () => {
       answer: (call) =>
         call.method === 'git.inspect' ? { hold: true } : undefined,
     });
+
     const inspection = read.executors.inspect(
       read.executors.locate(LOCATOR),
       LOCATOR,
     );
+
     const readSession = await read.peer.session(0);
     await readSession.awaitRequests(1);
     readSession.drop();
@@ -598,6 +623,7 @@ describe('ExecutorGit.inspect', () => {
       methods: ['git.inspect'],
       answers: { 'git.inspect': { error: 'path_not_registered' } },
     });
+
     const target = refused.executors.locate(LOCATOR);
 
     await expect(refused.executors.inspect(target, LOCATOR)).rejects.toThrow(
@@ -608,6 +634,7 @@ describe('ExecutorGit.inspect', () => {
       methods: ['git.inspect'],
       answers: { 'git.inspect': { error: 'invalid_params' } },
     });
+
     await expect(
       invalid.executors.inspect(invalid.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toThrow(expect.objectContaining({ code: 'git_failed' }));
@@ -618,6 +645,7 @@ describe('ExecutorGit.inspect', () => {
       methods: ['git.inspect'],
       answers: { 'git.inspect': { value: { status: 'ok' } } },
     });
+
     const target = executors.locate(LOCATOR);
 
     const error = await rejectionOf(executors.inspect(target, LOCATOR));
@@ -643,6 +671,7 @@ const OBSERVED: GitStateSuccess = {
   commits: [],
   remotes: [],
 };
+
 const STATE_INPUT = {
   gitEntry: `${LOCATOR}/.git`,
   limit: 5,
@@ -656,6 +685,7 @@ describe('ExecutorGit.locateEntry', () => {
       gitEntry: '/srv/app/.git',
       kind: 'directory',
     } as const;
+
     const locate = vi.fn(() => Promise.resolve(found));
     const { executors } = hub({}, { ...localGitSurface(), locate });
     const signal = new AbortController().signal;
@@ -764,6 +794,7 @@ describe('ExecutorGit.state', () => {
     const params = (await peer.session(0)).calls.find(
       (call) => call.method === 'git.state',
     )?.params;
+
     expect(params).toMatchObject({ envelope: { budgetMs: 25_000 } });
     expect(params).not.toHaveProperty('timeoutMs');
   });
@@ -774,13 +805,16 @@ describe('ExecutorGit.state', () => {
       answer: (call) =>
         call.method === 'git.state' ? { hold: true } : undefined,
     });
+
     const controller = new AbortController();
+
     const call = executors.state(
       executors.locate(LOCATOR),
       LOCATOR,
       STATE_INPUT,
       { signal: controller.signal },
     );
+
     const machine = await peer.session(0);
     await machine.awaitRequests(1);
 
@@ -830,6 +864,7 @@ describe('ExecutorGit.worktreeAdd', () => {
         },
       },
     });
+
     const target = executors.locate(LOCATOR);
 
     await expect(
@@ -905,6 +940,7 @@ describe('ExecutorGit.worktreeList', () => {
         },
       },
     });
+
     const target = executors.locate(LOCATOR);
 
     await expect(executors.worktreeList(target, LOCATOR)).resolves.toEqual({
@@ -956,6 +992,7 @@ describe('ExecutorGit.worktreeList', () => {
         },
       },
     });
+
     const target = executors.locate(LOCATOR);
 
     const error = await rejectionOf(executors.worktreeList(target, LOCATOR));
@@ -1024,6 +1061,7 @@ describe('ExecutorGit refusals', () => {
       methods: ['git.inspect'],
       answer: () => ({ value: { kind: 'missing', isLink: false } }),
     });
+
     await expect(
       missing.executors.canonical(missing.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toThrow('The checkout path does not exist.');
@@ -1032,6 +1070,7 @@ describe('ExecutorGit refusals', () => {
       methods: ['git.inspect'],
       answer: () => ({ value: { kind: 'file', isLink: false, size: 12 } }),
     });
+
     await expect(
       file.executors.canonical(file.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toThrow('The checkout path is not a directory.');
@@ -1040,6 +1079,7 @@ describe('ExecutorGit refusals', () => {
       methods: ['git.inspect'],
       answer: () => ({ value: { kind: 'directory', isLink: false } }),
     });
+
     await expect(
       noRealPath.executors.canonical(
         noRealPath.executors.locate(LOCATOR),
@@ -1051,6 +1091,7 @@ describe('ExecutorGit refusals', () => {
       methods: ['git.inspect'],
       answer: () => ({ value: { kind: 'directory' } }),
     });
+
     await expect(
       unusable.executors.canonical(unusable.executors.locate(LOCATOR), LOCATOR),
     ).rejects.toThrow(

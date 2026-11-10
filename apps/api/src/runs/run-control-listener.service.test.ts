@@ -47,14 +47,18 @@ async function boot(
     concurrency = 1,
     readFailure,
   } = options;
+
   const aborts = new RunAbortRegistry();
+
   const controller = registered
     ? aborts.register(RUN_ID, USER_ID)
     : new AbortController();
+
   const segment =
     segmentAttemptId === undefined
       ? undefined
       : aborts.beginSegment(RUN_ID, segmentAttemptId);
+
   const findById = vi
     .spyOn(RunsRepository.prototype, 'findById')
     .mockResolvedValue(
@@ -68,9 +72,11 @@ async function boot(
             ...visibleRun,
           }) as never,
     );
+
   const pending = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'hasPendingInterrupt')
     .mockResolvedValue(options.pendingInterrupt ?? false);
+
   const runAs = vi.fn(
     (_userId: string, fn: (tx: never) => Promise<boolean | FoundRun>) =>
       readFailure === undefined
@@ -80,16 +86,19 @@ async function boot(
         : // eslint-disable-next-line typescript/prefer-promise-reject-errors
           Promise.reject(readFailure),
   );
+
   const listener = {
     onNotify: (_raw: string) => {},
     onListen: () => {},
     listen: vi.fn((notify: (raw: string) => void, listening: () => void) => {
       listener.onNotify = notify;
       listener.onListen = listening;
+
       return Promise.resolve();
     }),
     close: vi.fn(() => Promise.resolve()),
   };
+
   const service = new RunControlListenerService(
     listener,
     { concurrencyFor: () => concurrency },
@@ -98,18 +107,23 @@ async function boot(
     { runAs } as never,
     aborts,
   );
+
   await service.onApplicationBootstrap();
   const { onNotify, onListen } = listener;
+
   async function settled(): Promise<void> {
     await vi.waitFor(() => expect(findById).toHaveBeenCalled());
     await flush();
   }
+
   async function flush(): Promise<void> {
     for (const result of runAs.mock.results) {
       await Promise.resolve(result.value).catch(() => {});
     }
+
     await Promise.resolve();
   }
+
   return {
     controller,
     segment,
@@ -220,6 +234,7 @@ describe('RunControlListenerService', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const { onNotify } = await boot(undefined);
 
     onNotify('not json');
@@ -233,6 +248,7 @@ describe('RunControlListenerService', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const { controller, onNotify, flush, runAs } = await boot(undefined, {
       readFailure: new Error('db down'),
     });
@@ -251,6 +267,7 @@ describe('RunControlListenerService', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const { onNotify, flush, runAs } = await boot(undefined, {
       readFailure: 'boom',
     });
@@ -330,6 +347,7 @@ describe('RunControlListenerService interrupts', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const { segment, onNotify, flush, runAs } = await boot(visible, {
       segmentAttemptId: ATTEMPT_ID,
       readFailure: new Error('db down'),

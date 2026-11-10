@@ -33,6 +33,7 @@ describeIfDb('RLS integration — project repository links', () => {
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -43,6 +44,7 @@ describeIfDb('RLS integration — project repository links', () => {
       (tx) =>
         tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${id}, ${owner}, 'Project')`,
     );
+
     return id;
   }
 
@@ -53,6 +55,7 @@ describeIfDb('RLS integration — project repository links', () => {
       (tx) =>
         tx`INSERT INTO repositories (id, owner_user_id, display_name) VALUES (${id}, ${owner}, 'llame')`,
     );
+
     return id;
   }
 
@@ -68,6 +71,7 @@ describeIfDb('RLS integration — project repository links', () => {
         tx`INSERT INTO checkouts (id, owner_user_id, repository_id, executor_id, path, kind, branch, origin)
            VALUES (${id}, ${owner}, ${repositoryId}, ${executorId}, ${`/srv/${id}`}, 'main', 'master', 'registered')`,
     );
+
     return id;
   }
 
@@ -84,6 +88,7 @@ describeIfDb('RLS integration — project repository links', () => {
         tx`INSERT INTO project_repositories (id, owner_user_id, project_id, repository_id, alias, is_primary)
            VALUES (${id}, ${owner}, ${projectId}, ${repositoryId}, 'llame', ${isPrimary})`,
     );
+
     return id;
   }
 
@@ -100,6 +105,7 @@ describeIfDb('RLS integration — project repository links', () => {
         tx`INSERT INTO project_repository_defaults (id, owner_user_id, project_repository_id, executor_id, checkout_id)
            VALUES (${id}, ${owner}, ${linkId}, ${executorId}, ${checkoutId})`,
     );
+
     return id;
   }
 
@@ -108,6 +114,7 @@ describeIfDb('RLS integration — project repository links', () => {
     run: (tx: SqlClient) => Promise<Array<{ count: number }>>,
   ): Promise<number> {
     const rows = await asUser(owner, run);
+
     return Number(rows[0].count);
   }
 
@@ -131,6 +138,7 @@ describeIfDb('RLS integration — project repository links', () => {
   it('the harness is meaningful: every table is ENABLED and FORCED', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
@@ -139,11 +147,13 @@ describeIfDb('RLS integration — project repository links', () => {
       FROM pg_class
       WHERE relname IN ('project_repositories', 'project_repository_defaults', 'chat_creation_records')
       ORDER BY relname`;
+
     expect(rows.map((row) => row.relname)).toEqual([
       'chat_creation_records',
       'project_repositories',
       'project_repository_defaults',
     ]);
+
     for (const row of rows) {
       expect(row.relrowsecurity).toBe(true);
       expect(row.relforcerowsecurity).toBe(true);
@@ -189,21 +199,25 @@ describeIfDb('RLS integration — project repository links', () => {
       (tx) =>
         tx`UPDATE project_repositories SET alias = 'stolen' WHERE id = ${link} RETURNING id`,
     );
+
     const deletedLinks = await asUser(
       userB,
       (tx) =>
         tx`DELETE FROM project_repositories WHERE id = ${link} RETURNING id`,
     );
+
     const updatedDefaults = await asUser(
       userB,
       (tx) =>
         tx`UPDATE project_repository_defaults SET executor_id = 'stolen' WHERE id = ${defaults} RETURNING id`,
     );
+
     const deletedDefaults = await asUser(
       userB,
       (tx) =>
         tx`DELETE FROM project_repository_defaults WHERE id = ${defaults} RETURNING id`,
     );
+
     const updatedProject = await asUser(
       userB,
       (tx) =>
@@ -220,6 +234,7 @@ describeIfDb('RLS integration — project repository links', () => {
       userA,
       (tx) => tx`SELECT alias FROM project_repositories WHERE id = ${link}`,
     );
+
     expect(linkRow.alias).toBe('llame');
   });
 
@@ -339,11 +354,13 @@ describeIfDb('RLS integration — project repository links', () => {
           Array<{ updated_at: Date }>
         >`SELECT updated_at FROM project_repository_defaults WHERE id = ${defaults}`,
     );
+
     await asUser(
       userA,
       (tx) =>
         tx`UPDATE project_repository_defaults SET checkout_id = ${second}, updated_at = now() + interval '1 second' WHERE id = ${defaults}`,
     );
+
     const after = await asUser(
       userA,
       (tx) =>
@@ -359,11 +376,13 @@ describeIfDb('RLS integration — project repository links', () => {
 
     // A second executor keeps its own row.
     await seedDefault(userA, link, nas, 'machine:nas');
+
     const rows = await asUser(
       userA,
       (tx) =>
         tx`SELECT executor_id FROM project_repository_defaults WHERE project_repository_id = ${link} ORDER BY executor_id`,
     );
+
     expect(rows.map((row) => row.executor_id)).toEqual(['host', 'machine:nas']);
   });
 
@@ -396,10 +415,12 @@ describeIfDb('RLS integration — project repository links', () => {
           tx`SELECT count(*)::int FROM project_repository_defaults WHERE project_repository_id = ${link}`,
       ),
     ).toBe(0);
+
     const [filed] = await asUser(
       userA,
       (tx) => tx`SELECT project_id FROM chats WHERE id = ${chat}`,
     );
+
     expect(filed.project_id).toBeNull();
     expect(
       await countAs(

@@ -47,6 +47,7 @@ const KEPT_ENTRY = {
   mediaType: 'image/png',
   retainedMedia: RETAINED_IMAGE,
 };
+
 const PLAIN_ENTRY = { locator: 'notes.md', outcome: 'imported' };
 
 /** A `prompt-imports` item holding both entries. */
@@ -68,6 +69,7 @@ function recordOf(value: unknown): UnknownRecord {
   if (!isRecord(value)) {
     throw new Error('Expected a JSON object');
   }
+
   return value;
 }
 
@@ -75,9 +77,11 @@ function recordOf(value: unknown): UnknownRecord {
 function storedImports(part: UnknownRecord): Array<unknown> {
   const data = recordOf(part['data']);
   const imports = recordOf(data['payload'])['imports'];
+
   if (!Array.isArray(imports)) {
     throw new Error('Expected an imports array');
   }
+
   return imports;
 }
 
@@ -132,6 +136,7 @@ describe('withoutRetainedMedia', () => {
 describe('withoutRetainedMediaPayload', () => {
   it('removes a tool.completed payload’s retained bytes beside its output', () => {
     const output = { kind: 'image', path: '/work/shot.png' };
+
     const payload = {
       toolCallId: 'call-1',
       toolName: 'read',
@@ -153,6 +158,7 @@ describe('withoutRetainedMediaPayload', () => {
 
     const stripped = withoutRetainedMediaPayload('run.continued', payload);
     const parts = stripped['parts'];
+
     if (!Array.isArray(parts)) {
       throw new Error('Expected the kept parts');
     }

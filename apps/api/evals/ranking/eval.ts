@@ -14,4 +14,5 @@ import {
 const rows = loadRankingCases().flatMap((rankingCase) =>
   evaluateCase(rankingCase, loadRecordedAnswers(rankingCase.name)),
 );
+
 console.table(rows);

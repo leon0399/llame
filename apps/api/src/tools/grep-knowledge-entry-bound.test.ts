@@ -46,6 +46,7 @@ function contextOf(binding: KnowledgeFilesystemBinding): ToolContext {
       Promise.resolve(id === SPACE_ID ? binding : undefined),
     createAdapter: (bound) => new KnowledgeFilesystemAdapter(bound),
   };
+
   return {
     configuredCredentials: [],
     userId: 'owner-a',
@@ -71,7 +72,9 @@ function contextOf(binding: KnowledgeFilesystemBinding): ToolContext {
 
 async function run(context: ToolContext, args: unknown): Promise<ToolResult> {
   const parsed = grepInputSchema.safeParse(args);
+
   if (!parsed.success) throw new Error('the fixture arguments must parse');
+
   return nativeGrepTool.execute(context, parsed.data);
 }
 
@@ -80,6 +83,7 @@ describe('Knowledge entry bound', () => {
     const root = await realpath(
       await mkdtemp(path.join(tmpdir(), 'llame-grep-bound-')),
     );
+
     try {
       const directory = path.join(root, SPACE_ID);
       const bulk = path.join(directory, 'bulk');
@@ -93,6 +97,7 @@ describe('Knowledge entry bound', () => {
           symlink('target.md', path.join(bulk, `link-${String(index)}`)),
         ),
       );
+
       const binding: KnowledgeFilesystemBinding = {
         id: SPACE_ID,
         name: 'Personal',

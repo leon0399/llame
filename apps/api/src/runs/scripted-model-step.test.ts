@@ -3,6 +3,7 @@ import { PROVIDER_ZERO_USAGE, scriptedStepParts } from './scripted-model-step';
 describe('scriptedStepParts', () => {
   it('expands reasoning, text, and calls in wire order with their metadata', () => {
     const metadata = { test: { signature: 'sig-0' } };
+
     const parts = scriptedStepParts([
       {
         type: 'reasoning',

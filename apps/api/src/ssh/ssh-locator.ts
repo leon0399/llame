@@ -96,30 +96,41 @@ function parseSshAuthority(
   const at = authority.lastIndexOf('@');
   const user = at === -1 ? undefined : authority.slice(0, at);
   const hostPart = at === -1 ? authority : authority.slice(at + 1);
+
   if (user !== undefined) {
     if (user.includes(':')) return { message: BAD_PASSWORD };
+
     if (!UNIX_NAME_PATTERN.test(user) || user.startsWith('-'))
       return { message: BAD_USER };
   }
+
   if (hostPart.startsWith('[')) {
     const close = hostPart.indexOf(']');
+
     if (close === -1) return { message: BAD_HOST };
     const literal = hostPart.slice(1, close);
     const port = parseSshPort(hostPart.slice(close + 1));
+
     if ('message' in port) return port;
+
     if (!IPV6_LITERAL_PATTERN.test(literal) || !literal.includes(':'))
       return { message: BAD_HOST };
+
     return withOptional(
       { host: literal.toLowerCase(), ...(user !== undefined && { user }) },
       port.port,
     );
   }
+
   const colon = hostPart.lastIndexOf(':');
   const host = colon === -1 ? hostPart : hostPart.slice(0, colon);
   const port = parseSshPort(colon === -1 ? '' : hostPart.slice(colon));
+
   if ('message' in port) return port;
+
   if (!UNIX_NAME_PATTERN.test(host) || host.startsWith('-'))
     return { message: BAD_HOST };
+
   return withOptional(
     { host: host.toLowerCase(), ...(user !== undefined && { user }) },
     port.port,
@@ -135,10 +146,13 @@ function parseSshPort(
   suffix: string,
 ): { readonly port?: number } | { readonly message: string } {
   if (suffix === '') return {};
+
   if (!suffix.startsWith(':')) return { message: BAD_PORT };
   const digits = suffix.slice(1);
+
   if (!/^[0-9]{1,5}$/u.test(digits)) return { message: BAD_PORT };
   const port = Number(digits);
+
   return port >= 1 && port <= 65_535 ? { port } : { message: BAD_PORT };
 }
 
@@ -155,11 +169,14 @@ function withOptional(
  */
 export function parseSshLocator(value: string): SshLocator {
   const match = LOCATOR_PREFIX.exec(value);
+
   if (match === null)
     return { kind: 'invalid', message: 'This path is not an ssh:// locator.' };
   const rest = value.slice(match[0].length);
+
   if (rest === '' || rest === '/') return { kind: 'help' };
   const separator = rest.indexOf('/');
+
   if (separator === -1)
     return {
       kind: 'invalid',
@@ -167,21 +184,27 @@ export function parseSshLocator(value: string): SshLocator {
         'An ssh:// locator needs an absolute path after the destination, like ssh://box/etc/hostname.',
     };
   const authority = rest.slice(0, separator);
+
   if (authority === '')
     return {
       kind: 'invalid',
       message: 'An ssh:// locator must name a host.',
     };
   const destination = parseSshAuthority(authority);
+
   if ('message' in destination) return { kind: 'invalid', ...destination };
   const rawPath = rest.slice(separator);
   const split = splitSelectorSuffix(rawPath);
+
   const selector =
     split.selector !== undefined && isSelectorSuffix(split.selector)
       ? split.selector
       : undefined;
+
   const decoded = decodeSshPath(selector === undefined ? rawPath : split.path);
+
   if (!decoded.ok) return { kind: 'invalid', message: decoded.message };
+
   return selector === undefined
     ? { kind: 'path', destination, path: decoded.path }
     : { kind: 'path', destination, path: decoded.path, selector };
@@ -195,6 +218,7 @@ function decodeSshPath(
   // (literal query/fragment/backslash refusals and the `%2F`/`%00` guards)
   // while this module keeps the ssh wording.
   const decoded = decodeFileAlias(`file://localhost${rawPath}`);
+
   return decoded.ok
     ? { ok: true, path: decoded.hostPath }
     : { ok: false, message: BAD_PATH };
@@ -215,17 +239,20 @@ export function formatSshLocator(
 ): string | undefined {
   const host = destination.host.toLowerCase();
   const ipv6 = host.includes(':');
+
   if (
     (ipv6 && !IPV6_LITERAL_PATTERN.test(host)) ||
     (!ipv6 && (!UNIX_NAME_PATTERN.test(host) || host.startsWith('-')))
   )
     return undefined;
+
   if (
     destination.user !== undefined &&
     (!UNIX_NAME_PATTERN.test(destination.user) ||
       destination.user.startsWith('-'))
   )
     return undefined;
+
   if (
     destination.port !== undefined &&
     (!Number.isInteger(destination.port) ||
@@ -233,13 +260,18 @@ export function formatSshLocator(
       destination.port > 65_535)
   )
     return undefined;
+
   if (selector !== undefined && !isSelectorSuffix(selector)) return undefined;
   const encoded = encodeLocatorPath(path);
+
   if (encoded === undefined) return undefined;
   const user = destination.user === undefined ? '' : `${destination.user}@`;
   const hostText = ipv6 ? `[${host}]` : host;
+
   const port =
     destination.port === undefined ? '' : `:${String(destination.port)}`;
+
   const locator = `${SSH_SCHEME}://${user}${hostText}${port}${encoded}`;
+
   return selector === undefined ? locator : `${locator}:${selector}`;
 }

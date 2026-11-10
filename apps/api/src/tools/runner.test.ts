@@ -34,6 +34,7 @@ function fakeContext(userId = 'user-A'): ToolContext {
     runAs: <T>() =>
       Promise.reject<T>(new Error('tenant DB is not used by the echo tool')),
   };
+
   return {
     userId,
     chatId: 'chat-1',
@@ -58,18 +59,23 @@ describe('runTool', () => {
 
   it('fails closed with no reads when identity is absent (D4)', async () => {
     const spy = vi.fn();
+
     const noIdentityTool: Tool<{ value: string }> = {
       ...echoTool,
       execute: (ctx, args) => {
         spy();
+
         return echoTool.execute(ctx, args);
       },
     };
+
     const result = await runTool(noIdentityTool, { value: 'x' }, undefined, 15);
     expect(result).toMatchObject({ status: 'error', type: 'no_context' });
+
     if (result.status !== 'error') {
       throw new Error('Expected a no-context error result.');
     }
+
     expect(result.message).toContain('resolvable run owner');
     expect(spy).not.toHaveBeenCalled();
   });
@@ -119,6 +125,7 @@ describe('runTool', () => {
 
   it('refuses a trusted timeout that AbortSignal cannot represent', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const result = await runTool(
       { ...echoTool, timeoutSeconds: 0.0001, execute },
       { value: 'x' },
@@ -141,12 +148,14 @@ describe('runTool', () => {
         throw new Error('secret internal detail: db://user:pass@host');
       },
     };
+
     const result = await runTool(
       throwingTool,
       { value: 'x' },
       fakeContext(),
       15,
     );
+
     expect(result).toMatchObject({ status: 'error', type: 'execution_failed' });
     expect(JSON.stringify(result)).not.toContain('secret internal detail');
   });
@@ -155,12 +164,15 @@ describe('runTool', () => {
     const logSpy = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     let executionSignal: AbortSignal | undefined;
+
     const cooperativeTool: Tool = {
       ...echoTool,
       timeoutSeconds: 0.01,
       execute: ({ abortSignal }) => {
         executionSignal = abortSignal;
+
         return new Promise((_resolve, reject) => {
           abortSignal?.addEventListener(
             'abort',
@@ -185,6 +197,7 @@ describe('runTool', () => {
 
   it('classifies an MCP timeout after dispatch as outcome_unknown', async () => {
     const id = 'mcp__demo__timeout';
+
     const tool: Tool = {
       ...echoTool,
       id,
@@ -192,9 +205,11 @@ describe('runTool', () => {
       timeoutSeconds: 0.01,
       execute: (context) => {
         context.onMcpDispatchRecorded?.();
+
         return new Promise<ToolResult>(() => {});
       },
     };
+
     const result = await runTool(
       tool,
       { value: 'x' },
@@ -215,12 +230,14 @@ describe('runTool', () => {
   it('does not abort the Run when a recorded MCP attempt returns outcome_unknown', async () => {
     const id = 'mcp__demo__replayed';
     const onNativeMutationUnknown = vi.fn();
+
     const tool: Tool = {
       ...echoTool,
       id,
       classification: 'unverified',
       execute: (context) => {
         context.onMcpDispatchRecorded?.();
+
         return {
           status: 'error' as const,
           type: 'outcome_unknown' as const,
@@ -246,6 +263,7 @@ describe('runTool', () => {
 
   it('keeps an MCP timeout before dispatch as timeout', async () => {
     const id = 'mcp__demo__pre-dispatch-timeout';
+
     const tool: Tool = {
       ...echoTool,
       id,
@@ -253,6 +271,7 @@ describe('runTool', () => {
       timeoutSeconds: 0.01,
       execute: () => new Promise<ToolResult>(() => {}),
     };
+
     const result = await runTool(
       tool,
       { value: 'x' },
@@ -270,9 +289,11 @@ describe('runTool', () => {
     const id = 'mcp__demo__abort';
     const abort = new AbortController();
     let started!: () => void;
+
     const startedPromise = new Promise<void>((resolve) => {
       started = resolve;
     });
+
     const tool: Tool = {
       ...echoTool,
       id,
@@ -280,9 +301,11 @@ describe('runTool', () => {
       execute: (context) => {
         context.onMcpDispatchRecorded?.();
         started();
+
         return new Promise<ToolResult>(() => {});
       },
     };
+
     const resultPromise = runTool(
       tool,
       { value: 'x' },
@@ -293,6 +316,7 @@ describe('runTool', () => {
       },
       15,
     );
+
     await startedPromise;
     abort.abort();
 
@@ -362,12 +386,15 @@ describe('runTool', () => {
     const onNativeMutationUnknown = vi.fn();
     const abort = new AbortController();
     let started!: () => void;
+
     const startedPromise = new Promise<void>((resolve) => {
       started = resolve;
     });
+
     vi.spyOn(nativeReadTool, 'execute').mockImplementation(
       ({ abortSignal }) => {
         started();
+
         return new Promise((_resolve, reject) => {
           abortSignal?.addEventListener(
             'abort',
@@ -389,6 +416,7 @@ describe('runTool', () => {
       },
       15,
     );
+
     await startedPromise;
     abort.abort();
 
@@ -481,12 +509,15 @@ describe('runTool', () => {
     const onNativeMutationUnknown = vi.fn();
     const abort = new AbortController();
     let started!: () => void;
+
     const startedPromise = new Promise<void>((resolve) => {
       started = resolve;
     });
+
     vi.spyOn(nativeEditTool, 'execute').mockImplementation(
       ({ abortSignal }) => {
         started();
+
         return new Promise((_resolve, reject) => {
           abortSignal?.addEventListener(
             'abort',
@@ -508,6 +539,7 @@ describe('runTool', () => {
       },
       15,
     );
+
     await startedPromise;
     abort.abort();
 
@@ -524,17 +556,22 @@ describe('runTool', () => {
     const logSpy = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     const abort = new AbortController();
     let executionStarted!: () => void;
+
     const started = new Promise<void>((resolve) => {
       executionStarted = resolve;
     });
+
     let executionSignal: AbortSignal | undefined;
+
     const cooperativeTool: Tool = {
       ...echoTool,
       execute: ({ abortSignal }) => {
         executionSignal = abortSignal;
         executionStarted();
+
         return new Promise((_resolve, reject) => {
           abortSignal?.addEventListener(
             'abort',
@@ -551,6 +588,7 @@ describe('runTool', () => {
       { ...fakeContext(), abortSignal: abort.signal },
       15,
     );
+
     await started;
     abort.abort();
     const result = await resultPromise;
@@ -589,6 +627,7 @@ describe('runTool', () => {
     // cancelled instead of running an executor after terminalization.
     const abort = new AbortController();
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const recordDecision = vi.fn(() => {
       abort.abort();
     });
@@ -613,15 +652,19 @@ describe('runTool', () => {
   it('uses one shared timeout signal and bounds a tool that ignores it', async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     let executionSignal: AbortSignal | undefined;
+
     const hangingTool: Tool = {
       ...echoTool,
       timeoutSeconds: 0.05,
       execute: ({ abortSignal }) => {
         executionSignal = abortSignal;
+
         return new Promise(() => {});
       },
     };
+
     const startedAt = Date.now();
+
     const result = await runTool(
       hangingTool,
       { value: 'x' },
@@ -639,10 +682,12 @@ describe('runTool', () => {
   it('passes the effective timeout separately from the composed execution signal', async () => {
     let observed: ToolContext | undefined;
     const parentAbort = new AbortController();
+
     const observingTool: Tool = {
       ...echoTool,
       execute: (context) => {
         observed = context;
+
         return { status: 'success' };
       },
     };
@@ -664,6 +709,7 @@ describe('runTool', () => {
       ...echoTool,
       execute: () => ({ status: 'success', blob: 'x'.repeat(20_000) }),
     };
+
     const result = await runTool(bigTool, { value: 'x' }, fakeContext(), 15);
     expect(result).toMatchObject({ status: 'success', truncated: true });
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
@@ -682,13 +728,16 @@ describe('runTool', () => {
     vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
       { id: 'artifact-id', createdAt: new Date('2026-11-02T12:00:00.000Z') },
     );
+
     const insertParts = vi
       .spyOn(ArtifactsRepository.prototype, 'insertParts')
       .mockResolvedValue(undefined);
+
     const bigTool: Tool = {
       ...echoTool,
       execute: () => ({ status: 'success', blob: 'x'.repeat(20_000) }),
     };
+
     const result = await runTool(
       bigTool,
       { value: 'x' },
@@ -723,6 +772,7 @@ describe('runTool', () => {
       spill: 'tool',
       execute: () => ({ status: 'success', blob: 'x'.repeat(20_000) }),
     };
+
     const result = await runTool(toolSpill, { value: 'x' }, fakeContext(), 15);
 
     expect(result).not.toMatchObject({ truncated: true });
@@ -761,6 +811,7 @@ describe('runTool', () => {
   function resultPaddedToJsonLength(targetLength: number): Tool {
     const overhead = JSON.stringify({ status: 'success', value: '' }).length;
     const value = 'x'.repeat(targetLength - overhead);
+
     return { ...echoTool, execute: () => ({ status: 'success', value }) };
   }
 
@@ -787,16 +838,20 @@ describe('runTool', () => {
       content: '',
       truncated: false,
     };
+
     // The framing the rendered read adds around its content: one newline
     // between the header and the content line.
     const overhead =
       renderToolResultText('read', { ...empty, content: 'x' }).length - 1;
+
     const content = 'x'.repeat(RESULT_TRUNCATE_CHARS - overhead);
+
     const readLike: Tool<{ value: string }> = {
       ...echoTool,
       id: 'read',
       execute: () => ({ ...empty, content }),
     };
+
     const result = await runTool(
       readLike,
       { value: 'x' },
@@ -822,6 +877,7 @@ describe('runTool', () => {
       oldText: 'a\nb\nc\nd',
       newText: 'a\nb\nc\nd\ne',
     };
+
     const editOutput = (content: string) => ({
       status: 'success' as const,
       operation: 'edit' as const,
@@ -832,15 +888,18 @@ describe('runTool', () => {
       display,
       truncated: false,
     });
+
     // The framing the rendering adds around a region: the header line, one
     // newline, and the region itself.
     const overhead = renderToolResultText('edit', editOutput('x')).length - 1;
     const content = 'x'.repeat(RESULT_TRUNCATE_CHARS - overhead);
+
     const editLike: Tool<{ value: string }> = {
       ...echoTool,
       id: 'edit',
       execute: () => editOutput(content),
     };
+
     const result = await runTool(
       editLike,
       { value: 'x' },
@@ -866,6 +925,7 @@ describe('runTool', () => {
         blob: `<div>${'x'.repeat(20_000)}`,
       }),
     };
+
     const result = await runTool(bigTool, { value: 'x' }, fakeContext(), 15);
     const text = renderToolResultText('echo', result);
 
@@ -896,10 +956,13 @@ describe('runTool permission gate', () => {
 
   const EXPLICIT_REJECT =
     'Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+
   const NO_ALLOW =
     'Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+
   const INVALID_FIELD =
     'Tool call rejected before execution by operator permissions. The configured permission rule is incompatible with this tool. Do not retry this call or change permission settings yourself. Report the configuration problem to the user and continue with other permitted work. In-run approval is unavailable.';
+
   const INPUT_LIMIT =
     'Tool call rejected before execution by operator permissions. The submitted input exceeds the permission inspection limit. Do not retry unchanged or evade a reject by splitting, encoding, switching tools, or delegating. A smaller request may be submitted only as independently permitted work. In-run approval is unavailable; explain any blocked required step to the user.';
 
@@ -909,6 +972,7 @@ describe('runTool permission gate', () => {
       results: [],
       complete: true,
     }));
+
     const grepTool: Tool<{ scopes: Array<string> }> = {
       id: 'grep',
       description: 'searches the scopes it names',
@@ -939,6 +1003,7 @@ describe('runTool permission gate', () => {
 
   it('refuses an unsearchable grep scope before recording a decision', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const grepTool: Tool<{ scopes: Array<string> }> = {
       id: 'grep',
       description: 'searches the scopes it names',
@@ -946,6 +1011,7 @@ describe('runTool permission gate', () => {
       inputSchema: z.strictObject({ scopes: z.array(z.string()).min(1) }),
       execute,
     };
+
     const admitted = vi.fn();
 
     const result = await runTool(
@@ -968,6 +1034,7 @@ describe('runTool permission gate', () => {
 
   it('refuses an unsupported glob operator in a host scope before recording a decision', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const grepTool: Tool<{ scopes: Array<string> }> = {
       id: 'grep',
       description: 'searches the scopes it names',
@@ -975,6 +1042,7 @@ describe('runTool permission gate', () => {
       inputSchema: z.strictObject({ scopes: z.array(z.string()).min(1) }),
       execute,
     };
+
     const admitted = vi.fn();
 
     const result = await runTool(
@@ -1012,6 +1080,7 @@ describe('runTool permission gate', () => {
       status: 'success' as const,
       value: 'sent',
     }));
+
     const mcpTool: Tool = {
       ...echoTool,
       id: 'mcp__demo__write',
@@ -1032,6 +1101,7 @@ describe('runTool permission gate', () => {
 
   it('rejects an MCP tool without a permission group as canonical no_allow', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const mcpTool: Tool = {
       ...echoTool,
       id: 'mcp__demo__write',
@@ -1052,6 +1122,7 @@ describe('runTool permission gate', () => {
   it('does not invoke the executor for a rejected call', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
     const tool: Tool = { ...echoTool, execute };
+
     const result = await runTool(
       tool,
       { value: 'blocked' },
@@ -1060,6 +1131,7 @@ describe('runTool permission gate', () => {
       }),
       5,
     );
+
     expect(result).toMatchObject({ type: 'permission_denied' });
     expect(execute).not.toHaveBeenCalled();
   });
@@ -1067,6 +1139,7 @@ describe('runTool permission gate', () => {
   it('admits a rejected call under bypass and records the process decision', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
     const decisions: Array<unknown> = [];
+
     const result = await runTool(
       { ...echoTool, execute },
       { value: 'blocked' },
@@ -1102,6 +1175,7 @@ describe('runTool permission gate', () => {
       ...echoTool,
       inputSchema: z.strictObject({ value: z.string().default('default') }),
     };
+
     const result = await runTool(
       tool,
       {},
@@ -1110,11 +1184,13 @@ describe('runTool permission gate', () => {
       }),
       5,
     );
+
     expect(result).toMatchObject({ status: 'success' });
   });
 
   it('matches submitted values, not transform output', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const tool: Tool = {
       ...echoTool,
       inputSchema: z.strictObject({
@@ -1122,6 +1198,7 @@ describe('runTool permission gate', () => {
       }),
       execute,
     };
+
     const result = await runTool(
       tool,
       { value: 'x' },
@@ -1130,19 +1207,23 @@ describe('runTool permission gate', () => {
       }),
       5,
     );
+
     expect(result).toMatchObject({ type: 'permission_denied' });
     expect(execute).not.toHaveBeenCalled();
   });
 
   it('fires the admission callback with the decision before dispatch', async () => {
     const order: Array<string> = [];
+
     const tool: Tool = {
       ...echoTool,
       execute: () => {
         order.push('execute');
+
         return { status: 'success' as const };
       },
     };
+
     await runTool(
       tool,
       { value: 'x' },
@@ -1235,6 +1316,7 @@ describe('runTool permission gate', () => {
     inputSchema: z.strictObject({ path: z.string() }),
     execute: (_ctx, { path }) => ({ status: 'success', path }),
   };
+
   describe('canonical read permission', () => {
     async function runCanonicalRead(
       input: {
@@ -1250,31 +1332,39 @@ describe('runTool permission gate', () => {
           path,
         }),
       );
+
       const decisions: Array<unknown> = [];
+
       const onDerivedDecision: NonNullable<ToolContext['onDerivedDecision']> = (
         decision,
       ) => decisions.push(decision);
+
       const context = {
         ...contextWith(input.permissionMap ?? { read: { allow: true } }),
         onDerivedDecision,
       };
+
       if (input.canonicalPath !== undefined) {
         context.canonicalReadPath = input.canonicalPath;
       }
+
       if (input.permissionMode !== undefined) {
         context.permissionMode = input.permissionMode;
       }
+
       const result = await runTool(
         { ...pathTool, execute },
         { path: input.path ?? '/tmp/submitted.md:raw:1-2' },
         context,
         5,
       );
+
       return { result, execute, decisions };
     }
 
     it('rejects an allowed submitted path when the canonical path is rejected', async () => {
       const canonicalPath = '/tmp/canonical.md';
+
       const { result, execute, decisions } = await runCanonicalRead({
         canonicalPath,
         permissionMap: {
@@ -1300,6 +1390,7 @@ describe('runTool permission gate', () => {
 
     it('reports a canonical allow and proceeds', async () => {
       const canonicalPath = '/tmp/canonical.md';
+
       const { result, execute, decisions } = await runCanonicalRead({
         canonicalPath,
       });
@@ -1316,6 +1407,7 @@ describe('runTool permission gate', () => {
 
     it('does not report an equal canonical path', async () => {
       const canonicalPath = '/tmp/canonical.md';
+
       const { result, execute, decisions } = await runCanonicalRead({
         path: `${canonicalPath}:raw:1-2`,
         canonicalPath,
@@ -1328,6 +1420,7 @@ describe('runTool permission gate', () => {
 
     it('reports a bypassed canonical path and proceeds', async () => {
       const canonicalPath = '/tmp/canonical.md';
+
       const { result, execute, decisions } = await runCanonicalRead({
         canonicalPath,
         permissionMap: {
@@ -1414,6 +1507,7 @@ describe('runTool permission gate', () => {
     it('does not execute or record while previewing', () => {
       const execute = vi.spyOn(nativeReadTool, 'execute');
       const onDerivedDecision = vi.fn();
+
       const context = {
         ...contextWith({ read: { allow: true } }),
         onDerivedDecision,
@@ -1453,6 +1547,7 @@ describe('runTool permission gate', () => {
       },
       5,
     );
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'permission_denied',
@@ -1474,6 +1569,7 @@ describe('runTool permission gate', () => {
       },
       5,
     );
+
     expect(result).toMatchObject({ type: 'permission_denied' });
     // The executor still receives the submitted spelling.
     expect(
@@ -1499,6 +1595,7 @@ describe('runTool permission gate', () => {
         reject: [{ field: 'path', literal: ':raw' }],
       },
     });
+
     expect(
       await runTool(pathTool, { path: '/srv/app/config.json:raw' }, context, 5),
     ).toMatchObject({ status: 'success' });
@@ -1530,6 +1627,7 @@ describe('runTool permission gate', () => {
         regex: '^file://localhost/srv/private/secret$',
       },
     ] as const;
+
     for (const { path, regex } of cases) {
       expect(
         await runTool(
@@ -1576,6 +1674,7 @@ describe('runTool permission gate', () => {
         ],
       },
     });
+
     expect(
       await runTool(
         pathTool,
@@ -1606,6 +1705,7 @@ describe('runTool permission gate', () => {
       },
       5,
     );
+
     expect(result).toEqual({
       status: 'error',
       type: 'permission_denied',
@@ -1627,6 +1727,7 @@ describe('runTool permission gate', () => {
       },
       5,
     );
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'permission_denied',
@@ -1676,6 +1777,7 @@ describe('runTool permission gate', () => {
         reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
       },
     };
+
     for (const path of [
       'https://grokipedia.com/page',
       'https://g%72okipedia.com/page',
@@ -1698,6 +1800,7 @@ describe('runTool permission gate', () => {
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', literal: '%72' }] },
     };
+
     expect(
       await runTool(
         pathTool,
@@ -1715,6 +1818,7 @@ describe('runTool permission gate', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^https://example\\.test/' }] },
     };
+
     expect(
       await runTool(
         pathTool,
@@ -1736,6 +1840,7 @@ describe('runTool permission gate', () => {
     vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
       status: 'success',
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'src/app.ts' },
@@ -1758,6 +1863,7 @@ describe('runTool permission gate', () => {
     vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
       status: 'success',
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: '//host/file' },
@@ -1777,6 +1883,7 @@ describe('runTool permission gate', () => {
 
   it('does not add a Workspace cwd field to a non-Bash tool', async () => {
     const root = '/home/operator/project';
+
     const result = await runTool(
       echoTool,
       { value: 'x' },
@@ -1797,6 +1904,7 @@ describe('runTool permission gate', () => {
 
   it('matches Bash cwd rules against the projected relative cwd', async () => {
     vi.spyOn(bashTool, 'execute').mockResolvedValue({ status: 'success' });
+
     const result = await runTool(
       bashTool,
       { command: 'printf hi', cwd: '.' },
@@ -1956,6 +2064,7 @@ describe('runTool read-only ceiling', () => {
     const resolve = vi.fn<SshClient['resolve']>(() =>
       Promise.resolve(resolution),
     );
+
     const client: SshClient = {
       resolve,
       run: vi.fn<SshClient['run']>(() =>
@@ -1968,6 +2077,7 @@ describe('runTool read-only ceiling', () => {
       sshConfigText: () => undefined,
       dispose: () => undefined,
     };
+
     return { client, resolve };
   }
 
@@ -2012,12 +2122,14 @@ describe('runTool read-only ceiling', () => {
 
   it('rejects an allowlisted MCP tool', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const mcpTool: Tool = {
       ...echoTool,
       id: 'mcp__demo__write',
       classification: 'unverified',
       execute,
     };
+
     const result = await runTool(mcpTool, { value: 'x' }, readOnlyContext(), 5);
     expect(result).toEqual(denied());
     expect(execute).not.toHaveBeenCalled();
@@ -2025,6 +2137,7 @@ describe('runTool read-only ceiling', () => {
 
   it('still asks the policy for an admitted read', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const grepTool: Tool<{ scopes: Array<string> }> = {
       id: 'grep',
       description: 'searches the scopes it names',
@@ -2032,6 +2145,7 @@ describe('runTool read-only ceiling', () => {
       inputSchema: z.strictObject({ scopes: z.array(z.string()).min(1) }),
       execute,
     };
+
     const result = await runTool(
       grepTool,
       { scopes: ['/repo/src'] },
@@ -2041,7 +2155,9 @@ describe('runTool read-only ceiling', () => {
       },
       5,
     );
+
     expect(result).toMatchObject({ type: 'permission_denied' });
+
     if (result.status !== 'error') throw new Error('expected a refusal');
     expect(result.message).toContain('No allow rule permits this call.');
     expect(execute).not.toHaveBeenCalled();
@@ -2054,11 +2170,13 @@ describe('runTool read-only ceiling', () => {
       readOnlyContext(),
       5,
     );
+
     expect(result).toEqual({ status: 'success', value: 'x' });
   });
 
   it('admits Workspace exit', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const exitTool: Tool<Record<never, never>> = {
       id: 'exit_workspace',
       description: 'clears the binding',
@@ -2066,6 +2184,7 @@ describe('runTool read-only ceiling', () => {
       inputSchema: z.strictObject({}),
       execute,
     };
+
     const result = await runTool(exitTool, {}, readOnlyContext(), 5);
     expect(result).toEqual({ status: 'success' });
     expect(execute).toHaveBeenCalledOnce();
@@ -2092,30 +2211,35 @@ describe('runTool read-only ceiling', () => {
 
   it('admits a plain Workspace entry', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const result = await runTool(
       enterTool(execute),
       { path: '/repo' },
       readOnlyContext(),
       5,
     );
+
     expect(result).toEqual({ status: 'success' });
     expect(execute).toHaveBeenCalledOnce();
   });
 
   it('rejects a worktree entry without probing', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
+
     const result = await runTool(
       enterTool(execute),
       { path: '/repo', worktree: { name: 'fix' } },
       readOnlyContext(),
       5,
     );
+
     expect(result).toEqual(denied());
     expect(execute).not.toHaveBeenCalled();
   });
 
   it('records the ceiling reason and no clause reference before the policy', async () => {
     const decisions: Array<unknown> = [];
+
     const result = await runTool(
       bashTool,
       { command: 'git reset --hard HEAD' },
@@ -2135,6 +2259,7 @@ describe('runTool read-only ceiling', () => {
         decisions.push(decision);
       },
     );
+
     expect(result).toEqual(denied());
     expect(decisions).toEqual([
       {
@@ -2148,12 +2273,14 @@ describe('runTool read-only ceiling', () => {
 
   it('rejects a remote command before resolving its host', async () => {
     const ssh = fakeSsh();
+
     const result = await runTool(
       bashTool,
       { command: 'pwd', cwd: 'ssh://devbox/repo' },
       readOnlyContext({ sshClient: ssh.client }),
       5,
     );
+
     expect(result).toEqual(denied());
     expect(ssh.resolve).not.toHaveBeenCalled();
   });
@@ -2177,7 +2304,9 @@ describe('runTool read-only ceiling', () => {
       },
       5,
     );
+
     expect(result).toMatchObject({ type: 'permission_denied' });
+
     if (result.status !== 'error') throw new Error('expected a refusal');
     expect(result.message).toContain('A reject rule matched.');
   });
@@ -2189,11 +2318,13 @@ describe('runTool read-only ceiling', () => {
       readOnlyContext(),
       5,
     );
+
     expect(result).toMatchObject({ type: 'invalid_input' });
   });
 
   it('resolves no SSH host for a read-only call without a trusted policy', async () => {
     const ssh = fakeSsh();
+
     const result = await runTool(
       bashTool,
       { command: 'pwd', cwd: 'ssh://devbox/repo' },
@@ -2203,6 +2334,7 @@ describe('runTool read-only ceiling', () => {
       },
       5,
     );
+
     expect(result).toMatchObject({ type: 'permission_denied' });
     expect(ssh.resolve).not.toHaveBeenCalled();
   });

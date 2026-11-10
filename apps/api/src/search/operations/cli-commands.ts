@@ -42,11 +42,13 @@ export function requireEmbeddingModelId(
   instanceConfig: InstanceConfigReader,
 ): string {
   const modelId = instanceConfig.config.search.chats.embeddingModelId;
+
   if (!modelId) {
     throw new Error(
       'search.chats.embeddingModelId is not configured — nothing to backfill/retry/report against. Set it in your active instance config first.',
     );
   }
+
   return modelId;
 }
 
@@ -63,11 +65,13 @@ export function failIfAnyOwnerFailed(
   failures: ReadonlyArray<OwnerWriteFailure>,
 ): void {
   if (failures.length === 0) return;
+
   for (const failure of failures) {
     console.error(
       `${command}: failed for owner ${failure.ownerId}: ${failure.message}`,
     );
   }
+
   throw new Error(
     `${command}: FAILED for ${failures.length} owner(s) — see errors above. Safe to re-run; an owner that already succeeded simply affects zero rows the second time.`,
   );
@@ -88,22 +92,26 @@ export async function runBackfillCommand(
     tenantDb,
     'llame_search_embedding_coverage',
   );
+
   const { enqueued, coalesced, failures } = await runBackfill(
     tenantDb,
     dispatch,
     modelId,
     EMBED_INPUT_VERSION,
   );
+
   if (failures.length > 0) {
     for (const failure of failures) {
       console.error(
         `backfill: failed to enqueue chat ${failure.chatId} (owner ${failure.ownerUserId}): ${failure.message}`,
       );
     }
+
     throw new Error(
       `backfill: enqueued ${enqueued} chat(s), FAILED to enqueue ${failures.length} — see errors above. Safe to re-run once the queue is reachable again (an already-queued chat coalesces under its singleton key rather than duplicating).`,
     );
   }
+
   console.log(
     `backfill: enqueued ${enqueued} chat(s)` +
       (coalesced > 0
@@ -119,8 +127,10 @@ export async function runPruneCommand(
   const declaredModelKeys = instanceConfig.config.embeddingModels.map(
     (model) => model.id,
   );
+
   const { prunedDocuments, affectedOwners, retiredBindings, failures } =
     await pruneUndeclaredModelVectors(tenantDb, declaredModelKeys);
+
   failIfAnyOwnerFailed('prune', failures);
   console.log(
     `prune: cleared ${prunedDocuments} document(s) across ${affectedOwners} owner(s), retired ${retiredBindings} ledger key(s)`,
@@ -132,8 +142,10 @@ export async function runRetryFailedCommand(
   instanceConfig: InstanceConfigReader,
 ): Promise<void> {
   const modelId = requireEmbeddingModelId(instanceConfig);
+
   const { clearedDocuments, affectedOwners, failures } =
     await retryFailedDocuments(tenantDb, modelId, EMBED_INPUT_VERSION);
+
   failIfAnyOwnerFailed('retry-failed', failures);
   console.log(
     `retry-failed: reset ${clearedDocuments} document(s) across ${affectedOwners} owner(s) — run 'backfill' (or wait for the sweep) to re-embed them`,
@@ -151,16 +163,20 @@ export async function runCoverageCommand(
     tenantDb,
     'llame_search_embedding_report',
   );
+
   const rows = await getEmbeddingCoverageReport(
     tenantDb,
     modelId,
     EMBED_INPUT_VERSION,
     COVERAGE_REPORT_MAX_ROWS,
   );
+
   if (rows.length === 0) {
     console.log('coverage: no chat has outstanding or failed work');
+
     return;
   }
+
   console.log(
     'chat_id'.padEnd(38) +
       'owner_user_id'.padEnd(38) +
@@ -168,6 +184,7 @@ export async function runCoverageCommand(
       'failed'.padEnd(10) +
       'outstanding',
   );
+
   for (const row of rows) {
     console.log(
       row.chatId.padEnd(38) +

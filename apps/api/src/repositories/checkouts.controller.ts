@@ -87,6 +87,7 @@ export class CheckoutsController {
     @Query() query: ListCheckoutsQueryDto,
   ): Promise<Array<CheckoutResponse>> {
     const rows = await this.checkouts.listCheckouts(userId, query.repositoryId);
+
     return rows.map(toCheckoutResponse);
   }
 

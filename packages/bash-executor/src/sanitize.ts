@@ -67,6 +67,7 @@ export function requireManagedBoundary(
       message: "Managed bash is unavailable without the required boundary.",
     };
   }
+
   return null;
 }
 
@@ -111,18 +112,21 @@ export function sanitizeKnownResultAtBound<
     values: protectedValues,
     longest: longestMemberLength(protectedValues),
   };
+
   const stdout = sanitizeStream(
     result.stdout,
     bound,
     redaction,
     captures.stdout,
   );
+
   const stderr = sanitizeStream(
     result.stderr,
     bound,
     redaction,
     captures.stderr,
   );
+
   return {
     ...result,
     stdout: stdout.text,
@@ -140,6 +144,7 @@ function sanitizeStream(
   const kept = keptCapture(value, capture, redaction);
   const cut = cutLength(kept.text, bound);
   const text = replaceIntervals(kept.text, kept.intervals, cut);
+
   return { text, truncated: kept.dropped || cut < kept.text.length };
 }
 
@@ -156,11 +161,14 @@ function keptCapture(
   if (capture?.gapAt !== undefined) {
     return keptGap(value, capture.gapAt, redaction);
   }
+
   const drop =
     capture?.endedByLlame === true
       ? trailingMemberPrefixLength(value, redaction)
       : 0;
+
   const keptEnd = value.length - drop;
+
   return {
     text: value.slice(0, keptEnd),
     intervals: clipIntervals(
@@ -189,6 +197,7 @@ function keptGap(
   const tailDrop = leadingMemberSuffixLength(tail, redaction);
   const headText = head.slice(0, head.length - headDrop);
   const tailText = tail.slice(tailDrop);
+
   const intervals: Array<ProtectedValueInterval> = [
     ...clipIntervals(
       protectedValueIntervals(head, redaction.values),
@@ -196,6 +205,7 @@ function keptGap(
     ),
     ...tailIntervals(tail, tailDrop, headText.length, redaction.values),
   ];
+
   return { text: headText + tailText, intervals, dropped: true };
 }
 
@@ -207,6 +217,7 @@ function tailIntervals(
   protectedValues: ReadonlyArray<string>,
 ): Array<ProtectedValueInterval> {
   const mapped: Array<ProtectedValueInterval> = [];
+
   for (const interval of protectedValueIntervals(tail, protectedValues)) {
     if (interval.end <= tailDrop) continue;
     mapped.push({
@@ -214,6 +225,7 @@ function tailIntervals(
       end: headLength + interval.end - tailDrop,
     });
   }
+
   return mapped;
 }
 
@@ -222,10 +234,12 @@ function clipIntervals(
   end: number,
 ): Array<ProtectedValueInterval> {
   const clipped: Array<ProtectedValueInterval> = [];
+
   for (const interval of intervals) {
     if (interval.start >= end) break;
     clipped.push({ start: interval.start, end: Math.min(interval.end, end) });
   }
+
   return clipped;
 }
 
@@ -235,10 +249,13 @@ function trailingMemberPrefixLength(
   redaction: Redaction,
 ): number {
   const maxLength = Math.min(redaction.longest - 1, value.length);
+
   for (let length = maxLength; length > 0; length -= 1) {
     const suffix = value.slice(value.length - length);
+
     if (isProperMemberPrefix(suffix, redaction.values)) return length;
   }
+
   return 0;
 }
 
@@ -248,10 +265,13 @@ function leadingMemberSuffixLength(
   redaction: Redaction,
 ): number {
   const maxLength = Math.min(redaction.longest - 1, value.length);
+
   for (let length = maxLength; length > 0; length -= 1) {
     const prefix = value.slice(0, length);
+
     if (isProperMemberSuffix(prefix, redaction.values)) return length;
   }
+
   return 0;
 }
 
@@ -276,9 +296,11 @@ function isProperMemberSuffix(
 
 function longestMemberLength(protectedValues: ReadonlyArray<string>): number {
   let longest = 0;
+
   for (const member of protectedValues) {
     longest = Math.max(longest, member.length);
   }
+
   return longest;
 }
 
@@ -293,13 +315,17 @@ function replaceIntervals(
 ): string {
   const output: Array<string> = [];
   let cursor = 0;
+
   for (const interval of intervals) {
     if (interval.start >= end) break;
     const clippedEnd = Math.min(interval.end, end);
     output.push(value.slice(cursor, interval.start));
+
     if (clippedEnd - interval.start >= MARKER.length) output.push(MARKER);
     cursor = clippedEnd;
   }
+
   output.push(value.slice(cursor, end));
+
   return output.join("");
 }

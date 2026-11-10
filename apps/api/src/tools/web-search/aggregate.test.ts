@@ -37,11 +37,13 @@ const result = (
 
 const results = (...items: ReadonlyArray<RawResult>): Promise<EngineOutcome> =>
   Promise.resolve({ kind: 'results', results: items });
+
 const answer = (
   text: string,
   citations: ReadonlyArray<RawCitation>,
 ): Promise<EngineOutcome> =>
   Promise.resolve({ kind: 'answer', answer: text, citations });
+
 const rankedResults = (
   id: string,
   length: number,
@@ -89,6 +91,7 @@ it('puts a shared result first with reciprocal rank fusion', async () => {
     ],
   });
 });
+
 it('counts one reciprocal-rank contribution per child and URL group', async () => {
   const engine = createAggregateEngine([
     child('a', () =>
@@ -102,6 +105,7 @@ it('counts one reciprocal-rank contribution per child and URL group', async () =
   ]);
 
   const output = await engine(request());
+
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.results.map(({ url }) => url)).toStrictEqual([
     'https://example.test/y',
@@ -156,6 +160,7 @@ it('returns results with a note for a partial child failure', async () => {
     notes: ['limited: rate_limited'],
   });
 });
+
 it('preserves child notes after aggregate failure notes', async () => {
   const engine = createAggregateEngine([
     child('limited', () => Promise.reject(new EngineFailure('rate_limited'))),
@@ -203,10 +208,12 @@ it('fails upstream when every child fails', async () => {
 
 it('runs only the children whose query limit the query fits', async () => {
   const started: Array<string> = [];
+
   const engine = createAggregateEngine([
     {
       ...child('narrow', () => {
         started.push('narrow');
+
         return results(result('https://example.test/narrow'));
       }),
       limits: { query: { codePoints: 128 } },
@@ -214,11 +221,13 @@ it('runs only the children whose query limit the query fits', async () => {
     {
       ...child('wide', () => {
         started.push('wide');
+
         return results(result('https://example.test/wide'));
       }),
       limits: { query: { codePoints: 200 } },
     },
   ]);
+
   const output = await engine({ ...request(), query: 'x'.repeat(150) });
 
   expect(started).toStrictEqual(['wide']);
@@ -231,10 +240,13 @@ it('runs only the children whose query limit the query fits', async () => {
 
 it('fails unsupported when every child skips the query', async () => {
   let started = 0;
+
   const count = (): Promise<EngineOutcome> => {
     started += 1;
+
     return results(result('https://example.test/a'));
   };
+
   const engine = createAggregateEngine([
     { ...child('narrow', count), limits: { query: { codePoints: 128 } } },
     { ...child('wide', count), limits: { query: { codePoints: 200 } } },
@@ -251,9 +263,11 @@ it('fails unsupported when every child skips the query', async () => {
 
 it('skips a real deepseek child that a real parallel child accepts', async () => {
   const started: Array<string> = [];
+
   const fetch: VendorFetch = (input) => {
     const url = new URL(requestUrl(input));
     started.push(url.hostname);
+
     return Promise.resolve(
       jsonResponse(
         JSON.stringify({
@@ -268,6 +282,7 @@ it('skips a real deepseek child that a real parallel child accepts', async () =>
       ),
     );
   };
+
   const engine = createAggregateEngine([
     {
       id: 'deepseek',
@@ -301,10 +316,13 @@ it('skips a real deepseek child that a real parallel child accepts', async () =>
 
 it('skips two real children and fails unsupported without a request', async () => {
   const started: Array<string> = [];
+
   const fetch: VendorFetch = (input) => {
     started.push(requestUrl(input));
+
     return Promise.reject(new Error('no request expected'));
   };
+
   const engine = createAggregateEngine([
     {
       id: 'deepseek',
@@ -372,6 +390,7 @@ it('notes a timed-out child while merging the others', async () => {
     notes: ['slow: timeout'],
   });
 });
+
 it('notes a child timeout when the child rejects on abort', async () => {
   const engine = createAggregateEngine([
     child(
@@ -395,6 +414,7 @@ it('notes a child timeout when the child rejects on abort', async () => {
     notes: ['slow: timeout'],
   });
 });
+
 it('classifies results that canonicalize to nothing as empty', async () => {
   const engine = createAggregateEngine([
     child('invalid', () => results(result('javascript:alert(1)'))),
@@ -410,6 +430,7 @@ it('classifies results that canonicalize to nothing as empty', async () => {
 it('aborts every in-flight child and rethrows call cancellation', async () => {
   const controller = new AbortController();
   const aborted: Array<string> = [];
+
   const waiting =
     (id: string): Engine =>
     ({ signal }) =>
@@ -423,10 +444,12 @@ it('aborts every in-flight child and rethrows call cancellation', async () => {
           { once: true },
         );
       });
+
   const engine = createAggregateEngine([
     child('a', waiting('a')),
     child('b', waiting('b')),
   ]);
+
   const promise = engine(request(controller.signal));
   controller.abort(new Error('cancelled by caller'));
 
@@ -477,6 +500,7 @@ it('drops invalid URLs before assigning result ranks', async () => {
     results: [result('https://www.example.test/valid/')],
   });
 });
+
 it('uses a later child spelling when it has the better rank', async () => {
   const engine = createAggregateEngine([
     child('a', () =>
@@ -502,6 +526,7 @@ it('uses a later child spelling when it has the better rank', async () => {
 it('breaks equal scores by a better best rank than insertion order', async () => {
   const first = 'https://example.test/best-rank';
   const second = 'https://example.test/lower-best-rank';
+
   const engine = createAggregateEngine([
     child('a', () => rankedResults('a', 12, 12, second)),
     child('b', () => rankedResults('b', 3, 3, first)),
@@ -510,6 +535,7 @@ it('breaks equal scores by a better best rank than insertion order', async () =>
   ]);
 
   const output = await engine(request(undefined, 30));
+
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.results.slice(0, 2).map(({ url }) => url)).toStrictEqual([
     first,
@@ -520,6 +546,7 @@ it('breaks equal scores by a better best rank than insertion order', async () =>
 it('breaks equal scores and ranks by the lower child order', async () => {
   const first = 'https://example.test/first';
   const second = 'https://example.test/second';
+
   const engine = createAggregateEngine([
     child('a', () => rankedResults('a', 3, 3, first)),
     child('b', () => rankedResults('b', 1, 1, second)),
@@ -528,6 +555,7 @@ it('breaks equal scores and ranks by the lower child order', async () => {
   ]);
 
   const output = await engine(request());
+
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.results.slice(0, 2).map(({ url }) => url)).toStrictEqual([
     second,
@@ -552,9 +580,11 @@ it('rejects an already-cancelled call without starting children', async () => {
   const controller = new AbortController();
   controller.abort('cancelled');
   let started = false;
+
   const engine = createAggregateEngine([
     child('a', () => {
       started = true;
+
       return results(result('https://example.test/a'));
     }),
     child('b', () => results(result('https://example.test/b'))),
@@ -604,6 +634,7 @@ const rejectsGrokipedia = {
   allow: [{ field: 'path', regex: '^https://' }],
   reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
 };
+
 it('attaches a grounded answer child and merges its citations', async () => {
   const engine = createAggregateEngine([
     child('brave', () =>
@@ -645,6 +676,7 @@ it('attaches a grounded answer child and merges its citations', async () => {
     ],
   });
 });
+
 it('attaches answers in child order', async () => {
   const engine = createAggregateEngine([
     child('claude', () =>
@@ -663,6 +695,7 @@ it('attaches answers in child order', async () => {
     'gpt',
   ]);
 });
+
 it('counts an answer child without citations as failed', async () => {
   const engine = createAggregateEngine([
     child('brave', () => results(result('https://example.test/u1'))),
@@ -675,6 +708,7 @@ it('counts an answer child without citations as failed', async () => {
     notes: ['claude: ungrounded'],
   });
 });
+
 it('removes a rejected citation and its link from an answer child', async () => {
   const engine = createAggregateEngine([
     child('claude', () =>
@@ -702,6 +736,7 @@ it('removes a rejected citation and its link from an answer child', async () => 
     ],
   });
 });
+
 it('drops an answer child that loses every citation to removal', async () => {
   const engine = createAggregateEngine([
     child('brave', () => results(result('https://example.test/u1'))),
@@ -737,7 +772,9 @@ describe('child bounds under retained merging', () => {
       ],
       { retainMerged: true },
     );
+
     const output = await engine(request(undefined, 3));
+
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results.map((entry) => entry.url)).toStrictEqual([
       'https://example.test/0',
@@ -750,11 +787,14 @@ describe('child bounds under retained merging', () => {
     const citations = Array.from({ length: 6 }, (_unused, index) => ({
       url: `https://example.test/c${index}`,
     }));
+
     const engine = createAggregateEngine(
       [child('a', () => answer('text', citations))],
       { retainMerged: true },
     );
+
     const output = await engine(request(undefined, 3));
+
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results).toHaveLength(3);
     expect(output.answers?.[0].citations).toHaveLength(6);
@@ -768,6 +808,7 @@ describe('merged candidate retention', () => {
         result(`https://example.test/${id}/${index}`),
       ),
     );
+
   const twoChildren = (options?: { readonly retainMerged: boolean }) =>
     createAggregateEngine(
       [
@@ -781,28 +822,34 @@ describe('merged candidate retention', () => {
     const output = await twoChildren({ retainMerged: true })(
       request(undefined, 20),
     );
+
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results).toHaveLength(40);
   });
 
   it('keeps the fetch-size cut without a rank model', async () => {
     const output = await twoChildren()(request(undefined, 20));
+
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results).toHaveLength(20);
   });
 
   it('retains the sum of the children results, each child holding its own bound', async () => {
     const received: Array<number> = [];
+
     const engine = createAggregateEngine(
       ['a', 'b', 'c'].map((id) =>
         child(id, (engineRequest) => {
           received.push(engineRequest.limit);
+
           return distinct(id, 100);
         }),
       ),
       { retainMerged: true },
     );
+
     const output = await engine(request(undefined, 100));
+
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results).toHaveLength(300);
     expect(received).toStrictEqual([100, 100, 100]);
@@ -816,7 +863,9 @@ describe('merged candidate retention', () => {
       ],
       { retainMerged: true },
     );
+
     const output = await engine(request(undefined, 20));
+
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results).toHaveLength(40);
     expect(output.results.some((entry) => entry.url.endsWith('/a/20'))).toBe(

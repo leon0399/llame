@@ -47,7 +47,9 @@ export const webSearchInputSchema = z.strictObject({
   recency: z.enum(['day', 'week', 'month', 'year']).optional(),
   limit: z.number().int().min(1).max(20).default(10),
 });
+
 export type WebSearchArguments = z.output<typeof webSearchInputSchema>;
+
 export const WEB_SEARCH_NOT_CONFIGURED_MESSAGE =
   'Web search is not configured.';
 
@@ -55,6 +57,7 @@ const engineLookups = new WeakMap<WebSearchConfig, EngineLookup>();
 
 function buildEngineLookup(config: WebSearchConfig): EngineLookup {
   const engines = new Map<string, Engine>();
+
   const entries = new Map(
     config.engines
       .filter(
@@ -65,6 +68,7 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
       )
       .map((entry) => [entry.id, entry]),
   );
+
   for (const engineConfig of config.engines) {
     if (engineConfig.type === 'aggregate') continue;
     engines.set(
@@ -72,10 +76,13 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
       createEngine(engineConfig, { fetch: globalThis.fetch }),
     );
   }
+
   for (const engineConfig of config.engines) {
     if (engineConfig.type !== 'aggregate') continue;
+
     const children = engineConfig.engines.map((id) => {
       const childConfig = entries.get(id)!;
+
       return {
         id,
         timeoutSeconds: childConfig.timeoutSeconds,
@@ -83,6 +90,7 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
         engine: engines.get(id)!,
       };
     });
+
     engines.set(
       engineConfig.id,
       createAggregateEngine(children, {
@@ -90,14 +98,17 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
       }),
     );
   }
+
   return (id) => engines.get(id)!;
 }
 
 function engineLookupFor(config: WebSearchConfig): EngineLookup {
   const cached = engineLookups.get(config);
+
   if (cached !== undefined) return cached;
   const lookup = buildEngineLookup(config);
   engineLookups.set(config, lookup);
+
   return lookup;
 }
 
@@ -114,7 +125,9 @@ function unknownEngineFailure(
   const unknown = engines?.find(
     (id) => !config.engines.some((entry) => entry.id === id),
   );
+
   if (unknown === undefined) return undefined;
+
   return {
     status: 'error',
     type: 'web_search_failed',
@@ -158,6 +171,7 @@ export const webSearchTool: Tool<WebSearchArguments> = {
     input: WebSearchArguments,
   ): Promise<ToolResult> {
     const config = context.webSearch;
+
     if (config === undefined)
       return {
         status: 'error',
@@ -165,18 +179,22 @@ export const webSearchTool: Tool<WebSearchArguments> = {
         message: WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
       };
     const unknownEngine = unknownEngineFailure(config, input.engines);
+
     if (unknownEngine !== undefined) return unknownEngine;
+
     // The engines fetch the operator's size, clamped by each vendor; `limit`
     // still bounds what the model reads inline (tool-result-artifacts D9).
     const fetchSize = Math.max(
       input.limit,
       config.fetchLimit ?? WEB_SEARCH_FETCH_LIMIT_DEFAULT,
     );
+
     const result = await executeSearchChain(
       config,
       searchRequest(context, input, fetchSize),
       engineLookupFor(config),
     );
+
     return 'status' in result
       ? result
       : spillWebSearchResult(context, result, {

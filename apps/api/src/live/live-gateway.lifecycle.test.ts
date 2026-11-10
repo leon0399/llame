@@ -30,6 +30,7 @@ class FakeHub {
     const set = this.subscribers.get(owner) ?? new Set<Subscriber>();
     set.add(subscriber);
     this.subscribers.set(owner, set);
+
     return () => {
       set.delete(subscriber);
       this.unsubscribed += 1;
@@ -38,6 +39,7 @@ class FakeHub {
 
   subscribeInstance(subscriber: Subscriber): () => void {
     this.instanceSubscribers.add(subscriber);
+
     return () => {
       this.instanceSubscribers.delete(subscriber);
       this.unsubscribed += 1;
@@ -90,12 +92,14 @@ beforeEach(async () => {
   gateway.onApplicationBootstrap();
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
+
   if (!address || isString(address)) throw new Error('expected TCP address');
   url = `ws://127.0.0.1:${address.port}${LIVE_PATH}`;
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+
   for (const client of clients.splice(0)) client.terminate();
   gateway.onModuleDestroy();
   await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -106,14 +110,17 @@ function open(token: string, options: { autoPong?: boolean } = {}) {
     headers: { authorization: `Bearer ${token}` },
     ...options,
   });
+
   clients.push(client);
   const frames: Array<string> = [];
   client.on('message', (data) => {
     if (Buffer.isBuffer(data)) frames.push(data.toString('utf8'));
   });
+
   const closed = new Promise<number>((resolve) =>
     client.on('close', (code) => resolve(code)),
   );
+
   const opened = new Promise<void>((resolve, reject) => {
     client.on('open', () => resolve());
     client.on('unexpected-response', (_req, res) =>
@@ -121,6 +128,7 @@ function open(token: string, options: { autoPong?: boolean } = {}) {
     );
     client.on('error', reject);
   });
+
   return { client, frames, closed, opened };
 }
 
@@ -151,6 +159,7 @@ describe('LiveGatewayService lifecycle', () => {
     const opened = Array.from({ length: MAX_SOCKETS_PER_USER }, () =>
       open('token-a'),
     );
+
     await Promise.all(opened.map((o) => o.opened));
 
     await expect(open('token-a').opened).rejects.toThrow('HTTP 429');
@@ -189,6 +198,7 @@ describe('LiveGatewayService lifecycle', () => {
     await gateway.checkHeartbeats();
     await new Promise((resolve) => setTimeout(resolve, 50));
     sessions.delete('token-a');
+
     try {
       await gateway.checkHeartbeats();
       expect(await a.closed).toBe(4401);
@@ -201,15 +211,18 @@ describe('LiveGatewayService lifecycle', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     const a = open('token-a');
     await a.opened;
 
     sessionLookupFails = true;
+
     try {
       await gateway.checkHeartbeats();
     } finally {
       sessionLookupFails = false;
     }
+
     hub.emit('user-a', 'still-open');
 
     await vi.waitFor(() => expect(a.frames).toContain('still-open'));
@@ -243,9 +256,11 @@ describe('LiveGatewayService lifecycle', () => {
 
   it('survives a client reset while its session is being validated', async () => {
     let release = () => {};
+
     const pending = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const slow = new LiveGatewayService(
       { httpAdapter: { getHttpServer: () => server } },
       {
@@ -254,10 +269,12 @@ describe('LiveGatewayService lifecycle', () => {
       },
       hub,
     );
+
     gateway.onModuleDestroy();
     slow.onApplicationBootstrap();
     gateway = slow;
     const address = server.address();
+
     if (!address || isString(address)) throw new Error('expected TCP address');
 
     const raw = connect(address.port, '127.0.0.1');
@@ -290,6 +307,7 @@ describe('LiveGatewayService lifecycle', () => {
       auth,
       hub,
     );
+
     expect(() => broken.onApplicationBootstrap()).toThrow(
       'LiveGatewayService requires a Node HTTP server',
     );

@@ -23,6 +23,7 @@ export class MemoryRepository {
       .from(memorySettings)
       .where(eq(memorySettings.userId, ownerUserId))
       .limit(1);
+
     return row;
   }
 
@@ -36,6 +37,7 @@ export class MemoryRepository {
       .where(eq(memorySettings.userId, ownerUserId))
       .for('share')
       .limit(1);
+
     return row;
   }
 
@@ -51,6 +53,7 @@ export class MemoryRepository {
         set: { ...update, updatedAt: new Date() },
       })
       .returning();
+
     return row;
   }
 }

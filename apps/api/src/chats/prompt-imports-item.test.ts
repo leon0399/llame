@@ -17,6 +17,7 @@ const RUN_ID = '11111111-2222-4333-8444-555555555555';
 const MEDIA_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
 const MEDIA = `media://${MEDIA_ID}`;
 const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
+
 /** The unstored image record of a 1600×900 PNG. */
 const UNSTORED = {
   thumbnail: THUMBNAIL,
@@ -24,6 +25,7 @@ const UNSTORED = {
   height: 900,
   mediaType: 'image/png',
 } as const;
+
 /** The serialized native image result `read("/repo/shot.png")` returns. */
 const IMAGE_BODY = JSON.stringify({
   status: 'success',
@@ -121,6 +123,7 @@ describe('prompt imports item', () => {
 
   it('records an unstored image entry over the thumbnail cap by its size alone', () => {
     const { thumbnail: _thumbnail, ...original } = UNSTORED;
+
     const item = createPromptImportsItem({
       retainedBefore: 0,
       runId: RUN_ID,
@@ -211,7 +214,9 @@ describe('prompt imports item', () => {
       pages: 15,
       byteSize: 2_215_244,
     } as const;
+
     const retained = 'A'.repeat(RETAINED_MESSAGE_BOUND);
+
     const item = createPromptImportsItem({
       retainedBefore: 0,
       runId: RUN_ID,
@@ -274,6 +279,7 @@ describe('prompt imports item', () => {
       pages: 15,
       byteSize: 2_215_244,
     } as const;
+
     const outcomes = [
       {
         locator: 'paper.pdf',
@@ -282,6 +288,7 @@ describe('prompt imports item', () => {
         attachment: pdf,
       },
     ] as const;
+
     const first = createPromptImportsItem({
       retainedBefore: 0,
       runId: RUN_ID,
@@ -298,7 +305,9 @@ describe('prompt imports item', () => {
         ],
       ]),
     });
+
     const regenerated = '99999999-2222-4333-8444-555555555555';
+
     const second = createPromptImportsItem({
       retainedBefore: retainedPartsBase64([{ type: 'text', text: 'x' }, first]),
       runId: regenerated,
@@ -551,18 +560,21 @@ describe('prompt imports payload validation', () => {
 describe('retained media entry payloads', () => {
   const PNG_DATA = 'iVBORw0KGgoAAAANSUhEUg==';
   const PDF_DATA = 'JVBERi0xLjQK';
+
   /** An unstored image entry whose dimensions the retained variant repeats. */
   const shot = {
     locator: 'shot.png',
     outcome: 'imported',
     ...UNSTORED,
   } as const;
+
   const png = {
     mediaType: 'image/png',
     width: 2000,
     height: 1125,
     data: PNG_DATA,
   } as const;
+
   const pdfEntry = {
     locator: 'paper.pdf',
     outcome: 'imported',
@@ -714,6 +726,7 @@ describe('PDF import metadata', () => {
     pages: 15,
     byteSize: 2_215_244,
   } as const;
+
   const entry = { locator: 'paper.pdf', outcome: 'imported', ...pdf };
 
   it('persists unstored and stored PDF attribution', () => {
@@ -722,6 +735,7 @@ describe('PDF import metadata', () => {
       ...pdf,
       path: '/repo/paper.pdf',
     });
+
     const item = createPromptImportsItem({
       retainedBefore: 0,
       runId: RUN_ID,

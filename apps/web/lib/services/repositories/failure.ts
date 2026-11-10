@@ -14,5 +14,6 @@ const failureEnvelope = z.object({ message: z.string().trim().min(1) });
  */
 export function repositoryFailureMessage(error: unknown, fallback: string) {
   const parsed = failureEnvelope.safeParse(getApiErrorInfo(error));
+
   return parsed.success ? parsed.data.message : fallback;
 }

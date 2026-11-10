@@ -37,6 +37,7 @@ const createOpenAICompatibleMock = vi.mocked(
   vi.fn<typeof createOpenAICompatible>(),
   { partial: true },
 );
+
 const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
   partial: true,
 });
@@ -96,14 +97,17 @@ function textResponse(text = 'done') {
 
 function scriptedModel(responses: Array<ReturnType<typeof providerResponse>>) {
   let responseIndex = 0;
+
   return new MockLanguageModelV3({
     provider: 'openai-compatible.test',
     modelId: 'deepseek-chat',
     doStream: () => {
       const response = responses[responseIndex++];
+
       if (!response) {
         throw new Error(`Missing provider response ${responseIndex}`);
       }
+
       return Promise.resolve(response);
     },
   });
@@ -130,7 +134,9 @@ function buildClient(
       chatModel: vi.fn(() => model),
     },
   );
+
   createOpenAICompatibleMock.mockReturnValue(provider);
+
   const config: OpenAICompletionsModelClientConfig = {
     credential: 'sk-test',
     providerModelId: 'deepseek-chat',
@@ -141,6 +147,7 @@ function buildClient(
     baseUrl: 'https://api.deepseek.com/v1',
     ...overrides,
   };
+
   return {
     provider,
     client: createOpenAICompletionsModelClient(config, {
@@ -161,9 +168,11 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       provider: 'openai-compatible.test',
       modelId: 'deepseek-chat',
     });
+
     const configured = buildClient(model, {
       overrides: { billing: 'usage' },
     }).client;
+
     const undeclared = buildClient(model).client;
 
     expect(configured.billing).toBe('usage');
@@ -175,7 +184,9 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       provider: 'openai-compatible.test',
       modelId: 'deepseek-chat',
     });
+
     streamTextMock.mockReturnValue({});
+
     const { provider, client } = buildClient(providerModel, {
       stream: streamTextMock,
     });
@@ -227,6 +238,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
 
   it('lets the run effort outrank an operator reasoningEffort', async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: {
         providerOptions: { reasoningEffort: 'low', temperature: 0.5 },
@@ -246,6 +258,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
 
   it('sends operator options without an effort under the same namespace', async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: {
         providerOptions: { user: 'run-owner', strictJsonSchema: false },
@@ -263,6 +276,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
 
   it('strips reserved keys before composition and keeps the request whole', async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: {
         providerOptions: {
@@ -289,6 +303,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
 
   it('stays option-free when only reserved keys were configured', async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: { providerOptions: { model: 'smuggled-model' } },
     });
@@ -302,6 +317,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
 
   it('forwards unrecognized keys untouched for the adapter to decide', async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: {
         providerOptions: { future_option: { nested: [1, 2, 3] } },
@@ -321,6 +337,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
 
   it('forwards the catalog output limit as the streaming maxOutputTokens setting', async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: { maxOutputTokens: 4096 },
     });
@@ -339,6 +356,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       provider: 'openai-compatible.test',
       modelId: 'deepseek-chat',
     });
+
     streamTextMock.mockReturnValue({});
     const { client } = buildClient(model, { stream: streamTextMock });
 
@@ -477,6 +495,7 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
   ) {
     const model = structuredModel();
     const { provider, client } = buildClient(model, { overrides });
+
     const generateObject = <OBJECT>(
       input: ModelObjectInput<OBJECT>,
     ): Promise<OBJECT> => {
@@ -485,6 +504,7 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
           'the completions model client must expose generateObject',
         );
       }
+
       return client.generateObject(input);
     };
 
@@ -496,6 +516,7 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
         schema: z.object({ title: z.string() }),
       }),
     ).resolves.toEqual({ title: 'A title' });
+
     return { provider, generateCall: model.doGenerateCalls[0] };
   }
 
@@ -605,6 +626,7 @@ describe("createOpenAICompletionsModelClient — llame's product identity (desig
           { headers: { 'content-type': 'text/event-stream' } },
         ),
       );
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
@@ -647,9 +669,11 @@ async function sentBody(
   ...[input, init]: Parameters<typeof globalThis.fetch>
 ): Promise<UnknownRecord> {
   const body: unknown = JSON.parse(await new Request(input, init).text());
+
   if (!isRecord(body)) {
     throw new TypeError('expected a JSON object request body');
   }
+
   return body;
 }
 
@@ -657,8 +681,10 @@ describe('createOpenAICompletionsModelClient — streaming usage (run-usage-acco
   it('asks for usage on every streaming request and reports what the server returns', async () => {
     const answer =
       'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n';
+
     const usage =
       'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17,"completion_tokens_details":{"reasoning_tokens":2}}}\n\n';
+
     // Like a real server, the stub sends the usage chunk only when the
     // request asks for it, so a client that does not ask records nothing.
     const fetchMock = vi.fn<typeof globalThis.fetch>(
@@ -667,14 +693,17 @@ describe('createOpenAICompletionsModelClient — streaming usage (run-usage-acco
         init?: RequestInit,
       ) => {
         const streamOptions = (await sentBody(input, init))['stream_options'];
+
         const asked =
           isRecord(streamOptions) && streamOptions['include_usage'] === true;
+
         return new Response(
           [answer, ...(asked ? [usage] : []), 'data: [DONE]\n\n'].join(''),
           { headers: { 'content-type': 'text/event-stream' } },
         );
       },
     );
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
@@ -688,6 +717,7 @@ describe('createOpenAICompletionsModelClient — streaming usage (run-usage-acco
         userAgent: USER_AGENT,
         requestHeaders: {},
       });
+
       const reported: Array<LanguageModelUsage> = [];
 
       await expect(
@@ -699,9 +729,11 @@ describe('createOpenAICompletionsModelClient — streaming usage (run-usage-acco
       ).resolves.toBe('done');
 
       const call = fetchMock.mock.calls[0];
+
       if (call === undefined) {
         throw new TypeError('no fetch call was recorded');
       }
+
       await expect(sentBody(...call)).resolves.toMatchObject({
         stream: true,
         stream_options: { include_usage: true },
@@ -790,8 +822,10 @@ describe('createOpenAICompletionsModelClient — reasoning_content on tool-call 
           { headers: { 'content-type': 'text/event-stream' } },
         ),
       );
+
     const previousFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
+
     try {
       const client = createOpenAICompletionsModelClient({
         credential: 'sk-test',
@@ -802,6 +836,7 @@ describe('createOpenAICompletionsModelClient — reasoning_content on tool-call 
         userAgent: USER_AGENT,
         requestHeaders: {},
       });
+
       await expect(
         client.streamText({
           chat: CHAT,
@@ -810,14 +845,19 @@ describe('createOpenAICompletionsModelClient — reasoning_content on tool-call 
         }).text,
       ).resolves.toBe('done');
       const call = fetchMock.mock.calls[0];
+
       if (call === undefined) {
         throw new TypeError('no fetch call was recorded');
       }
+
       const sent = (await sentBody(...call))['messages'];
+
       if (!Array.isArray(sent)) throw new TypeError('expected messages');
+
       const assistant: Array<unknown> = sent.filter(
         (message) => isRecord(message) && message['role'] === 'assistant',
       );
+
       return assistant;
     } finally {
       globalThis.fetch = previousFetch;
@@ -842,6 +882,7 @@ describe('createOpenAICompletionsModelClient — reasoning_content on tool-call 
 describe('createOpenAICompletionsModelClient — configured provider name (design D2)', () => {
   it("composes the operator's options under the namespace the adapter derives from that name", async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: {
         provider: 'acme-wire',
@@ -871,6 +912,7 @@ describe('createOpenAICompletionsModelClient — configured provider name (desig
 
   it("renders the configured session header from the request's Chat on the streaming path (design D3)", async () => {
     const model = scriptedModel([textResponse('answer')]);
+
     const { client } = buildClient(model, {
       overrides: {
         sessionHeader: (chat) => ({
@@ -894,6 +936,7 @@ describe('createOpenAICompletionsModelClient — configured provider name (desig
 describe('createOpenAICompletionsModelClient — operator headers on both paths', () => {
   it('sends custom headers on streaming and structured requests and lets User-Agent win', async () => {
     const previousFetch = globalThis.fetch;
+
     try {
       // The REAL adapter and the real SDK, only the transport stubbed: the
       // serialized request carries the operator's custom header and User-Agent.
@@ -909,6 +952,7 @@ describe('createOpenAICompletionsModelClient — operator headers on both paths'
             { headers: { 'content-type': 'text/event-stream' } },
           ),
         );
+
       const client = createOpenAICompletionsModelClient({
         credential: 'sk-test',
         providerModelId: 'deepseek-chat',
@@ -1045,6 +1089,7 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
         'stop',
       ),
     ]);
+
     const { client } = buildClient(model);
     const onTextDelta = vi.fn();
     const onReasoningDelta = vi.fn();
@@ -1071,15 +1116,18 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
       ['found it', 'reasoning-0', undefined],
     ]);
     expect(model.doStreamCalls).toHaveLength(2);
+
     // The follow-up request of the same turn carries the prior assistant
     // reasoning for the adapter to re-inject as `reasoning_content` (D5/D15);
     // llame adds no request field of its own.
     const followUpAssistant = model.doStreamCalls[1]?.prompt.find(
       (message) => message.role === 'assistant',
     );
+
     const replayedReasoning = Array.isArray(followUpAssistant?.content)
       ? followUpAssistant.content.filter((part) => part.type === 'reasoning')
       : [];
+
     expect(replayedReasoning).toEqual([
       { type: 'reasoning', text: 'looking up' },
     ]);
@@ -1105,6 +1153,7 @@ describe('createOpenAICompletionsModelClient — provider metadata on the call (
     // before the call executes (design A7).
     const order: Array<string> = [];
     const metadata = { openaiCompatible: { thoughtSignature: 'SIG-1' } };
+
     const model = scriptedModel([
       {
         stream: simulateReadableStream<LanguageModelV3StreamPart>({
@@ -1130,6 +1179,7 @@ describe('createOpenAICompletionsModelClient — provider metadata on the call (
       },
       textResponse(),
     ]);
+
     const onToolCallMetadata = vi.fn(() => order.push('metadata'));
 
     await buildClient(model).client.streamText({
@@ -1140,6 +1190,7 @@ describe('createOpenAICompletionsModelClient — provider metadata on the call (
           inputSchema: z.strictObject({ value: z.string() }),
           execute: ({ value }) => {
             order.push('execute');
+
             return value;
           },
         }),
@@ -1187,6 +1238,7 @@ describe('createOpenAICompletionsModelClient — reasoning ahead of tool calls',
     'delivers the reasoning before a coalesced step’s $call call',
     async ({ toolName, input, expected }) => {
       const order: Array<string> = [];
+
       const chunks: Array<LanguageModelV3StreamPart> = [
         { type: 'stream-start', warnings: [] },
         { type: 'reasoning-start', id: 'r' },
@@ -1199,6 +1251,7 @@ describe('createOpenAICompletionsModelClient — reasoning ahead of tool calls',
           usage: PROVIDER_USAGE,
         },
       ];
+
       const model = scriptedModel([
         {
           stream: new ReadableStream<LanguageModelV3StreamPart>({
@@ -1219,6 +1272,7 @@ describe('createOpenAICompletionsModelClient — reasoning ahead of tool calls',
             inputSchema: z.strictObject({ value: z.string() }),
             execute: ({ value }) => {
               order.push('execute');
+
               return value;
             },
           }),

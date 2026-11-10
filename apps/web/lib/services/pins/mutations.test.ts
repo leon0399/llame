@@ -32,6 +32,7 @@ describe("usePinItem", () => {
     fetchMock = stubFetch();
     fetchMock.mockImplementation(() => new Promise(() => {})); // never resolves
     const queryClient = newTestQueryClient();
+
     const existing: Array<PinnedItem> = [
       {
         itemType: "chat",
@@ -40,6 +41,7 @@ describe("usePinItem", () => {
         item: { id: "c1", title: "Old", archivedAt: null },
       },
     ];
+
     queryClient.setQueryData(pinQueryKeys.list(), existing);
 
     const { result } = renderHook(() => usePinItem(), {
@@ -56,11 +58,14 @@ describe("usePinItem", () => {
       const pins = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
+
       expect(pins).toHaveLength(1);
     });
+
     const [pin] = queryClient.getQueryData<Array<PinnedItem>>(
       pinQueryKeys.list(),
     )!;
+
     if (pin?.itemType !== "chat") throw new Error("expected a chat pin");
     expect(pin.item.title).toBe("New title");
   });
@@ -71,6 +76,7 @@ describe("useReorderPins", () => {
     fetchMock = stubFetch();
     fetchMock.mockResolvedValue(new Response(null, { status: 500 }));
     const queryClient = newTestQueryClient();
+
     const original: Array<PinnedItem> = [
       {
         itemType: "chat",
@@ -85,6 +91,7 @@ describe("useReorderPins", () => {
         item: { id: "c2", title: "Second", archivedAt: null },
       },
     ];
+
     queryClient.setQueryData(pinQueryKeys.list(), original);
 
     const { result } = renderHook(() => useReorderPins(), {

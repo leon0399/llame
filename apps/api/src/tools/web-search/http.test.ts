@@ -13,6 +13,7 @@ const options = (fetch: VendorFetch): VendorFetchOptions => ({
   signal: new AbortController().signal,
   fetch,
 });
+
 const schema = z.unknown();
 
 async function expectFailure(
@@ -34,6 +35,7 @@ describe('web search vendor HTTP', () => {
     const response = new Response(null, {
       headers: { 'content-type': 'application/json' },
     });
+
     Object.defineProperty(response, 'status', { value: 199 });
     await expect(
       fetchVendorJson(
@@ -121,6 +123,7 @@ describe('web search vendor HTTP', () => {
           ? {}
           : { headers: { 'content-type': contentType } },
       );
+
       await expectFailure(() => Promise.resolve(response), 'upstream_error');
     },
   );
@@ -132,6 +135,7 @@ describe('web search vendor HTTP', () => {
         controller.close();
       },
     });
+
     await expect(
       fetchVendorJson(
         'https://vendor.example/search',

@@ -49,7 +49,9 @@ function projectValue(
   transform: (value: string) => string,
 ): string | undefined {
   const trimmed = value?.trim();
+
   if (!trimmed) return undefined;
+
   return transform(trimmed);
 }
 
@@ -87,6 +89,7 @@ export function buildPersonalizationPreview(
       projectValue(personalization.preferredName, sanitizeAuthoredText),
     ],
   ];
+
   if (personalization.shareAccountIdentity) {
     inline.push(
       ["Account name", projectValue(account?.name, escapeStrict)],

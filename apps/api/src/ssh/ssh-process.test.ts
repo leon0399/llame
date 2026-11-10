@@ -63,6 +63,7 @@ describe('spawnOneShotSshProcess', () => {
     // parent would reparent it and leave it running.
     const leader = path.join(directory, 'leader.pid');
     const child = path.join(directory, 'child.pid');
+
     const ssh = spawnOneShotSshProcess('sh', [
       '-c',
       `sleep 60 & echo "$!" > "${child}"; echo $$ > "${leader}"; wait`,
@@ -93,6 +94,7 @@ describe('spawnOneShotSshProcess', () => {
       path.join(directory, 'missing-ssh-binary'),
       [],
     );
+
     // The binary does not exist, so the spawn fails before any pid exists.
     await new Promise<void>((resolve) => {
       ssh.onError(() => resolve());
@@ -110,6 +112,7 @@ describe('spawnOneShotSshProcess', () => {
     ssh.stdout.on('data', (chunk: string) => {
       stdout += chunk;
     });
+
     const closed = new Promise<number | null>((resolve) => {
       ssh.onClose((code) => resolve(code));
     });
@@ -130,6 +133,7 @@ describe('spawnSshProcess', () => {
     ssh.stdout.on('data', (chunk: string) => {
       stdout += chunk;
     });
+
     const closed = new Promise<void>((resolve) => {
       ssh.onClose(() => resolve());
     });
@@ -149,9 +153,12 @@ function processGroupOf(pid: number): number {
   const output = execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], {
     encoding: 'utf8',
   });
+
   const group = Number(output.trim());
+
   if (!Number.isInteger(group) || group <= 0)
     throw new Error(`no process group for ${pid}`);
+
   return group;
 }
 
@@ -159,9 +166,11 @@ function processGroupOf(pid: number): number {
 async function waitForPid(file: string): Promise<number> {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     const text = existsSync(file) ? readFileSync(file, 'utf8').trim() : '';
+
     if (/^[0-9]+$/u.test(text)) return Number(text);
     await delay(25);
   }
+
   throw new Error(`no pid was written to ${file}`);
 }
 
@@ -174,6 +183,7 @@ async function waitForExit(pid: number): Promise<void> {
     if (!isRunning(pid)) return;
     await delay(25);
   }
+
   throw new Error(`process ${pid} survived the kill`);
 }
 
@@ -182,7 +192,10 @@ function isRunning(pid: number): boolean {
   const probe = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], {
     encoding: 'utf8',
   });
+
   if (probe.status === 1) return false;
+
   if (probe.status !== 0) throw new Error(`ps could not inspect ${pid}`);
+
   return !probe.stdout.trim().startsWith('Z');
 }

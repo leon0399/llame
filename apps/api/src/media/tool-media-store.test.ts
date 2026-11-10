@@ -22,6 +22,7 @@ describe('createToolMediaStore', () => {
         }),
       ),
     );
+
     const store = createToolMediaStore({ findOwned }, OWNER, new Map());
 
     await expect(store.findMedia(PDF_ID)).resolves.toEqual({
@@ -38,6 +39,7 @@ describe('createToolMediaStore', () => {
     const bytes = readFileSync(
       path.join(__dirname, 'testing/pdf/fifteen-pages.pdf'),
     );
+
     const retained = new Map<string, RetainedMedia>();
     const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
 
@@ -123,6 +125,7 @@ describe('createToolMediaStore', () => {
     const bytes = readFileSync(
       path.join(__dirname, 'testing/pdf/owner-password.pdf'),
     );
+
     const retained = new Map<string, RetainedMedia>();
     const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, retained);
 
@@ -146,6 +149,7 @@ describe('createToolMediaStore', () => {
     const bytes = readFileSync(
       path.join(__dirname, 'testing/pdf/one-page.pdf'),
     );
+
     const retained = new Map<string, RetainedMedia>();
     const controller = new AbortController();
     const reason = new Error('read abandoned');
@@ -161,6 +165,7 @@ describe('createToolMediaStore', () => {
         signal: controller.signal,
         readBytes: () => {
           controller.abort(reason);
+
           return Promise.resolve(bytes);
         },
       }),
@@ -174,6 +179,7 @@ describe('createToolMediaStore', () => {
     const bytes = readFileSync(
       path.join(__dirname, 'testing/pdf/owner-password.pdf'),
     );
+
     const retained = new Map<string, RetainedMedia>();
     const controller = new AbortController();
     const reason = new Error('read abandoned');
@@ -189,6 +195,7 @@ describe('createToolMediaStore', () => {
         signal: controller.signal,
         readBytes: () => {
           controller.abort(reason);
+
           return Promise.resolve(bytes);
         },
       }),

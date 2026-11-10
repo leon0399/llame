@@ -30,23 +30,28 @@ async function hasReplaceableAssistantUsage(
   },
 ): Promise<boolean> {
   const { userId, runId, chatId, inReplyTo } = input;
+
   if (chatId === undefined || inReplyTo === undefined || inReplyTo === null) {
     return false;
   }
+
   const { assistantMessage } = await new MessagesRepository(tx).findTurnState(
     chatId,
     userId,
     inReplyTo,
   );
+
   if (
     assistantMessage === undefined ||
     isCompletedAssistantTurn(assistantMessage)
   ) {
     return false;
   }
+
   // The Run's own `running` reply is its turn in progress, not an earlier
   // reply it replaces (design D3).
   const usage = assistantMessage.usage;
+
   return !isRunningUsage(usage) || usage.runId !== runId;
 }
 
@@ -67,13 +72,16 @@ async function currentSegmentAttempts(
     userId,
     { eventTypes: ['run.started'] },
   );
+
   if (delivered === undefined) return undefined;
   const attempts = new Set<string>();
+
   for (const { payload } of [delivered, ...events]) {
     if (isRecord(payload) && isString(payload['attemptId'])) {
       attempts.add(payload['attemptId']);
     }
   }
+
   return attempts;
 }
 
@@ -101,19 +109,23 @@ export async function finalizeUsageCompleteness(
   },
 ): Promise<void> {
   const { userId, runId, run, telemetry } = input;
+
   const receipts = await new SystemPromptReceiptsRepository(tx).findByOwnedRun(
     runId,
     userId,
   );
+
   // The segment read matters only when a receipt names another attempt or the
   // follow-up flag below is in play.
   const others = receipts.filter(
     ({ attemptId }) => attemptId !== input.attemptId,
   );
+
   const segmentAttempts =
     others.length > 0 || run?.followUpAction != null
       ? await currentSegmentAttempts(tx, runId, userId)
       : undefined;
+
   // A follow-up Run's admission recorded whether its reply replaces one that
   // already carried usage: the dispatch reset hides that usage from the read
   // above, so the flag is the only trace of it (turn-actions D11).
@@ -122,6 +134,7 @@ export async function finalizeUsageCompleteness(
     (segmentAttempts === undefined &&
       run?.followUpAction != null &&
       (await readCreatedFlags(tx, runId, userId)).replacesUsage);
+
   telemetry.complete =
     telemetry.complete === true &&
     (input.closedBySteer === true || run?.status === 'completed') &&

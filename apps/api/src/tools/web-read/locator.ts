@@ -29,6 +29,7 @@ const OUTLINE_SELECTOR = /:outline(?::([^:/]*))?$/u;
 
 const INVALID_URL_MESSAGE =
   'Write this locator as an absolute http:// or https:// URL.';
+
 /** Names no part of the locator: a credential must never reach the model. */
 const CREDENTIALS_MESSAGE =
   'A web locator must not carry credentials; remove the userinfo before the host.';
@@ -50,8 +51,11 @@ type SplitLocator = { readonly url: string; readonly selector?: string };
 function opensSelector(text: string, index: number): boolean {
   const authority = text.indexOf('//') + 2;
   const lastSlash = text.lastIndexOf('/');
+
   if (lastSlash < authority) return false;
+
   if (index <= lastSlash) return false;
+
   return !/[?#]/u.test(text);
 }
 
@@ -61,36 +65,47 @@ function opensSelector(text: string, index: number): boolean {
  */
 export function splitWebSelector(text: string): SplitLocator {
   const raw = RAW_SELECTOR.exec(text);
+
   if (raw !== null && opensSelector(text, raw.index)) {
     const before = text.slice(0, raw.index);
+
     if (raw[1] !== undefined) {
       return { url: before, selector: `raw:${raw[1]}` };
     }
+
     // The colon before the list may open a selector on its own terms: the
     // `opensSelector` gate is what keeps a port, a query, and a fragment out
     // of the claim, exactly as it does for every other split here.
     const colon = before.lastIndexOf(':');
+
     if (opensSelector(text, colon)) {
       // The claim is the grammar's own `<list>:raw` spelling, so the segment
       // behind a trailing `:raw` is the range list exactly when the shared
       // grammar admits that suffix. A segment that merely ends in digits keeps
       // its colon and stays the raw read of that path.
       const list = before.slice(colon + 1);
+
       if (isSelectorSuffix(`${list}:raw`)) {
         return { url: before.slice(0, colon), selector: `raw:${list}` };
       }
     }
+
     return { url: before, selector: 'raw' };
   }
+
   const outline = OUTLINE_SELECTOR.exec(text);
+
   if (outline !== null && opensSelector(text, outline.index)) {
     return {
       url: text.slice(0, outline.index),
       selector: text.slice(outline.index + 1),
     };
   }
+
   const colon = text.lastIndexOf(':');
+
   if (!opensSelector(text, colon)) return { url: text };
+
   return { url: text.slice(0, colon), selector: text.slice(colon + 1) };
 }
 
@@ -103,17 +118,21 @@ function parseWebUrl(
   text: string,
 ): { readonly href: string } | LocatorParseFailure {
   let url: URL;
+
   try {
     url = new URL(text);
   } catch {
     return { type: 'invalid_path', message: INVALID_URL_MESSAGE };
   }
+
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return { type: 'invalid_path', message: INVALID_URL_MESSAGE };
   }
+
   if (url.username !== '' || url.password !== '') {
     return { type: 'invalid_path', message: CREDENTIALS_MESSAGE };
   }
+
   return { href: canonicalHref(url) };
 }
 
@@ -123,6 +142,7 @@ function normalizePercentEscapes(value: string): string {
     (_escape: string, hex: string | undefined) => {
       if (hex === undefined) return '%25';
       const byte = Number.parseInt(hex, 16);
+
       const unreserved =
         (byte >= 0x41 && byte <= 0x5a) ||
         (byte >= 0x61 && byte <= 0x7a) ||
@@ -131,6 +151,7 @@ function normalizePercentEscapes(value: string): string {
         byte === 0x2e ||
         byte === 0x5f ||
         byte === 0x7e;
+
       return unreserved ? String.fromCharCode(byte) : `%${hex.toUpperCase()}`;
     },
   );
@@ -149,10 +170,13 @@ export function canonicalHref(url: URL): string {
   if (url.hostname.endsWith('.')) {
     url.hostname = url.hostname.slice(0, -1);
   }
+
   url.pathname = normalizePercentEscapes(url.pathname);
+
   if (url.search !== '') {
     url.search = normalizePercentEscapes(url.search);
   }
+
   return url.href;
 }
 
@@ -164,6 +188,7 @@ export function canonicalHref(url: URL): string {
  */
 export function stripFragment(text: string): string {
   const delimiter = text.indexOf('#');
+
   return delimiter === -1 ? text : text.slice(0, delimiter);
 }
 
@@ -179,6 +204,7 @@ export function stripFragment(text: string): string {
 function literalColonSpelling(href: string, selector: string): string {
   const lastSlash = href.lastIndexOf('/');
   const segment = href.slice(lastSlash + 1).replaceAll(':', '%3A');
+
   return `${href.slice(0, lastSlash + 1)}${segment}%3A${encodeSelectorSuffix(selector)}`;
 }
 
@@ -196,27 +222,34 @@ function unparsableLocator(text: string): LocatorParseFailure {
     type: 'invalid_path',
     message: INVALID_URL_MESSAGE,
   };
+
   const colon = text.lastIndexOf(':');
+
   if (colon <= text.indexOf('//') + 1) return generic;
   const suffix = text.slice(colon + 1);
   const target = parseWebUrl(text.slice(0, colon));
+
   if ('type' in target) return generic;
+
   if (isSelectorSuffix(suffix)) {
     return {
       type: 'invalid_path',
       message: `Write this locator as ${target.href}:${suffix}`,
     };
   }
+
   // What follows the colon is where the port belongs, so say so and name the
   // same locator without one rather than inventing a number.
   const slash = suffix.indexOf('/');
   const port = slash === -1 ? suffix : suffix.slice(0, slash);
+
   if (!/^\d*$/u.test(port)) {
     return {
       type: 'invalid_path',
       message: `A port must be a number: write this locator with one, or as ${target.href}`,
     };
   }
+
   return generic;
 }
 
@@ -244,16 +277,20 @@ export function parseWebLocator(
   // (`https://user:secret@host`) is refused here, so no later message can
   // name a credential.
   const admitted = parseWebUrl(text);
+
   if ('type' in admitted) {
     return admitted.message === INVALID_URL_MESSAGE
       ? unparsableLocator(text)
       : admitted;
   }
+
   const { url, selector } = splitWebSelector(text);
   // The URL half is parsed in its own right, because that is the text the
   // request and the permission decision use.
   const target = parseWebUrl(url);
+
   if ('type' in target) return target;
+
   // The one refusal for a suffix outside the grammar, whatever the model was
   // reaching for: the shared sentence names the working forms every source
   // accepts, and this source's own sentence then names the spelling of the same
@@ -266,6 +303,7 @@ export function parseWebLocator(
       ),
     };
   }
+
   return selector === undefined
     ? { url: target.href }
     : { url: target.href, selector };

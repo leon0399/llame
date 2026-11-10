@@ -42,9 +42,11 @@ async function findVisibleHoverCard() {
       expect(hoverCard).toHaveAttribute("data-open");
       expect(hoverCard).toHaveClass("data-open:animate-in");
       expect(hoverCard).toBeVisible();
+
       if (!hoverCard) {
         throw new Error("Expected an open hover card");
       }
+
       const styles = window.getComputedStyle(hoverCard);
       expect(styles.animationName).not.toBe("none");
       expect(Number.parseFloat(styles.animationDuration)).toBeGreaterThan(0);

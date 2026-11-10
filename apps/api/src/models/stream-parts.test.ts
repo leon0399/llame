@@ -35,6 +35,7 @@ async function forward(
     },
     createToolCallGate(),
   );
+
   return forwards;
 }
 
@@ -66,6 +67,7 @@ function finishStep(): Extract<
 describe('consumeStreamParts', () => {
   it('forwards a text part’s id and metadata in stream order, scoping raw ids per provider step', async () => {
     const first = { openai: { itemId: 'msg_1' } };
+
     const { texts } = await forward([
       { type: 'text-start', id: 'msg_1', providerMetadata: first },
       { type: 'text-delta', id: 'msg_1', text: 'a' },
@@ -94,6 +96,7 @@ describe('consumeStreamParts', () => {
 
   it('forwards a reasoning part’s id and metadata in stream order, scoping raw ids per provider step', async () => {
     const signature = { anthropic: { signature: 'SIG_A' } };
+
     const { reasoning } = await forward([
       // Step 0: a redacted block (its metadata rides the start, and it has no
       // text at all), then a thinking block whose text streams normally.
@@ -203,12 +206,15 @@ describe('consumeStreamParts', () => {
     const failing: AsyncIterable<TextStreamPart<ToolSet>> = {
       [Symbol.asyncIterator]() {
         let delivered = false;
+
         return {
           next: () => {
             if (delivered) {
               return Promise.reject(new Error('provider stream died'));
             }
+
             delivered = true;
+
             return Promise.resolve({
               done: false,
               value: {
@@ -221,6 +227,7 @@ describe('consumeStreamParts', () => {
         };
       },
     };
+
     const deliveries: Array<Delivery> = [];
 
     await expect(

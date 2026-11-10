@@ -58,20 +58,24 @@ describe('published schema — single artifact', () => {
     const schema = loadSchemaDocument();
     expect(schema.additionalProperties).toBe(false);
     const { properties } = schema;
+
     if (!isRecord(properties)) {
       throw new Error('expected schema.properties to be a record');
     }
+
     expect(properties.$schema).toBeDefined();
   });
 
   it('interpolation.ts WHOLE_VALUE_TOKEN_PATTERN never silently drifts from the published $defs.interpolationToken.pattern', () => {
     const schema = loadSchemaDocument();
     const { $defs } = schema;
+
     if (!isRecord($defs) || !isRecord($defs.interpolationToken)) {
       throw new Error(
         'expected schema.$defs.interpolationToken to be a record',
       );
     }
+
     const { pattern } = $defs.interpolationToken;
     assertIsString(
       pattern,

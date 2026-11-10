@@ -16,19 +16,23 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 type FixtureResult = {
   readonly title?: string | number;
   readonly url?: string | number;
   readonly content?: string | number;
   readonly publishedDate?: string | null;
 };
+
 type FixtureBody =
   | string
   | { readonly results: Array<FixtureResult> }
   | { readonly results: string };
+
 function captureFixture(body: FixtureBody, status = 200) {
   return captureFetch(JSON.stringify(body), status);
 }
+
 const success = (results: Array<FixtureResult> = []): FixtureBody => ({
   results,
 });
@@ -52,10 +56,12 @@ describe('SearXNG adapter', () => {
         { title: 'Malformed', url: 3 },
       ]),
     );
+
     const result = await createSearxngEngine(
       { baseUrl: 'http://localhost:8888/searxng' },
       { fetch: recorded.fetch },
     )(request({ limit: 4 }));
+
     const url = new URL(recorded.seen().url);
     expect(url.origin + url.pathname).toBe(
       'http://localhost:8888/searxng/search',
@@ -114,6 +120,7 @@ describe('SearXNG adapter', () => {
       { baseUrl: 'http://localhost:8888/' },
       { fetch: captureFixture(success()).fetch },
     );
+
     await expect(
       engine(request({ query: 'plain', recency: undefined })),
     ).resolves.toStrictEqual({ kind: 'empty' });
@@ -124,6 +131,7 @@ describe('SearXNG adapter', () => {
       { baseUrl: 'http://localhost:8888/' },
       { fetch: captureFixture(success()).fetch },
     );
+
     await expect(engine(request())).resolves.toStrictEqual({
       kind: 'empty',
       notes: ['SearXNG mapped week recency to month.'],
@@ -137,10 +145,12 @@ describe('SearXNG adapter', () => {
         { title: 'Valid', url: 'https://example.test/valid' },
       ]),
     );
+
     const engine = createSearxngEngine(
       { baseUrl: 'http://localhost:8888/' },
       { fetch: recorded.fetch },
     );
+
     await expect(
       engine(
         request({
@@ -169,16 +179,19 @@ describe('SearXNG adapter', () => {
         ).fetch,
       },
     );
+
     await expect(
       malformedEntry(request({ recency: undefined })),
     ).resolves.toStrictEqual({
       kind: 'results',
       results: [{ title: 'valid', url: 'https://example.test/' }],
     });
+
     const malformedEnvelope = createSearxngEngine(
       { baseUrl: 'http://localhost:8888/' },
       { fetch: captureFixture({ results: 'bad' }).fetch },
     );
+
     await expect(malformedEnvelope(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -189,6 +202,7 @@ describe('SearXNG adapter', () => {
       { baseUrl: 'http://localhost:8888/' },
       { fetch: () => Promise.resolve(new Response(null, { status: 403 })) },
     );
+
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -204,16 +218,19 @@ describe('SearXNG adapter', () => {
       { baseUrl: 'http://localhost:8888/' },
       { fetch: captureFixture('failure', status).fetch },
     );
+
     await expect(engine(request())).rejects.toMatchObject({ failureClass });
   });
 
   it('refuses redirects without following them', async () => {
     let requests = 0;
+
     const engine = createSearxngEngine(
       { baseUrl: 'http://localhost:8888/' },
       {
         fetch: () => {
           requests += 1;
+
           return Promise.resolve(
             new Response('', {
               status: 302,
@@ -223,6 +240,7 @@ describe('SearXNG adapter', () => {
         },
       },
     );
+
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });

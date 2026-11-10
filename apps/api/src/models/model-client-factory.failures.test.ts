@@ -23,13 +23,16 @@ import { createOpenAICompletionsModelClient } from './openai-completions-model-c
 import { createOpenAIModelClient } from './openai-model-client';
 
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
 const messages = [
   { role: 'user', content: 'Say hello.' },
 ] satisfies Array<ModelMessage>;
+
 const USER_AGENT = 'llame/0.0.0-test';
 
 /** The entry's resolved credential; nothing upstream may echo it. */
 const KEY = 'CONFIGURED-KEY-CANARY-4c1d';
+
 /** A header substitution, the other configured credential a compaction request can carry. */
 const HEADER_SECRET = 'CONFIGURED-HEADER-CANARY-91be';
 
@@ -114,6 +117,7 @@ async function streamFailure(
   client: ModelClient,
 ): Promise<{ reported: unknown; settlement: unknown }> {
   const reported: Array<unknown> = [];
+
   const settlement: unknown = await client
     .streamText({
       chat: CHAT,
@@ -126,6 +130,7 @@ async function streamFailure(
       () => undefined,
       (error: unknown) => error,
     );
+
   return { reported: reported[0], settlement };
 }
 
@@ -248,6 +253,7 @@ describe('createModelClient failure redaction', () => {
     const harness = buildHarness({
       respond: () => new Response(`echoed ${KEY}`, { status: 401 }),
     });
+
     const client = factoryClient(
       {
         id: 'messages',
@@ -275,6 +281,7 @@ describe('createModelClient failure redaction', () => {
       'fetch',
       serve(() => new Response(`echoed ${KEY}`, { status: 401 })),
     );
+
     const client = factoryClient(
       {
         id: 'codex',
@@ -303,6 +310,7 @@ describe('createModelClient failure redaction', () => {
 
   it("keeps the SDK retry wrapper's classification while redacting its summary", async () => {
     let call = 0;
+
     const client = factoryClient(completionsProvider, {
       createOpenAIModelClient,
       createOpenAICompletionsModelClient: (config) =>
@@ -310,6 +318,7 @@ describe('createModelClient failure redaction', () => {
           ...config,
           fetch: () => {
             call += 1;
+
             return Promise.resolve(
               new Response(
                 JSON.stringify({ error: { message: `limit for ${KEY}` } }),
@@ -329,9 +338,11 @@ describe('createModelClient failure redaction', () => {
     const { reported } = await streamFailure(client);
 
     expect(call).toBeGreaterThan(1);
+
     if (!RetryError.isInstance(reported)) {
       throw new TypeError('expected the SDK retry wrapper');
     }
+
     expect(reported.lastError).toMatchObject({ statusCode: 429 });
     expect(reported.errors.length).toBeGreaterThan(1);
     expectNoCredential(reported);
@@ -339,6 +350,7 @@ describe('createModelClient failure redaction', () => {
 
   it('reports a rejected structured generation redacted on the Chat Completions wire', async () => {
     const client = completionsClient(`echoed ${KEY}`);
+
     if (client.generateObject === undefined) {
       throw new TypeError(
         'expected the Chat Completions client to generate objects',
@@ -374,9 +386,11 @@ describe('createModelClient failure redaction', () => {
     const loggerError = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     const consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
+
     const provider: ProviderConfig = {
       id: 'responses',
       type: 'openai-responses',
@@ -384,6 +398,7 @@ describe('createModelClient failure redaction', () => {
       baseUrl: 'https://endpoint.example.test/v1',
       headers: {},
     };
+
     const client = factoryClient(provider, {
       createOpenAIModelClient: (config) =>
         createOpenAIModelClient({
@@ -412,6 +427,7 @@ describe('createModelClient failure redaction', () => {
     // to interpolate: the log must render the redacted envelope's fields
     // instead of collapsing it to `[object Object]`.
     loggerError.mockClear();
+
     const structuredClient = factoryClient(provider, {
       createOpenAIModelClient: (config) =>
         createOpenAIModelClient({
@@ -518,6 +534,7 @@ describe('createModelClient failure redaction', () => {
           ),
         }),
     });
+
     if (client.generateObject === undefined) {
       throw new TypeError(
         'expected the Chat Completions client to generate objects',

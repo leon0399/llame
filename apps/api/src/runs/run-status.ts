@@ -51,10 +51,13 @@ export function markFinishedUpdate(
     status,
     finishedAt: new Date(),
   };
+
   if (options?.error !== undefined) update.error = options.error;
+
   if (status === 'completed' && options?.attemptId !== undefined) {
     update.completedAttemptId = options.attemptId;
   }
+
   return update;
 }
 

@@ -86,13 +86,16 @@ export function deriveMachineStatus(
   now: number,
 ): MachineStatus {
   if (lastContactAt === null) return 'offline';
+
   if (now - lastContactAt.getTime() > MACHINE_ONLINE_WINDOW_MS)
     return 'offline';
+
   if (
     lastFailureAt !== null &&
     lastFailureAt.getTime() >= lastContactAt.getTime()
   )
     return 'offline';
+
   return 'online';
 }
 
@@ -108,12 +111,16 @@ export function boundMachineRoots(
 ): ReadonlyArray<string> {
   if (roots === undefined) return [];
   const bounded: Array<string> = [];
+
   for (const root of roots) {
     if (bounded.length >= MACHINE_ROOTS_LIMIT) break;
+
     if (!root.startsWith('/')) continue;
     const text = root.slice(0, MACHINE_ROOT_MAX_LENGTH);
+
     if (!bounded.includes(text)) bounded.push(text);
   }
+
   return bounded;
 }
 
@@ -123,6 +130,7 @@ export function boundMachineVersion(
 ): string | undefined {
   if (version === undefined) return undefined;
   const text = version.slice(0, MACHINE_VERSION_MAX_LENGTH).trim();
+
   return text === '' ? undefined : text;
 }
 
@@ -160,6 +168,7 @@ export function machineStatusView(
       daemonVersion: null,
       roots: [],
     };
+
   return {
     name: row.name,
     status: deriveMachineStatus(row.lastContactAt, row.lastFailureAt, now),

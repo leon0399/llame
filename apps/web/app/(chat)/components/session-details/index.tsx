@@ -49,6 +49,7 @@ const HIDE_LABEL = "Hide session details";
 /** The open chat's id, or undefined off a `/chat/:id` route. */
 export function useOpenChatId(): string | undefined {
   const pathname = usePathname();
+
   return pathname.startsWith("/chat/") ? pathname.split("/")[2] : undefined;
 }
 
@@ -75,7 +76,9 @@ export function SessionDetailsTrigger() {
 /** The project the chat is filed in, once known. */
 function useChatProject(projectId: string | undefined, chatLoaded: boolean) {
   const { project, isLoading } = useProjectById(projectId);
+
   if (!chatLoaded || (projectId !== undefined && isLoading)) return undefined;
+
   return project === undefined ? null : { id: project.id, name: project.name };
 }
 
@@ -91,22 +94,30 @@ function useWorkspaceCheckout(
   const bound = workspaceRoot !== null;
   const checkouts = useCheckoutsQuery(undefined, bound);
   const repositories = useRepositoriesQuery(bound);
+
   const links = useProjectRepositoryLinksQuery(
     projectId ?? "",
     bound && projectId !== undefined,
   );
+
   if (!bound) return null;
+
   if (checkouts.data === undefined || repositories.data === undefined) {
     return undefined;
   }
+
   const checkout = checkouts.data.find((row) => row.path === workspaceRoot);
+
   if (checkout === undefined) return null;
+
   const repository = repositories.data.find(
     (row) => row.id === checkout.repositoryId,
   );
+
   const link = links.data?.find(
     (row) => row.repositoryId === checkout.repositoryId,
   );
+
   return {
     repository: link?.alias ?? repository?.displayName ?? "Repository",
     remote: repository?.canonicalRemote ?? null,
@@ -120,12 +131,15 @@ function useGitState(
   workspaceRoot: string | null,
 ): EnvironmentGitState {
   const { isMobile, open, openMobile } = useSidebar();
+
   const query = useChatGitStateQuery(
     chatId,
     workspaceRoot,
     isMobile ? openMobile : open,
   );
+
   if (query.isError) return { status: "error" };
+
   return query.data ?? { status: "loading" };
 }
 
@@ -133,18 +147,24 @@ function useGitState(
 function useEnvironment(chatId: string): EnvironmentSectionProps {
   const chat = useOpenChat(chatId, { fetch: false });
   const workspaceRoot = chat?.workspaceRoot ?? null;
+
   const machineName =
     workspaceRoot === null ? undefined : machineNameFromRoot(workspaceRoot);
+
   const machinesQuery = useMachinesQuery(machineName !== undefined);
+
   const project = useChatProject(
     chat?.projectId ?? undefined,
     chat !== undefined,
   );
+
   const checkout = useWorkspaceCheckout(
     workspaceRoot,
     chat?.projectId ?? undefined,
   );
+
   const gitState = useGitState(chatId, workspaceRoot);
+
   return {
     chatLoaded: chat !== undefined,
     workspaceRoot,

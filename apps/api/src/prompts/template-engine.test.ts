@@ -37,13 +37,16 @@ describe('loadPackagedTemplate', () => {
     const packagedFirstSource = 'packaged-first={{value}}';
     const operatorFirstSource = 'operator-first={{value}}';
     writeTemplate('packaged-first', packagedFirstSource);
+
     const packagedFirst = loadPackagedTemplate<{ value: string }>(
       directory,
       'packaged-first',
     );
+
     const operatorFirst = compilePromptTemplate(packagedFirstSource);
     const operatorSecond = compilePromptTemplate(operatorFirstSource);
     writeTemplate('operator-first', operatorFirstSource);
+
     const packagedSecond = loadPackagedTemplate<{ value: string }>(
       directory,
       'operator-first',

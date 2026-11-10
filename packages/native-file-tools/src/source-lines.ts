@@ -6,6 +6,7 @@ import {
 import { renderReadText } from "./model-text";
 import { assertResolvedTarget, NativeFileError, type ReadTarget } from "./path";
 import { selectMarkdownSourceLines } from "./markdown-ancestors";
+
 export const MAX_READ_LINES = 2000;
 export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
 
@@ -35,6 +36,7 @@ export function measureReadRendering(
 }
 
 export type LineRange = { startLine: number; endLine: number };
+
 type ReadSuccessBase = {
   status: "success";
   kind: "file";
@@ -64,6 +66,7 @@ export type MultiReadSuccess = ReadSuccessBase & {
 };
 
 export type ReadSuccess = SingleReadSuccess | MultiReadSuccess;
+
 export type FileFailure = {
   status: "error";
   type: NativeFileError["type"];
@@ -93,26 +96,33 @@ export function selectSourceLines(
   assertResolvedTarget(target);
   const lines = splitSourceLines(source);
   const placed: ReadTarget = { ...target, lineCount: lines.length };
+
   if (mediaType === "text/markdown" && placed.offset > 0 && !placed.raw)
     return selectMarkdownSourceLines(source, placed);
+
   if (
     placed.offset >= lines.length &&
     (lines.length > 0 || placed.offset !== 0)
   ) {
     throw new NativeFileError("invalid_selector");
   }
+
   const requestedEnd = placed.offset + (placed.limit ?? MAX_READ_LINES);
+
   const boundedEnd = Math.min(
     lines.length,
     placed.offset + boundedReadLineCount(placed.limit),
   );
+
   const start = placed.raw ? placed.offset : Math.max(0, placed.offset - 1);
   const end = placed.raw ? boundedEnd : Math.min(lines.length, boundedEnd + 1);
   const result = emptyReadResult(placed, lines.length === 0 ? 0 : requestedEnd);
   result.truncated =
     boundedEnd < Math.min(requestedEnd, lines.length) ||
     (placed.limit === undefined && boundedEnd < lines.length);
+
   if (boundedEnd < lines.length) result.nextOffset = boundedEnd;
+
   return renderSelection(lines, placed, result, { start, end });
 }
 
@@ -123,9 +133,11 @@ function renderSelection(
   window: { start: number; end: number },
 ): SingleReadSuccess {
   const { start, end } = window;
+
   for (let index = start; index < end; index += 1) {
     if (!appendReadLine(result, lines[index], index, target)) break;
   }
+
   return result;
 }
 
@@ -146,6 +158,7 @@ export function appendReadLine(
 ): boolean {
   const line =
     text === undefined ? undefined : renderSourceLine(text, index, target.raw);
+
   const candidate: SingleReadSuccess = {
     ...result,
     content: result.content + (line ?? ""),
@@ -154,7 +167,9 @@ export function appendReadLine(
       endLine: index + 1,
     },
   };
+
   const isFirstLineOfResult = result.content === "";
+
   // Measure with the offset the failed append would store: `retryOffset`
   // resumes at the line inside the window, and at the window end once the
   // appended line is the trailing context line, whose stored offset is the
@@ -163,11 +178,13 @@ export function appendReadLine(
     line === undefined ||
     measureReadRendering(candidate, retryOffset(target, index + 1)) >
       resultBudget(target);
+
   // The only index below the requested offset is the single preceding
   // context line. One that cannot be rendered is unavailable context, not a
   // truncated result, so dropping it keeps the requested range reachable
   // instead of stalling every continuation read on the same line.
   if (overflows && isFirstLineOfResult && index < target.offset) return true;
+
   if (overflows) {
     result.truncated = true;
     // A line that is unreadable on its own (`line === undefined`), or that
@@ -177,9 +194,12 @@ export function appendReadLine(
       line === undefined || isFirstLineOfResult
         ? index + 1
         : retryOffset(target, index);
+
     return false;
   }
+
   Object.assign(result, candidate);
+
   return true;
 }
 
@@ -196,6 +216,7 @@ export function emptyReadResult(
     target.lineCount !== undefined
       ? target.lineCount
       : endLine;
+
   const result: SingleReadSuccess = {
     status: "success",
     kind: "file",
@@ -209,10 +230,14 @@ export function emptyReadResult(
     shownRange: null,
     truncated: false,
   };
+
   if (target.realPath !== undefined) result.realPath = target.realPath;
+
   if (target.lineCount !== undefined) result.lineCount = target.lineCount;
+
   if (measureReadRendering(result, target.offset) > resultBudget(target))
     throw new NativeFileError("invalid_path");
+
   return result;
 }
 
@@ -230,6 +255,7 @@ export function renderSourceLine(
 ): string {
   return raw ? source : `${index + 1}: ${source}`;
 }
+
 export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
   const result: MultiReadSuccess = {
     status: "success",
@@ -244,10 +270,14 @@ export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
     shownRanges: [],
     truncated: false,
   };
+
   if (target.realPath !== undefined) result.realPath = target.realPath;
+
   if (target.lineCount !== undefined) result.lineCount = target.lineCount;
+
   if (measureReadRendering(result, target.offset) > resultBudget(target))
     throw new NativeFileError("invalid_selector");
+
   return result;
 }
 
@@ -265,10 +295,12 @@ export function appendMultiReadLine(
   const line = renderSourceLine(text, index, target.raw);
   const last = result.shownRanges.at(-1);
   const contiguous = last !== undefined && last.endLine === index;
+
   const shown: LineRange = {
     startLine: contiguous ? last.startLine : index + 1,
     endLine: index + 1,
   };
+
   const candidate: MultiReadSuccess = {
     ...result,
     content: result.content + line,
@@ -276,16 +308,22 @@ export function appendMultiReadLine(
       ? [...result.shownRanges.slice(0, -1), shown]
       : [...result.shownRanges, shown],
   };
+
   const isFirstLineOfResult = result.content === "";
+
   const overflows =
     measureReadRendering(candidate, index + 1) > resultBudget(target);
+
   if (overflows) {
     result.truncated = true;
     // A line that fails even as the first line of a fresh result fails again
     // at this same index on any retry — nextOffset must skip past it instead.
     result.nextOffset = isFirstLineOfResult ? index + 1 : index;
+
     return false;
   }
+
   Object.assign(result, candidate);
+
   return true;
 }

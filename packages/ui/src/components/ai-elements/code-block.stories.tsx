@@ -37,6 +37,7 @@ const meta = {
 } satisfies Meta<typeof CodeBlock>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 // Module-scoped so both `render` and `play` see the same spy without widening
@@ -95,10 +96,12 @@ export const WithCopyButton: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     onCopy.mockClear();
+
     const clipboardDescriptor = Object.getOwnPropertyDescriptor(
       navigator,
       "clipboard",
     );
+
     const writeText = fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,

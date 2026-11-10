@@ -63,10 +63,12 @@ export function artifactNotice(
         `${oneLine(part.locator)} (${part.lines} ${part.lines === 1 ? "line" : "lines"})`,
     )
     .join(", ");
+
   const continuation =
     options.continueWith === undefined
       ? ""
       : `; continue with ${oneLine(options.continueWith.locator)}:${options.continueWith.next}-`;
+
   return `[full result: ${named}${continuation}${hostFilesPhrase(options.hostFiles)}]`;
 }
 
@@ -82,7 +84,9 @@ function hostFilesPhrase(
 ): string {
   if (hostFiles === undefined) return "";
   const directory = oneLine(hostFiles.directory);
+
   if (!hostFiles.elsewhere) return `; host files in ${directory}`;
+
   return hostFiles.readable
     ? "; host files on the llame host only"
     : `; host files in ${directory} on the llame host`;

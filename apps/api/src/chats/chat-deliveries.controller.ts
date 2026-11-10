@@ -61,6 +61,7 @@ export class ChatDeliveriesController {
     @Param('chatId', ParseUUIDPipe) chatId: string,
   ): Promise<ChatDeliveriesResponse> {
     const items = await this.deliveries.listPending(chatId, userId);
+
     return { items: items.map(toChatDeliveryResponse) };
   }
 

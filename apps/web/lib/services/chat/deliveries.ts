@@ -50,6 +50,7 @@ const NO_DELIVERIES: ReadonlyArray<ChatDeliveryResponse> = [];
  *  messages replace the cached list, so the query never polls. */
 export function useChatDeliveries(chatId: string, enabled: boolean) {
   const query = useQuery({ ...deliveriesQueryOptions(chatId), enabled });
+
   return query.data?.items ?? NO_DELIVERIES;
 }
 
@@ -114,19 +115,24 @@ export async function sendDelivery(
     effort: request.effort,
     permissionMode: request.permissionMode,
   });
+
   const response = await authAwareFetch(api, {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...body, delivery: request.delivery }),
   });
+
   if (!response.ok) {
     throw new Error(await sendFailureText(response));
   }
+
   if (response.status !== 202) {
     await response.body?.cancel();
+
     return { kind: "started" };
   }
+
   // SAFETY: a 202 from this route is a `ChatDeliveryResponse`, as the OpenAPI
   // document says; the generated client skips this route (tag `streaming`).
   return {
@@ -137,6 +143,7 @@ export async function sendDelivery(
 
 async function sendFailureText(response: Response): Promise<string> {
   const text = await response.text();
+
   return text === "" ? `Send failed (${response.status})` : text;
 }
 
@@ -191,6 +198,7 @@ export function deliveryText(item: ChatDeliveryResponse): string {
   return item.parts
     .flatMap((part) => {
       const text = textPartSchema.safeParse(part);
+
       return text.success ? [text.data.text] : [];
     })
     .join("\n\n");
@@ -200,8 +208,10 @@ export function deliveryText(item: ChatDeliveryResponse): string {
 export function deliveryFiles(item: ChatDeliveryResponse): Array<FileUIPart> {
   return item.parts.flatMap((part) => {
     const file = filePartSchema.safeParse(part);
+
     if (!file.success) return [];
     const { url, mediaType, filename } = file.data;
+
     return [
       {
         type: "file" as const,
@@ -224,7 +234,9 @@ export function isRunActive(input: {
   latestRun: ChatLatestRunResponse | null;
 }): boolean {
   const { status, latestRun } = input;
+
   if (status === "streaming" || status === "submitted") return true;
+
   return latestRun !== null && !isTerminalRunStatus(latestRun.status);
 }
 

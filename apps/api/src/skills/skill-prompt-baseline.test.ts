@@ -43,6 +43,7 @@ function defined(
   value: SkillCatalogBaseline | undefined,
 ): SkillCatalogBaseline {
   if (value === undefined) throw new Error('expected a resolved baseline');
+
   return value;
 }
 
@@ -95,6 +96,7 @@ describe('boundSkillCatalog', () => {
     );
 
     const baseline = boundSkillCatalog(entries);
+
     const bytes = baseline.entries.reduce(
       (total, e) =>
         total + Buffer.byteLength(e.name) + Buffer.byteLength(e.description),
@@ -128,10 +130,12 @@ describe('boundSkillCatalog', () => {
     const baseline = boundSkillCatalog(entries);
 
     expect(baseline.entries.length).toBeLessThanOrEqual(4);
+
     const bytes = baseline.entries.reduce(
       (total, e) => total + Buffer.byteLength(e.description, 'utf8'),
       0,
     );
+
     expect(bytes).toBeLessThanOrEqual(SKILL_BASELINE_MAX_BYTES);
   });
 });

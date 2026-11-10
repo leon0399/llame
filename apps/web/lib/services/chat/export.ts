@@ -16,9 +16,11 @@ import { fetchModels } from "../models/queries";
 function fetchAllMessages(chatId: string): Promise<Array<ChatMessageResponse>> {
   return paginateAllMessages((beforeSeq) => {
     const params: GetChatMessagesParams = { limit: CHAT_HISTORY_PAGE_SIZE };
+
     if (beforeSeq !== undefined) {
       params.beforeSeq = beforeSeq;
     }
+
     return getChatMessages(
       encodeURIComponent(chatId),
       params,
@@ -57,6 +59,7 @@ export async function exportChatAsMarkdown(
     fetchAllMessages(chatId),
     fetchModels().catch(() => undefined),
   ]);
+
   const markdown = chatToMarkdown(title, messages, modelsResponse?.models);
   downloadTextFile(`${slugifyTitle(title)}.md`, markdown);
 }

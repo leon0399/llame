@@ -97,10 +97,12 @@ async function sendComposed(
  *  plain factory, it calls no hooks. */
 function createHandleSubmit(args: ChatSubmitHandlersArgs) {
   const { input, status, modelReadyForSend, attachments } = args;
+
   return async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
     const files = attachmentFileParts(attachments.items);
+
     if (
       (!text && files.length === 0) ||
       status === "streaming" ||
@@ -110,6 +112,7 @@ function createHandleSubmit(args: ChatSubmitHandlersArgs) {
     ) {
       return;
     }
+
     await sendComposed(args, text, files);
   };
 }
@@ -136,6 +139,7 @@ function useChatActions({
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
   const attachments = useComposerAttachments();
+
   const { pendingStop, requestStop, clearPendingStop } = usePendingStop({
     messages,
     stop,
@@ -264,10 +268,12 @@ type ChatTranscriptInput = {
 
 function deriveChatTranscript(input: ChatTranscriptInput) {
   const { compaction, latestRun, status } = input;
+
   const merged = mergeTrustedModelContextParts(
     input.messages,
     input.chatMessages,
   ).filter((message) => message.role !== "system");
+
   // A follow-up Run of the latest turn that has not settled replaced its
   // reply: hide that reply so a reload before the dispatch shows the resumed
   // stream alone (turn-actions D13). The same holds for any durable reply a
@@ -277,12 +283,16 @@ function deriveChatTranscript(input: ChatTranscriptInput) {
     merged,
     replacementContext({ status, latestRun }),
   );
+
   const followUpReply = hiddenFollowUpReplyIndex(merged, latestRun);
+
   if (followUpReply !== null) hidden.add(followUpReply);
+
   const displayMessages =
     hidden.size === 0
       ? merged
       : merged.filter((_message, index) => !hidden.has(index));
+
   // SAFETY: `UIMessage["metadata"]` is generic/unknown-shaped at the type
   // level; every message here is one this app persisted, so its metadata is
   // always this app's own `{ seq?: number }` shape (or absent).
@@ -290,6 +300,7 @@ function deriveChatTranscript(input: ChatTranscriptInput) {
     displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
     compaction?.absorbedThroughSeq ?? null,
   );
+
   return { displayMessages, compactionIndex };
 }
 
@@ -317,6 +328,7 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
   // boundary is already crossed.
   const streamInterruption = useStreamInterruption();
   const handoff = useRunHandoff(setup.refreshChatMessages);
+
   const engine = useChatEngine({
     ...setup,
     chatId,
@@ -327,6 +339,7 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
     onStreamInterrupted: streamInterruption.report,
     onSegmentDelivered: handoff.begin,
   });
+
   const transcript = deriveChatTranscript({
     messages: engine.messages,
     chatMessages,
@@ -369,6 +382,7 @@ function buildComposerState(
     handleSubmit: delivery.runActive
       ? (event: React.FormEvent<HTMLFormElement>) => {
           event.preventDefault();
+
           return delivery.deliver("steer");
         }
       : actions.handleSubmit,
@@ -476,6 +490,7 @@ export function useChatConversation(args: UseChatConversationArgs) {
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
   const setup = useChatSetup(chatId);
   const engineState = useChatEngineState({ ...args, setup });
+
   const actions = useChatActions({
     messages: engineState.engine.messages,
     stop: engineState.engine.stop,
@@ -485,10 +500,12 @@ export function useChatConversation(args: UseChatConversationArgs) {
     onSendStarted,
     onSendFailed,
   });
+
   const onFollowUp = useFollowUpRun(
     engineState.engine.regenerate,
     onSendStarted,
   );
+
   const delivery = useConversationDelivery(args, setup, engineState, actions);
 
   return {

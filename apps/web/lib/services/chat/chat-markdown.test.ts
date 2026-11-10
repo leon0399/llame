@@ -24,6 +24,7 @@ const msg = (over: MsgOverrides) => {
     createdAt: "2026-07-03T00:00:00Z",
     ...over,
   };
+
   // SAFETY: every call site in this file supplies `role` and `parts`
   // through `over` — the two `ChatMessageResponse` fields this base literal
   // omits — but `Partial<ChatMessageResponse>` can't prove that statically
@@ -53,6 +54,7 @@ describe("chatToMarkdown", () => {
         },
       ],
     );
+
     expect(md).toContain("# My Chat");
     expect(md).toContain("**You**\n\nhi");
     expect(md).toContain("**Assistant** · GPT-4o\n\nhello");
@@ -67,6 +69,7 @@ describe("chatToMarkdown", () => {
         usage: { modelId: "custom:unknown-model" },
       }),
     ]);
+
     expect(md).toContain("**Assistant** · custom:unknown-model");
   });
 
@@ -90,6 +93,7 @@ describe("chatToMarkdown", () => {
         },
       ],
     );
+
     expect(md).toContain("**Assistant** · GPT-4o");
   });
 
@@ -103,6 +107,7 @@ describe("chatToMarkdown", () => {
         ],
       }),
     ]);
+
     expect(md).toContain("> _Reasoning:_ let me think");
     expect(md).toContain("answer");
   });
@@ -161,6 +166,7 @@ describe("chatToMarkdown", () => {
       type: "reasoning",
       text: "**Investigating likely culprit PRs****Inspecting message schema**",
     };
+
     const md = chatToMarkdown("T", [
       msg({
         role: "assistant",
@@ -211,6 +217,7 @@ describe("chatToMarkdown", () => {
           parts: [{ type: "reasoning", text }],
         }),
       ]);
+
       expect(md).toContain(`> _Reasoning:_ ${text}`);
       // No paragraph break inside the blockquote (that would render as a
       // quoted empty line).
@@ -236,6 +243,7 @@ describe("chatToMarkdown", () => {
       msg({ role: "assistant", parts: [] }), // empty
       msg({ role: "user", parts: [{ type: "text", text: "kept" }] }),
     ]);
+
     expect(md).not.toContain("SYSTEM");
     expect(md).not.toContain("TOOL");
     expect(md).toContain("kept");
@@ -252,6 +260,7 @@ describe("chatToMarkdown", () => {
         ],
       }),
     ]);
+
     expect(md).toContain("Let me check.\n\nIt's sunny.");
     expect(md).not.toContain("Let me check.It's sunny."); // no run-on
   });

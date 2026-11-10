@@ -78,6 +78,7 @@ describeIfDb(
       'PGBOSS_SCHEMA',
       'LLAME_WORKER_PROFILE',
     ] as const;
+
     let originalEnv: Record<string, string | undefined>;
 
     beforeEach(() => {
@@ -107,11 +108,13 @@ describeIfDb(
         .overrideProvider(CanonicalSearchCoverageService)
         .useValue({ assertReady: () => Promise.resolve() })
         .compile();
+
       // .init() runs onApplicationBootstrap (registers consumers) with NO
       // HTTP adapter ever created — createNestApplication()/listen() are
       // never called, matching NestFactory.createApplicationContext.
       await moduleRef.init();
       const db = getDbClient(moduleRef);
+
       try {
         const runtime = moduleRef.get(McpRuntimeService, { strict: false });
         expect(
@@ -126,6 +129,7 @@ describeIfDb(
         const registeredQueues = consumeSpy.mock.calls.map(
           ([definition]) => (definition as { name: string }).name,
         );
+
         expect(registeredQueues).toEqual(
           expect.arrayContaining([
             'runs',
@@ -145,6 +149,7 @@ describeIfDb(
         await moduleRef.close();
         await db.$client.end();
       }
+
       consumeSpy.mockRestore();
     });
 
@@ -160,14 +165,17 @@ describeIfDb(
         .overrideProvider(CanonicalSearchCoverageService)
         .useValue({ assertReady: () => Promise.resolve() })
         .compile();
+
       await moduleRef.init();
       const db = getDbClient(moduleRef);
+
       try {
         expect(consumeSpy).not.toHaveBeenCalled();
       } finally {
         await moduleRef.close();
         await db.$client.end();
       }
+
       consumeSpy.mockRestore();
     });
   },

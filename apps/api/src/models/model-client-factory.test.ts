@@ -18,18 +18,21 @@ const createResponsesClientMock = vi.mocked(
   vi.fn<typeof createOpenAIModelClient>(),
   { partial: true },
 );
+
 createResponsesClientMock.mockReturnValue({ model: 'fake' });
 
 const createCompletionsClientMock = vi.mocked(
   vi.fn<typeof createOpenAICompletionsModelClient>(),
   { partial: true },
 );
+
 createCompletionsClientMock.mockReturnValue({ model: 'fake' });
 
 const createCodexClientMock = vi.mocked(
   vi.fn<typeof createOpenAICodexModelClient>(),
   { partial: true },
 );
+
 createCodexClientMock.mockReturnValue({ model: 'fake' });
 
 const dependencies = {
@@ -167,6 +170,7 @@ describe('createModelClient wire dispatch', () => {
       ...model,
       provider: 'responses',
     };
+
     if (reasoning !== null) entry.reasoning = reasoning;
 
     createModelClient(
@@ -277,6 +281,7 @@ describe('createModelClient wire dispatch', () => {
       baseUrl: null,
       headers: {},
     };
+
     const completionsProvider: OpenAICompletionsProviderConfig = {
       id: 'openai-completions-unreadable',
       type: 'openai-completions',
@@ -284,6 +289,7 @@ describe('createModelClient wire dispatch', () => {
       baseUrl: 'https://api.example.test/v1',
       headers: {},
     };
+
     for (const provider of [responsesProvider, completionsProvider]) {
       Object.defineProperty(provider, 'id', {
         get: () => {
@@ -317,6 +323,7 @@ describe('createModelClient wire dispatch', () => {
 
   it('carries the model providerOptions, maxOutputTokens, and input into every client config without mutating the entry', () => {
     const providerOptions = { user: 'run-owner', max_tokens: 1 };
+
     const entry = {
       ...model,
       input: ['text', 'image'] as const,
@@ -347,6 +354,7 @@ describe('createModelClient wire dispatch', () => {
         headers: {},
       },
     ] as const;
+
     for (const provider of providers) {
       createModelClient(
         {
@@ -375,6 +383,7 @@ describe('createModelClient wire dispatch', () => {
         }),
       );
     }
+
     expect(entry.providerOptions).toBe(providerOptions);
     expect(entry.maxOutputTokens).toBe(4096);
   });
@@ -403,11 +412,13 @@ describe('createModelClient wire dispatch', () => {
     expect(config).not.toHaveProperty('maxOutputTokens');
   });
 });
+
 describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)', () => {
   const createMessagesClientMock = vi.mocked(
     vi.fn<typeof createAnthropicModelClient>(),
     { partial: true },
   );
+
   createMessagesClientMock.mockReturnValue({ model: 'fake' });
 
   const messagesDependencies = {
@@ -455,6 +466,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
 
   it('supplies the Anthropic default base URL when the entry configures none, even with an ambient ANTHROPIC_BASE_URL', () => {
     vi.stubEnv('ANTHROPIC_BASE_URL', 'https://ambient.example.test');
+
     try {
       createModelClient(
         {
@@ -600,6 +612,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
     vi.fn<typeof createOpenCodeGoModelClient>(),
     { partial: true },
   );
+
   createGoClientMock.mockReturnValue({ model: 'fake' });
 
   const goDependencies = {

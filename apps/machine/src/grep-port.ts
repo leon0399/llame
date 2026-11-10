@@ -26,6 +26,7 @@ import { isInsideRoots } from "./locators";
 
 /** The largest ignore file the walk reads; a larger one applies no rules. */
 const IGNORE_FILE_BYTES = 256 * 1024;
+
 /** One chunk of a bounded ignore read; a file never reaches memory whole. */
 const READ_CHUNK_BYTES = 64 * 1024;
 const NOT_FOUND_MESSAGE = "The target does not exist.";
@@ -71,6 +72,7 @@ export function createGrepWalkPort(
     guard,
     signal,
   };
+
   return {
     followsLinks: false,
     list: (rel) => listDirectory(walk, rel),
@@ -97,10 +99,13 @@ function registeredRoot(
   canonical: string,
 ): string {
   let held: string | undefined;
+
   for (const root of roots) {
     if (!isInsideRoots([root], canonical)) continue;
+
     if (held === undefined || root.length > held.length) held = root;
   }
+
   // A prefix whose root is not held stops its ancestor walk at itself.
   return held ?? canonical;
 }
@@ -117,6 +122,7 @@ async function unchanged(walk: Walk, rel: string): Promise<boolean> {
   // The guard refuses a path outside the roots and any link hop that resolves
   // outside them; both arrive here as an absent result.
   const after = await walk.guard.resolvePath(target).catch(() => undefined);
+
   return after !== undefined && !after.isLink && after.canonical === target;
 }
 
@@ -128,14 +134,17 @@ async function listDirectory(
   walk.signal?.throwIfAborted();
   const target = at(walk.canonical, rel);
   let dirents: Array<Dirent>;
+
   try {
     dirents = await readdir(target, { withFileTypes: true });
   } catch (error) {
     // A subdirectory that cannot be listed, or one that vanished mid-walk,
     // contributes nothing; only the prefix the request named fails the call.
     if (rel.length > 0) return [];
+
     const code =
       error instanceof Error && "code" in error ? String(error.code) : "";
+
     throw new GrepWalkFailure(
       code === "ENOENT"
         ? failure("not_found", NOT_FOUND_MESSAGE)
@@ -144,9 +153,11 @@ async function listDirectory(
           : failure("executor_unavailable", LISTING_FAILED_MESSAGE),
     );
   }
+
   // A directory swapped for a link after the listing keeps no entries: the
   // names it returned describe a tree the roots no longer hold.
   if (!(await unchanged(walk, rel))) return [];
+
   return dirents.map((dirent): GrepEntry => ({
     name: dirent.name,
     kind: dirent.isSymbolicLink()
@@ -171,15 +182,18 @@ async function readBounded(
 ): Promise<Buffer> {
   const chunks: Array<Buffer> = [];
   let total = 0;
+
   while (total <= maxBytes) {
     signal?.throwIfAborted();
     const room = Math.min(READ_CHUNK_BYTES, maxBytes + 1 - total);
     const chunk = Buffer.allocUnsafe(room);
     const { bytesRead } = await handle.read(chunk, 0, room, null);
+
     if (bytesRead === 0) break;
     chunks.push(chunk.subarray(0, bytesRead));
     total += bytesRead;
   }
+
   return Buffer.concat(chunks, total);
 }
 
@@ -189,13 +203,16 @@ async function readIgnoreFiles(
   rel: string,
 ): Promise<ReadonlyArray<string>> {
   const texts: Array<string> = [];
+
   for (const name of GREP_IGNORE_FILE_NAMES) {
     const text = await readIgnoreText(
       walk,
       at(walk.canonical, path.join(rel, name)),
     );
+
     if (text !== undefined) texts.push(text);
   }
+
   return texts;
 }
 
@@ -205,25 +222,30 @@ async function readIgnoreText(
   file: string,
 ): Promise<string | undefined> {
   let handle: FileHandle | undefined;
+
   try {
     walk.signal?.throwIfAborted();
     // Policy comes from a real file only, under the walk's own rule: a link is
     // never followed and a FIFO never blocks the walk.
     handle = await open(file, openFlags(false));
     const stats = await handle.stat();
+
     if (!stats.isFile() || stats.size > IGNORE_FILE_BYTES) return undefined;
     const bytes = await readBounded(handle, IGNORE_FILE_BYTES, walk.signal);
     // An ignore file reached through a swapped directory or replaced by a
     // link applies no rules, exactly as a link at the address would not.
     const after = await walk.guard.resolvePath(file).catch(() => undefined);
+
     if (after === undefined || after.isLink || after.canonical !== file)
       return undefined;
+
     return bytes.byteLength > IGNORE_FILE_BYTES
       ? undefined
       : bytes.toString("utf8");
   } catch {
     // A cancellation is not an absent file: let the walk end the call.
     walk.signal?.throwIfAborted();
+
     return undefined;
   } finally {
     await handle?.close();

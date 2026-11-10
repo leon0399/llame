@@ -21,6 +21,7 @@ describe("usePendingStop", () => {
     const stop = vi.fn();
     const cancelRun = vi.fn().mockResolvedValue(undefined);
     const toastError = vi.fn();
+
     const { result } = renderHook(() =>
       usePendingStop({
         messages: withAssistant("run-known"),
@@ -46,6 +47,7 @@ describe("usePendingStop", () => {
     const stop = vi.fn();
     const cancelRun = vi.fn().mockResolvedValue(undefined);
     const toastError = vi.fn();
+
     const { result, rerender } = renderHook(
       (props: { messages: ReadonlyArray<Pick<UIMessage, "id" | "role">> }) =>
         usePendingStop({
@@ -77,14 +79,17 @@ describe("usePendingStop", () => {
     const stop = vi.fn();
     const cancelRun = vi.fn().mockResolvedValue(undefined);
     const toastError = vi.fn();
+
     type Props = {
       messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>;
       status: "submitted" | "streaming" | "ready" | "error";
     };
+
     const initialProps: Props = {
       messages: userOnly(),
       status: "submitted",
     };
+
     const { result, rerender } = renderHook(
       (props: Props) =>
         usePendingStop({
@@ -120,14 +125,17 @@ describe("usePendingStop", () => {
     const stop = vi.fn();
     const cancelRun = vi.fn().mockResolvedValue(undefined);
     const toastError = vi.fn();
+
     type Props = {
       messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>;
       status: "submitted" | "streaming" | "ready" | "error";
     };
+
     const initialProps: Props = {
       messages: userOnly(),
       status: "submitted",
     };
+
     const { result, rerender } = renderHook(
       (props: Props) =>
         usePendingStop({
@@ -159,14 +167,17 @@ describe("usePendingStop", () => {
 
   it("stops immediately without waiting for cancelRun", async () => {
     let resolveCancel: (() => void) | undefined;
+
     const cancelRun = vi.fn(
       () =>
         new Promise<void>((resolve) => {
           resolveCancel = resolve;
         }),
     );
+
     const stop = vi.fn();
     const toastError = vi.fn();
+
     const { result } = renderHook(() =>
       usePendingStop({
         messages: withAssistant("run-slow"),
@@ -189,6 +200,7 @@ describe("usePendingStop", () => {
     const stop = vi.fn();
     const cancelRun = vi.fn().mockRejectedValue(new Error("network"));
     const toastError = vi.fn();
+
     const { result } = renderHook(() =>
       usePendingStop({
         messages: withAssistant("run-fail"),

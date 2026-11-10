@@ -35,6 +35,7 @@ export async function renameChat(id: string, title: string): Promise<void> {
 
 export function useRenameChat() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) =>
       renameChat(id, title),
@@ -67,6 +68,7 @@ export async function setChatArchive(
 
 export function useSetChatArchive() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
       setChatArchive(id, archived),
@@ -103,6 +105,7 @@ export async function deleteChat(id: string): Promise<void> {
 
 export function useDeleteChat() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id: string) => deleteChat(id),
     onSuccess: () => {
@@ -129,6 +132,7 @@ export async function setChatVisibility(
 
 export function useSetChatVisibility() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({
       id,

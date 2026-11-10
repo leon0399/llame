@@ -26,28 +26,36 @@ import { CreateProjectForChatDialog } from "./project-dialogs";
 
 function useChatListData() {
   const pathname = usePathname();
+
   const routeChatId = pathname.startsWith("/chat/")
     ? pathname.split("/")[2]
     : undefined;
+
   const { show } = useChatListShow();
 
   const { data: pinnedData, isLoading: pinnedLoading } =
     useChatsQuery(pinnedChatsFilters());
+
   const { data, isLoading: chatsLoading } = useChatsQuery(
     chatListFilters(show),
   );
+
   const openChat = useOpenChat(routeChatId);
   const { data: projects } = useProjects();
   const { data: pins } = usePins();
+
   const pinnedChats = React.useMemo(
     () => (show === "archived" ? [] : (pinnedData?.pages.flat() ?? [])),
     [pinnedData, show],
   );
+
   const allChats = React.useMemo(
     () => withOpenItem(data?.pages.flat() ?? [], openChat, pinnedChats),
     [data, openChat, pinnedChats],
   );
+
   const allProjects = React.useMemo(() => projects ?? [], [projects]);
+
   const pinnedAtByChatId = React.useMemo(
     () => selectPinnedChatMap(pins),
     [pins],
@@ -97,11 +105,13 @@ function ChatListEmptyState({ show }: { show: ListShow }) {
 
 function ChatListBody() {
   const list = useChatListData();
+
   const [newProjectChatId, setNewProjectChatId] = React.useState<string | null>(
     null,
   );
 
   if (list.isLoading) return <ChatListLoadingState />;
+
   if (
     !list.listLoading &&
     list.allChats.length === 0 &&
@@ -117,6 +127,7 @@ function ChatListBody() {
     // Rail and sheet both render on the sidebar surface.
     surfaceClassName: "bg-sidebar",
   };
+
   return (
     <>
       <PinnedChatGroup chats={list.pinnedChats} {...rowProps} />
@@ -140,6 +151,7 @@ function ChatListBody() {
 // section above the time-grouped list, never interleaved.
 export function ChatList() {
   const view = useChatListShow();
+
   return (
     <>
       <ListViewChip {...view} />

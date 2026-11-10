@@ -46,6 +46,7 @@ export class FollowUpRunBodyPipe implements PipeTransform {
       isRecord(value) && value['action'] === 'regenerate'
         ? this.regenerateBody
         : this.continueBody;
+
     // SAFETY: `expectedType` makes ValidationPipe parse and validate the body
     // as that variant class, which is the shape it returns.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion

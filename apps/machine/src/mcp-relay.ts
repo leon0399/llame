@@ -64,8 +64,10 @@ function asError(error: unknown): Error {
 /** A transport failure's text, including the cause a wrapped fetch hides. */
 function describeError(error: Error): string {
   const cause = error.cause;
+
   if (!(cause instanceof Error) || cause.message.length === 0)
     return error.message;
+
   return `${error.message}: ${cause.message}`;
 }
 
@@ -142,6 +144,7 @@ export class McpRelay {
     const transport = this.createTransport();
     this.transport = transport;
     this.listen(transport);
+
     try {
       await transport.start();
     } catch (error) {
@@ -150,6 +153,7 @@ export class McpRelay {
       await this.close();
       throw startFailure(this.input.name, error, this.input.protectedValues);
     }
+
     this.published = true;
     // Linked after the answer is the hub's: cancelling the stream or losing
     // the session are the two ways this relay is told to put the server down,
@@ -159,6 +163,7 @@ export class McpRelay {
 
   close(): Promise<void> {
     this.closing ??= this.closeOnce();
+
     return this.closing;
   }
 
@@ -166,13 +171,16 @@ export class McpRelay {
     this.diagnostics.flush();
     const transport = this.transport;
     this.transport = undefined;
+
     try {
       await transport?.close();
     } catch {
       // A transport that already died refuses to close; there is nothing left
       // to do about it, and the stream below still has to be closed.
     }
+
     this.diagnostics.flush();
+
     if (this.published) this.input.context.closeStream();
     this.settled.resolve();
   }
@@ -192,12 +200,14 @@ export class McpRelay {
       ...(definition.env !== undefined && { env: definition.env }),
       ...(definition.cwd !== undefined && { cwd: definition.cwd }),
     };
+
     const transport = createStdioTransport(config);
     // Attached before start: the child can write to stderr from its first
     // instruction, and the buffer bounds and redacts what it writes.
     transport.stderr?.on("data", (chunk: Buffer) =>
       this.diagnostics.append(chunk),
     );
+
     return transport;
   }
 
@@ -240,14 +250,19 @@ export class McpRelay {
   private receive(notification: JsonRpcNotification): void {
     if (notification.method === MCP_SET_PROTOCOL_VERSION_NOTIFICATION) {
       this.setProtocolVersion(notification.params);
+
       return;
     }
+
     if (notification.method !== MCP_MESSAGE_NOTIFICATION) return;
     const message = readRelayedMessage(notification.params);
+
     if (message === undefined) {
       this.failWith(REFUSED_MESSAGE);
+
       return;
     }
+
     void this.send(message);
   }
 
@@ -261,6 +276,7 @@ export class McpRelay {
 
   private setProtocolVersion(params: JsonValue | undefined): void {
     const version = readProtocolVersion(params);
+
     if (version === undefined) return;
     this.transport?.setProtocolVersion?.(version);
   }
@@ -295,6 +311,7 @@ function startFailure(
     describeError(asError(error)),
     protectedValues,
   );
+
   return new MachineRequestError(
     "internal",
     `${START_FAILURE_MESSAGE} for ${name}: ${detail}`,
@@ -307,6 +324,7 @@ function readRelayedMessage(
 ): JSONRPCMessage | undefined {
   if (params === undefined || !isSerializableRecord(params)) return undefined;
   const parsed = JSONRPCMessageSchema.safeParse(params["message"]);
+
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -315,5 +333,6 @@ function readProtocolVersion(
 ): string | undefined {
   if (params === undefined || !isSerializableRecord(params)) return undefined;
   const version = params["version"];
+
   return isStringValue(version) ? version : undefined;
 }

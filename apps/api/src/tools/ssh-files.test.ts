@@ -48,9 +48,11 @@ function remote(
 ): Remote {
   const runs: Array<SshRunRequest> = [];
   const resolutions: Array<unknown> = [];
+
   const client: SshClient = {
     resolve: (request) => {
       resolutions.push(request);
+
       return Promise.resolve({
         outcome: 'resolved',
         destination: { user: 'box', host: 'box', port: 22 },
@@ -59,11 +61,13 @@ function remote(
     run: (request) => {
       runs.push(request);
       const nonce = /h='([^']+)'/u.exec(String(request.input))?.[1] ?? '';
+
       return Promise.resolve(reply(nonce, request));
     },
     sshConfigText: () => undefined,
     dispose: () => undefined,
   };
+
   return { client, runs, resolutions };
 }
 
@@ -116,6 +120,7 @@ function context(remoteClient: Remote | undefined): ToolContext {
 async function read(path: string, reply: (nonce: string) => SshRunOutcome) {
   const remoteClient = remote((nonce) => reply(nonce));
   const result = await executeSshRead(context(remoteClient), path);
+
   return { result, runs: remoteClient.runs };
 }
 
@@ -188,6 +193,7 @@ describe('ssh read transfer', () => {
       'ssh://box/binaryish',
       fileReply(Buffer.from([0x61, 0x00, 0x62])),
     );
+
     expect(nul.result).toMatchObject({ status: 'success', kind: 'file' });
     expect(nul.result['content']).toContain('1: a\u0000b');
   });
@@ -319,6 +325,7 @@ describe('ssh read refusals', () => {
 
     expect(result).toMatchObject({ status: 'error', type });
     expect(runs).toHaveLength(1);
+
     if (kind === 'unreadable')
       expect(result.status === 'error' && result.message).toBe(
         'File could not be read.',
@@ -396,6 +403,7 @@ describe('ssh read refusals', () => {
       reason: 'client_missing',
       diagnostic: 'spawn ssh ENOENT',
     }));
+
     expect(
       missing.result.status === 'error' && missing.result.message,
     ).toContain('client_missing');
@@ -403,6 +411,7 @@ describe('ssh read refusals', () => {
     const hostKey = await read('ssh://box/x', () =>
       ended('', 'Host key verification failed.', 255),
     );
+
     expect(
       hostKey.result.status === 'error' && hostKey.result.message,
     ).toContain('host_key_mismatch');
@@ -472,6 +481,7 @@ describe('ssh directory reads', () => {
         ).join(''),
       ),
     );
+
     expect(over.result).toMatchObject({
       status: 'error',
       type: 'directory_too_large',
@@ -489,6 +499,7 @@ describe('ssh directory reads', () => {
         ).join(''),
       ),
     );
+
     expect(at.result).toMatchObject({ status: 'success', kind: 'directory' });
     expect(at.result['truncated']).toBe(true);
   });
@@ -500,6 +511,7 @@ describe('ssh directory reads', () => {
     // of the cap by the line the caller appends, never truncate its last
     // entry.
     const moreLine = '  … more entries exist\n';
+
     const pairs = Array.from(
       { length: 1001 },
       (_, index) => `f\0f${String(index).padStart(11, '0')}\0`,
@@ -509,6 +521,7 @@ describe('ssh directory reads', () => {
       'ssh://box/srvxxxxxxxx:1-',
       directoryReply(pairs),
     );
+
     const content = String(result['content']);
     const nextOffset = Number(result['nextOffset']);
     const kept = content.match(/- f\d+/gu)?.length ?? 0;
@@ -727,6 +740,7 @@ describe('ssh read dispatch', () => {
         'test-policy',
       ),
     };
+
     const unknownScheme = {
       status: 'error',
       type: 'invalid_path',
@@ -749,6 +763,7 @@ describe('ssh read dispatch', () => {
 
   it('fails closed without a binding and starts nothing', async () => {
     const remoteClient = remote(fileReply('x'));
+
     const result = await executeSshRead(
       { ...context(undefined), sshClient: remoteClient.client },
       'ssh://box/etc/hostname',
@@ -764,6 +779,7 @@ describe('ssh read dispatch', () => {
 
   it('runs an ssh read through the native file dispatch', async () => {
     const remoteClient = remote(fileReply('hostname\n'));
+
     const result = await nativeReadTool.execute(context(remoteClient), {
       path: 'ssh://box/etc/hostname',
     });
@@ -778,6 +794,7 @@ describe('ssh read dispatch', () => {
 
   it('keeps a mutation on an ssh locator out of the transport', async () => {
     const remoteClient = remote(fileReply('x'));
+
     const result = await nativeEditTool.execute(context(remoteClient), {
       path: 'ssh://box/tmp/x.txt',
       oldText: 'a',
@@ -793,6 +810,7 @@ describe('ssh read dispatch', () => {
 
   it('keeps a non-ssh scheme out of the ssh branch when a client exists', async () => {
     const remoteClient = remote(fileReply('x'));
+
     const result = await nativeReadTool.execute(context(remoteClient), {
       path: 'media://box/clip.mp4',
     });

@@ -75,6 +75,7 @@ function queryResult(
 ): FakeQuery {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -82,6 +83,7 @@ function queryResult(
     limit: chain,
     set: (value: PartsUpdate) => {
       onSet?.(value);
+
       return terminal;
     },
     returning: chain,
@@ -109,6 +111,7 @@ function fakeDb(
   const db: Db = drizzle.mock({ schema });
   vi.spyOn(db, 'select').mockImplementation(() => {
     reads.push(null);
+
     return asQuery(queryResult(rows.selected ?? [{ parts }]));
   });
   vi.spyOn(db, 'update').mockImplementation(() =>
@@ -118,6 +121,7 @@ function fakeDb(
       }),
     ),
   );
+
   return { db, writes, reads };
 }
 
@@ -126,6 +130,7 @@ const append = (
   rows?: { readonly selected?: QueryValue; readonly updated?: QueryValue },
 ) => {
   const { db, writes, reads } = fakeDb(parts, rows);
+
   return new PromptImportPartsRepository(db)
     .appendForRun({
       id: MESSAGE_ID,
@@ -286,6 +291,7 @@ describe('PromptImportPartsRepository owner scoping', () => {
   /** A mock `Db` that logs real compiled SQL and parameters, then fails. */
   function loggingDb() {
     const queries: Array<{ sql: string; params: Array<unknown> }> = [];
+
     const db: Db = drizzle.mock({
       schema,
       logger: {
@@ -294,6 +300,7 @@ describe('PromptImportPartsRepository owner scoping', () => {
         },
       },
     });
+
     return { db, queries };
   }
 

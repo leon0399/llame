@@ -227,6 +227,7 @@ describe('hydrateCanonicalSearchRows', () => {
       7, 11,
     ]);
     expect(JSON.stringify(result)).not.toContain('PRIVATE_CHECKPOINT_SUMMARY');
+
     // Visible text and a nonzero range make the interval valid for any source
     // role, so only the checkpoint role can reject it.
     const checkpointBoundary: CanonicalHydrationRow = {
@@ -239,6 +240,7 @@ describe('hydrateCanonicalSearchRows', () => {
       first_message_text_offset: 0,
       last_message_text_offset_exclusive: 7,
     };
+
     expect(
       hydrateCanonicalSearchRows([checkpointBoundary], {
         chatId: CHAT_ID,
@@ -251,6 +253,7 @@ describe('hydrateCanonicalSearchRows', () => {
     const empty = {
       message_parts: [{ type: 'reasoning', text: 'hidden only' }],
     };
+
     expect(
       hydrateCanonicalSearchRows(
         [
@@ -561,8 +564,10 @@ describe('hydrateCanonicalSearchRows', () => {
 
 describe('hydrateCanonicalSearchRows closed misses', () => {
   const TEXT_LENGTH = 'before 😀 after'.length;
+
   const lastRow = (overrides: Partial<CanonicalHydrationRow> = {}) =>
     row({ message_id: LAST_MESSAGE_ID, message_seq: '11', ...overrides });
+
   const hydrate = (rows: Array<CanonicalHydrationRow>) =>
     hydrateCanonicalSearchRows(rows, {
       chatId: CHAT_ID,
@@ -701,6 +706,7 @@ describe('hydrateCanonicalSearchCandidate', () => {
 
   it('executes one query for a valid owner and UUID candidate', async () => {
     const tx: Db = drizzle.mock({ schema });
+
     const rows = [
       row(),
       row({
@@ -710,6 +716,7 @@ describe('hydrateCanonicalSearchCandidate', () => {
         message_parts: [{ type: 'text', text: 'last source' }],
       }),
     ];
+
     const execute = vi.spyOn(tx, 'execute').mockResolvedValue(
       Object.assign(rows, {
         columns: [],
@@ -724,12 +731,14 @@ describe('hydrateCanonicalSearchCandidate', () => {
       chatId: CHAT_ID,
       bestDocumentId: DOCUMENT_ID,
     });
+
     expect(result?.chatId).toBe(CHAT_ID);
     expect(result?.messages.map(({ messageSeq }) => messageSeq)).toEqual([
       7, 11,
     ]);
     expect(execute).toHaveBeenCalledTimes(1);
     const query = execute.mock.calls[0]?.[0];
+
     if (!is(query, SQL)) throw new Error('expected hydration SQL');
     const compiled = new PgDialect().sqlToQuery(query);
     expect(compiled.sql).toContain('document_chat.owner_user_id = $');

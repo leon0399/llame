@@ -5,6 +5,7 @@ import { noUnknownReturnsRule } from "./no-unknown-returns.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "unknownReturn" };
 
 tester.run("anti-slop/no-unknown-returns", noUnknownReturnsRule, {

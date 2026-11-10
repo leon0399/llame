@@ -40,6 +40,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -85,6 +86,7 @@ describe("useDeleteChat", () => {
     fetchMock.mockResolvedValue(emptyResponse());
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useDeleteChat(), {
       wrapper: wrapperWithClient(queryClient),
     });
@@ -106,6 +108,7 @@ describe("useRenameChat: success invalidation", () => {
     fetchMock.mockResolvedValue(emptyResponse());
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useRenameChat(), {
       wrapper: wrapperWithClient(queryClient),
     });
@@ -133,6 +136,7 @@ describe("useSetChatArchive", () => {
     fetchMock.mockResolvedValue(emptyResponse());
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useSetChatArchive(), {
       wrapper: wrapperWithClient(queryClient),
     });
@@ -176,6 +180,7 @@ describe("useSetChatVisibility", () => {
     fetchMock.mockResolvedValue(emptyResponse());
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useSetChatVisibility(), {
       wrapper: wrapperWithClient(queryClient),
     });

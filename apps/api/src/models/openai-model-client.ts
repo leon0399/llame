@@ -85,7 +85,9 @@ function streamSanitizer(
   config: OpenAIModelClientConfig,
 ): OpenAIModelClientConfig['sanitizeError'] {
   const sanitize = config.sanitizeError;
+
   if (sanitize === undefined) return undefined;
+
   return (error) =>
     error instanceof ModelStreamIdleError ? error : sanitize(error);
 }
@@ -116,9 +118,11 @@ export function applyToolCallingOptions(
     gate,
   );
   input.onToolSet?.(streamOptions.tools);
+
   if (input.toolChoice !== undefined) {
     streamOptions.toolChoice = input.toolChoice;
   }
+
   // The SDK keeps every step's request body in `recordedSteps` for the whole
   // call by default, and an uncapped call can run for hours (design D1).
   streamOptions.experimental_include = { requestBody: false };
@@ -153,14 +157,17 @@ function createDeferredTerminals(): DeferredTerminals {
   let gate = Promise.resolve();
   let chain = Promise.resolve();
   let failure: { error: unknown } | undefined;
+
   const drain = async (): Promise<void> => {
     await gate;
     await chain;
   };
+
   return {
     defer: (task) => {
       chain = chain.then(async () => {
         await gate;
+
         try {
           await task();
         } catch (error) {
@@ -173,6 +180,7 @@ function createDeferredTerminals(): DeferredTerminals {
     },
     wait: async () => {
       await drain();
+
       if (failure !== undefined) throw failure.error;
     },
   };
@@ -203,20 +211,25 @@ export function deferTerminalCallbacks(
   input: ModelStreamInput,
 ): DeferredTerminals {
   const terminals = createDeferredTerminals();
+
   if (!hasStreamChannel(input)) return terminals;
 
   const onFinish = streamOptions.onFinish;
+
   if (onFinish !== undefined) {
     streamOptions.onFinish = (event) => {
       terminals.defer(() => onFinish(event));
     };
   }
+
   const onError = streamOptions.onError;
+
   if (onError !== undefined) {
     streamOptions.onError = (event) => {
       terminals.defer(() => onError(event));
     };
   }
+
   return terminals;
 }
 
@@ -251,6 +264,7 @@ export function trackAbortSettlement(
 ): AbortSettlement {
   let settlement = Promise.resolve();
   let settlementError: { error: unknown } | undefined;
+
   return {
     onAbort: () => {
       terminals.defer(() =>
@@ -266,6 +280,7 @@ export function trackAbortSettlement(
     },
     wait: async () => {
       await settlement;
+
       if (settlementError) {
         throw settlementError.error;
       }
@@ -291,6 +306,7 @@ async function awaitTextAndAbortSettlement(
   try {
     const value = await text;
     await settlement.wait();
+
     return value;
   } catch (error) {
     try {
@@ -302,6 +318,7 @@ async function awaitTextAndAbortSettlement(
         sanitizeError,
       );
     }
+
     return throwAfterTerminalCompletion(terminals, error, sanitizeError);
   }
 }
@@ -318,7 +335,9 @@ async function awaitTextAfterSettlement(
     terminals,
     sanitizeError,
   );
+
   await terminals.wait();
+
   return value;
 }
 
@@ -356,6 +375,7 @@ export function awaitSettlementAfter(
         } catch (error) {
           await throwAfterTerminalCompletion(terminals, error, sanitizeError);
         }
+
         await terminals.wait();
       },
     }),
@@ -395,6 +415,7 @@ export function runStreamChannel(run: {
   streamOptions.onAbort = settlement.onAbort;
   const result = runStreamText(streamOptions);
   bindStreamChannel(terminals, result, input, gate);
+
   return awaitSettlementAfter(result, settlement, sanitizeError, terminals);
 }
 
@@ -610,6 +631,7 @@ function composeStructuredProviderOptions(
   context: ResponsesClientContext,
 ): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
   const { config, invariants } = context;
+
   return responsesProviderOptions(
     composeProviderOptions({
       ...(config.providerOptions !== undefined && {
@@ -636,6 +658,7 @@ function buildOpenAIStreamOptions(
 ): Parameters<typeof streamText>[0] & { model: LanguageModelV3 } {
   const { openai, config, invariants } = context;
   const sanitize = streamSanitizer(config);
+
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
@@ -652,11 +675,13 @@ function buildOpenAIStreamOptions(
       maxOutputTokens: config.maxOutputTokens,
     }),
   };
+
   applyRequestOptions(streamOptions, config, input, invariants);
   applyToolCallingOptions(streamOptions, input, gate);
   installStepPreparation(streamOptions, input, config);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
+
   return streamOptions;
 }
 
@@ -667,6 +692,7 @@ function runOpenAIStream(
 ): ModelStreamResult {
   const gate = createToolCallGate();
   const streamOptions = buildOpenAIStreamOptions(context, input, gate);
+
   return runStreamChannel({
     streamOptions,
     input,
@@ -712,6 +738,7 @@ export async function generateToolBoundObject<OBJECT>(
     Required<Pick<Parameters<typeof streamText>[0], 'headers'>>,
 ): Promise<OBJECT> {
   const toolName = input.schemaName ?? 'output';
+
   const result = await generateText({
     model,
     messages: input.messages,
@@ -731,6 +758,7 @@ export async function generateToolBoundObject<OBJECT>(
   // `dynamic` is the discriminant: unparsable/invalid calls surface as
   // dynamic, valid static calls carry the schema-typed input.
   const call = result.toolCalls[0];
+
   if (!call || call.dynamic) {
     throw new Error(`Model did not produce a valid '${toolName}' tool call`);
   }

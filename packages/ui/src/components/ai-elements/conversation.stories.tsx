@@ -44,6 +44,7 @@ const meta = {
 } satisfies Meta<typeof Conversation>;
 
 export default meta;
+
 type Story = StoryObj<typeof Conversation>;
 
 /**

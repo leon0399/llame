@@ -36,6 +36,7 @@ function scrollTranscriptTo(
 function useDisableScrollAnchoring(scrollRef: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const scroller = scrollRef.current;
+
     if (scroller) scroller.style.overflowAnchor = "none";
   }, [scrollRef]);
 }
@@ -75,19 +76,23 @@ function usePrePaintBottomPin(oldestMessageKey: string | null) {
     // React owns scroll positioning from here — retire the SSR inline pin
     // (covers only the pre-hydration frames; see prehydration-pin.ts).
     window.__llameChatPinStop?.();
+
     // Reader already left the bottom during the pre-hydration window —
     // honor that escape instead of yanking them back to newest.
     if (window.__llameChatPinEscaped) {
       window.__llameChatPinEscaped = undefined;
       pinnedRef.current = true;
+
       return;
     }
+
     // Pin on the FIRST commit that has transcript content, before it paints.
     // On a hard reload that is the hydration commit; on client-side
     // navigation the remounted transcript's first content commit — which the
     // library only chases via a deferred scrollToBottom, painting frames at
     // the TOP of the chat first.
     if (oldestMessageKey === null) return;
+
     // The DOM is queried directly (same selector as prehydration-pin.ts):
     // in this commit the library's scrollRef is NOT attached yet — child
     // layout effects run before ancestor host refs attach — while the node
@@ -100,10 +105,13 @@ function usePrePaintBottomPin(oldestMessageKey: string | null) {
     const scroller = document.querySelector<HTMLElement>(
       CHAT_SCROLLER_SELECTOR,
     );
+
     if (!scroller) return;
+
     if (getComputedStyle(scroller).overflow === "visible") {
       scroller.style.overflow = "auto";
     }
+
     scroller.scrollTop = scroller.scrollHeight;
     pinnedRef.current = true;
   }, [oldestMessageKey]);
@@ -130,10 +138,13 @@ function useSyncStickOnResize(
 ) {
   useEffect(() => {
     const content = contentRef.current;
+
     if (!content) return;
+
     const observer = new ResizeObserver(() => {
       if (!state.isAtBottom || state.escapedFromLock) return;
       const selection = document.getSelection();
+
       if (
         selection &&
         !selection.isCollapsed &&
@@ -142,9 +153,12 @@ function useSyncStickOnResize(
       ) {
         return;
       }
+
       scrollTranscriptTo(state, state.targetScrollTop);
     });
+
     observer.observe(content);
+
     return () => observer.disconnect();
   }, [contentRef, state]);
 }
@@ -156,6 +170,7 @@ function findMessageElement(
   key: string,
 ): HTMLElement | null {
   if (!content) return null;
+
   return (
     [...content.querySelectorAll<HTMLElement>("[data-message-key]")].find(
       (element) => element.dataset.messageKey === key,
@@ -174,6 +189,7 @@ function resolveAnchorElement(
   key: string,
 ): HTMLElement | null {
   if (cached?.key === key && cached.element.isConnected) return cached.element;
+
   return findMessageElement(content, key);
 }
 
@@ -186,6 +202,7 @@ function nextAnchorEntry(
 ): AnchorEntry | null {
   if (oldestMessageKey === null) return null;
   const element = resolveAnchorElement(content, cached, oldestMessageKey);
+
   return element
     ? { key: oldestMessageKey, element, offsetTop: element.offsetTop }
     : null;
@@ -214,6 +231,7 @@ function usePrependScrollAnchor({
   useLayoutEffect(() => {
     const content = contentRef.current;
     const previous = anchorRef.current;
+
     if (
       previous &&
       oldestMessageKey !== null &&
@@ -221,6 +239,7 @@ function usePrependScrollAnchor({
       !isAtBottom
     ) {
       const element = resolveAnchorElement(content, previous, previous.key);
+
       if (element) {
         scrollTranscriptTo(
           state,
@@ -264,18 +283,23 @@ function useLoadOlderOnScroll({
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const scroller = scrollRef.current;
+
     if (!sentinel || !scroller || !hasOlder) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         const { escapedFromLock, isLoading, onLoadOlder } = observed.current;
+
         if (!entries.some((entry) => entry.isIntersecting)) return;
+
         if (!escapedFromLock || isLoading) return;
         onLoadOlder();
       },
       { root: scroller, rootMargin: `${PREFETCH_MARGIN_PX}px 0px 0px 0px` },
     );
+
     observer.observe(sentinel);
+
     return () => observer.disconnect();
   }, [scrollRef, sentinelRef, hasOlder, oldestMessageKey, observed]);
 }
@@ -336,6 +360,7 @@ export const ChatLoadOlder = memo(function ChatLoadOlder({
 }) {
   const { contentRef, scrollRef, isAtBottom, escapedFromLock, state } =
     useStickToBottomContext();
+
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useDisableScrollAnchoring(scrollRef);

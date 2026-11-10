@@ -26,22 +26,27 @@ export async function copyText(text: string): Promise<boolean> {
   // in a context where they were never declared (e.g. SSR) throws a
   // ReferenceError instead of evaluating to `undefined`.
   const navigatorRef: MinimalNavigator | undefined = globalThis.navigator;
+
   if (supportsClipboardWriteText(navigatorRef)) {
     try {
       await navigatorRef.clipboard.writeText(text);
+
       return true;
     } catch {
       // fall through to the legacy path (e.g. permissions/insecure context)
     }
   }
+
   if (globalThis.document === undefined) return false;
   const textarea = document.createElement("textarea");
+
   try {
     textarea.value = text;
     textarea.style.position = "fixed";
     textarea.style.opacity = "0";
     document.body.append(textarea);
     textarea.select();
+
     return document.execCommand("copy");
   } catch {
     return false;

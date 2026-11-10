@@ -17,8 +17,10 @@ export function forgePage(
 ): { name: string; url: string; slug: string } | undefined {
   if (canonicalRemote == null) return undefined;
   const slash = canonicalRemote.indexOf("/");
+
   if (slash === -1) return undefined;
   const name = FORGES.get(canonicalRemote.slice(0, slash));
+
   return name === undefined
     ? undefined
     : {

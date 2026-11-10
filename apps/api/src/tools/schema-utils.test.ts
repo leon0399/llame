@@ -19,6 +19,7 @@ describe('buildJsonSchemaValidator', () => {
       properties: { query: { type: 'string' } },
       required: ['query'],
     };
+
     const validate = buildJsonSchemaValidator(schema);
     expect(validate).toBeDefined();
     expect(validate!({ query: 'hello' })).toEqual({
@@ -34,6 +35,7 @@ describe('buildJsonSchemaValidator', () => {
       properties: { q: { type: 'string' } },
       required: ['q'],
     };
+
     const validate = buildJsonSchemaValidator(schema);
     expect(validate).toBeDefined();
     expect(validate!({ q: 'test' }).success).toBe(true);
@@ -51,6 +53,7 @@ describe('buildJsonSchemaValidator', () => {
         },
       },
     };
+
     const validate = buildJsonSchemaValidator(schema);
     expect(validate).toBeDefined();
     expect(validate!({ items: ['hello'] }).success).toBe(true);
@@ -61,6 +64,7 @@ describe('buildJsonSchemaValidator', () => {
       $schema: 'https://json-schema.org/draft/2099-99/schema',
       type: 'object',
     };
+
     expect(buildJsonSchemaValidator(schema)).toBeUndefined();
   });
 
@@ -95,6 +99,7 @@ describe('buildJsonSchemaValidator', () => {
       properties: { value: { type: 'string', format } },
       required: ['value'],
     };
+
     const validate = buildJsonSchemaValidator(schema);
 
     expect(validate).toBeDefined();
@@ -119,6 +124,7 @@ describe('safeParseArgs', () => {
       properties: { query: { type: 'string' } },
       required: ['query'],
     };
+
     expect(safeParseArgs(schema, { query: 'hi' })).toEqual({
       success: true,
       data: { query: 'hi' },
@@ -132,6 +138,7 @@ describe('safeParseArgs', () => {
       properties: { count: { type: 'integer', minimum: 1 } },
       required: ['count'],
     };
+
     const result = safeParseArgs(schema, { count: -5 });
     expect(result.success).toBe(false);
   });
@@ -142,6 +149,7 @@ describe('admitToolInputSchema', () => {
     const result = await admitToolInputSchema(z.object({ query: z.string() }));
 
     expect(result.success).toBe(true);
+
     if (!result.success) return;
     expect(result.inputSchema).toMatchObject({
       type: 'object',
@@ -161,6 +169,7 @@ describe('admitToolInputSchema', () => {
     const result = await admitToolInputSchema(schema);
 
     expect(result.success).toBe(true);
+
     if (!result.success) return;
     expect(result.inputSchema).toBe(schema);
   });
@@ -179,7 +188,9 @@ describe('toFlexibleSchema', () => {
       properties: { query: { type: 'string' } },
       required: ['query'],
     };
+
     const result = toFlexibleSchema(schema);
+
     if (result === null) throw new Error('Expected a schema');
 
     // The wiring is the point: without `validate`, the SDK's tool-call
@@ -195,6 +206,7 @@ describe('toFlexibleSchema', () => {
       $schema: 'https://json-schema.org/draft/2099-99/schema',
       type: 'object',
     };
+
     expect(toFlexibleSchema(schema)).toBeNull();
   });
 });
@@ -212,6 +224,7 @@ describe('resolveJsonSchema', () => {
       type: 'object',
       properties: { query: { type: 'string' } },
     };
+
     const result = await resolveJsonSchema(schema);
     expect(result).toBe(schema);
   });

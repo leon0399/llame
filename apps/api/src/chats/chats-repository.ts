@@ -36,9 +36,13 @@ import {
 } from '../db/schema';
 
 import { type Db } from '../db/tenant-db.service';
+
 export { type Db } from '../db/tenant-db.service';
+
 import { isCompletedAssistantTurn } from './assistant-completion';
+
 export { isCompletedAssistantTurn };
+
 import {
   buildHybridSearchQuery,
   normalizeForSearch,
@@ -50,6 +54,7 @@ import { resolveSearchScopes } from './chats-search-scope';
 import type { SearchByOwnerOptions } from './chats-search-scope';
 
 export { MessagesRepository } from './messages-repository';
+
 export { type ConversationMessageLookup } from './conversation-message-lookup';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
@@ -128,6 +133,7 @@ type ChatOwnerFilter = {
 /** Collapse whitespace and clip a matching message to a short search snippet. */
 function truncateSnippet(text: string): string {
   const clean = text.replaceAll(/\s+/g, ' ').trim();
+
   return clean.length > SNIPPET_MAX
     ? `${clean.slice(0, SNIPPET_MAX).trimEnd()}…`
     : clean;
@@ -153,9 +159,11 @@ export class ChatsRepository {
     if (filter.projectId !== undefined) {
       conditions.push(eq(chats.projectId, filter.projectId));
     }
+
     if (filter.excludeId !== undefined) {
       conditions.push(not(eq(chats.id, filter.excludeId)));
     }
+
     if (filter.titledOnly) {
       // Not merely NOT NULL. The chat PATCH DTO enforces `@MinLength(1)`, so a
       // title of `" "` is accepted and stored — non-null but carrying nothing.
@@ -176,6 +184,7 @@ export class ChatsRepository {
       filter.pinned === 'only'
         ? undefined
         : this.pinCondition(ownerUserId, filter.pinned);
+
     if (pinCondition !== undefined) {
       conditions.push(pinCondition);
     }
@@ -206,6 +215,7 @@ export class ChatsRepository {
         )
         .where(and(...conditions))
         .orderBy(asc(pins.position), pins.itemId);
+
       return filter.limit === undefined ? query : query.limit(filter.limit);
     }
 
@@ -214,6 +224,7 @@ export class ChatsRepository {
       .from(chats)
       .where(and(...conditions))
       .orderBy(desc(chats.updatedAt));
+
     return filter.limit === undefined ? query : query.limit(filter.limit);
   }
 
@@ -232,6 +243,7 @@ export class ChatsRepository {
     if (pinned === undefined || pinned === 'with') {
       return undefined;
     }
+
     const pinSubquery = this.db
       .select({ itemId: pins.itemId })
       .from(pins)
@@ -245,6 +257,7 @@ export class ChatsRepository {
           eq(pins.itemId, chats.id),
         ),
       );
+
     return pinned === 'only' ? exists(pinSubquery) : not(exists(pinSubquery));
   }
 
@@ -266,14 +279,18 @@ export class ChatsRepository {
       // list will never show.
       sql`btrim(${chats.title}) <> ''`,
     ];
+
     const pinCondition = this.pinCondition(ownerUserId, filter.pinned);
+
     if (pinCondition !== undefined) {
       conditions.push(pinCondition);
     }
+
     const [result] = await this.db
       .select({ value: count() })
       .from(chats)
       .where(and(...conditions));
+
     return result?.value ?? 0;
   }
 
@@ -295,6 +312,7 @@ export class ChatsRepository {
         ),
       )
       .returning();
+
     return updated;
   }
 
@@ -323,6 +341,7 @@ export class ChatsRepository {
     chatIds: ReadonlyArray<string>,
   ): Promise<Set<string>> {
     if (chatIds.length === 0) return new Set();
+
     const rows = await this.db
       .select({ itemId: pins.itemId })
       .from(pins)
@@ -336,6 +355,7 @@ export class ChatsRepository {
           inArray(pins.itemId, [...chatIds]),
         ),
       );
+
     return new Set(rows.map(({ itemId }) => itemId));
   }
 
@@ -405,6 +425,7 @@ export class ChatsRepository {
       ownerUserId,
       options.timeRange,
     );
+
     return buildHybridSearchQuery({
       query: normalizedQuery,
       likePattern,
@@ -477,9 +498,11 @@ export class ChatsRepository {
     options: SearchByOwnerOptions,
   ): Promise<Array<HybridSearchResult>> {
     const trimmed = query.trim();
+
     if (trimmed.length === 0) {
       return [];
     }
+
     await this.db.execute(sql`SET LOCAL statement_timeout = 3000`);
     const normalizedQuery = normalizeForSearch(trimmed);
     const likePattern = `%${normalizedQuery.replaceAll(/[\\%_]/g, String.raw`\$&`)}%`;
@@ -492,6 +515,7 @@ export class ChatsRepository {
     );
 
     const rows = await this.db.execute<HybridSearchResult>(search);
+
     return [...rows].map((r) => this.toHybridSearchResult(r));
   }
 
@@ -504,6 +528,7 @@ export class ChatsRepository {
     ownerUserId: string,
   ): Promise<Chat | undefined> {
     const rows = await this.ownedChatQuery(chatId, ownerUserId).limit(1);
+
     return rows[0];
   }
 
@@ -617,6 +642,7 @@ export class ChatsRepository {
       patch.title !== undefined ||
       patch.visibility !== undefined ||
       patch.projectId !== undefined;
+
     const isPureUnarchive = patch.archived === false && !hasContentFields;
     const isPureReArchive = patch.archived === true && !hasContentFields;
 
@@ -630,14 +656,19 @@ export class ChatsRepository {
     patch: ChatUpdatePatch,
   ): Partial<typeof chats.$inferInsert> {
     const fields: Partial<typeof chats.$inferInsert> = {};
+
     if (patch.title !== undefined) fields.title = patch.title;
+
     if (patch.visibility !== undefined) fields.visibility = patch.visibility;
+
     if (patch.projectId !== undefined) fields.projectId = patch.projectId;
+
     if (patch.archived === true && current.archivedAt === null) {
       fields.archivedAt = new Date();
     } else if (patch.archived === false) {
       fields.archivedAt = null;
     }
+
     return fields;
   }
 
@@ -657,11 +688,13 @@ export class ChatsRepository {
     patch: ChatUpdatePatch,
   ): Promise<Chat | undefined> {
     const current = await this.findById(chatId, ownerUserId);
+
     if (!current) return undefined;
 
     this.assertUpdateArchiveGuard(current, patch);
 
     const fields = this.resolveUpdateFields(current, patch);
+
     // Nothing to change: don't issue a no-op write (which would needlessly bump
     // updatedAt). Return the current row instead — still owner-scoped, so the caller
     // gets the chat on a match and undefined (→ 404) when it's absent / not owned.
@@ -694,6 +727,7 @@ export class ChatsRepository {
       .delete(chats)
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning({ id: chats.id });
+
     return deleted.length > 0;
   }
 
@@ -732,6 +766,7 @@ export class ChatsRepository {
    */
   async lock(chatId: string, ownerUserId: string): Promise<Chat | undefined> {
     const rows = await this.ownedChatQuery(chatId, ownerUserId).for('update');
+
     return rows[0];
   }
 
@@ -751,6 +786,7 @@ export class ChatsRepository {
       .set({ updatedAt: new Date() })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .returning();
+
     return updated;
   }
 }

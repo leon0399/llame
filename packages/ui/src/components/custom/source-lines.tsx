@@ -28,6 +28,7 @@ const numberedLinePattern = /^(\d+): (.*)$/su;
 function splitLines(content: string): Array<string> {
   // A final newline ends the last line rather than opening an empty one.
   const body = content.endsWith("\n") ? content.slice(0, -1) : content;
+
   return body === "" ? [] : body.split("\n");
 }
 
@@ -40,6 +41,7 @@ function splitLines(content: string): Array<string> {
 export function parseNumberedLines(content: string): Array<SourceLine> {
   return splitLines(content).map((line) => {
     const match = numberedLinePattern.exec(line);
+
     return match
       ? { number: Number(match[1]), text: match[2] ?? "" }
       : { number: null, text: line };
@@ -62,10 +64,13 @@ export function numberLines(text: string, start = 1): Array<SourceLine> {
  */
 export function languageForPath(path: string): BundledLanguage | undefined {
   const name = (path.split("/").at(-1) ?? "").toLowerCase();
+
   const extension = name.includes(".")
     ? name.slice(name.lastIndexOf(".") + 1)
     : name;
+
   const candidate = extension.split(":")[0] ?? "";
+
   // SAFETY: `Object.hasOwn` just confirmed `candidate` is a key of
   // `bundledLanguages`, whose keys are exactly `BundledLanguage`.
   return Object.hasOwn(bundledLanguages, candidate)
@@ -106,10 +111,12 @@ function useHighlightedTokens(
         if (active) setState(null);
       },
     );
+
     return () => {
       active = false;
     };
   }, [code, language]);
+
   return state?.code === code && state.language === language
     ? state.tokens
     : null;
@@ -196,11 +203,13 @@ function SourceLineRow({
   emphasized: boolean;
 }) {
   const { number } = props.line;
+
   const gap =
     number !== null &&
     previous?.number !== undefined &&
     previous.number !== null &&
     number !== previous.number + 1;
+
   return (
     <>
       {gap ? (
@@ -233,11 +242,14 @@ export function SourceLines({
     lines.map((line) => line.text).join("\n"),
     language,
   );
+
   const highlighted = tokens?.length === lines.length ? tokens : null;
+
   const gutterWidth = Math.max(
     1,
     ...lines.map((line) => String(line.number ?? "").length),
   );
+
   return (
     <ScrollRegion label={label} className="rounded-md bg-muted/50">
       <div

@@ -215,6 +215,7 @@ let fixtureBuilder: GenericContainerBuilder | undefined;
 /** One builder per suite: every `.build()` re-uses the cached layers. */
 function builder(): GenericContainerBuilder {
   fixtureBuilder ??= GenericContainer.fromDockerfile(FIXTURES);
+
   return fixtureBuilder;
 }
 
@@ -234,6 +235,7 @@ function daemonBundle(): Buffer {
 function assertFixtureTools(): void {
   for (const tool of ['ssh', 'ssh-keygen', 'docker']) {
     const probe = spawnSync(tool, ['-V']);
+
     if (probe.error !== undefined) {
       throw new Error(
         `The Machine SSH integration suite needs the OpenSSH client tools and the Docker CLI (missing ${tool}) on PATH.`,
@@ -251,6 +253,7 @@ function createKey(directory: string, name: string, comment: string): string {
     ['-q', '-t', 'ed25519', '-N', '', '-C', comment, '-f', keyFile],
     { stdio: 'ignore' },
   );
+
   return keyFile;
 }
 
@@ -325,11 +328,13 @@ async function hostKeyLine(
   name: string,
 ): Promise<string> {
   const result = await container.exec(['cat', SSHD_HOST_KEY]);
+
   if (result.exitCode !== 0) {
     throw new Error(
       `Reading ${name}'s host key failed: ${result.stderr.trim()}`,
     );
   }
+
   return `${name} ${result.stdout.trim()}`;
 }
 
@@ -345,6 +350,7 @@ function includeConfigText(context: FixtureContext, weaken: boolean): string {
         `  ControlPath ${join(context.controlDirectory, '%C')}`,
       ]
     : [];
+
   return [
     '# Included by the generated Machine SSH configuration.',
     `Host ${MACHINE_SSHD_ALIAS}`,
@@ -372,13 +378,16 @@ function createConnection(
   variant: Required<ConnectionVariant>,
 ): MachineSshdConnection {
   const suffix = variant.weaken ? '-weakened' : '';
+
   const pinned = variant.pinBastion
     ? [context.hostKeys.bastion, context.hostKeys.box]
     : [context.hostKeys.box];
+
   const knownHostsFile = join(
     context.directory,
     `known_hosts${variant.pinBastion ? '' : '-unpinned'}${suffix}`,
   );
+
   writeFileSync(knownHostsFile, `${pinned.join('\n')}\n`, 'utf8');
   const includeFile = join(context.directory, `ssh_config${suffix}`);
   writeFileSync(
@@ -386,12 +395,15 @@ function createConnection(
     includeConfigText(context, variant.weaken),
     'utf8',
   );
+
   const sshConfig = createSshConfigFile({
     knownHostsFile,
     identityFile: context.hubKeyFile,
     includeFile,
   });
+
   context.generated.push(sshConfig);
+
   return {
     knownHostsFile,
     includeFile,
@@ -427,11 +439,13 @@ async function execIn(
   command: ReadonlyArray<string>,
 ): Promise<ExecResult> {
   const result = await container.exec([...command]);
+
   if (result.exitCode !== 0) {
     throw new Error(
       `${command.join(' ')} exited ${String(result.exitCode)} in ${container.getName()}: ${result.stderr.trim()}`,
     );
   }
+
   return result;
 }
 
@@ -447,6 +461,7 @@ async function restorePackets(container: StartedTestContainer): Promise<void> {
     'INPUT',
     ...DROP_RULE,
   ]);
+
   if (present.exitCode !== 0) return;
   await execIn(container, ['iptables', '-D', 'INPUT', ...DROP_RULE]);
 }
@@ -489,6 +504,7 @@ function sshFixtureFiles(context: FixtureContext): SshFixtureFiles {
 /** Remove every container, the network, and the private directory. */
 async function disposeFixture(context: FixtureContext): Promise<void> {
   const remove = { remove: true, removeVolumes: true };
+
   for (const generated of context.generated) generated.dispose();
   await teardown('stopping the sh-only box failed', async () => {
     await context.shBox.stop(remove);
@@ -511,6 +527,7 @@ function fixture(
 ): MachineSshd {
   const sshConnections = new Map<string, SshdSshConnection>();
   const files = sshFixtureFiles(context);
+
   return {
     bastion: context.bastion,
     box: context.box,
@@ -521,6 +538,7 @@ function fixture(
     controlDirectory: context.controlDirectory,
     connection: (options = {}) => {
       const pinned = (options.pinBastion ?? true) ? 'pinned' : 'unpinned';
+
       return options.weaken === true
         ? connections[`${pinned}-weakened`]
         : connections[pinned];
@@ -548,11 +566,13 @@ type FixtureKeys = {
 function createFixtureKeys(directory: string): FixtureKeys {
   const hubKeyFile = createKey(directory, 'hub_ed25519', HUB_KEY_COMMENT);
   const plainKeyFile = createKey(directory, 'plain_ed25519', PLAIN_KEY_COMMENT);
+
   const rejectedKeyFile = createKey(
     directory,
     'rejected_ed25519',
     REJECTED_KEY_COMMENT,
   );
+
   return {
     hubKeyFile,
     plainKeyFile,
@@ -578,28 +598,34 @@ async function startContainers(
   readonly shBox: StartedTestContainer;
 }> {
   const forwarding = `restrict,port-forwarding,permitopen="${MACHINE_SSHD_ALIAS}:22"`;
+
   const bastion = await startBastion(
     network,
     `${forwarding} ${keys.hubPublic}\n${forwarding} ${keys.plainPublic}\n`,
   );
+
   const box = await startBox(
     network,
     `restrict,command="${DAEMON_TARGET} serve --stdio" ${keys.hubPublic}\n` +
       `restrict,environment="BASH_ENV=/home/box/.bashrc" ${keys.plainPublic}\n`,
     daemon,
   );
+
   const shBox = await startShBox(network, `restrict ${keys.plainPublic}\n`);
+
   return { bastion, box, shBox };
 }
 
 async function provision(directory: string): Promise<MachineSshd> {
   const keys = createFixtureKeys(directory);
   const network = await new Network().start();
+
   const { bastion, box, shBox } = await startContainers(
     network,
     keys,
     daemonBundle(),
   );
+
   const context: FixtureContext = {
     directory,
     controlDirectory: join(directory, 'control'),
@@ -619,6 +645,7 @@ async function provision(directory: string): Promise<MachineSshd> {
     },
     generated: [],
   };
+
   return fixture(context, connectionsFor(context));
 }
 
@@ -629,8 +656,10 @@ async function provision(directory: string): Promise<MachineSshd> {
 export async function startMachineSshd(): Promise<MachineSshd> {
   assertFixtureTools();
   const directory = mkdtempSync(join(tmpdir(), 'llame-machine-sshd-'));
+
   try {
     mkdirSync(join(directory, 'control'), { mode: 0o700 });
+
     return await provision(directory);
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });

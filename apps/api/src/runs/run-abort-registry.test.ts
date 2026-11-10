@@ -8,6 +8,7 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
   function registry() {
     const aborts = new RunAbortRegistry();
     const run = aborts.register(RUN_ID, USER_ID);
+
     return { aborts, run };
   }
 
@@ -36,6 +37,7 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
     expect(aborts.segmentAttemptOf(RUN_ID)).toBeUndefined();
 
     const segment = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
     if (segment === undefined) throw new Error('no segment');
     expect(aborts.segmentAttemptOf(RUN_ID)).toBe(ATTEMPT_ID);
     aborts.endSegment(RUN_ID, segment);
@@ -47,6 +49,7 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
     const { aborts } = registry();
     const earlier = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
     const later = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
     if (earlier === undefined) throw new Error('no segment');
 
     aborts.endSegment(RUN_ID, earlier);

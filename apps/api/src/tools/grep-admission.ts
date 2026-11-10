@@ -64,7 +64,9 @@ export function grepScopeStrings(
   root: string | undefined,
 ): ReadonlyArray<string> | undefined {
   const submitted = args[GREP_SCOPES_FIELD];
+
   if (Array.isArray(submitted) && submitted.every(isString)) return submitted;
+
   // The root names a directory, so its prefix carries the separator a
   // directory clause is written with.
   return root === undefined
@@ -91,7 +93,9 @@ export function projectGrepScope(
       : isWorkspaceRelative(scope)
         ? resolveWorkspacePath(root, scope)
         : mapToWorkspaceHost(root, scope);
+
   const scheme = parsePathScheme(placed);
+
   if (scheme === undefined || !Object.hasOwn(LOGICAL_SCHEMES, scheme.scheme)) {
     // A `file:` alias is decoded first, then normalized like any host path, so
     // `..` text it carried cannot be matched by policy as written.
@@ -102,24 +106,31 @@ export function projectGrepScope(
     // A Workspace root is a real path: only the text after it is decoded.
     const prefix = prefixOf(normalized);
     const start = hostLiteralStart(scope, root, placed);
+
     return {
       submitted: scope,
       prefix:
         prefix.slice(0, start) + decodeGrepLiteralSpelling(prefix.slice(start)),
     };
   }
+
   const head = placed.slice(0, placed.length - scheme.rest.length);
   const authorityEnd = scheme.rest.indexOf('/');
+
   const authority =
     authorityEnd === -1 ? scheme.rest : scheme.rest.slice(0, authorityEnd + 1);
+
   const pathPart =
     authorityEnd === -1 ? '' : scheme.rest.slice(authorityEnd + 1);
+
   const prefix = `${head}${authority}${prefixOf(pathPart)}`;
+
   return { submitted: scope, prefix: projectNativeFilePath(prefix) };
 }
 
 function prefixOf(pathText: string): string {
   const split = splitGrepScope(pathText);
+
   return 'error' in split ? pathText : split.prefix;
 }
 
@@ -134,15 +145,19 @@ export function evaluateGrepPermission(
 ): PermissionDecision | undefined {
   const root = context.workspaceRoot?.current();
   const scopes = grepScopeStrings(args, root);
+
   if (scopes === undefined) {
     return admitPermission(context, (evaluate) =>
       evaluate({ toolId: 'grep', args }),
     );
   }
+
   const projected = scopes.map((scope) => projectGrepScope(scope, root));
   const prefixes = projected.map((scope) => scope.prefix);
+
   return admitPermission(context, (evaluate) => {
     let last: PermissionDecision | undefined;
+
     for (const scope of projected) {
       last = evaluate({
         toolId: 'grep',
@@ -154,8 +169,10 @@ export function evaluateGrepPermission(
           grepScopePrefixes: prefixes,
         },
       });
+
       if (last.decision === 'reject') return last;
     }
+
     // `scopes` is non-empty by schema, so `last` is always decided here.
     return last ?? evaluate({ toolId: 'grep', args });
   });
@@ -209,13 +226,16 @@ function admitFile(
   locator: string,
 ): boolean {
   const known = verdicts.get(locator);
+
   if (known !== undefined) return known;
   const decision = judge(locator);
   const allowed = decision?.decision === 'allow';
   verdicts.set(locator, allowed);
+
   if (allowed) return true;
   state.refused += 1;
   state.firstRejection ??= decision;
+
   return false;
 }
 
@@ -230,9 +250,11 @@ function allowsDirectory(
   locator: string,
 ): boolean {
   const known = directories.get(locator);
+
   if (known !== undefined) return known;
   const allowed = judge(locator)?.decision === 'allow';
   directories.set(locator, allowed);
+
   return allowed;
 }
 
@@ -255,6 +277,7 @@ export function createGrepReadAdmission(
     'read',
     context.workspaceRoot?.current(),
   );
+
   const judge = (locator: string) => readDecision(context, project, locator);
   // One verdict per file for the whole call: overlapping scopes and a file a
   // Machine returns on two pages count one refused file once. Directory
@@ -262,6 +285,7 @@ export function createGrepReadAdmission(
   const verdicts = new Map<string, boolean>();
   const directories = new Map<string, boolean>();
   const state: ReadAdmissionState = { refused: 0, firstRejection: undefined };
+
   return {
     admit: (locator) => admitFile(state, verdicts, judge, locator),
     allows: (locator) => allowsDirectory(directories, judge, locator),

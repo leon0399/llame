@@ -35,6 +35,7 @@ let answerLogin: (response: Response) => void;
 /** The "METHOD /path" a fetch call targets. */
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
+
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
@@ -47,11 +48,13 @@ function routeFetch() {
   fetchMock = stubFetch();
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
+
     if (key === LOGIN_ROUTE) {
       return new Promise<Response>((resolve) => {
         answerLogin = resolve;
       });
     }
+
     if (key === ME_ROUTE) return new Promise<Response>(() => {});
     throw new Error(`unrouted fetch in story: ${key}`);
   });
@@ -61,6 +64,7 @@ function routeFetch() {
 // `nextjs.router.push` parameter, so this spy both records the destination and
 // opens it in place of the form, the way the App Router would.
 let navigate: ((href: string) => void) | undefined;
+
 const routerPush = fn((href: string) => navigate?.(href)).mockName(
   "router.push",
 );
@@ -69,6 +73,7 @@ const routerPush = fn((href: string) => navigate?.(href)).mockName(
  *  way the app shell does, through the real useMe(). */
 function Destination({ href }: { href: string }) {
   const { data: user } = useMe();
+
   return (
     <div>
       <p>Opened {href}</p>
@@ -82,10 +87,12 @@ function LoginThenDestination() {
   const [href, setHref] = useState<string>();
   useEffect(() => {
     navigate = setHref;
+
     return () => {
       navigate = undefined;
     };
   }, []);
+
   return href === undefined ? <LoginForm /> : <Destination href={href} />;
 }
 
@@ -103,6 +110,7 @@ const meta = {
     window.history.replaceState(window.history.state, "", `/login${search}`);
     routerPush.mockClear();
     routeFetch();
+
     return () => {
       vi.unstubAllGlobals();
       window.history.replaceState(window.history.state, "", href);
@@ -112,6 +120,7 @@ const meta = {
 } satisfies Meta<typeof LoginForm>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** Types the credentials and presses Sign In. */

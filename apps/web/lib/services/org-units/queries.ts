@@ -57,6 +57,7 @@ function requireOrgUnitId(orgUnitId: string | undefined): string {
   if (orgUnitId === undefined) {
     throw new Error("orgUnitId is required when the query is enabled");
   }
+
   return orgUnitId;
 }
 
@@ -87,6 +88,7 @@ export async function fetchMyEffectiveRole(
     if (getApiErrorStatus(error) === 404) {
       return null;
     }
+
     throw await classifyOrgUnitsError(error);
   }
 }

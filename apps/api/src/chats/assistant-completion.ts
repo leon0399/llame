@@ -10,6 +10,7 @@ export function isCompletedAssistantTurn(message: {
   usage?: unknown;
 }): boolean {
   const usage = message.usage;
+
   // Not `isRecord`'s own array exclusion changing anything here: an array
   // `usage` has no `status` property either way, so both branches already
   // agreed on "complete" before this swap.

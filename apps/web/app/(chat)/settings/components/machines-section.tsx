@@ -40,6 +40,7 @@ function versionsText(machine: MachineResponse): string {
   if (machine.daemonVersion === null) {
     return `Hub protocol v${String(machine.hubProtocolVersion)} · daemon not contacted yet`;
   }
+
   return `Hub protocol v${String(machine.hubProtocolVersion)} · daemon ${machine.daemonVersion} (protocol v${String(machine.daemonProtocolVersion)})`;
 }
 
@@ -149,9 +150,11 @@ export function MachinesSection() {
   const { data, isPending, isError, refetch } = useMachinesQuery();
 
   if (isPending) return null;
+
   if (isError) {
     return <MachinesLoadErrorAlert onRetry={() => void refetch()} />;
   }
+
   if (data === undefined || data.length === 0) return null;
 
   return (

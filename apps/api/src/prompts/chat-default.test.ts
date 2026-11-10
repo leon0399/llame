@@ -63,14 +63,17 @@ function removeDigestBlock(source: string): string {
 
   const statements =
     /\{\{#(?:if|unless|each)\b[^}]*\}\}|\{\{\/(?:if|unless|each)\}\}/gu;
+
   statements.lastIndex = start;
   let depth = 0;
   let match: RegExpExecArray | null;
+
   while ((match = statements.exec(source)) !== null) {
     if (match[0].startsWith('{{#')) {
       depth += 1;
     } else {
       depth -= 1;
+
       if (depth === 0) {
         // The opening block tag is standalone, so Handlebars removes its line
         // when `chats` is absent. Removing the authored section needs to
@@ -118,6 +121,7 @@ describe('packaged default prompt — per-user block', () => {
     // Handlebars-standalone precisely so an absent field leaves no blank line.
     const inner = (user?: PromptUserInput) => {
       const rendered = render(user);
+
       return rendered.slice(
         rendered.indexOf('<user_personalization>\n') +
           '<user_personalization>\n'.length,
@@ -161,6 +165,7 @@ describe('packaged default prompt — per-user block', () => {
 
   it('states the block is data of bounded authority', () => {
     const rendered = render({ about: 'anything' });
+
     const block = rendered.slice(
       rendered.indexOf('## About the user'),
       rendered.indexOf('<user_personalization>'),
@@ -323,6 +328,7 @@ describe('packaged default prompt — chat recency digest', () => {
     ['recent only', { ...digest, pinned: [], pinnedShown: 0 }],
   ])('renders %s with no doubled blank lines', (_scenario, chats) => {
     const rendered = render(undefined, chats);
+
     const block = rendered.slice(
       rendered.indexOf("## About the owner's other chats"),
       rendered.indexOf('## Transparency boundaries'),
@@ -334,6 +340,7 @@ describe('packaged default prompt — chat recency digest', () => {
 
   it('renders the framed, bounded owner digest with pinned chats above recent chats', () => {
     const rendered = render(undefined, digest);
+
     const block = rendered.slice(
       rendered.indexOf("## About the owner's other chats"),
       rendered.indexOf('## Transparency boundaries'),
@@ -393,6 +400,7 @@ describe('packaged default prompt — chat recency digest', () => {
       const rendered = render();
       const start = rendered.indexOf('## System reminders');
       expect(start).toBeGreaterThan(-1);
+
       return rendered.slice(start, rendered.indexOf('## ', start + 3));
     };
 

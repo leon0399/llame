@@ -28,9 +28,11 @@ export function escapeSqlLiteral(value: string): string {
 export function runSeedSql(sql: string, ownerUserId?: string): void {
   const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
   const dbPort = process.env.E2E_DB_PORT ?? "55433";
+
   const postgresUrl =
     process.env.POSTGRES_URL ??
     `postgres://app:app@localhost:${dbPort}/llame_e2e`;
+
   const databaseName = new URL(postgresUrl).pathname.replace(/^\//, "");
 
   if (process.env.POSTGRES_URL) {
@@ -39,6 +41,7 @@ export function runSeedSql(sql: string, ownerUserId?: string): void {
         "runSeedSql requires ownerUserId when POSTGRES_URL is set",
       );
     }
+
     execFileSync(
       "psql",
       [
@@ -50,6 +53,7 @@ export function runSeedSql(sql: string, ownerUserId?: string): void {
       ],
       { stdio: "inherit" },
     );
+
     return;
   }
 

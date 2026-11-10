@@ -114,6 +114,7 @@ describe('placeAcceptedTurnItems', () => {
 
   it('stores a repeated item again rather than treating it as already present', () => {
     const repeated = item('tool-availability', 'Unavailable tools: a');
+
     const placed = placeAcceptedTurnItems(
       [repeated, item('tool-availability', 'Now available: a'), USER_TEXT],
       [repeated],
@@ -196,16 +197,19 @@ function queryResult(
   onSet?: (values: { parts: Array<unknown> }) => void,
 ) {
   const terminal = Promise.resolve(rows);
+
   const chain = Object.assign(terminal, {
     from: () => chain,
     where: () => chain,
     for: () => chain,
     set: (values: { parts: Array<unknown> }) => {
       onSet?.(values);
+
       return chain;
     },
     returning: () => terminal,
   });
+
   return chain;
 }
 
@@ -239,6 +243,7 @@ function dispatchDb(
       ),
     ),
   );
+
   return { db, writes };
 }
 

@@ -149,13 +149,17 @@ export function disclosedRecencyDigestEntries(input: {
         : [],
     ),
   );
+
   const unpaired = [...input.candidates];
+
   const pair = (
     matches: (candidate: RecencyDigestCandidate) => boolean,
   ): RecencyDigestCandidate | undefined => {
     const index = unpaired.findIndex(matches);
+
     return index === -1 ? undefined : unpaired.splice(index, 1)[0];
   };
+
   // Exact pairs are settled before any looser one, so a look-alike chat can
   // never take the candidate a later entry is identical to.
   const exact = disclosed.map(({ entry, pinned }) =>
@@ -167,9 +171,11 @@ export function disclosedRecencyDigestEntries(input: {
         candidate.entry.messageCount === entry.messageCount,
     ),
   );
+
   return disclosed.flatMap(({ entry, pinned }, index) => {
     const candidate =
       exact[index] ?? pair((each) => showsSameChat(each.entry, entry));
+
     return candidate === undefined
       ? []
       : [{ chatId: candidate.chatId, pinned, title: entry.title }];
@@ -193,32 +199,39 @@ export function deriveRecencyDigestDelta(input: {
   const toldByChatId = new Map(
     input.told.map((entry) => [entry.chatId, entry]),
   );
+
   // Pairing separately-built arrays here could announce one chat with another
   // chat's title/excerpt: an owner-scoped cross-chat content leak.
   const untold = input.candidate.candidates.filter(
     (candidate) => !toldByChatId.has(candidate.chatId),
   );
+
   const entries = untold.map((candidate) => ({
     ...candidate.entry,
     pinned: candidate.pinned,
   }));
+
   // One pass over the told-set: current pin state is read once per entry and
   // used for both the correction it may emit and the state it carries forward.
   const pinChanges: RecencyDigestDelta['pinChanges'] = [];
+
   const carriedForward = input.told.map((entry) => {
     const pinned = input.pinnedChatIds.has(entry.chatId);
+
     // A told entry persisted before titles were recorded cannot name its own
     // chat. Fail closed — say nothing rather than author an un-attributable
     // pin event.
     if (pinned !== entry.pinned && entry.title) {
       pinChanges.push({ title: entry.title, pinned });
     }
+
     return {
       chatId: entry.chatId,
       pinned,
       ...(entry.title && { title: entry.title }),
     };
   });
+
   if (entries.length === 0 && pinChanges.length === 0) return null;
 
   const told = [
@@ -229,6 +242,7 @@ export function deriveRecencyDigestDelta(input: {
       title: entry.title,
     })),
   ];
+
   return { entries, pinChanges, told };
 }
 
@@ -302,6 +316,7 @@ export class RecencyDigestService {
         titledOnly: true,
       }),
     ]);
+
     return { pinned, recent, pinnedTotal, recentTotal };
   }
 
@@ -312,13 +327,16 @@ export class RecencyDigestService {
     ownerUserId: string,
   ): Promise<Array<DigestSourceChat>> {
     const candidateIds = chats.map(({ id }) => id);
+
     const [firstUserMessages, counts] = await Promise.all([
       messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
       messages.countPerChat(candidateIds, ownerUserId),
     ]);
+
     const firstUserByChat = new Map(
       firstUserMessages.map((message) => [message.chatId, message]),
     );
+
     return chats.map((chat): DigestSourceChat => ({
       ...chat,
       firstUserMessage: firstUserByChat.get(chat.id),
@@ -344,12 +362,15 @@ export class RecencyDigestService {
       pinned,
       entry: toDigestEntry(chat),
     });
+
     const pinnedCandidates = hydratedPinned.map((chat) =>
       toCandidate(chat, true),
     );
+
     const recentCandidates = hydratedRecent.map((chat) =>
       toCandidate(chat, false),
     );
+
     return {
       pinnedCandidates,
       recentCandidates,
@@ -364,6 +385,7 @@ export class RecencyDigestService {
   ): Promise<RecencyDigestResolution> {
     const chats = new ChatsRepository(tx);
     const messages = new MessagesRepository(tx);
+
     const { pinned, recent, pinnedTotal, recentTotal } =
       await this.fetchDigestCandidateLists(chats, ownerUserId, currentChatId);
 
@@ -372,10 +394,13 @@ export class RecencyDigestService {
       [...pinned, ...recent],
       ownerUserId,
     );
+
     const hydratedPinned = hydrated.slice(0, pinned.length);
     const hydratedRecent = hydrated.slice(pinned.length);
+
     const { pinnedCandidates, recentCandidates, candidates } =
       this.buildDigestCandidates(hydratedPinned, hydratedRecent);
+
     return {
       baseline: buildRecencyDigestBaseline({
         pinned: pinnedCandidates.map(({ entry }) => entry),

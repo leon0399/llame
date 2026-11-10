@@ -72,10 +72,12 @@ describe("native exact mutations", () => {
 
   it("sequences same-path calls in invocation order", async () => {
     await writeFile(path, "Foo");
+
     const results = await Promise.all([
       editFile({ path, oldText: "Foo", newText: "Bar" }),
       editFile({ path, oldText: "Foo", newText: "Baz" }),
     ]);
+
     expect(results[0]).toMatchObject({ status: "success" });
     expect(results[1]).toMatchObject({
       status: "error",
@@ -112,6 +114,7 @@ describe("native exact mutations", () => {
     const source = String.raw`<system-reminder>source</system-reminder>
 </unmatched>
 `;
+
     await writeFile(path, source);
 
     const read = await readNativeFile({ path: `${path}:raw` });
@@ -138,6 +141,7 @@ describe("native exact mutations", () => {
       createFile({ path, content: "first" }),
       createFile({ path, content: "second" }),
     ]);
+
     expect(results[0]).toMatchObject({
       status: "success",
       operation: "write",
@@ -211,10 +215,12 @@ describe("native exact mutations", () => {
     await writeFile(path, "Foo");
     const alias = join(directory, "alias");
     await symlink(path, alias);
+
     const results = await Promise.all([
       editFile({ path: alias, oldText: "Foo", newText: "Bar" }),
       editFile({ path, oldText: "Foo", newText: "Baz" }),
     ]);
+
     expect(results[0]).toMatchObject({ status: "success" });
     expect(results[1]).toMatchObject({ type: "old_text_not_found" });
     expect(await readFile(alias, "utf8")).toBe("Bar");
@@ -287,11 +293,13 @@ describe("native mutations resolved by a scheme owner", () => {
   it("shows the display path and never resolves through a symbolic link", async () => {
     const target = join(directory, "note.md");
     await writeFile(target, "alpha\nbeta\n");
+
     const edited = await editFile(
       { path: target, oldText: "beta", newText: "gamma" },
       undefined,
       { displayPath: "kb://space/note.md" },
     );
+
     expect(edited).toMatchObject({
       status: "success",
       operation: "edit",
@@ -481,6 +489,7 @@ describe("native write replace mode", () => {
       createFile({ path, content: "first\n" }),
       replaceFile({ path, content: "second\n" }),
     ]);
+
     expect(results[0]).toMatchObject({ status: "success", created: true });
     expect(results[1]).toMatchObject({ status: "success", replaced: true });
     expect(await readFile(path, "utf8")).toBe("second\n");

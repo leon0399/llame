@@ -63,8 +63,10 @@ function RepositoryMenu({ onUnlink }: { onUnlink: () => void }) {
  *  cannot be known to have one. */
 function ForgeLink({ remote }: { remote: string | null }) {
   const page = forgePage(remote);
+
   if (page === undefined) return null;
   const label = `Open on ${page.name}`;
+
   return (
     <Tooltip>
       <TooltipTrigger
@@ -145,6 +147,7 @@ export function RepositoryHeader({
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const remote = repository?.canonicalRemote ?? null;
+
   return (
     <SheetHeader>
       {/* The title block takes the width; the toolbar keeps its place at the

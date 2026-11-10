@@ -108,6 +108,7 @@ export function createWalkQueue(width: number): WalkQueue {
     waitingConsumer: undefined,
     waitingProducer: undefined,
   };
+
   return {
     get closed() {
       return state.closed;
@@ -149,14 +150,19 @@ function waitUntil(state: QueueState, ready: () => boolean): Promise<boolean> {
     const attempt = (): void => {
       if (state.closed) {
         resolve(false);
+
         return;
       }
+
       if (!ready()) {
         state.waitingProducer = attempt;
+
         return;
       }
+
       resolve(true);
     };
+
     attempt();
   });
 }
@@ -170,6 +176,7 @@ async function pushEvent(
     return false;
   state.items.push(event);
   wake(state);
+
   return true;
 }
 
@@ -182,23 +189,31 @@ function takeEvent(state: QueueState): Promise<GrepWalkEvent | undefined> {
   return new Promise<GrepWalkEvent | undefined>((resolve, reject) => {
     const attempt = (): void => {
       const next = state.items.shift();
+
       if (next !== undefined) {
         if (next.kind === "candidate" && next.read !== undefined)
           state.open -= 1;
         wake(state);
         resolve(next);
+
         return;
       }
+
       if (state.failure !== undefined) {
         reject(state.failure);
+
         return;
       }
+
       if (state.closed) {
         resolve(undefined);
+
         return;
       }
+
       state.waitingConsumer = attempt;
     };
+
     attempt();
   });
 }
@@ -212,6 +227,7 @@ function startRead(
     kind: "failed",
     error,
   }));
+
   state.reads.add(read);
   // A settled read leaves the drain set, so a long scan holds only the reads
   // that still run instead of every outcome it produced.
@@ -219,6 +235,7 @@ function startRead(
     state.reads.delete(read);
   });
   state.open += 1;
+
   return read;
 }
 

@@ -30,8 +30,10 @@ function spyOnStatements(db: Db): Array<SQL> {
     // `db.execute` also accepts a raw string; the repository under test only
     // ever passes a drizzle `sql` template, so this narrows without a cast.
     if (isSQLWrapper(statement)) statements.push(statement.getSQL());
+
     return asDbQuery(Promise.resolve([]));
   });
+
   return statements;
 }
 

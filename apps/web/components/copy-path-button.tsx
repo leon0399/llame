@@ -29,6 +29,7 @@ const COPIED_FOR_MS = 1500;
  *  moment. Only a failure reaches a toast, since it needs words. */
 function useCopy() {
   const [copied, setCopied] = useState(false);
+
   const copy = async (text: string, what: string) => {
     if (await copyText(text)) {
       setCopied(true);
@@ -37,6 +38,7 @@ function useCopy() {
       toast.error(`Couldn't copy the ${what}.`);
     }
   };
+
   return { copied, copy };
 }
 
@@ -70,12 +72,14 @@ function CopyTrigger({
   // Marks the trigger while its check shows, so a hover-revealed row can keep
   // the check in sight after the pointer leaves.
   const marker = { "data-copied": copied ? "" : undefined };
+
   const face = (
     <>
       <CopyGlyph copied={copied} />
       <span className="sr-only">{label}</span>
     </>
   );
+
   return (
     <Tooltip>
       {menu ? (
@@ -148,6 +152,7 @@ export function CopyPathButton({
 }) {
   const state = useCopy();
   const machinePath = machinePathFromRoot(location);
+
   return (
     <>
       {machinePath === undefined ? (

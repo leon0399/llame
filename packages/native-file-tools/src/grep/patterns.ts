@@ -36,16 +36,21 @@ export function compileGrepPatterns(
   options: GrepPatternOptions,
 ): GrepPatternCompileResult {
   const countError = patternCountError(options.patterns.length);
+
   if (countError !== undefined) return countError;
 
   const matchers: Array<RE2JS> = [];
+
   for (const [index, pattern] of options.patterns.entries()) {
     const sizeError = patternSizeError(pattern, index);
+
     if (sizeError !== undefined) return sizeError;
     const compiled = compileOne(pattern, index, options);
+
     if (!compiled.ok) return compiled;
     matchers.push(compiled.value);
   }
+
   return {
     ok: true,
     compiled: {
@@ -54,8 +59,10 @@ export function compileGrepPatterns(
         for (const [index, matcher] of matchers.entries()) {
           // Nothing to check before the first test: one pattern has no gap.
           if (index > 0 && stopped?.() === true) return "stopped";
+
           if (matcher.test(line)) return true;
         }
+
         return false;
       },
     },
@@ -66,6 +73,7 @@ function patternCountError(
   count: number,
 ): Extract<GrepPatternCompileResult, { ok: false }> | undefined {
   if (count >= 1 && count <= GREP_LIMITS.maxPatterns) return undefined;
+
   return {
     ok: false,
     index: count === 0 ? 0 : GREP_LIMITS.maxPatterns,
@@ -79,6 +87,7 @@ function patternSizeError(
 ): Extract<GrepPatternCompileResult, { ok: false }> | undefined {
   if (Buffer.byteLength(pattern, "utf8") <= GREP_LIMITS.maxPatternBytes)
     return undefined;
+
   return {
     ok: false,
     index,
@@ -94,6 +103,7 @@ function compileOne(
   // `quote` runs first so a literal pattern keeps its metacharacters; the
   // case flag is a prefix so it cannot be quoted away.
   const source = options.literal ? RE2JS.quote(pattern) : pattern;
+
   try {
     return {
       ok: true,

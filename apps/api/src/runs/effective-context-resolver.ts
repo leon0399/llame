@@ -32,6 +32,7 @@ export type AttemptToolCatalog = {
   /** Admitted ids, sorted — the membership set `tools.<id>` predicates test. */
   admittedIds: Array<string>;
 };
+
 export type ComposeAttemptToolCatalogInput = {
   allowedToolRules: ReadonlyArray<string>;
   callTimeoutSeconds: number;
@@ -60,18 +61,22 @@ export async function composeAttemptToolCatalog(
     input.codeOwnedCandidates
       ? [...input.codeOwnedCandidates]
       : defaultCodeOwnedCandidates(input.candidates);
+
   const catalog = await composeTurnToolCatalog({
     allowedToolRules: input.allowedToolRules,
     callTimeoutSeconds: input.callTimeoutSeconds,
     candidates: [...codeOwnedCandidates, ...(input.dynamicCandidates ?? [])],
     descriptionRenderer: input.descriptionRenderer,
   });
+
   const declarations = catalog.admitted
     .map(({ declaration }) => declaration)
     .sort((left, right) => compareCodePoints(left.id, right.id));
+
   const sourceById = new Map(
     catalog.admitted.map(({ declaration, source }) => [declaration.id, source]),
   );
+
   return {
     availabilityManifest: catalog.manifest,
     declarations,
@@ -105,6 +110,7 @@ export async function resolveEffectiveContext(
   input: ResolveEffectiveContextInput,
 ): Promise<SystemPromptReceiptInput> {
   const catalog = input.catalog ?? (await composeAttemptToolCatalog(input));
+
   return finalizeEffectiveContext({
     model: input.model,
     systemPrompt: input.systemPrompt,

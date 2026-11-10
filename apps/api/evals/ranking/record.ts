@@ -20,10 +20,12 @@ config({ path: '.env.local' });
 
 async function main(): Promise<void> {
   const instanceConfig = { config: loadInstanceConfig() };
+
   const catalogue = [
     ...(instanceConfig.config.decisionModels ?? []),
     ...(instanceConfig.config.rerankModels ?? []),
   ].map((entry) => entry.id);
+
   const models = selectModels(catalogue, process.argv.slice(2));
   await recordAll(
     new DecisionsService(instanceConfig),

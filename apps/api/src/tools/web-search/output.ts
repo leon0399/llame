@@ -25,6 +25,7 @@ type WebSearchBase = {
   readonly query: string;
   readonly notes?: ReadonlyArray<string>;
 };
+
 export type WebSearchSuccess =
   | (WebSearchBase & {
       readonly kind: 'results';
@@ -39,14 +40,18 @@ export type WebSearchSuccess =
     });
 
 type ResultSource = Extract<SearchChainSuccess, { kind: 'results' }>;
+
 type ResultsOutput = Extract<WebSearchSuccess, { kind: 'results' }>;
+
 type AnswerOutput = Extract<WebSearchSuccess, { kind: 'answer' }>;
 
 /** Canonicalize a result locator without applying read's selector grammar. */
 export function canonicalUrl(raw: string): string | undefined {
   const locator = stripFragment(raw);
+
   if (!URL.canParse(locator)) return undefined;
   const url = new URL(locator);
+
   if (
     (url.protocol !== 'http:' && url.protocol !== 'https:') ||
     url.username !== '' ||
@@ -54,13 +59,16 @@ export function canonicalUrl(raw: string): string | undefined {
   )
     return undefined;
   let href = canonicalHref(url);
+
   if (url.search === '') {
     const slash = href.lastIndexOf('/');
     const segment = href.slice(slash + 1);
     href = `${href.slice(0, slash + 1)}${segment.replaceAll(':', '%3A')}`;
   }
+
   return href.length <= WEB_SEARCH_URL_MAX_CODE_UNITS ? href : undefined;
 }
+
 function isoPublished(value: string | undefined): string | undefined {
   if (
     value === undefined ||
@@ -70,6 +78,7 @@ function isoPublished(value: string | undefined): string | undefined {
     Number.isNaN(Date.parse(value))
   )
     return undefined;
+
   return value;
 }
 
@@ -87,7 +96,9 @@ function capNotes(
   const bounded = notes.map((note) =>
     capText(note, WEB_SEARCH_NOTE_MAX_CODE_UNITS),
   );
+
   const room = rankFailed ? WEB_SEARCH_NOTES_MAX - 1 : WEB_SEARCH_NOTES_MAX;
+
   const kept =
     bounded.length <= room
       ? bounded
@@ -95,13 +106,16 @@ function capNotes(
           ...bounded.slice(0, room - 1),
           `${bounded.length - (room - 1)} more engines`,
         ];
+
   return rankFailed ? [...kept, WEB_SEARCH_RANK_FAILURE_NOTE] : kept;
 }
 
 function capResults(source: ResultSource, limit: number): Array<RawResult> {
   const results: Array<RawResult> = [];
+
   for (const item of source.results) {
     const url = canonicalUrl(item.url);
+
     if (url === undefined) continue;
     const published = isoPublished(item.published);
     results.push({
@@ -112,8 +126,10 @@ function capResults(source: ResultSource, limit: number): Array<RawResult> {
       }),
       ...(published !== undefined && { published }),
     });
+
     if (results.length >= limit) break;
   }
+
   return results;
 }
 
@@ -122,8 +138,10 @@ function capCitations(
 ): Array<RawCitation> {
   const bounded: Array<RawCitation> = [],
     seen = new Set<string>();
+
   for (const item of citations) {
     const url = canonicalUrl(item.url);
+
     if (url === undefined || seen.has(url)) continue;
     seen.add(url);
     bounded.push({
@@ -132,14 +150,17 @@ function capCitations(
         title: capText(item.title, WEB_SEARCH_TITLE_MAX_CODE_UNITS),
       }),
     });
+
     if (bounded.length >= WEB_SEARCH_CITATIONS_MAX) break;
   }
+
   return bounded;
 }
 
 /** Attached answers keep the answer and citation bounds of an answer output. */
 function capAnswers(source: ResultSource): Array<RawAnswer> | undefined {
   if (source.answers === undefined) return undefined;
+
   return source.answers.map((answer) => ({
     engine: answer.engine,
     answer: boundedText(answer.answer, WEB_SEARCH_ANSWER_MAX_CODE_UNITS),
@@ -153,6 +174,7 @@ function capFields(
 ): WebSearchSuccess {
   if (source.kind === 'results') {
     const answers = capAnswers(source);
+
     return {
       status: 'success',
       kind: 'results',
@@ -162,6 +184,7 @@ function capFields(
       ...(answers !== undefined && { answers }),
     };
   }
+
   return {
     status: 'success',
     kind: 'answer',
@@ -173,8 +196,10 @@ function capFields(
 }
 
 const ANSWER_TRUNCATION_NOTE = 'answer truncated to 8000 characters';
+
 /** The note of an answer output whose own text is cut further to fit. */
 const ANSWER_CUT_NOTE = 'answer cut to fit the output limit';
+
 /**
  * The note of a results output whose last answer text is cut. The step cuts at
  * most one answer, so its note is a constant.
@@ -190,6 +215,7 @@ function textPrefix(
   const split = ranges.find(
     ({ start, end }) => start < maximum && end > maximum,
   );
+
   return capText(text, split === undefined ? maximum : split.start);
 }
 
@@ -206,17 +232,22 @@ function longestFittingPrefix(
   fits: (candidate: string) => boolean,
 ): string | undefined {
   const ranges = answerLinkRanges(text);
+
   let low = 0,
     high = text.length;
+
   let fitting: string | undefined;
+
   while (low <= high) {
     const middle = Math.floor((low + high) / 2);
     const candidate = textPrefix(text, middle, ranges);
+
     if (fits(candidate)) {
       fitting = candidate;
       low = middle + 1;
     } else high = middle - 1;
   }
+
   return fitting;
 }
 
@@ -254,6 +285,7 @@ type TrimCounts = {
   answerCut: boolean;
   answers: number;
 };
+
 const NO_TRIM_COUNTS: TrimCounts = {
   results: 0,
   citations: 0,
@@ -295,11 +327,14 @@ function withNotes(
   { notes, counts, answerCut, removed }: NoteInputs,
 ): WebSearchSuccess {
   const rankFailed = notes.includes(WEB_SEARCH_RANK_FAILURE_NOTE);
+
   const visible = [
     ...trimNoteList(counts),
     ...notes.filter((note) => note !== WEB_SEARCH_RANK_FAILURE_NOTE),
   ];
+
   if (answerCut) visible.unshift(ANSWER_CUT_NOTE);
+
   // The count note goes before every other note, including the truncation ones
   // above, so neither the cap nor a cut can take its place. It names no URL or
   // host: the model learns that something was removed, not what.
@@ -308,6 +343,7 @@ function withNotes(
       `removed ${removed} ${removed === 1 ? 'entry' : 'entries'}`,
     );
   const bounded = capNotes(visible, rankFailed);
+
   return bounded.length === 0 ? value : { ...value, notes: bounded };
 }
 
@@ -323,8 +359,10 @@ function dropTrailing<T>(
   onDrop: (kept: Array<T>) => void,
 ): boolean {
   let kept = [...items];
+
   for (;;) {
     if (!isOver()) return false;
+
     if (kept.length <= floor) return true;
     kept = kept.slice(0, -1);
     onDrop(kept);
@@ -343,14 +381,17 @@ function fitAnswer(
     answerCut: false,
     removed,
   });
+
   if (fitsInline(unchanged, reserve)) return unchanged;
   const counts: TrimCounts = { ...NO_TRIM_COUNTS };
   let citations = initial.citations;
+
   const render = (): WebSearchSuccess =>
     withNotes(
       { ...initial, citations },
       { notes, counts, answerCut: false, removed },
     );
+
   const over = dropTrailing(
     initial.citations,
     1,
@@ -360,6 +401,7 @@ function fitAnswer(
       counts.citations += 1;
     },
   );
+
   return over
     ? cutAnswer({ ...initial, citations }, notes, counts, removed)
     : render();
@@ -380,10 +422,12 @@ function cutAnswer(
       { ...output, answer },
       { notes, counts, answerCut: true, removed },
     );
+
   const fitting = longestFittingPrefix(
     output.answer,
     (candidate) => !isOverTrimmedBudget(render(candidate)),
   );
+
   return render(fitting ?? '');
 }
 
@@ -400,6 +444,7 @@ type ResultsTrim = {
 /** The current rendering of a trimmed results output, notes included. */
 function renderTrimmed(trim: ResultsTrim): WebSearchSuccess {
   const { answers: _initialAnswers, ...initial } = trim.initial;
+
   return withNotes(
     {
       ...initial,
@@ -418,6 +463,7 @@ function renderTrimmed(trim: ResultsTrim): WebSearchSuccess {
 /** Second trim step: each attached answer loses citations from its end. */
 function trimAnswerCitations(trim: ResultsTrim): void {
   let over = isOverTrimmedBudget(renderTrimmed(trim));
+
   for (let index = trim.answers.length - 1; index >= 0 && over; index -= 1) {
     const answer = trim.answers[index];
     over = dropTrailing(
@@ -441,19 +487,25 @@ function trimAnswerCitations(trim: ResultsTrim): void {
  */
 function cutLastAnswerText(trim: ResultsTrim): void {
   const index = trim.answers.length - 1;
+
   if (index < 0 || !isOverTrimmedBudget(renderTrimmed(trim))) return;
   const answer = trim.answers[index];
   // The note of this cut joins its own measurement.
   trim.counts.answerCut = true;
+
   const fitting = longestFittingPrefix(answer.answer, (candidate) => {
     trim.answers[index] = { ...answer, answer: candidate };
+
     return !isOverTrimmedBudget(renderTrimmed(trim));
   });
+
   if (fitting === undefined) {
     trim.answers[index] = answer;
     trim.counts.answerCut = false;
+
     return;
   }
+
   trim.answers[index] = { ...answer, answer: fitting };
 }
 
@@ -490,7 +542,9 @@ function fitResults(
     answerCut: false,
     removed,
   });
+
   if (fitsInline(unchanged, reserve)) return unchanged;
+
   const trim: ResultsTrim = {
     initial,
     notes,
@@ -499,6 +553,7 @@ function fitResults(
     results: [...initial.results],
     answers: initial.answers === undefined ? [] : [...initial.answers],
   };
+
   dropTrailing(
     trim.results,
     0,
@@ -509,6 +564,7 @@ function fitResults(
     },
   );
   trimAnswers(trim);
+
   return renderTrimmed(trim);
 }
 
@@ -517,7 +573,9 @@ function truncatedAnswersNote(source: ResultSource): string | undefined {
   const truncated = (source.answers ?? []).filter(
     (answer) => answer.answer.length > WEB_SEARCH_ANSWER_MAX_CODE_UNITS,
   ).length;
+
   if (truncated === 0) return undefined;
+
   return truncated === 1
     ? ANSWER_TRUNCATION_NOTE
     : `${truncated} answers truncated to 8000 characters`;
@@ -530,6 +588,7 @@ export function normalizeOutput(
   noticeReserve = 0,
 ): WebSearchSuccess {
   const { output, notes } = boundedOutput(source, limit);
+
   return output.kind === 'results'
     ? fitResults(output, notes, source.removed, noticeReserve)
     : fitAnswer(output, notes, source.removed, noticeReserve);
@@ -545,6 +604,7 @@ export function normalizeFullOutput(
   fetchSize: number,
 ): WebSearchSuccess {
   const { output, notes } = boundedOutput(source, fetchSize);
+
   return withNotes(output, {
     notes,
     counts: NO_TRIM_COUNTS,
@@ -565,12 +625,15 @@ function boundedOutput(
   count: number,
 ): BoundedOutput {
   const notes = source.notes === undefined ? [] : [...source.notes];
+
   const truncation =
     source.kind === 'answer'
       ? source.answer.length > WEB_SEARCH_ANSWER_MAX_CODE_UNITS
         ? ANSWER_TRUNCATION_NOTE
         : undefined
       : truncatedAnswersNote(source);
+
   if (truncation !== undefined) notes.unshift(truncation);
+
   return { output: capFields(source, count), notes };
 }

@@ -54,10 +54,12 @@ type ArtifactWrites = {
   readonly insertArtifact: MockInstance<ArtifactsRepository['insertArtifact']>;
   readonly insertParts: MockInstance<ArtifactsRepository['insertParts']>;
 };
+
 let writes: ArtifactWrites;
 
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -103,6 +105,7 @@ function resultsSource(
     query: 'query',
     results,
   };
+
   return answers === undefined ? source : { ...source, answers };
 }
 
@@ -128,6 +131,7 @@ function spilled(
   result: ToolResult,
 ): WebSearchSuccess & { truncationNotice?: string } {
   if (result.status !== 'success') throw new Error('expected a success');
+
   return webSearchOutputSchema.parse(result);
 }
 
@@ -137,24 +141,30 @@ function textOf(result: ToolResult): string {
 
 function writtenText(): string {
   const part = writes.insertParts.mock.calls[0]?.[1]?.[0];
+
   if (part === undefined)
     throw new Error('Expected one written artifact part.');
+
   return part.content.toString('utf8');
 }
 
 function writtenFindings(): ReadonlyArray<unknown> {
   const part = writes.insertParts.mock.calls[0]?.[1]?.[0];
   const document: unknown = part?.findings;
+
   if (!isRecord(document) || !Array.isArray(document['findings'])) {
     throw new Error('Expected a written finding document.');
   }
+
   return document['findings'];
 }
 
 function writtenPart(): FindingPart & { content: Buffer } {
   const part = writes.insertParts.mock.calls[0]?.[1]?.[0];
+
   if (part === undefined)
     throw new Error('Expected one written artifact part.');
+
   return {
     findings: part.findings,
     contentType: part.contentType,
@@ -169,6 +179,7 @@ function withheldText(
 ): string {
   const text = part.content.toString('utf8');
   const locator = 'artifact://web_search-5';
+
   return withholdFindings(context, part, artifactText(text), {
     ...applySelectorSuffix(locator, undefined),
     lineCount: artifactLineCount(text),
@@ -206,6 +217,7 @@ it('shows ten of twenty results inline and stores all twenty in rank order', asy
     artifact: 'artifact://web_search-5',
   });
   const output = spilled(result);
+
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.results).toHaveLength(10);
   expect(output.results.map((item) => item.url)).toEqual(
@@ -216,9 +228,11 @@ it('shows ten of twenty results inline and stores all twenty in rank order', asy
   expect(writtenPart().contentType).toBe('text/markdown');
   const headings = text.match(/^## \d+\./gmu) ?? [];
   expect(headings).toHaveLength(20);
+
   const positions = Array.from({ length: 20 }, (_unused, index) =>
     text.indexOf(`## ${index + 1}.`),
   );
+
   expect(positions).toEqual([...positions].sort((left, right) => left - right));
   expect(text).toBe(renderWebSearchText(normalizeFullOutput(source, 20)));
 });
@@ -226,10 +240,12 @@ it('shows ten of twenty results inline and stores all twenty in rank order', asy
 it('keeps the artifact text whole, so reading it needs no engine request', async () => {
   const fetch = vi.fn(() => Promise.reject(new Error('no request expected')));
   vi.stubGlobal('fetch', fetch);
+
   try {
     const source = resultsSource(
       Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
     );
+
     const result = await spillWebSearchResult(testContext(), source, {
       limit: 10,
       fetchSize: 20,
@@ -249,6 +265,7 @@ it('ends the notice with the artifact line after the last inline result', async 
   const source = resultsSource(
     Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
   );
+
   const blocks =
     renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
 
@@ -285,6 +302,7 @@ it('drops trailing results that do not fit and never cuts a URL', async () => {
   });
 
   const output = spilled(result);
+
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.results.length).toBeLessThan(20);
   expect(output.results.map((item) => item.url)).toEqual(
@@ -295,6 +313,7 @@ it('drops trailing results that do not fit and never cuts a URL', async () => {
   );
   const text = textOf(result);
   expect(text.length).toBeLessThanOrEqual(15_000);
+
   for (const item of output.results) expect(text).toContain(item.url);
   expect(writtenText().match(/^## \d+\./gmu)).toHaveLength(20);
 });
@@ -315,6 +334,7 @@ it('keeps the first citation of a maximal answer inline', async () => {
     artifact: 'artifact://web_search-5',
   });
   const output = spilled(result);
+
   if (output.kind !== 'answer') throw new Error('expected an answer');
   expect(output.citations.length).toBeGreaterThanOrEqual(1);
   expect(output.citations.length).toBeLessThan(20);
@@ -331,6 +351,7 @@ it('drops results before the text of an attached answer', async () => {
     answer: 'a'.repeat(8000),
     citations: [{ url: 'https://example.test/cited' }],
   };
+
   const source = resultsSource(
     Array.from({ length: 20 }, (_unused, index) =>
       resultAt(index + 1, { title: 200, snippet: 300 }),
@@ -344,6 +365,7 @@ it('drops results before the text of an attached answer', async () => {
   });
 
   const output = spilled(result);
+
   if (output.kind !== 'results') throw new Error('expected results');
   expect(output.answers?.[0]?.answer).toBe(answer.answer);
   expect(output.results.length).toBeLessThan(20);
@@ -368,6 +390,7 @@ it('drops whole attached answers from the end last, with one note', async () => 
   );
 
   const output = spilled(result);
+
   if (output.kind !== 'results') throw new Error('expected results');
   const inline = output.answers ?? [];
   const dropped = 8 - inline.length;
@@ -399,13 +422,16 @@ it('keeps one citation in each attached answer', async () => {
   );
 
   const output = spilled(result);
+
   if (output.kind !== 'results') throw new Error('expected results');
   const inline = output.answers ?? [];
   expect(inline).toHaveLength(2);
+
   for (const [index, answer] of inline.entries()) {
     expect(answer.citations).toHaveLength(1);
     expect(answer.citations[0]?.url).toBe(answers[index]?.citations[0]?.url);
   }
+
   expect(textOf(result).length).toBeLessThanOrEqual(15_000);
 });
 
@@ -498,10 +524,12 @@ it('records one reject-only finding for every result and answer block', async ()
       citations: [{ url: 'https://example.test/answer' }],
     },
   ];
+
   const source = resultsSource(
     Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
     answers,
   );
+
   const blocks =
     renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
 
@@ -532,6 +560,7 @@ it('fetches the default size and shows ten of fifteen results inline', async () 
     url: `https://example.test/n/${index + 1}`,
     description: `Description ${index + 1}`,
   }));
+
   const fetch = vi.fn<VendorFetch>(() =>
     Promise.resolve(
       new Response(JSON.stringify({ web: { results: entries } }), {
@@ -539,7 +568,9 @@ it('fetches the default size and shows ten of fifteen results inline', async () 
       }),
     ),
   );
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const config: WebSearchConfig = {
       engines: [
@@ -554,9 +585,12 @@ it('fetches the default size and shows ten of fifteen results inline', async () 
     );
 
     const [url] = fetch.mock.calls[0] ?? [];
+
     if (url === undefined) throw new Error('Expected one engine request.');
+
     const requested =
       url instanceof Request ? url.url : url instanceof URL ? url.href : url;
+
     const request = new URL(requested);
     expect(request.searchParams.get('count')).toBe('20');
     expect(result).toMatchObject({
@@ -564,6 +598,7 @@ it('fetches the default size and shows ten of fifteen results inline', async () 
       artifact: 'artifact://web_search-5',
     });
     const output = spilled(result);
+
     if (output.kind !== 'results') throw new Error('expected results');
     expect(output.results).toHaveLength(10);
     expect(writtenText().match(/^## \d+\./gmu)).toHaveLength(15);
@@ -576,6 +611,7 @@ it('numbers a long answer by its artifact pieces and withholds every line', asyn
   const citations = Array.from({ length: 20 }, (_unused, index) =>
     longUrl(index + 1),
   );
+
   const source = answerSource('a'.repeat(8000), citations);
 
   const result = await spillWebSearchResult(testContext(), source, {
@@ -604,6 +640,7 @@ it('numbers a long answer by its artifact pieces and withholds every line', asyn
       'web-search-artifact-test',
     ),
   });
+
   const withheld = withheldText(rejecting, writtenPart()).split('\n');
   expect(withheld[0]).toContain('engine: hosted');
   expect(withheld.slice(1)).toEqual(
@@ -623,6 +660,7 @@ it('continues after the last inline result when an answer follows', async () => 
       },
     ],
   );
+
   const blocks =
     renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
 
@@ -673,6 +711,7 @@ it('stores nothing without a Run id and keeps the tool name as the call id', asy
     source,
     { limit: 10, fetchSize: 20 },
   );
+
   expect(withoutRun).not.toHaveProperty('artifact');
   expect(writes.insertParts).not.toHaveBeenCalled();
 
@@ -681,6 +720,7 @@ it('stores nothing without a Run id and keeps the tool name as the call id', asy
     source,
     { limit: 10, fetchSize: 20 },
   );
+
   expect(withoutCall).toHaveProperty('artifact', 'artifact://web_search-5');
   expect(writes.insertArtifact.mock.calls[0]?.[0]).toMatchObject({
     toolCallId: 'web_search',
@@ -691,7 +731,9 @@ it('stores a part exactly at the byte bound and not one byte over', async () => 
   const source = resultsSource(
     Array.from({ length: 20 }, (_unused, index) => resultAt(index + 1)),
   );
+
   const text = renderWebSearchOutput(normalizeFullOutput(source, 20))?.text;
+
   if (text === undefined) throw new Error('expected the full text');
   const bound = Buffer.byteLength(text);
 
@@ -700,6 +742,7 @@ it('stores a part exactly at the byte bound and not one byte over', async () => 
     source,
     { limit: 10, fetchSize: 20 },
   );
+
   expect(atBound).toHaveProperty('artifact', 'artifact://web_search-5');
 
   const overBound = await spillWebSearchResult(
@@ -707,12 +750,14 @@ it('stores a part exactly at the byte bound and not one byte over', async () => 
     source,
     { limit: 10, fetchSize: 20 },
   );
+
   expect(overBound).not.toHaveProperty('artifact');
 });
 
 it('names the host-file directory when the files are written', async () => {
   const root = mkdtempSync(join(tmpdir(), 'web-search-host-'));
   vi.stubEnv('TMPDIR', root);
+
   try {
     const result = await spillWebSearchResult(
       testContext({ artifactHostFiles: true }),
@@ -734,6 +779,7 @@ it('names the host-file directory when the files are written', async () => {
 it('says the host files are on the llame host only in a Machine Workspace', async () => {
   const root = mkdtempSync(join(tmpdir(), 'web-search-machine-'));
   vi.stubEnv('TMPDIR', root);
+
   try {
     const result = await spillWebSearchResult(
       testContext({
@@ -777,6 +823,7 @@ it('counts every citation an answer output leaves out', async () => {
   );
 
   const inline = spilled(result);
+
   if (inline.kind !== 'answer') throw new Error('expected an answer');
   const dropped = citations.length - inline.citations.length;
   expect(inline.truncationNotice).toBe(
@@ -812,6 +859,7 @@ it('counts a dropped answer once, not once for each of its citations', async () 
   );
 
   const inline = spilled(result);
+
   if (inline.kind !== 'results') throw new Error('expected results');
   const dropped = answers.length - (inline.answers?.length ?? 0);
   expect(dropped).toBeGreaterThan(1);
@@ -824,6 +872,7 @@ it('records an answer output finding with every citation', async () => {
   const citations = Array.from({ length: 20 }, (_unused, index) =>
     longUrl(index + 1),
   );
+
   const source = answerSource('a'.repeat(8000), citations);
 
   await spillWebSearchResult(testContext(), source, {
@@ -833,6 +882,7 @@ it('records an answer output finding with every citation', async () => {
 
   const blocks =
     renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
+
   expect(writtenFindings()).toEqual([
     {
       locators: citations.map((citation) => citation.url),
@@ -861,6 +911,7 @@ it('counts dropped answers once and kept answers’ lost citations', async () =>
   const citations = Array.from({ length: 20 }, (_unused, index) =>
     longUrl(index + 1),
   );
+
   const answers = Array.from({ length: 5 }, (_unused, index) => ({
     engine: `hosted-${index}`,
     answer: 'a'.repeat(8000),
@@ -874,6 +925,7 @@ it('counts dropped answers once and kept answers’ lost citations', async () =>
   );
 
   const inline = spilled(result);
+
   if (inline.kind !== 'results') throw new Error('expected results');
   expect(inline.answers).toHaveLength(1);
   expect(inline.answers?.[0]?.citations).toHaveLength(1);
@@ -887,14 +939,17 @@ it('reserves the notice room when the inline body alone fits', async () => {
   const base = Array.from({ length: 20 }, (_unused, index) =>
     resultAt(index + 1, { title: 200, snippet: 300, url: 1 }),
   );
+
   const bodyLength = renderWebSearchOutput(
     normalizeOutput(resultsSource(base), 10),
   )?.text.length;
+
   if (bodyLength === undefined) throw new Error('expected the inline body');
   const target = 14_980;
   const extra = target - bodyLength;
   const per = Math.floor(extra / 10);
   const remainder = extra % 10;
+
   const source = resultsSource(
     base.map((result, index) =>
       index < 10
@@ -933,7 +988,9 @@ it('re-reads a partially reproduced answer instead of skipping its tail', async 
     answer: text.repeat(6000),
     citations: [longUrl(index + 1)],
   }));
+
   const source = resultsSource([], answers);
+
   const fullBlocks =
     renderWebSearchOutput(normalizeFullOutput(source, 20))?.blocks ?? [];
 
@@ -943,6 +1000,7 @@ it('re-reads a partially reproduced answer instead of skipping its tail', async 
   });
 
   const inline = spilled(result);
+
   if (inline.kind !== 'results') throw new Error('expected results');
   expect(inline.answers).toHaveLength(2);
   const inlineBlocks = renderWebSearchOutput(inline)?.blocks ?? [];
@@ -969,6 +1027,7 @@ it('never reports zero results when only an answer text was cut', async () => {
   );
 
   const inline = spilled(result);
+
   if (inline.kind !== 'results') throw new Error('expected results');
   expect(inline.answers).toHaveLength(2);
   expect(inline.answers?.[1]?.answer).not.toBe(answers[1]?.answer);
@@ -994,6 +1053,7 @@ it('counts a cut answer output as one left-out result', async () => {
   );
 
   const inline = spilled(result);
+
   if (inline.kind !== 'answer') throw new Error('expected an answer');
   expect(inline.answer.length).toBeLessThan(8000);
   expect(inline.citations).toHaveLength(1);

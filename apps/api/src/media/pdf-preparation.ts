@@ -23,6 +23,7 @@ export const PDF_MAX_PAGES = 100;
 
 const PARSE_TIMEOUT_MS = 10_000;
 const MAX_LIVE_PARSES = 2;
+
 /** A child that did not start, or whose bounds could not apply; the entry never uses it. */
 const START_FAILURE_STATUS = 70;
 const PDF_SIGNATURE = Buffer.from('%PDF-', 'latin1');
@@ -43,6 +44,7 @@ const parseReportSchema = z.strictObject({
   pages: z.number().int(),
   encrypted: z.boolean(),
 });
+
 type ParseReport = z.infer<typeof parseReportSchema>;
 
 /** How a parse child is started and how long it may run. */
@@ -72,15 +74,19 @@ export function isPdfSignature(head: Uint8Array): boolean {
  */
 function defaultParseChild(): PdfParseChild {
   const compiled = path.join(__dirname, 'pdf-parse-entry.js');
+
   if (existsSync(compiled)) {
     return pdfParseChild(['--disable-wasm-trap-handler', compiled]);
   }
+
   if (processEnvironment().VITEST !== 'true') {
     logger.error('PDF parse child failed to start: compiled entry is missing');
     throw new MediaIngestError(MEDIA_REFUSAL.pdfUnavailable);
   }
+
   const entry = path.join(__dirname, 'pdf-parse-entry.ts');
   const args = ['--import', 'tsx', entry];
+
   return { command: process.execPath, args, timeoutMs: PARSE_TIMEOUT_MS };
 }
 
@@ -92,7 +98,9 @@ export function pdfParseChild(
   if (process.platform !== 'linux') {
     return { command: process.execPath, args: entryArgs, timeoutMs };
   }
+
   const args = ['-c', BOUNDED_START, 'sh', process.execPath, ...entryArgs];
+
   return { command: 'sh', args, timeoutMs };
 }
 
@@ -107,21 +115,27 @@ export async function preparePdf(
   signal?: AbortSignal,
 ): Promise<number> {
   signal?.throwIfAborted();
+
   if (input.length > MEDIA_MAX_BYTES) {
     throw new MediaIngestError(MEDIA_REFUSAL.pdfTooLarge);
   }
+
   if (input.includes(ENCRYPT_TOKEN)) {
     throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
   }
+
   const report = classify(
     await withParseSlot(() => runChild(input, child, signal), signal),
   );
+
   if (report.encrypted || report.pages < 1) {
     throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
   }
+
   if (report.pages > PDF_MAX_PAGES) {
     throw new MediaIngestError(MEDIA_REFUSAL.pdfTooLarge);
   }
+
   return report.pages;
 }
 
@@ -130,9 +144,11 @@ function classify(outcome: ChildOutcome): ParseReport {
     logger.error(`PDF parse child failed to start: ${outcome.stderr.trim()}`);
     throw new MediaIngestError(MEDIA_REFUSAL.pdfUnavailable);
   }
+
   if (outcome.status !== 0) {
     throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
   }
+
   try {
     return parseReportSchema.parse(JSON.parse(outcome.stdout));
   } catch {
@@ -141,6 +157,7 @@ function classify(outcome: ChildOutcome): ParseReport {
 }
 
 let liveParses = 0;
+
 /** The handoff of each parse waiting for a slot, oldest first. */
 const waitingParses: Array<() => void> = [];
 
@@ -154,8 +171,10 @@ async function withParseSlot<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   await acquireParseSlot(signal);
+
   try {
     signal?.throwIfAborted();
+
     return await task();
   } finally {
     releaseParseSlot();
@@ -170,26 +189,34 @@ async function withParseSlot<T>(
 function acquireParseSlot(signal?: AbortSignal): Promise<void> {
   if (liveParses < MAX_LIVE_PARSES) {
     liveParses += 1;
+
     return Promise.resolve();
   }
+
   const { promise, resolve, reject } = Promise.withResolvers<void>();
+
   const receiveSlot = () => {
     signal?.removeEventListener('abort', cancel);
     resolve();
   };
+
   const cancel = () => {
     const queuedAt = waitingParses.indexOf(receiveSlot);
+
     if (queuedAt !== -1) waitingParses.splice(queuedAt, 1);
     reject(signal?.reason);
   };
+
   waitingParses.push(receiveSlot);
   signal?.addEventListener('abort', cancel, { once: true });
+
   return promise;
 }
 
 /** Hands the slot to the next queued parse, or frees it. */
 function releaseParseSlot(): void {
   const next = waitingParses.shift();
+
   if (next) next();
   else liveParses -= 1;
 }
@@ -201,11 +228,13 @@ function runChild(
   signal?: AbortSignal,
 ): Promise<ChildOutcome> {
   const { promise, resolve, reject } = Promise.withResolvers<ChildOutcome>();
+
   const proc = spawn(child.command, child.args, {
     // `--import tsx` resolves from the working directory in tests.
     cwd: __dirname,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+
   const stdout: Array<Buffer> = [];
   const stderr: Array<Buffer> = [];
   const timer = setTimeout(() => proc.kill('SIGKILL'), child.timeoutMs);
@@ -222,6 +251,7 @@ function runChild(
   proc.on('close', (status) => {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onCancel);
+
     if (signal?.aborted === true) reject(signal.reason);
     else
       resolve({
@@ -232,5 +262,6 @@ function runChild(
   });
   signal?.addEventListener('abort', onCancel, { once: true });
   proc.stdin.end(input);
+
   return promise;
 }

@@ -16,6 +16,7 @@ import type { KnowledgeFilesystemBinding } from './knowledge-filesystem';
 
 const SPACE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 const MARKDOWN_SUFFIX = '.md';
 
 /** The stable Knowledge Space identifier shape, checked before any lookup so a
@@ -38,6 +39,7 @@ export function validateSearchInput(query: string, limit: number): void {
   if (query.length === 0) {
     throw new KnowledgeFilesystemError('knowledge_path_invalid');
   }
+
   if (
     Array.from(query).length > 200 ||
     !Number.isInteger(limit) ||
@@ -60,6 +62,7 @@ export function validatePath(relativePath: string): Array<string> {
   }
 
   const components = relativePath.split('/');
+
   if (
     components.some(
       (component) =>
@@ -68,13 +71,16 @@ export function validatePath(relativePath: string): Array<string> {
   ) {
     throw new KnowledgeFilesystemError('knowledge_path_invalid');
   }
+
   const byteLength = Buffer.byteLength(relativePath, 'utf8');
+
   if (
     byteLength > KNOWLEDGE_MAX_PATH_BYTES ||
     components.length > KNOWLEDGE_MAX_PATH_COMPONENTS
   ) {
     throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
   }
+
   return components;
 }
 

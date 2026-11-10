@@ -5,11 +5,13 @@ import { isRecord } from "@workspace/runtime-safety";
 export function processGroupAlive(pgid: number): boolean {
   try {
     process.kill(-pgid, 0);
+
     return true;
   } catch (error) {
     if (isRecord(error) && error.code === "ESRCH") {
       return false;
     }
+
     // Any probe failure other than ESRCH is an unproven stop.
     return true;
   }
@@ -29,14 +31,17 @@ export async function waitForProcessGroupQuiescence(
   budgetMs = 250,
 ): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
+
   while (Date.now() < deadline) {
     if (!processGroupAlive(pgid)) return true;
     await delay(10);
   }
+
   return !processGroupAlive(pgid);
 }
 
 export async function stopProcessGroup(pgid: number): Promise<boolean> {
   signalProcessGroup(pgid, "SIGKILL");
+
   return waitForProcessGroupQuiescence(pgid);
 }

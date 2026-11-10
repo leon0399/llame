@@ -34,6 +34,7 @@ async function generateOpenApi() {
     // ExceptionHandler print the full, correctly-attributed stack before it
     // exits, so a broken build always says why.
     const app = await NestFactory.create(AppModule, { logger: ['error'] });
+
     try {
       configureApp(app);
       const document = createOpenApiDocument(app);

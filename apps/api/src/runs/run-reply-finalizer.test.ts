@@ -228,6 +228,7 @@ describe('finalizeRunReply', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       input.log,
     );
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((appendedRunId, eventType, payload) =>
@@ -239,16 +240,20 @@ describe('finalizeRunReply', () => {
           createdAt: now,
         }),
       );
+
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,
       assistantMessage: input.reply,
     });
+
     const update = vi
       .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
       .mockImplementation(() => Promise.resolve(input.reply));
+
     const create = vi
       .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
       .mockResolvedValue(reply({ usage: { status: 'error' } }));
+
     return { append, update, create };
   }
 
@@ -354,7 +359,9 @@ describe('finalizeRunReply', () => {
       payload: {},
       text: 'kept item',
     });
+
     const ownItem = contextItem('own item');
+
     const running = runningReplyUsage({
       runId,
       attemptId: 'a',
@@ -362,6 +369,7 @@ describe('finalizeRunReply', () => {
       effort: undefined,
       permissionMode: 'default',
     });
+
     const { update } = serve({
       log: [
         event(1, 'run.continued', {
@@ -397,6 +405,7 @@ describe('finalizeRunReply', () => {
 
   it("rebuilds the named attempt's reply around its stored items with that attempt's identity", async () => {
     const item = contextItem('rules');
+
     const running = runningReplyUsage({
       runId,
       attemptId: 'a',
@@ -404,6 +413,7 @@ describe('finalizeRunReply', () => {
       effort: 'high',
       permissionMode: 'bypass',
     });
+
     const { update } = serve({
       log: [
         event(1, 'run.started', null),
@@ -583,22 +593,28 @@ describe('failRunTransactionally', () => {
   it('finalizes the reply and appends run.failed only when the terminal update wins', async () => {
     const db: Db = drizzle.mock({ schema });
     const runAsCalls: Array<string> = [];
+
     const tenantDb = {
       runAs<T>(runAsUserId: string, callback: (tx: Db) => Promise<T>) {
         runAsCalls.push(runAsUserId);
+
         return callback(db);
       },
     } satisfies TenantRunner;
+
     vi.spyOn(RunsRepository.prototype, 'markFinished')
       .mockResolvedValueOnce(run)
       .mockResolvedValueOnce(undefined);
+
     const listByRunId = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValue([]);
+
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,
       assistantMessage: undefined,
     });
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockResolvedValue(event(1, 'run.failed', null));

@@ -29,6 +29,7 @@ export function toMessageParts(
     if (!isRecord(part)) {
       throw new Error('Malformed message part: expected an object');
     }
+
     return part;
   });
 }
@@ -59,18 +60,23 @@ export async function resolveOwnerFileParts(
 ): Promise<Array<MessagePart>> {
   const ids = parts.flatMap((part) => {
     const id = part.type === 'file' ? parseMediaLocator(part.url) : undefined;
+
     return id === undefined ? [] : [id];
   });
+
   // Reads nothing when the message carries no file part.
   const owned = await media.describeOwned(userId, ids);
+
   return parts.map((part): MessagePart => {
     if (part.type === 'text') return part;
     const id = parseMediaLocator(part.url);
     const stored = id === undefined ? undefined : owned.get(id);
+
     if (stored === undefined) {
       // Unknown and foreign ids share this answer: a send never reveals an id.
       throw new BadRequestException('Message references unavailable media');
     }
+
     return {
       type: 'file',
       mediaType: stored.mediaType,

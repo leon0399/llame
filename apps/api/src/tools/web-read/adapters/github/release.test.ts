@@ -67,6 +67,7 @@ function failure(
     message: `HTTP ${httpStatus}`,
     httpStatus,
   };
+
   return rateLimit === undefined ? result : { ...result, rateLimit };
 }
 
@@ -77,14 +78,17 @@ async function readRelease(
   token?: string,
 ) {
   const run = scriptedIo(new Map([[url, [reply]]]));
+
   const outcome = await createGithubAdapter(config(token), {
     apiOrigin: API_ORIGIN,
   }).read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
 function contentOf(outcome: WebAdapterOutcome): string {
   if (outcome.kind !== 'rendered') throw new Error('expected a render');
+
   return outcome.content;
 }
 
@@ -282,6 +286,7 @@ describe('GitHub release adapter', () => {
       type: 'call_timeout',
       message: 'The web read exceeded its 30-second budget.',
     };
+
     await expect(readRelease(HTML, LIST_URL, timeout)).resolves.toMatchObject({
       outcome: { kind: 'failed', failure: 'transport', fatal: timeout },
     });

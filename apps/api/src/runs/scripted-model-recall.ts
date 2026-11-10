@@ -41,6 +41,7 @@ const conversationSearchOutputSchema = z.object({
     }),
   ),
 });
+
 const conversationReadOutputSchema = z.object({
   status: z.literal('success'),
   nextOffset: z.number().int().nonnegative().optional(),
@@ -50,6 +51,7 @@ function parseJsonText<T>(value: string, schema: z.ZodType<T>): T | undefined {
   try {
     const decoded: unknown = JSON.parse(value);
     const parsed = schema.safeParse(decoded);
+
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -63,51 +65,64 @@ function parseToolOutput<T>(
 ): T | undefined {
   if (output.type === 'json') {
     const parsed = schema.safeParse(output.value);
+
     return parsed.success ? parsed.data : undefined;
   }
+
   if (output.type === 'text') {
     return parseJsonText(output.value, schema);
   }
+
   return undefined;
 }
 
 function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
   const outputs: Array<z.output<typeof conversationSearchOutputSchema>> = [];
+
   for (const message of prompt) {
     if (message.role !== 'tool') continue;
+
     for (const content of message.content) {
       if (
         content.type !== 'tool-result' ||
         content.toolName !== 'search_conversations'
       )
         continue;
+
       const parsed = parseToolOutput(
         content.output,
         conversationSearchOutputSchema,
       );
+
       if (parsed !== undefined) outputs.push(parsed);
     }
   }
+
   return outputs;
 }
 
 function findReadOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
   const outputs: Array<z.output<typeof conversationReadOutputSchema>> = [];
+
   for (const message of prompt) {
     if (message.role !== 'tool') continue;
+
     for (const content of message.content) {
       if (
         content.type !== 'tool-result' ||
         content.toolName !== 'conversation_read'
       )
         continue;
+
       const parsed = parseToolOutput(
         content.output,
         conversationReadOutputSchema,
       );
+
       if (parsed !== undefined) outputs.push(parsed);
     }
   }
+
   return outputs;
 }
 
@@ -133,10 +148,12 @@ function recallStep(
   script: RecallScript,
 ): RecallStep {
   const searchOutputs = findSearchOutputs(prompt);
+
   if (searchOutputs.length === 0) return { kind: 'search' };
 
   const readOutputs = findReadOutputs(prompt);
   const result = searchOutputs[0]?.results[0];
+
   const coordinates: ConversationCoordinates | undefined =
     result === undefined
       ? undefined
@@ -146,6 +163,7 @@ function recallStep(
           offset: result.offset,
           limit: result.limit,
         };
+
   if (coordinates !== undefined && readOutputs.length === 0) {
     return {
       kind: 'read',
@@ -158,8 +176,10 @@ function recallStep(
     script.continueRead && readOutputs.length === 1
       ? readOutputs[0]?.nextOffset
       : undefined;
+
   if (coordinates === undefined || offset === undefined)
     return { kind: 'answer' };
+
   return {
     kind: 'read',
     toolCallId: 'conversation-read-2',
@@ -173,6 +193,7 @@ export function conversationRecallParts(
   script: RecallScript,
 ): Array<LanguageModelV3StreamPart> {
   const step = recallStep(prompt, script);
+
   if (step.kind === 'search') {
     return [
       {
@@ -187,6 +208,7 @@ export function conversationRecallParts(
       },
     ];
   }
+
   if (step.kind === 'read') {
     return [
       {

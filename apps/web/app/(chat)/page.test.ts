@@ -10,6 +10,7 @@ const { connectionMock, redirectMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({ redirect: redirectMock }));
+
 vi.mock("next/server", () => ({ connection: connectionMock }));
 
 describe("new chat page", () => {
@@ -27,6 +28,7 @@ describe("new chat page", () => {
           releaseConnection = resolve;
         }),
     );
+
     const randomUUID = vi
       .spyOn(globalThis.crypto, "randomUUID")
       .mockReturnValue("a5dc235e-1de8-4aad-84d8-e0e247b6a135");

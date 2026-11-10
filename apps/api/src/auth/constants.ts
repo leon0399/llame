@@ -1,9 +1,11 @@
 export const SESSION_COOKIE_NAME = 'llame_session';
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_IDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 // last_seen_at write debounce (#68): a session touched within this window is
 // validated read-only — keeps the per-request UPDATE off the hot path.
 export const SESSION_TOUCH_DEBOUNCE_MS = 60 * 1000;
+
 // Cookies must be Secure in production (#68), but a Secure cookie is dropped by
 // the browser over local HTTP — silently breaking the cookie auth path in dev. Fail
 // secure: Secure everywhere except an explicit NODE_ENV=development.
@@ -18,6 +20,7 @@ export const SESSION_COOKIE_SECURE = process.env.NODE_ENV !== 'development';
 export const AUTH_RATE_LIMIT_PER_MINUTE = (() => {
   // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.jsonc: this is a product setting read as a bare env var, which skips schema validation and secret marking. Recorded in the stella oxlint study, docs/research/lint/2026-08-31-stella-oxlint-plugins.md at commit 75735d28.
   const raw = Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE);
+
   // Integer only: @nestjs/throttler expects a whole request count — a typo
   // like 10.5 falls back to the strict default instead of surprising limits.
   return Number.isInteger(raw) && raw > 0 ? raw : 10;

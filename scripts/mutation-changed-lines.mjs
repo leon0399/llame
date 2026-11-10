@@ -188,12 +188,14 @@ export function changedLineRanges(base, root = process.cwd()) {
   const revision = git(["merge-base", "HEAD", base], root).trim();
   const diff = git(
     // Pinned so a developer's diff.algorithm cannot move hunk boundaries away
-    // from the ranges CI measures.
+    // from the ranges CI measures. A hunk of blank lines holds no mutant, and
+    // coalescing such hunks would mutate the untouched code between them.
     [
       "diff",
       "--unified=0",
       "--no-renames",
       "--diff-algorithm=myers",
+      "--ignore-blank-lines",
       revision,
       "--",
     ],

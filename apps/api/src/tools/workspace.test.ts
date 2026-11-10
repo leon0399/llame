@@ -44,6 +44,7 @@ import { createWorkspaceRootCell } from './workspace-path';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof NodeFsPromises>();
+
   return { ...actual, realpath: vi.fn(actual.realpath) };
 });
 
@@ -61,6 +62,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     runAs: async <T>(_userId: string, operation: (db: Db) => Promise<T>) =>
       operation(db),
   };
+
   return {
     runId: 'run-1',
     nativeExecutorId: 'worker-1',
@@ -77,6 +79,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
 
 function seededAdditions() {
   const id = 'mcp__workspace__added';
+
   const executor = {
     id,
     description: 'Added tool.',
@@ -84,7 +87,9 @@ function seededAdditions() {
     inputSchema: z.strictObject({}),
     execute: () => ({ status: 'success' as const }),
   };
+
   const record: ToolSet = {};
+
   const additions = new AttemptToolAdditions({
     allowedToolRules: ['mcp__workspace__*'],
     callTimeoutSeconds: 15,
@@ -109,14 +114,17 @@ function seededAdditions() {
         execute: () => ({ status: 'success' as const }),
       }),
   });
+
   additions.bindToolRecord(record);
   record[id] = tool({
     description: executor.description,
     inputSchema: z.strictObject({}),
     execute: () => ({ status: 'success' as const }),
   });
+
   return { additions, id, record };
 }
+
 function expectUnavailableAddition(
   additions: AttemptToolAdditions,
   record: ToolSet,
@@ -125,6 +133,7 @@ function expectUnavailableAddition(
 ): void {
   expect(record[id]).toBeDefined();
   const executor = additions.executorFor(id);
+
   if (executor === undefined) throw new Error('Missing retained executor.');
   const result = executor.execute(toolContext, {});
   expect(result).toMatchObject({
@@ -140,24 +149,32 @@ type Deferred<T> = {
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
+
   const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
   });
+
   return { promise, resolve };
 }
+
 function fakeWorkspaceMcp(state: WorkspaceMcpEntryState) {
   const operator = new McpRuntimeService({});
+
   const clients = new WorkspaceMcpClients(operator, {
     readConfig: () => Promise.resolve([]),
   });
+
   const startForChat = vi
     .spyOn(clients, 'startForChat')
     .mockResolvedValue(state);
+
   const stateForKey = vi.spyOn(clients, 'stateForKey').mockReturnValue(state);
   const transferAttempt = vi.spyOn(clients, 'transferAttempt');
+
   const addToAttempt = vi
     .spyOn(clients, 'addToAttempt')
     .mockResolvedValue(state);
+
   return {
     clients,
     operator,
@@ -187,12 +204,14 @@ describe('Workspace host tools', () => {
     const operatorSource = join(root, 'operator-skills');
     const operatorPackage = join(operatorSource, 'shared');
     const workspacePackage = join(root, '.llame', 'skills', 'shared');
+
     const workspaceOnlyPackage = join(
       root,
       '.agents',
       'skills',
       'workspace-only',
     );
+
     await mkdir(operatorPackage, { recursive: true });
     await mkdir(workspacePackage, { recursive: true });
     await mkdir(workspaceOnlyPackage, { recursive: true });
@@ -284,6 +303,7 @@ describe('Workspace host tools', () => {
       join(root, '.agents', 'skills'),
       join(root, '.llame', 'skills'),
     ];
+
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
       status: 'bound',
       previousRoot: null,
@@ -339,6 +359,7 @@ describe('Workspace host tools', () => {
 
   it('bounds the Workspace skill list', async () => {
     const source = join(root, '.llame', 'skills');
+
     for (let index = 0; index < 257; index += 1) {
       const name = `workspace-${String(index).padStart(3, '0')}`;
       const packageDirectory = join(source, name);
@@ -348,6 +369,7 @@ describe('Workspace host tools', () => {
         `---\nname: ${name}\ndescription: Workspace skill ${index}\n---\n`,
       );
     }
+
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
       status: 'bound',
       previousRoot: null,
@@ -363,9 +385,11 @@ describe('Workspace host tools', () => {
       status: 'success',
       skillsOmitted: 1,
     });
+
     if (!('skills' in result) || !Array.isArray(result.skills)) {
       throw new Error('Workspace entry must return its skill list.');
     }
+
     expect(result.skills).toHaveLength(256);
   });
 
@@ -396,6 +420,7 @@ describe('Workspace host tools', () => {
   it('rejects an absolute path containing NUL before any binding call', async () => {
     const base = context();
     const runAs = vi.spyOn(base.tenantDb, 'runAs');
+
     const result = await enterWorkspaceTool.execute(base, {
       path: `${root}\0nul`,
     });
@@ -411,6 +436,7 @@ describe('Workspace host tools', () => {
   it('rejects an invalid worktree request before any binding call', async () => {
     const base = context();
     const runAs = vi.spyOn(base.tenantDb, 'runAs');
+
     const result = await enterWorkspaceTool.execute(base, {
       path: root,
       worktree: { baseRef: '-x' },
@@ -427,6 +453,7 @@ describe('Workspace host tools', () => {
   it('refuses a non-directory target without entering it', async () => {
     const file = join(root, 'file.txt');
     await writeFile(file, 'content');
+
     const enter = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'enter')
       .mockResolvedValue({
@@ -465,6 +492,7 @@ describe('Workspace host tools', () => {
     vi.mocked(realpath).mockImplementationOnce(() => probe.promise);
     const controller = new AbortController();
     const cell = createWorkspaceRootCell(undefined);
+
     const enter = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'enter')
       .mockResolvedValue({
@@ -472,6 +500,7 @@ describe('Workspace host tools', () => {
         previousRoot: null,
         generation: 1,
       });
+
     const resultPromise = enterWorkspaceTool.execute(
       context({
         abortSignal: controller.signal,
@@ -493,6 +522,7 @@ describe('Workspace host tools', () => {
   it('rejects the submitted path before probing it', async () => {
     const base = context();
     const runAs = vi.spyOn(base.tenantDb, 'runAs');
+
     const permissionPolicy = compileToolPermissionMap(
       {
         enter_workspace: {
@@ -519,6 +549,7 @@ describe('Workspace host tools', () => {
 
   it('requires exit_workspace to have its own permission group', async () => {
     const exit = vi.spyOn(WorkspaceBindingRepository.prototype, 'exit');
+
     const permissionPolicy = compileToolPermissionMap(
       { enter_workspace: { allow: true } },
       'workspace-test',
@@ -563,6 +594,7 @@ describe('Workspace host tools', () => {
       commit: vi.fn(),
       claimTransition: vi.fn(() => false),
     };
+
     const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
 
     const result = await enterWorkspaceTool.execute(
@@ -585,6 +617,7 @@ describe('Workspace host tools', () => {
       commit: vi.fn(),
       claimTransition: vi.fn(() => false),
     };
+
     const exit = vi.spyOn(WorkspaceBindingRepository.prototype, 'exit');
 
     const result = await exitWorkspaceTool.execute(
@@ -604,10 +637,12 @@ describe('Workspace host tools', () => {
     const firstFence = deferred<boolean>();
     const secondFence = deferred<boolean>();
     secondFence.resolve(true);
+
     const delivery = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'isCurrentDelivery')
       .mockImplementationOnce(() => firstFence.promise)
       .mockImplementationOnce(() => secondFence.promise);
+
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
       status: 'bound',
       previousRoot: null,
@@ -618,6 +653,7 @@ describe('Workspace host tools', () => {
     const first = enterWorkspaceTool.execute(context({ workspaceRoot: cell }), {
       path: root,
     });
+
     const second = exitWorkspaceTool.execute(
       context({ workspaceRoot: cell }),
       {},
@@ -644,10 +680,12 @@ describe('Workspace host tools', () => {
     const firstFence = deferred<boolean>();
     const secondFence = deferred<boolean>();
     secondFence.resolve(true);
+
     const delivery = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'isCurrentDelivery')
       .mockImplementationOnce(() => firstFence.promise)
       .mockImplementationOnce(() => secondFence.promise);
+
     const enter = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'enter')
       .mockResolvedValue({
@@ -655,11 +693,13 @@ describe('Workspace host tools', () => {
         previousRoot: null,
         generation: 1,
       });
+
     const cell = createWorkspaceRootCell(undefined);
 
     const first = enterWorkspaceTool.execute(context({ workspaceRoot: cell }), {
       path: root,
     });
+
     const second = enterWorkspaceTool.execute(
       context({ workspaceRoot: cell }),
       { path: nextRoot },
@@ -688,6 +728,7 @@ describe('Workspace host tools', () => {
     await writeFile(join(target, 'file.txt'), 'content');
     await symlink(target, alias);
     const decisions: Array<unknown> = [];
+
     const permissionPolicy = compileToolPermissionMap(
       {
         enter_workspace: {
@@ -696,6 +737,7 @@ describe('Workspace host tools', () => {
       },
       'workspace-test',
     );
+
     const enter = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'enter')
       .mockResolvedValue({
@@ -734,6 +776,7 @@ describe('Workspace host tools', () => {
     await symlink(target, alias);
     const decisions: Array<unknown> = [];
     const admitted: Array<unknown> = [];
+
     const permissionPolicy = compileToolPermissionMap(
       {
         enter_workspace: {
@@ -743,6 +786,7 @@ describe('Workspace host tools', () => {
       },
       'workspace-test',
     );
+
     const enter = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'enter')
       .mockResolvedValue({
@@ -801,6 +845,7 @@ describe('Workspace host tools', () => {
     await mkdir(target);
     await symlink(target, alias);
     const decisions: Array<unknown> = [];
+
     const permissionPolicy = compileToolPermissionMap(
       {
         enter_workspace: {
@@ -812,6 +857,7 @@ describe('Workspace host tools', () => {
       },
       'workspace-test',
     );
+
     const enter = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'enter')
       .mockResolvedValue({
@@ -851,6 +897,7 @@ describe('Workspace host tools', () => {
       commit: vi.fn(),
       claimTransition: vi.fn(() => true),
     };
+
     const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
     enter
       .mockResolvedValueOnce({
@@ -868,16 +915,20 @@ describe('Workspace host tools', () => {
         previousRoot: root,
         generation: 2,
       });
+
     const first = await enterWorkspaceTool.execute(
       context({ workspaceRoot: cell }),
       { path: root },
     );
+
     const same = await enterWorkspaceTool.execute(
       context({ workspaceRoot: cell }),
       { path: root },
     );
+
     const nextRoot = join(root, 'next');
     await mkdir(nextRoot);
+
     const switched = await enterWorkspaceTool.execute(
       context({ workspaceRoot: cell }),
       { path: nextRoot },
@@ -902,6 +953,7 @@ describe('Workspace host tools', () => {
   it('keeps Workspace MCP state and transfers only a started attempt', async () => {
     const { additions } = seededAdditions();
     additions.disableAll();
+
     const state: WorkspaceMcpEntryState = {
       key: { chatId: 'chat-1', root, generation: 1 },
       servers: [
@@ -909,12 +961,15 @@ describe('Workspace host tools', () => {
         { id: 'other', state: 'available' },
       ],
     };
+
     const mcp = fakeWorkspaceMcp(state);
+
     const cell = {
       current: vi.fn(() => undefined),
       commit: vi.fn(),
       claimTransition: vi.fn(() => true),
     };
+
     const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
     enter
       .mockResolvedValueOnce({
@@ -936,6 +991,7 @@ describe('Workspace host tools', () => {
       }),
       { path: root },
     );
+
     const same = await enterWorkspaceTool.execute(
       context({
         workspaceRoot: cell,
@@ -984,6 +1040,7 @@ describe('Workspace host tools', () => {
         generation: 1,
       });
     const operator = new McpRuntimeService({});
+
     const clients = new WorkspaceMcpClients(operator, {
       readConfig: () =>
         Promise.resolve([
@@ -995,13 +1052,16 @@ describe('Workspace host tools', () => {
           },
         ]),
     });
+
     // A start would report the server as available; a read-only entry never
     // asks for one.
     const startForChat = vi.spyOn(clients, 'startForChat').mockResolvedValue({
       key: { chatId: 'chat-1', root, generation: 1 },
       servers: [{ id: 'web', state: 'available' }],
     });
+
     const listing: WorkspaceMcpListingCell = {};
+
     const readOnly = () =>
       context({
         workspaceRoot: createWorkspaceRootCell(undefined),
@@ -1014,6 +1074,7 @@ describe('Workspace host tools', () => {
       const first = await enterWorkspaceTool.execute(readOnly(), {
         path: root,
       });
+
       const same = await enterWorkspaceTool.execute(readOnly(), {
         path: root,
       });
@@ -1025,6 +1086,7 @@ describe('Workspace host tools', () => {
           reason: 'not started in a read-only Run',
         },
       ];
+
       expect(first).toMatchObject({
         status: 'success',
         root,
@@ -1064,6 +1126,7 @@ describe('Workspace host tools', () => {
     );
 
     const executor = additions.executorFor(id);
+
     if (executor === undefined) throw new Error('expected retained executor');
     expect(executor.execute(context(), {})).toEqual({
       status: 'success',
@@ -1072,6 +1135,7 @@ describe('Workspace host tools', () => {
 
   it('returns executor_unavailable when the native identity is missing', async () => {
     const runAs = vi.fn();
+
     const result = await enterWorkspaceTool.execute(
       context({ nativeExecutorId: undefined, tenantDb: { runAs } }),
       { path: root },
@@ -1121,6 +1185,7 @@ describe('Workspace host tools', () => {
       commit: vi.fn(),
       claimTransition: vi.fn(() => true),
     };
+
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
       status: 'fence_lost',
     });
@@ -1144,6 +1209,7 @@ describe('Workspace host tools', () => {
       commit: vi.fn(),
       claimTransition: vi.fn(() => true),
     };
+
     vi.spyOn(WorkspaceBindingRepository.prototype, 'exit').mockResolvedValue({
       status: 'fence_lost',
     });
@@ -1166,11 +1232,13 @@ describe('Workspace host tools', () => {
       WorkspaceBindingRepository.prototype,
       'isCurrentDelivery',
     ).mockResolvedValueOnce(false);
+
     const cell = {
       current: vi.fn(() => root),
       commit: vi.fn(),
       claimTransition: vi.fn(() => true),
     };
+
     const exit = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'exit')
       .mockResolvedValue({
@@ -1199,6 +1267,7 @@ describe('Workspace host tools', () => {
       commit: vi.fn(),
       claimTransition: vi.fn(() => true),
     };
+
     const exit = vi.spyOn(WorkspaceBindingRepository.prototype, 'exit');
     exit
       .mockResolvedValueOnce({
@@ -1212,6 +1281,7 @@ describe('Workspace host tools', () => {
       context({ workspaceRoot: cell }),
       {},
     );
+
     const unbound = await exitWorkspaceTool.execute(
       context({ workspaceRoot: cell }),
       {},
@@ -1238,10 +1308,12 @@ describe('Workspace host tools', () => {
       previousRoot: root,
       generation: 2,
     });
+
     const exitContext = context({
       workspaceRoot: createWorkspaceRootCell(root),
       toolAdditions: exitFixture.additions,
     });
+
     await expect(
       exitWorkspaceTool.execute(exitContext, {}),
     ).resolves.toMatchObject({
@@ -1262,10 +1334,12 @@ describe('Workspace host tools', () => {
       previousRoot: root,
       generation: 2,
     });
+
     const switchContext = context({
       workspaceRoot: createWorkspaceRootCell(root),
       toolAdditions: switchFixture.additions,
     });
+
     await expect(
       enterWorkspaceTool.execute(switchContext, { path: nextRoot }),
     ).resolves.toMatchObject({ state: 'switched' });
@@ -1285,6 +1359,7 @@ const MACHINE_HOSTS = {
 
 function machineConnectorFor(options: ProtocolPeerOptions = {}) {
   const peer = createProtocolPeer(options);
+
   return {
     peer,
     connector: new MachineConnector({
@@ -1318,6 +1393,7 @@ describe('Machine Workspace entry', () => {
         previousRoot: null,
         generation: 1,
       });
+
     const { connector } = machineConnectorFor({
       answers: { 'fs.stat': STAT_DIRECTORY },
     });
@@ -1351,9 +1427,11 @@ describe('Machine Workspace entry', () => {
   it('carries the call deadline to the stat and refuses a missing directory', async () => {
     const request = vi.spyOn(MachineConnector.prototype, 'request');
     const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+
     const { connector } = machineConnectorFor({
       answers: { 'fs.stat': { value: { kind: 'missing', isLink: false } } },
     });
+
     const controller = new AbortController();
 
     await expect(
@@ -1374,6 +1452,7 @@ describe('Machine Workspace entry', () => {
 
   it('refuses a Machine path that is not a directory', async () => {
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+
     const { connector } = machineConnectorFor({
       answers: { 'fs.stat': { value: { kind: 'file', isLink: false } } },
     });
@@ -1391,6 +1470,7 @@ describe('Machine Workspace entry', () => {
 
   it('refuses a directory stat that reports no real path', async () => {
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+
     const { connector } = machineConnectorFor({
       answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
     });
@@ -1408,6 +1488,7 @@ describe('Machine Workspace entry', () => {
 
   it('refuses a stat whose real path cannot be a locator', async () => {
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+
     const { connector } = machineConnectorFor({
       answers: {
         'fs.stat': {
@@ -1433,6 +1514,7 @@ describe('Machine Workspace entry', () => {
 
   it('reports the Machine refusal of the stat as its own result', async () => {
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+
     const { connector } = machineConnectorFor({
       answers: { 'fs.stat': { error: 'path_not_registered' } },
     });
@@ -1545,9 +1627,11 @@ describe('Machine Workspace entry', () => {
       previousRoot: null,
       generation: 1,
     });
+
     const { connector } = machineConnectorFor({
       answers: { 'fs.stat': STAT_DIRECTORY },
     });
+
     const entering = context({
       machines: connector,
       workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
@@ -1567,6 +1651,7 @@ describe('Machine Workspace entry', () => {
 
   it('pins the local executor on a local entry', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'workspace-pin-'));
+
     const enter = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'enter')
       .mockResolvedValue({
@@ -1574,6 +1659,7 @@ describe('Machine Workspace entry', () => {
         previousRoot: null,
         generation: 1,
       });
+
     try {
       await enterWorkspaceTool.execute(context(), { path: directory });
       expect(enter).toHaveBeenCalledWith(

@@ -43,6 +43,7 @@ const meta = {
 } satisfies Meta<typeof PendingDeliveries>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

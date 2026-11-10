@@ -48,16 +48,20 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
   const tag = Date.now();
 
   type TestUser = { id: string; cookie: string };
+
   // A small reusable pool (see file doc) — each test creates its OWN org
   // unit(s), so reusing the same accounts across tests never bleeds state.
   let a: TestUser, b: TestUser, c: TestUser, e: TestUser, f: TestUser;
 
   async function registerUser(label: string): Promise<TestUser> {
     const email = `${label}.${tag}@example.com`;
+
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password: 'password123', name: label });
+
     expect(res.status).toBe(201);
+
     return { id: res.body.user.id, cookie: cookieOf(res) };
   }
 
@@ -66,7 +70,9 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .post('/api/v1/org-units')
       .set('Cookie', owner.cookie)
       .send({ name });
+
     expect(res.status).toBe(201);
+
     return res.body;
   }
 
@@ -75,7 +81,9 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .post(`/api/v1/org-units/${parentId}/children`)
       .set('Cookie', owner.cookie)
       .send({ name });
+
     expect(res.status).toBe(201);
+
     return res.body;
   }
 
@@ -98,6 +106,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = mod.createNestApplication();
     configureApp(app);
     await app.listen(0);
@@ -125,6 +134,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const me = await request(http)
       .get(`/api/v1/org-units/${root.id}/memberships/me`)
       .set('Cookie', a.cookie);
+
     expect(me.status).toBe(200);
     expect(me.body).toEqual({
       role: 'owner',
@@ -141,6 +151,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const fetched = await request(http)
       .get(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie);
+
     expect(fetched.status).toBe(200);
     expect(fetched.body.id).toBe(team.id);
   });
@@ -150,6 +161,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .post('/api/v1/org-units')
       .set('Cookie', a.cookie)
       .send({ name: 'Sneaky', type: 'project' });
+
     expect(res.status).toBe(400);
   });
 
@@ -160,18 +172,23 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const listByOwner = await request(http)
       .get('/api/v1/org-units')
       .set('Cookie', a.cookie);
+
     expect(listByOwner.status).toBe(200);
+
     const seenByOwner = listByOwner.body.find(
       (u: { id: string }) => u.id === root.id,
     );
+
     expect(seenByOwner).toMatchObject({ memberCount: 2, directRole: 'owner' });
 
     const listByMember = await request(http)
       .get('/api/v1/org-units')
       .set('Cookie', b.cookie);
+
     const seenByMember = listByMember.body.find(
       (u: { id: string }) => u.id === root.id,
     );
+
     expect(seenByMember).toMatchObject({
       memberCount: 2,
       directRole: 'member',
@@ -180,6 +197,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const listByStranger = await request(http)
       .get('/api/v1/org-units')
       .set('Cookie', c.cookie);
+
     expect(
       listByStranger.body.find((u: { id: string }) => u.id === root.id),
     ).toBeUndefined();
@@ -191,11 +209,13 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const badId = await request(http)
       .get('/api/v1/org-units/not-a-uuid')
       .set('Cookie', a.cookie);
+
     expect(badId.status).toBe(400);
 
     const foreign = await request(http)
       .get(`/api/v1/org-units/${root.id}`)
       .set('Cookie', b.cookie);
+
     expect(foreign.status).toBe(404);
   });
 
@@ -207,18 +227,21 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${root.id}`)
       .set('Cookie', c.cookie)
       .send({ name: 'Sneaky' });
+
     expect(byStranger.status).toBe(404);
 
     const byMember = await request(http)
       .patch(`/api/v1/org-units/${root.id}`)
       .set('Cookie', b.cookie)
       .send({ name: 'Sneaky' });
+
     expect(byMember.status).toBe(403);
 
     const byOwner = await request(http)
       .patch(`/api/v1/org-units/${root.id}`)
       .set('Cookie', a.cookie)
       .send({ name: 'Renamed' });
+
     expect(byOwner.status).toBe(200);
     expect(byOwner.body.name).toBe('Renamed');
     expect(byOwner.body.path).toBe(root.path); // rename never touches paths
@@ -231,12 +254,14 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${root.id}`)
       .set('Cookie', a.cookie)
       .send({ settings: { theme: 'dark', flags: ['a', 'b'] } });
+
     expect(patched.status).toBe(200);
     expect(patched.body.settings).toEqual({ theme: 'dark', flags: ['a', 'b'] });
 
     const refetched = await request(http)
       .get(`/api/v1/org-units/${root.id}`)
       .set('Cookie', a.cookie);
+
     expect(refetched.body.settings).toEqual({
       theme: 'dark',
       flags: ['a', 'b'],
@@ -252,6 +277,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${teamA.id}`)
       .set('Cookie', a.cookie)
       .send({ parentId: teamB.id });
+
     expect(moved.status).toBe(200);
     expect(moved.body.parentId).toBe(teamB.id);
     expect(moved.body.path).toBe(`${root.id}/${teamB.id}/${teamA.id}`);
@@ -260,6 +286,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${root.id}`)
       .set('Cookie', a.cookie)
       .send({ parentId: teamB.id }); // teamB is INSIDE root's subtree
+
     expect(intoOwnSubtree.status).toBe(422);
   });
 
@@ -277,16 +304,19 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie)
       .send({ parentId: null });
+
     expect(deniedOnInheritedTierOnly.status).toBe(403);
 
     // #1260 F1: an explicit `admin` row passes the policy, but the promoted
     // root would have no `owner` — the datastore refuses it (409, the
     // last-owner contract), so the unit stays where it was.
     await grant(a, team.id, a.id, 'admin');
+
     const ownerless = await request(http)
       .patch(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie)
       .send({ parentId: null });
+
     expect(ownerless.status).toBe(409);
     expect(ownerless.body.code).toBe('LAST_OWNER');
 
@@ -296,11 +326,14 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${team.id}/memberships/${a.id}`)
       .set('Cookie', a.cookie)
       .send({ role: 'owner' });
+
     expect(promote.status).toBe(200);
+
     const promoted = await request(http)
       .patch(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie)
       .send({ parentId: null });
+
     expect(promoted.status).toBe(200);
     expect(promoted.body.parentId).toBeNull();
     expect(promoted.body.path).toBe(team.id);
@@ -316,12 +349,14 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${team.id}`)
       .set('Cookie', b.cookie)
       .send({ parentId: null });
+
     expect(promote.status).toBe(403);
 
     // The owner still sees the unit where it was.
     const seenByOwner = await request(http)
       .get(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie);
+
     expect(seenByOwner.status).toBe(200);
     expect(seenByOwner.body.path).toBe(`${root.id}/${team.id}`);
   });
@@ -339,25 +374,31 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${y.id}`)
       .set('Cookie', c.cookie)
       .send({ parentId: rootB.id });
+
     expect(byAdmin.status).toBe(403);
 
     // Y stayed in A, and c gained no owner tier over b's row.
     const stillInA = await request(http)
       .get(`/api/v1/org-units/${y.id}`)
       .set('Cookie', a.cookie);
+
     expect(stillInA.body.path).toBe(`${rootA.id}/${y.id}`);
+
     const revokeOwner = await request(http)
       .delete(`/api/v1/org-units/${y.id}/memberships/${b.id}`)
       .set('Cookie', c.cookie);
+
     expect(revokeOwner.status).toBe(403);
 
     // An owner of the source tree, with admin tier on the destination, may
     // still move the unit across.
     expect((await grant(c, rootB.id, a.id, 'admin')).status).toBe(204);
+
     const byOwner = await request(http)
       .patch(`/api/v1/org-units/${y.id}`)
       .set('Cookie', a.cookie)
       .send({ parentId: rootB.id });
+
     expect(byOwner.status).toBe(200);
     expect(byOwner.body.path).toBe(`${rootB.id}/${y.id}`);
   });
@@ -370,6 +411,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .post(`/api/v1/org-units/${root.id}/children`)
       .set('Cookie', b.cookie)
       .send({ name: 'Nope' });
+
     expect(res.status).toBe(403);
   });
 
@@ -380,16 +422,19 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const blocked = await request(http)
       .delete(`/api/v1/org-units/${root.id}`)
       .set('Cookie', a.cookie);
+
     expect(blocked.status).toBe(409);
 
     const leaf = await request(http)
       .delete(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie);
+
     expect(leaf.status).toBe(204);
 
     const gone = await request(http)
       .get(`/api/v1/org-units/${team.id}`)
       .set('Cookie', a.cookie);
+
     expect(gone.status).toBe(404);
   });
 
@@ -400,6 +445,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const res = await request(http)
       .delete(`/api/v1/org-units/${root.id}`)
       .set('Cookie', b.cookie);
+
     expect(res.status).toBe(403);
   });
 
@@ -436,17 +482,20 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${root.id}/memberships/${b.id}`)
       .set('Cookie', c.cookie)
       .send({ role: 'member' });
+
     expect(demote.status).toBe(403);
 
     const revoke = await request(http)
       .delete(`/api/v1/org-units/${root.id}/memberships/${b.id}`)
       .set('Cookie', c.cookie);
+
     expect(revoke.status).toBe(403);
 
     // Sanity: b is still an untouched owner — the 403s above were real denials.
     const stillOwner = await request(http)
       .get(`/api/v1/org-units/${root.id}/memberships/me`)
       .set('Cookie', b.cookie);
+
     expect(stillOwner.body).toMatchObject({ role: 'owner' });
   });
 
@@ -463,6 +512,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const seenByMember = await request(http)
       .get(`/api/v1/org-units/${root.id}/memberships`)
       .set('Cookie', b.cookie);
+
     expect(seenByMember.status).toBe(200);
     const userIds = seenByMember.body.map((m: { userId: string }) => m.userId);
     expect(userIds.sort()).toEqual([a.id, b.id].sort());
@@ -470,6 +520,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const seenByStranger = await request(http)
       .get(`/api/v1/org-units/${root.id}/memberships`)
       .set('Cookie', c.cookie);
+
     expect(seenByStranger.status).toBe(404);
   });
 
@@ -482,18 +533,21 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .patch(`/api/v1/org-units/${root.id}/memberships/${c.id}`)
       .set('Cookie', a.cookie)
       .send({ role: 'admin' });
+
     expect(notAMember.status).toBe(404);
 
     const byPlainMember = await request(http)
       .patch(`/api/v1/org-units/${root.id}/memberships/${b.id}`)
       .set('Cookie', e.cookie)
       .send({ role: 'admin' });
+
     expect(byPlainMember.status).toBe(403);
 
     const byOwner = await request(http)
       .patch(`/api/v1/org-units/${root.id}/memberships/${b.id}`)
       .set('Cookie', a.cookie)
       .send({ role: 'admin' });
+
     expect(byOwner.status).toBe(200);
     expect(byOwner.body).toMatchObject({ userId: b.id, role: 'admin' });
   });
@@ -506,16 +560,19 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const selfLeave = await request(http)
       .delete(`/api/v1/org-units/${root.id}/memberships/${b.id}`)
       .set('Cookie', b.cookie);
+
     expect(selfLeave.status).toBe(204);
 
     const adminRevokes = await request(http)
       .delete(`/api/v1/org-units/${root.id}/memberships/${c.id}`)
       .set('Cookie', a.cookie);
+
     expect(adminRevokes.status).toBe(204);
 
     const unknown = await request(http)
       .delete(`/api/v1/org-units/${root.id}/memberships/${c.id}`)
       .set('Cookie', a.cookie);
+
     expect(unknown.status).toBe(404);
   });
 
@@ -525,12 +582,14 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const soleLeave = await request(http)
       .delete(`/api/v1/org-units/${root.id}/memberships/${a.id}`)
       .set('Cookie', a.cookie);
+
     expect(soleLeave.status).toBe(409);
 
     const soleDemote = await request(http)
       .patch(`/api/v1/org-units/${root.id}/memberships/${a.id}`)
       .set('Cookie', a.cookie)
       .send({ role: 'admin' });
+
     expect(soleDemote.status).toBe(409);
 
     // Transfer: mint a co-owner (D3), THEN the original owner can leave.
@@ -540,15 +599,18 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const leaveAfterTransfer = await request(http)
       .delete(`/api/v1/org-units/${root.id}/memberships/${a.id}`)
       .set('Cookie', a.cookie);
+
     expect(leaveAfterTransfer.status).toBe(204);
   });
 
   it('#1258: a creator who handed the root over and left cannot grant themselves owner again (403)', async () => {
     const root = await createRoot(a, 'Handed Over');
     expect((await grant(a, root.id, b.id, 'owner')).status).toBe(204);
+
     const leave = await request(http)
       .delete(`/api/v1/org-units/${root.id}/memberships/${a.id}`)
       .set('Cookie', a.cookie);
+
     expect(leave.status).toBe(204);
 
     const reclaim = await grant(a, root.id, a.id, 'owner');
@@ -557,6 +619,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const roster = await request(http)
       .get(`/api/v1/org-units/${root.id}/memberships`)
       .set('Cookie', b.cookie);
+
     expect(roster.status).toBe(200);
     expect(
       roster.body.map((m: { userId: string; role: string }) => [
@@ -574,6 +637,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const explicit = await request(http)
       .get(`/api/v1/org-units/${team.id}/memberships/me`)
       .set('Cookie', b.cookie);
+
     expect(explicit.status).toBe(200);
     expect(explicit.body).toEqual({
       role: 'viewer',
@@ -584,6 +648,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const inheritedRole = await request(http)
       .get(`/api/v1/org-units/${team.id}/memberships/me`)
       .set('Cookie', a.cookie);
+
     expect(inheritedRole.body).toEqual({
       role: 'owner',
       viaOrgUnitId: root.id,
@@ -593,6 +658,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     const notVisible = await request(http)
       .get(`/api/v1/org-units/${team.id}/memberships/me`)
       .set('Cookie', f.cookie);
+
     expect(notVisible.status).toBe(404);
   });
 });

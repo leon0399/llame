@@ -14,8 +14,10 @@ import { readyComposer } from "../../support/composer";
 import { expect, test, type Page } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
+
 // Enough paragraphs to make the first message several viewports tall.
 const PARAGRAPHS = 60;
+
 const tallPrompt = Array.from(
   { length: PARAGRAPHS },
   (_, index) => `Target scroll paragraph ${index + 1}.`,
@@ -34,10 +36,12 @@ function rowCentreInScroller(page: Page, selector: string) {
     ({ row, scrollerSelector }) => {
       const element = document.querySelector(row);
       const scroller = document.querySelector(scrollerSelector);
+
       if (!element || !scroller) return null;
       const box = element.getBoundingClientRect();
       const view = scroller.getBoundingClientRect();
       const centre = (box.top + box.bottom) / 2;
+
       return centre >= view.top && centre <= view.bottom;
     },
     { row: selector, scrollerSelector: SCROLLER },
@@ -52,6 +56,7 @@ function rowCentreInScroller(page: Page, selector: string) {
 // counts the frames in which the row's centre was outside the scroller.
 const SETTLE_FRAMES = 60;
 const MAX_FRAMES = 900;
+
 function rowCentreStaysInScroller(page: Page, selector: string) {
   return page.evaluate(
     async ({ row, scrollerSelector, settleFrames, maxFrames }) => {
@@ -59,24 +64,29 @@ function rowCentreStaysInScroller(page: Page, selector: string) {
       let stableFrames = 0;
       let framesOut = 0;
       let lastGeometry = "";
+
       while (stableFrames < settleFrames && frames < maxFrames) {
         await new Promise(requestAnimationFrame);
         frames += 1;
         const element = document.querySelector(row);
         const scroller = document.querySelector(scrollerSelector);
+
         if (!element || !scroller) {
           framesOut += 1;
           stableFrames = 0;
           continue;
         }
+
         const box = element.getBoundingClientRect();
         const view = scroller.getBoundingClientRect();
         const centre = (box.top + box.bottom) / 2;
+
         if (centre < view.top || centre > view.bottom) framesOut += 1;
         const geometry = `${scroller.scrollTop}:${scroller.scrollHeight}`;
         stableFrames = geometry === lastGeometry ? stableFrames + 1 : 0;
         lastGeometry = geometry;
       }
+
       return { settled: stableFrames >= settleFrames, framesOut };
     },
     {
@@ -91,7 +101,9 @@ function rowCentreStaysInScroller(page: Page, selector: string) {
 function distanceFromBottom(page: Page) {
   return page.evaluate((scrollerSelector) => {
     const scroller = document.querySelector(scrollerSelector);
+
     if (!scroller) return null;
+
     return Math.round(
       scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
     );
@@ -113,6 +125,7 @@ test.describe("message target scroll (#1237)", () => {
       timeout: 15_000,
     });
     const chatId = new URL(page.url()).pathname.split("/").at(-1);
+
     if (!chatId) throw new Error("chat id missing from URL");
 
     // The tall first message is the target: taller than the viewport, so the

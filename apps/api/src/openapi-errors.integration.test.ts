@@ -56,9 +56,11 @@ function expectDocumentedError(
 ): void {
   expect(body).toEqual(expected);
   const schema = openApiSchemas[schemaName];
+
   if (!schema) {
     throw new Error(`Missing OpenAPI schema ${schemaName}`);
   }
+
   expect(schema.required).toEqual(['statusCode', 'error', 'message', 'code']);
   expect(schema.properties?.statusCode?.type).toBe('number');
   expect(schema.properties?.error?.type).toBe('string');
@@ -81,16 +83,20 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.listen(0);
     const appServer: unknown = app.getHttpServer();
+
     if (!isHttpServer(appServer)) {
       throw new Error('Expected Nest to expose a Node HTTP server');
     }
+
     http = appServer;
 
     const tag = Date.now();
+
     const registered = await request(http)
       .post('/auth/v1/register')
       .send({
@@ -98,6 +104,7 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
         password: 'password123',
         name: 'OpenAPI errors',
       });
+
     expect(registered.status).toBe(201);
     cookie = cookieOf(registered);
 
@@ -105,6 +112,7 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
       .post('/api/v1/org-units')
       .set('Cookie', cookie)
       .send({ name: 'Root' });
+
     expect(root.status).toBe(201);
     rootId = z.object({ id: z.guid() }).parse(root.body).id;
 
@@ -112,6 +120,7 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
       .post(`/api/v1/org-units/${rootId}/children`)
       .set('Cookie', cookie)
       .send({ name: 'Child' });
+
     expect(child.status).toBe(201);
     childId = z.object({ id: z.guid() }).parse(child.body).id;
   });

@@ -33,6 +33,7 @@ export class SystemPromptReceiptsRepository {
       .insert(systemPromptReceipts)
       .values(input)
       .returning();
+
     return created;
   }
 
@@ -76,6 +77,7 @@ export class SystemPromptReceiptsRepository {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 }

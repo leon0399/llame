@@ -49,6 +49,7 @@ type Harness = {
 function fakeSpawn(): Harness {
   const calls: Harness['calls'] = [];
   const processes: Harness['processes'] = [];
+
   return {
     calls,
     processes,
@@ -62,9 +63,11 @@ function fakeSpawn(): Harness {
         input += String(chunk);
       });
       const errorHandlers: Array<(error: Error) => void> = [];
+
       const closeHandlers: Array<
         (code: number | null, signal: string | null) => void
       > = [];
+
       const process: FakeSsh = {
         stdout,
         stderr,
@@ -77,7 +80,9 @@ function fakeSpawn(): Harness {
           closeHandlers.forEach((handler) => handler(code, signal)),
         stdinText: () => input,
       };
+
       processes.push(process);
+
       return process;
     },
   };
@@ -87,17 +92,20 @@ const SSH = { knownHostsFile: '/etc/llame/known_hosts' };
 
 function fakeClient() {
   const harness = fakeSpawn();
+
   const configFile = {
     path: '/run/llame/ssh_config',
     text: 'Host *\n  BatchMode yes\n',
     dispose: vi.fn(),
   };
+
   const client = createSshClient({
     ssh: SSH,
     spawn: harness.spawn,
     configFile,
     resolutionDeadlineMs: 5000,
   });
+
   return { client, harness };
 }
 
@@ -108,12 +116,15 @@ afterEach(() => {
 describe('createSshClient.resolve', () => {
   it('parses an ssh -G answer into user, host, and port', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.resolve({
       host: 'edge-1.lan',
       user: 'deploy',
       port: 2222,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write(
       'user deploy\nhostname Edge-1.LAN\nport 2222\nproxycommand none\n',
@@ -144,6 +155,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: '2001:db8::1' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('user root\nhostname 2001:db8::1\nport 22\n');
     process.close(0);
@@ -160,6 +172,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('user deploy\nhostname box\nport 22\nports\n');
     process.close(0);
@@ -174,6 +187,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('user deploy  \nhostname box\nport 22\n');
     process.close(0);
@@ -198,6 +212,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write(output);
     process.close(0);
@@ -215,6 +230,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write(`user deploy\nhostname box\nport ${text}\n`);
     process.close(0);
@@ -229,12 +245,14 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stderr.write('command-line: line 0: Bad configuration option\n');
     process.close(255);
 
     const resolution = await pending;
     expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
+
     if (resolution.outcome !== 'failed')
       throw new Error('expected a failed resolution');
     expect(resolution.diagnostic).toContain('Bad configuration option');
@@ -244,6 +262,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('user deploy\nhostname box\nport 22\n');
     process.close(255);
@@ -258,6 +277,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     // A parseable prefix must not rescue an answer that overran its bound.
     process.stdout.write(
@@ -268,6 +288,7 @@ describe('createSshClient.resolve', () => {
 
     const resolution = await pending;
     expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
+
     if (resolution.outcome !== 'failed')
       throw new Error('expected a failed resolution');
     expect(resolution.diagnostic).toBe(
@@ -280,6 +301,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.error(
       Object.assign(new Error('spawn ssh ENOENT'), { code: 'ENOENT' }),
@@ -295,6 +317,7 @@ describe('createSshClient.resolve', () => {
     const { client, harness } = fakeClient();
     const pending = client.resolve({ host: 'box' });
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.error(
       Object.assign(new Error('spawn ssh EACCES'), { code: 'EACCES' }),
@@ -302,6 +325,7 @@ describe('createSshClient.resolve', () => {
 
     const resolution = await pending;
     expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
+
     if (resolution.outcome !== 'failed')
       throw new Error('expected a failed resolution');
     expect(resolution.diagnostic).toContain('EACCES');
@@ -321,6 +345,7 @@ describe('createSshClient.resolve', () => {
 describe('createSshClient.run', () => {
   it('writes byte-exact bounded stdout, bounded stderr, and stdin', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'box',
       user: 'deploy',
@@ -330,7 +355,9 @@ describe('createSshClient.run', () => {
       maxStdoutBytes: 4,
       deadlineMs: 5000,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write(Buffer.from([0x00, 0xff, 0x41]));
     process.stdout.write(Buffer.from('bcdef'));
@@ -347,6 +374,7 @@ describe('createSshClient.run', () => {
       stdoutOverflow: true,
       code: 0,
     });
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stdout).toEqual(Buffer.from([0x00, 0xff, 0x41, 0x62]));
     expect(outcome.diagnostic).toBe('w'.repeat(4096) + 'x'.repeat(4096));
@@ -371,6 +399,7 @@ describe('createSshClient.run', () => {
 
   it('keeps the end of stderr past the head when a caller asks for a tail', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'box',
       remoteCommand: ['bash', '-s'],
@@ -378,12 +407,15 @@ describe('createSshClient.run', () => {
       deadlineMs: 5000,
       stderrTailBytes: 64,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stderr.write(`${'x'.repeat(20_000)}nonce:end:7\n`);
     process.close(7);
 
     const outcome = await pending;
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     // The head and the tail are adjacent in the stream, so they join with no
     // separator, and only the bytes the tail dropped count as overflow.
@@ -394,6 +426,7 @@ describe('createSshClient.run', () => {
 
   it('binds a resolved destination with -o and keeps the submitted host', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'prod',
       resolved: { user: 'deploy', host: '10.0.0.5', port: 2222 },
@@ -401,7 +434,9 @@ describe('createSshClient.run', () => {
       maxStdoutBytes: 1024,
       deadlineMs: 5000,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.close(0);
     await pending;
@@ -425,6 +460,7 @@ describe('createSshClient.run', () => {
 
   it('fails as timed_out at its deadline and kills ssh', async () => {
     const { client, harness } = fakeClient();
+
     const outcome = await client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
@@ -439,6 +475,7 @@ describe('createSshClient.run', () => {
   it('fails as cancelled when the call aborts', async () => {
     const { client, harness } = fakeClient();
     const controller = new AbortController();
+
     const pending = client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
@@ -446,6 +483,7 @@ describe('createSshClient.run', () => {
       deadlineMs: 5000,
       signal: controller.signal,
     });
+
     controller.abort();
 
     await expect(pending).resolves.toMatchObject({
@@ -459,6 +497,7 @@ describe('createSshClient.run', () => {
     const { client, harness } = fakeClient();
     const controller = new AbortController();
     controller.abort();
+
     const outcome = await client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
@@ -473,51 +512,62 @@ describe('createSshClient.run', () => {
 
   it('keeps stdout that fits its bound exactly without reporting overflow', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
       maxStdoutBytes: 3,
       deadlineMs: 5000,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('abc');
     process.close(0);
 
     const outcome = await pending;
     expect(outcome).toMatchObject({ outcome: 'ended', stdoutOverflow: false });
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stdout).toEqual(Buffer.from('abc'));
   });
 
   it('captures no bytes when the bound leaves no room', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
       maxStdoutBytes: -1,
       deadlineMs: 5000,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('abc');
     process.close(0);
 
     const outcome = await pending;
     expect(outcome).toMatchObject({ outcome: 'ended', stdoutOverflow: true });
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stdout).toEqual(Buffer.alloc(0));
   });
 
   it('keeps the call alive when ssh stdout reports an error', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
       maxStdoutBytes: 1024,
       deadlineMs: 5000,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('ok');
     process.stdout.emit('error', new Error('EPIPE'));
@@ -525,19 +575,23 @@ describe('createSshClient.run', () => {
 
     const outcome = await pending;
     expect(outcome).toMatchObject({ outcome: 'ended', code: 0 });
+
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stdout).toEqual(Buffer.from('ok'));
   });
 
   it('settles once when ssh closes and then reports an error', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
       maxStdoutBytes: 1024,
       deadlineMs: 5000,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.stdout.write('done');
     process.close(0);
@@ -550,13 +604,16 @@ describe('createSshClient.run', () => {
 
   it('ends stdin empty and writes no -l or -p when the locator wrote neither', async () => {
     const { client, harness } = fakeClient();
+
     const pending = client.run({
       destination: 'box',
       remoteCommand: ['sh', '-s'],
       maxStdoutBytes: 1024,
       deadlineMs: 5000,
     });
+
     const process = harness.processes[0];
+
     if (process === undefined) throw new Error('expected a spawned ssh');
     process.close(0);
     await pending;
@@ -579,10 +636,12 @@ describe('createSshClient generated configuration', () => {
   it('writes the configuration lazily once and shares it with resolution and execution', async () => {
     const harness = fakeSpawn();
     const client = createSshClient({ ssh: SSH, spawn: harness.spawn });
+
     try {
       expect(client.sshConfigText()).toBeUndefined();
       const pending = client.resolve({ host: 'box' });
       const process = harness.processes[0];
+
       if (process === undefined) throw new Error('expected a spawned ssh');
       process.stdout.write('user root\nhostname box\nport 22\n');
       process.close(0);
@@ -593,12 +652,14 @@ describe('createSshClient generated configuration', () => {
         `Include "${defaultSshConfigFile()}"`,
       );
       const resolvingPath = harness.calls[0]?.args[1];
+
       const running = client.run({
         destination: 'box',
         remoteCommand: ['sh', '-s'],
         maxStdoutBytes: 1,
         deadlineMs: 5000,
       });
+
       harness.processes[1]?.close(0);
       await running;
       expect(harness.calls[1]?.args[1]).toBe(resolvingPath);
@@ -619,10 +680,12 @@ describe('createSshClient generated configuration', () => {
       'llame-ssh-missing-parent',
       String(process.pid),
     );
+
     try {
       const resolution = await client.resolve({ host: 'box' });
 
       expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
+
       if (resolution.outcome !== 'failed')
         throw new Error('expected a failed resolution');
       expect(resolution.diagnostic).toContain('ENOENT');
@@ -635,11 +698,13 @@ describe('createSshClient generated configuration', () => {
 
   it('disposes the generated configuration and forgets its text', () => {
     const harness = fakeSpawn();
+
     const configFile = {
       path: '/run/llame/ssh_config',
       text: 'Host *\n  BatchMode yes\n',
       dispose: vi.fn(),
     };
+
     const client = createSshClient({
       ssh: SSH,
       spawn: harness.spawn,
@@ -661,6 +726,7 @@ describe('createSshClient generated configuration', () => {
     // A Run that reaches the client during shutdown would otherwise write a
     // fresh directory that no later disposal removes.
     process.env['TMPDIR'] = directory;
+
     try {
       client.dispose();
 
@@ -687,10 +753,12 @@ describe('createSshClient generated configuration', () => {
 
   it('renders the operator-selected agent into the generated configuration', async () => {
     const harness = fakeSpawn();
+
     const client = createSshClient({
       ssh: { ...SSH, identityAgent: 'SSH_AUTH_SOCK' },
       spawn: harness.spawn,
     });
+
     try {
       const pending = client.resolve({ host: 'box' });
       harness.processes[0]?.stdout.write('user root\nhostname box\nport 22\n');
@@ -727,6 +795,7 @@ describe('real ssh -G resolution', () => {
     const configFile = path.join(directory, 'config');
     writeFileSync(configFile, configText);
     writeFileSync(path.join(directory, 'known_hosts'), '');
+
     const client = createSshClient({
       ssh: {
         knownHostsFile: path.join(directory, 'known_hosts'),
@@ -734,7 +803,9 @@ describe('real ssh -G resolution', () => {
       },
       resolutionDeadlineMs,
     });
+
     clients.push(client);
+
     return client;
   }
 
@@ -763,6 +834,7 @@ describe('real ssh -G resolution', () => {
       'Match exec "sleep 10"\n  HostName hang.lan\n',
       300,
     );
+
     const started = Date.now();
     const resolution = await client.resolve({ host: 'hang' });
     expect(resolution).toMatchObject({ outcome: 'failed', reason: 'config' });
@@ -777,6 +849,7 @@ describe('real ssh -G resolution', () => {
     const script = path.join(directory, 'hang.sh');
     writeFileSync(script, `#!/bin/sh\necho $$ > "${marker}"\nexec sleep 60\n`);
     chmodSync(script, 0o700);
+
     const client = realClient(
       `Match exec "${script}"\n  HostName hang.lan\n`,
       1000,
@@ -797,9 +870,11 @@ describe('real ssh -G resolution', () => {
 async function waitForPid(file: string): Promise<number> {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     const text = existsSync(file) ? readFileSync(file, 'utf8').trim() : '';
+
     if (/^[0-9]+$/u.test(text)) return Number(text);
     await delay(25);
   }
+
   throw new Error(`no pid was written to ${file}`);
 }
 
@@ -812,6 +887,7 @@ async function waitForExit(pid: number): Promise<void> {
     if (!isRunning(pid)) return;
     await delay(25);
   }
+
   throw new Error(`process ${pid} survived the resolution deadline`);
 }
 
@@ -820,7 +896,10 @@ function isRunning(pid: number): boolean {
   const probe = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], {
     encoding: 'utf8',
   });
+
   if (probe.status === 1) return false;
+
   if (probe.status !== 0) throw new Error(`ps could not inspect ${pid}`);
+
   return !probe.stdout.trim().startsWith('Z');
 }

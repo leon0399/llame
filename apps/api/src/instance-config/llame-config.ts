@@ -176,6 +176,7 @@ export type McpStdioServerConfig = {
 };
 
 export type McpServerConfig = McpRemoteServerConfig | McpStdioServerConfig;
+
 /**
  * The fixed set of worker "consumer groups" a profile can reference — one per
  * consumer-owning service (durable-run-workers D2): `runs` (RunsWorkerService,
@@ -197,6 +198,7 @@ export const WORKER_GROUPS = [
   'sessions-cleanup',
   'search-embed',
 ] as const;
+
 export type WorkerGroup = (typeof WORKER_GROUPS)[number];
 
 /** A worker profile: which groups a process consumes, and each one's main-queue concurrency. Absent group = not consumed by a process running this profile. */
@@ -330,6 +332,7 @@ export type RawDecisionModelEntry = {
  * metric fails validation, not execution (the same posture as the provider union).
  */
 export const EMBEDDING_DISTANCE_METRICS = ['cosine'] as const;
+
 export type EmbeddingDistanceMetric =
   (typeof EMBEDDING_DISTANCE_METRICS)[number];
 
@@ -558,6 +561,7 @@ export type GrepBoundsConfig = {
 
 /** The smallest artifact byte bound; a Machine stream always fits it. */
 export const ARTIFACT_MAX_BYTES_FLOOR = 131_072;
+
 /** The largest artifact byte bound a read can serve back. */
 export const ARTIFACT_MAX_BYTES_CEILING = 268_435_456;
 
@@ -620,15 +624,22 @@ type FieldlessWebAdapterConfig<Use extends string> = {
 };
 
 export type BlueskyWebAdapterConfig = FieldlessWebAdapterConfig<'bluesky'>;
+
 export type NpmWebAdapterConfig = FieldlessWebAdapterConfig<'npm'>;
+
 export type HuggingfaceWebAdapterConfig =
   FieldlessWebAdapterConfig<'huggingface'>;
+
 export type ArxivWebAdapterConfig = FieldlessWebAdapterConfig<'arxiv'>;
+
 export type StackexchangeWebAdapterConfig =
   FieldlessWebAdapterConfig<'stackexchange'>;
+
 export type CratesWebAdapterConfig = FieldlessWebAdapterConfig<'crates'>;
+
 export type HackernewsWebAdapterConfig =
   FieldlessWebAdapterConfig<'hackernews'>;
+
 export type DoiWebAdapterConfig = FieldlessWebAdapterConfig<'doi'>;
 
 /** Discourse runs on any host, so the operator lists the forums by exact
@@ -640,12 +651,19 @@ export type DiscourseWebAdapterConfig = {
 };
 
 export type DevtoWebAdapterConfig = FieldlessWebAdapterConfig<'devto'>;
+
 export type SubstackWebAdapterConfig = FieldlessWebAdapterConfig<'substack'>;
+
 export type OsvWebAdapterConfig = FieldlessWebAdapterConfig<'osv'>;
+
 export type WikipediaWebAdapterConfig = FieldlessWebAdapterConfig<'wikipedia'>;
+
 export type TelegramWebAdapterConfig = FieldlessWebAdapterConfig<'telegram'>;
+
 export type LobstersWebAdapterConfig = FieldlessWebAdapterConfig<'lobsters'>;
+
 export type LumaWebAdapterConfig = FieldlessWebAdapterConfig<'luma'>;
+
 export type LinkedInWebAdapterConfig = FieldlessWebAdapterConfig<'linkedin'>;
 
 export type WebAdapterConfig =

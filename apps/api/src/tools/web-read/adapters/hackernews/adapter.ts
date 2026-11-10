@@ -15,6 +15,7 @@ import {
 export const HACKERNEWS_API_ORIGIN = 'https://hn.algolia.com';
 const ITEM_URL = 'https://news.ycombinator.com/item?id=';
 const ITEM_ID = /^[1-9]\d{0,11}$/u;
+
 /** Reads only a list page's first 30 stories. */
 const LIST_PAGE_SIZE = 30;
 
@@ -62,7 +63,9 @@ const STORY = z.object({
   points: z.number().nullable().default(null),
   num_comments: z.number().nullable().default(null),
 });
+
 type Story = z.infer<typeof STORY>;
+
 const SEARCH = z.object({ hits: z.array(STORY), nbHits: z.number() });
 
 /** A story-list page and the Algolia query it maps to. */
@@ -105,13 +108,17 @@ export function parseHackernewsUrl(source: URL): HackernewsTarget | undefined {
   if (source.protocol !== 'https:' || source.host !== 'news.ycombinator.com') {
     return undefined;
   }
+
   if (source.pathname === '/item') {
     const id = source.searchParams.get('id');
+
     return id !== null && ITEM_ID.test(id) ? { kind: 'item', id } : undefined;
   }
+
   for (const [path, page] of Object.entries(LISTS)) {
     if (path === source.pathname) return { kind: 'list', page };
   }
+
   return undefined;
 }
 
@@ -121,12 +128,14 @@ export function createHackernewsAdapter(
   options: { readonly apiOrigin?: string } = {},
 ): WebAdapter {
   const api = options.apiOrigin ?? HACKERNEWS_API_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
     match: (source) => parseHackernewsUrl(source) !== undefined,
     read: async (source, io) => {
       const target = parseHackernewsUrl(source)!;
+
       return target.kind === 'item'
         ? readItem(target.id, api, io)
         : readList(target.page, api, io);
@@ -143,13 +152,16 @@ async function readItem(
   const fetched = await io.fetch(`${api}/api/v1/items/${id}`, {
     accept: 'application/json',
   });
+
   if ('type' in fetched) return primaryFailure(fetched);
   const item = parseJsonBody(fetched.body, ITEM);
+
   // A poll's options arrive as bare ids and an option's text as null, so
   // either would render less than the page does.
   if (item === undefined || item.type === 'poll' || item.type === 'pollopt') {
     return { kind: 'failed', failure: 'parse' };
   }
+
   return {
     kind: 'rendered',
     content: renderThread(item),
@@ -167,9 +179,12 @@ async function readList(
     `${api}/api/v1/${page.endpoint}?tags=${page.tags}&hitsPerPage=${LIST_PAGE_SIZE}`,
     { accept: 'application/json' },
   );
+
   if ('type' in fetched) return primaryFailure(fetched);
   const search = parseJsonBody(fetched.body, SEARCH);
+
   if (search === undefined) return { kind: 'failed', failure: 'parse' };
+
   return {
     kind: 'rendered',
     content: renderList(page, search.hits),
@@ -185,6 +200,7 @@ async function readList(
  *  in the API's order, which is not Hacker News's ranking. */
 function renderThread(focal: Item): string {
   const entries: Array<Entry> = [{ label: 'Post', item: focal }];
+
   const collect = (parent: Item): void => {
     for (const child of parent.children) {
       entries.push({
@@ -195,7 +211,9 @@ function renderThread(focal: Item): string {
       collect(child);
     }
   };
+
   collect(focal);
+
   return entries
     .map((entry, index) => entryLines(entry, `${index + 1}/${entries.length}`))
     .join('\n\n---\n\n');
@@ -204,15 +222,21 @@ function renderThread(focal: Item): string {
 function entryLines(entry: Entry, position: string): string {
   const { item } = entry;
   const lines = [`## ${entry.label} · ${position} — ${authorOf(item)}`, ''];
+
   if (entry.replyTo !== undefined) {
     lines.push(`Replying to ${entry.replyTo}`, '');
   }
+
   if (item.title !== null) lines.push(`**${item.title}**`, '');
+
   if (item.url !== null) lines.push(`Link: ${item.url}`, '');
   const text = convertToMarkdown(item.text ?? '').trim();
+
   if (text) lines.push(text, '');
+
   if (item.points !== null) lines.push(`Points: ${item.points}`);
   lines.push(`Source: ${ITEM_URL}${item.id}`, `Date: ${item.created_at}`);
+
   return lines.join('\n');
 }
 
@@ -223,7 +247,9 @@ function authorOf(item: Item): string {
 /** A story list: one bullet per story, carrying its signal and its links. */
 function renderList(page: StoryList, stories: ReadonlyArray<Story>): string {
   const lines = [`# Hacker News: ${page.heading}`, ''];
+
   if (stories.length === 0) lines.push('No stories.');
+
   for (const story of stories) {
     const fields = [
       `**${story.title}**`,
@@ -232,7 +258,9 @@ function renderList(page: StoryList, stories: ReadonlyArray<Story>): string {
       story.url,
       `${ITEM_URL}${story.objectID}`,
     ];
+
     lines.push(`- ${fields.filter(Boolean).join(' — ')}`);
   }
+
   return lines.join('\n');
 }

@@ -21,10 +21,12 @@ import * as permissionModeQueries from "@/lib/services/permission-modes/queries"
 const useModelsQueryMock = mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
+
 const usePermissionModesQueryMock = mocked(
   permissionModeQueries.usePermissionModesQuery,
   { partial: true },
 );
+
 import { ChatMessageRow } from "./chat-message-row";
 import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
 
@@ -32,6 +34,7 @@ import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
  *  the wire glued into one `****` run. */
 const GLUED_SUMMARY_RUN =
   "**Investigating likely culprit PRs****Inspecting message schema**";
+
 const SECOND_SUMMARY_HEADING = "**Analyzing interrupted tool call impact**";
 const POST_TOOL_HEADING = "**Following up on the tool result**";
 const ANSWER_TEXT = "Both summaries describe the same investigation.";
@@ -96,6 +99,7 @@ const WEB_SEARCH_OUTPUT = {
 /** The live and the stored form of one web search part carrying `output`. */
 function webSearchMessages(output: { readonly query: string }, suffix: string) {
   const input = { query: output.query };
+
   return {
     live: {
       id: `assistant-web-search-${suffix}-live`,
@@ -149,6 +153,7 @@ const WEB_SEARCH_ANSWERS_MESSAGES = webSearchMessages(
 );
 
 const CANCELLED_WEB_SEARCH_ERROR = "The web search was cancelled.";
+
 const CANCELLED_WEB_SEARCH_MESSAGE: UIMessage = {
   id: "assistant-web-search-cancelled",
   role: "assistant",
@@ -191,7 +196,9 @@ const meta = {
 } satisfies Meta<typeof ChatMessageRow>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
+
 type PlayContext = Parameters<NonNullable<Story["play"]>>[0];
 
 /** The bold titles rendered inside one Thinking panel's body. Streamdown
@@ -200,7 +207,9 @@ function renderedTitlesIn(trigger: HTMLElement): Array<string | null> {
   const panel = trigger
     .closest('[data-slot="collapsible"]')
     ?.querySelector('[data-slot="collapsible-content"]');
+
   if (!panel) return [];
+
   return Array.from(
     panel.querySelectorAll('[data-streamdown="strong"]'),
     (el) => el.textContent,
@@ -216,13 +225,16 @@ async function expectGroupedSummaryRun({ canvas }: PlayContext): Promise<void> {
       const found = canvas.getAllByRole("button", {
         name: /thinking|thought/i,
       });
+
       expect(found).toHaveLength(2);
+
       return found;
     },
     // The row withholds the transcript until the Streamdown-backed markdown
     // renderers load, so the first query waits on that chunk.
     { timeout: 15_000 },
   );
+
   const [preToolPanel, postToolPanel] = triggers;
 
   const toolTitle = canvas.getByText(/search_conversations/i);
@@ -317,10 +329,12 @@ async function expandWebSearchRows(
     () => {
       const found = canvas.getAllByRole("button", { name: /web_search/iu });
       expect(found).toHaveLength(2);
+
       return found;
     },
     { timeout: 15_000 },
   );
+
   for (const header of headers) {
     if (header.getAttribute("aria-expanded") === "false") {
       await userEvent.click(header);
@@ -356,13 +370,17 @@ export const LiveAndHistoricalWebSearch: Story = {
         const buttons = canvas.getAllByRole("button", {
           name: `${result.title} opens in a new tab`,
         });
+
         expect(buttons).toHaveLength(2);
+
         return buttons;
       });
+
       for (const button of found) {
         expect(button).toHaveAttribute("data-streamdown", "link");
       }
     }
+
     expect(canvas.queryAllByRole("link")).toHaveLength(0);
   },
 };
@@ -419,6 +437,7 @@ export const CancelledWebSearch: Story = {
       () => canvas.getByRole("button", { name: /web_search/iu }),
       { timeout: 15_000 },
     );
+
     await userEvent.click(header);
     await expect(canvas.getByText("Cancelled")).toBeVisible();
     expect(
@@ -476,7 +495,9 @@ export const WithheldTextReasoning: Story = {
         const found = canvas.getAllByRole("button", {
           name: /thinking|thought/i,
         });
+
         expect(found).toHaveLength(1);
+
         return found;
       },
       { timeout: 15_000 },
@@ -566,6 +587,7 @@ const IMAGE_PART: UIMessage["parts"][number] = {
   url: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
   filename: "diagram.png",
 };
+
 const IMAGE_CAPTION = "What does this diagram show?";
 
 const SECOND_IMAGE_PART: UIMessage["parts"][number] = {
@@ -600,6 +622,7 @@ export const AttachedImageWithText: Story = {
     const caption = await waitFor(() => canvas.getByText(IMAGE_CAPTION), {
       timeout: 15_000,
     });
+
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
     const list = canvas.getByRole("list", { name: "Attachments" });
     const images = within(list).getAllByRole("img");
@@ -647,6 +670,7 @@ export const AttachedImageOpensLightbox: Story = {
       () => canvas.getByRole("list", { name: "Attachments" }),
       { timeout: 15_000 },
     );
+
     const opener = within(list).getByRole("button", { name: "photo.jpg" });
     await userEvent.click(opener);
     const dialog = await screen.findByRole("dialog", { name: "photo.jpg" });
@@ -692,13 +716,16 @@ export const ImageOnlyMessage: Story = {
       () => canvas.getByRole("button", { name: "Fork from here" }),
       { timeout: 15_000 },
     );
+
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
     const list = canvas.getByRole("list", { name: "Attachments" });
+
     // The thumbnails are the row's first child and the action row its second:
     // no bubble sits between them.
     const row = canvasElement.querySelector(
       '[data-message-key="user-image-only"]',
     );
+
     await expect(row?.children[0]).toBe(list);
     await expect(row?.children[1]).toContainElement(fork);
   },
@@ -728,7 +755,9 @@ export const ActionRowReveal: Story = {
       () => canvas.getByRole("button", { name: "Fork from here" }),
       { timeout: 15_000 },
     );
+
     const row = fork.parentElement;
+
     if (!row) throw new Error("fork has no action row");
     await expect(getComputedStyle(row).opacity).toBe("0");
     await expect(row.getBoundingClientRect().height).toBeGreaterThan(0);
@@ -779,6 +808,7 @@ export const CopyReplyMarkdown: Story = {
       configurable: true,
       value: { writeText },
     });
+
     return () => {
       if (original) {
         Object.defineProperty(navigator, "clipboard", original);
@@ -792,6 +822,7 @@ export const CopyReplyMarkdown: Story = {
       () => canvas.getByRole("button", { name: "Copy" }),
       { timeout: 15_000 },
     );
+
     const width = copy.getBoundingClientRect().width;
     await userEvent.click(copy);
     await expect(writeText).toHaveBeenCalledTimes(1);
@@ -811,12 +842,14 @@ export const CopyReplyMarkdown: Story = {
  *  variant exists for it. */
 const PDF_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8d";
 const PDF_FILENAME = "report.pdf";
+
 const PDF_PART: UIMessage["parts"][number] = {
   type: "file",
   mediaType: "application/pdf",
   url: `media://${PDF_ID}`,
   filename: PDF_FILENAME,
 };
+
 const PDF_ORIGINAL_SRC = new RegExp(`/api/v1/media/${PDF_ID}/original$`);
 
 /**
@@ -846,6 +879,7 @@ export const AttachedImageAndPdf: Story = {
       () => canvas.getByText("Summarize the report."),
       { timeout: 15_000 },
     );
+
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
     const list = canvas.getByRole("list", { name: "Attachments" });
     const [image, pdf] = within(list).getAllByRole("listitem");
@@ -867,6 +901,7 @@ export const AttachedImageAndPdf: Story = {
     const link = within(pdf!).getByRole("link", {
       name: `Open ${PDF_FILENAME} in a new tab`,
     });
+
     await expect(link).toHaveAttribute(
       "href",
       expect.stringMatching(PDF_ORIGINAL_SRC),
@@ -918,6 +953,7 @@ export const AttachedPdfOnly: Story = {
       () => canvas.getByRole("button", { name: "Fork from here" }),
       { timeout: 15_000 },
     );
+
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
     const list = canvas.getByRole("list", { name: "Attachments" });
     await expect(within(list).getAllByRole("listitem")).toHaveLength(1);
@@ -1038,8 +1074,10 @@ function revealedUsageRow(label: string): Promise<HTMLElement> {
   return waitFor(
     () => {
       const row = screen.getByText(label).parentElement;
+
       if (!row) throw new Error(`No hover-card row labeled "${label}"`);
       expect(row).toBeVisible();
+
       return row;
     },
     { timeout: 2000 },
@@ -1095,6 +1133,7 @@ export const CacheWriteUsage: Story = {
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
+
     await expect(trigger).toHaveTextContent("Claude Sonnet 5 · 900ms");
 
     await userEvent.hover(trigger);
@@ -1147,6 +1186,7 @@ export const StreamMetricsUsage: Story = {
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
+
     await expect(trigger).toHaveTextContent("Claude Sonnet 5 · 8.24s");
 
     await userEvent.hover(trigger);
@@ -1195,6 +1235,7 @@ export const BypassUsage: Story = {
         }),
       { timeout: 15_000 },
     );
+
     await userEvent.hover(trigger);
 
     const permissionModeRow = await revealedUsageRow("permission mode");
@@ -1240,6 +1281,7 @@ export const IncompleteUsage: Story = {
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
+
     // The recorded total and cost repeat their lower-bound marker in the
     // badge, where complete usage shows only the model, effort and latency.
     await expect(trigger).toHaveTextContent(
@@ -1308,6 +1350,7 @@ export const SubscriptionCost: Story = {
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
+
     await expect(trigger).toHaveTextContent("GPT-4o · 900ms");
 
     await userEvent.hover(trigger);
@@ -1315,6 +1358,7 @@ export const SubscriptionCost: Story = {
     const costValue = (await revealedUsageRow("Notional cost")).querySelector(
       "b",
     );
+
     await expect(costValue).toHaveTextContent("$0.0063, not billed");
     expect(costValue).toHaveClass("text-muted-foreground");
     expect(costValue).toHaveClass("line-through");
@@ -1346,6 +1390,7 @@ export const ModelOnlyUsage: Story = {
       () => canvas.getByRole("button", { name: "Message usage: GPT-4o" }),
       { timeout: 15_000 },
     );
+
     await userEvent.hover(trigger);
 
     for (const label of ["Input", "Output", "of which reasoning"]) {
@@ -1389,6 +1434,7 @@ export const TinyIncompleteCost: Story = {
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
+
     await expect(trigger).toHaveTextContent(
       /^GPT-4o · ≥ 30 tokens · ≥ \$0\.000042$/,
     );
@@ -1435,6 +1481,7 @@ export const IncompleteSubscriptionCost: Story = {
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
+
     await expect(trigger).toHaveTextContent(/^GPT-4o · ≥ 2\.7k tokens$/);
 
     await userEvent.hover(trigger);
@@ -1442,6 +1489,7 @@ export const IncompleteSubscriptionCost: Story = {
     const costValue = (await revealedUsageRow("Notional cost")).querySelector(
       "b",
     );
+
     await expect(costValue).toHaveTextContent("≥ $0.0063, not billed");
     expect(costValue).toHaveClass("text-muted-foreground");
     expect(costValue).toHaveClass("line-through");
@@ -1485,6 +1533,7 @@ export const CompleteUsageBreakdown: Story = {
         canvas.getByRole("button", { name: "Message usage: GPT-4o · 900ms" }),
       { timeout: 15_000 },
     );
+
     await userEvent.hover(trigger);
 
     const totalTokensRow = await revealedUsageRow("Total tokens");
@@ -1537,6 +1586,7 @@ function storedTool(
   classification: string,
 ): UIMessage["parts"][number] {
   const classified: ClassifiedDynamicTool = { ...part, classification };
+
   return classified;
 }
 
@@ -1604,8 +1654,10 @@ async function revealTurnActions(canvas: PlayContext["canvas"]) {
     // The row withholds the transcript until the markdown renderers load.
     { timeout: 15_000 },
   );
+
   regenerate.focus();
   await waitFor(() => expect(regenerate).toBeVisible());
+
   return regenerate;
 }
 
@@ -1929,15 +1981,18 @@ export const RegenerateMenuSetsTheComposer: Story = {
   },
   play: async ({ canvas, args }) => {
     args.onFollowUp.mockClear();
+
     const trigger = await canvas.findByRole("button", {
       name: "Regenerate with other settings",
     });
+
     trigger.focus();
     await userEvent.click(trigger);
 
     const menu = await screen.findByRole("dialog", {
       name: "Regenerate with",
     });
+
     await userEvent.click(
       within(menu).getByRole("combobox", { name: /Select model/ }),
     );
@@ -2030,6 +2085,7 @@ export const RegenerateNoticeOnUserMessage: Story = {
         ),
       { timeout: 15_000 },
     );
+
     await expect(notice).toBeVisible();
     expect(canvas.queryByText(/system-reminder/)).toBeNull();
   },

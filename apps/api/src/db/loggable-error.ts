@@ -18,6 +18,7 @@ import { DrizzleQueryError } from 'drizzle-orm';
  */
 export function errorMessageWithoutParams(error: unknown): string {
   if (error instanceof DrizzleQueryError) return `Failed query: ${error.query}`;
+
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -25,10 +26,12 @@ export function errorMessageWithoutParams(error: unknown): string {
 export function loggableError(error: unknown): string {
   if (error instanceof DrizzleQueryError) {
     const statement = `Failed query: ${error.query}`;
+
     return error.cause === undefined
       ? statement
       : `${statement}\n${loggableError(error.cause)}`;
   }
+
   return error instanceof Error
     ? (error.stack ?? error.message)
     : String(error);

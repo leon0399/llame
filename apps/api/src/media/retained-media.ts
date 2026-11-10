@@ -76,6 +76,7 @@ export function parseRetainedMedia(
   value: unknown,
 ): RetainedMediaJson | undefined {
   const parsed = retainedMediaSchema.safeParse(value);
+
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -88,15 +89,19 @@ export function retainedPartsBase64(parts: ReadonlyArray<unknown>): number {
   const records = parts.flatMap((part) => {
     if (!isRecord(part)) return [];
     const data = part['data'];
+
     const imports =
       isRecord(data) && isRecord(data['payload'])
         ? data['payload']['imports']
         : undefined;
+
     const entries = Array.isArray(imports) ? imports.filter(isRecord) : [];
+
     return [part, ...entries].map((holder) =>
       parseRetainedMedia(holder[RETAINED_MEDIA_KEY]),
     );
   });
+
   return records.reduce(
     (total, record) =>
       record !== undefined && 'data' in record

@@ -103,6 +103,7 @@ describe("reduceDraftSession", () => {
       { kind: "fresh" },
       { type: "send-started" },
     );
+
     const state = reduceDraftSession(sending, { type: "finished" });
 
     expect(state).toEqual({ kind: "persisted", resumeRequested: false });

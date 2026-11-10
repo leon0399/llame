@@ -24,6 +24,7 @@ function queryResult(
 ) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -31,6 +32,7 @@ function queryResult(
     limit: chain,
     set: (value: PartsUpdate) => {
       onSet?.(value);
+
       return terminal;
     },
     returning: () => terminal,
@@ -61,12 +63,14 @@ async function append(
       }),
     ),
   );
+
   const result = await new ActivationPartsRepository(db).appendForRun({
     id: MESSAGE_ID,
     chatId: CHAT_ID,
     runId: RUN_ID,
     items,
   });
+
   return { ...result, writes };
 }
 

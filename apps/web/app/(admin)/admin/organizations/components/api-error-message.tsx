@@ -9,9 +9,11 @@ import { OrgUnitsApiError } from "@/lib/services/org-units/errors";
  */
 export function ApiErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
+
   const message =
     error instanceof OrgUnitsApiError
       ? error.message
       : "Something went wrong. Please try again.";
+
   return <p className="text-sm text-destructive">{message}</p>;
 }

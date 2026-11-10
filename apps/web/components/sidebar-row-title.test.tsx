@@ -22,6 +22,7 @@ beforeEach(() => {
       removeEventListener: () => {},
     };
   }
+
   vi.stubGlobal("matchMedia", fakeMatchMedia);
 });
 

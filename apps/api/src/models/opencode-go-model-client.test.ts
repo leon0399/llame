@@ -126,11 +126,14 @@ type TransportStub = {
  */
 function serveFetch(responseFor: (call: number) => Response): TransportStub {
   let call = 0;
+
   const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
     Promise.resolve(responseFor(call++)),
   );
+
   const previousFetch = globalThis.fetch;
   globalThis.fetch = fetchMock;
+
   return {
     fetchMock,
     restore: () => {
@@ -160,9 +163,11 @@ function buildClient(
  */
 function recordedRequest(stub: TransportStub, call = 0): Request {
   const [input, init] = stub.fetchMock.mock.calls[call] ?? [];
+
   if (input === undefined) {
     throw new TypeError('no fetch call was recorded');
   }
+
   return new Request(input, init);
 }
 
@@ -184,9 +189,11 @@ async function requestBody(
   call = 0,
 ): Promise<UnknownRecord> {
   const body: unknown = JSON.parse(await recordedRequest(stub, call).text());
+
   if (!isRecord(body)) {
     throw new TypeError('expected a JSON object request body');
   }
+
   return body;
 }
 
@@ -201,6 +208,7 @@ async function streamFailure(
   input: ModelStreamInput,
 ): Promise<Error> {
   const reported: Array<Error> = [];
+
   // The failed stream's own settlement is the wait (`StreamTextResult.text` is
   // a `PromiseLike`, so it is awaited through its own `then`): the executor
   // learns about the failure from `onError`, and reading what was delivered
@@ -220,6 +228,7 @@ async function streamFailure(
     );
 
   const failure = reported[0];
+
   if (failure === undefined) {
     throw new TypeError(
       `expected the request to report a failure, settled with: ${
@@ -227,6 +236,7 @@ async function streamFailure(
       }`,
     );
   }
+
   return failure;
 }
 
@@ -262,6 +272,7 @@ function leakedCanaries(
   canaries: ReadonlyArray<string>,
 ): Array<string> {
   const surfaces = `${error.message}\n${error.stack ?? ''}`;
+
   return canaries.filter((canary) => surfaces.includes(canary));
 }
 
@@ -288,6 +299,7 @@ const REQUEST_MESSAGES = [
 describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () => {
   it("sends the request to the endpoint fixed in llame's code and reports the Go provider", async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient();
 
@@ -321,6 +333,7 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
     vi.stubEnv('OPENAI_BASE_URL', 'https://ambient.example.test/v1');
     vi.stubEnv('OPENAI_API_KEY', 'sk-ambient-canary');
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient();
 
@@ -347,6 +360,7 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
           headers: { location: 'https://redirected-canary.example.test/v1' },
         }),
     );
+
     try {
       const client = buildClient();
 
@@ -375,6 +389,7 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
 
   it('forwards the model metadata the entry declared', async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient({
         maxOutputTokens: 4096,
@@ -411,6 +426,7 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
 
   it('composes operator options under the namespace the adapter derives from the Go name', async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient({
         providerOptions: {
@@ -443,6 +459,7 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
 describe('createOpenCodeGoModelClient — the Chat identity as the session header (design D3/D4/D5)', () => {
   it("keeps Go's adapter session header when the operator does not configure it", async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient({
         requestHeaders: { 'X-Session-Id': ['', ''] },
@@ -460,6 +477,7 @@ describe('createOpenCodeGoModelClient — the Chat identity as the session heade
 
   it('sends the title lane under the title: prefix', async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient();
 
@@ -477,6 +495,7 @@ describe('createOpenCodeGoModelClient — the Chat identity as the session heade
 
   it('sends the same value for every main-lane request of one Chat', async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient();
 
@@ -502,6 +521,7 @@ describe('createOpenCodeGoModelClient — the Chat identity as the session heade
 
   it('carries the identity on the structured-generation path too', async () => {
     const stub = serveFetch(structuredResponse);
+
     try {
       const client = buildClient();
 
@@ -529,6 +549,7 @@ describe('createOpenCodeGoModelClient — the Chat identity as the session heade
 describe('createOpenCodeGoModelClient — the headers and body llame sends (design D6/D8, task 3.3a)', () => {
   it('sends exactly the identity headers on a streaming request', async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient();
 
@@ -553,6 +574,7 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
       expect(headers.get('x-opencode-client')).toBe('llame');
       expect(headers.get('x-opencode-session')).toBe(MAIN_CHAT.id);
       expect(headers.get('x-session-id')).toBe(MAIN_CHAT.id);
+
       // Never sent: the gateway's request-id and project headers or sticky
       // affinity marker.
       for (const absent of [
@@ -562,6 +584,7 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
       ]) {
         expect(headers.get(absent)).toBeNull();
       }
+
       // No cache control and no cache-breakpoint marker: caching is the
       // gateway's, keyed on the session header.
       expect(await recordedRequest(stub).text()).not.toMatch(/cache/i);
@@ -572,6 +595,7 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
 
   it('does not ask the gateway for streaming usage', async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient();
 
@@ -589,6 +613,7 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
 
   it('sends the same header set on the structured request', async () => {
     const stub = serveFetch(structuredResponse);
+
     try {
       const client = buildClient();
 
@@ -621,6 +646,7 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
   });
   it("lets an operator replace Go's client identity header", async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient({
         requestHeaders: {
@@ -641,6 +667,7 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
 
   it("keeps Go's gateway session header when its operator render is empty", async () => {
     const stub = serveFetch(streamResponse);
+
     try {
       const client = buildClient({
         requestHeaders: {
@@ -664,6 +691,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
   it('surfaces the parsed envelope message of a rejected model and leaks nothing else', async () => {
     const parsedMessage =
       'model glm-5.3-flash is not supported for format oa-compat';
+
     const stub = serveFetch(
       () =>
         new Response(errorEnvelope('ModelError', parsedMessage), {
@@ -672,6 +700,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
           headers: { 'x-gateway-request-id': RESPONSE_HEADER_CANARY },
         }),
     );
+
     try {
       const client = buildClient();
 
@@ -697,6 +726,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
 
   it("surfaces a usage rejection after the SDK's own retries, against the same endpoint and model", async () => {
     const parsedMessage = 'usage limit reached for this subscription';
+
     const stub = serveFetch(
       () =>
         new Response(errorEnvelope('GoUsageLimitError', parsedMessage), {
@@ -709,6 +739,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
           },
         }),
     );
+
     try {
       const client = buildClient();
 
@@ -730,9 +761,11 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
         GO_CHAT_COMPLETIONS_URL,
         GO_CHAT_COMPLETIONS_URL,
       ]);
+
       const attemptedBodies = await Promise.all(
         stub.fetchMock.mock.calls.map((_, call) => requestBody(stub, call)),
       );
+
       expect(attemptedBodies.map((body) => body['model'])).toEqual([
         'glm-5.3-flash',
         'glm-5.3-flash',
@@ -772,6 +805,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
           },
         }),
     );
+
     try {
       const client = buildClient();
 
@@ -793,6 +827,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
 
   it('reports a malformed stream chunk with the fixed text, quoting none of it', async () => {
     const malformedChunk = '{"choices": [} MALFORMED-CHUNK-CANARY';
+
     const stub = serveFetch(
       () =>
         new Response(
@@ -809,6 +844,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
           },
         ),
     );
+
     try {
       const client = buildClient();
 

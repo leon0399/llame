@@ -43,6 +43,7 @@ function useOrgTreeNavigation(units: Array<OrgUnitResponse>) {
     () => new Map(units.map((unit) => [unit.id, unit])),
     [units],
   );
+
   const rows = useMemo(() => buildRows(units, collapsed), [units, collapsed]);
   const collapsibleIds = useMemo(() => collapsibleUnitIds(units), [units]);
   const anyOpen = collapsibleIds.some((id) => !collapsed[id]);
@@ -90,12 +91,15 @@ function useOrgTreeNavigation(units: Array<OrgUnitResponse>) {
  *  every unit dialog, the way the design's Component owns it in one place. */
 function useOrgUnitDialogs(childCountOf: (unitId: string) => number) {
   const [createRootOpen, setCreateRootOpen] = useState(false);
+
   const [createChildFor, setCreateChildFor] = useState<OrgUnitResponse | null>(
     null,
   );
+
   const [renaming, setRenaming] = useState<OrgUnitResponse | null>(null);
   const [moving, setMoving] = useState<OrgUnitResponse | null>(null);
   const [deleting, setDeleting] = useState<OrgUnitResponse | null>(null);
+
   const [deleteBlockedFor, setDeleteBlockedFor] =
     useState<OrgUnitResponse | null>(null);
 
@@ -124,6 +128,7 @@ function useOrgUnitDialogs(childCountOf: (unitId: string) => number) {
 }
 
 type OrgUnitDialogsBundle = ReturnType<typeof useOrgUnitDialogs>;
+
 type OrgTreeNavigationBundle = ReturnType<typeof useOrgTreeNavigation>;
 
 /** The tree body itself — rows plus the type legend — a distinct concern
@@ -330,6 +335,7 @@ function OrgUnitTypeLegend() {
       {ORG_UNIT_TYPE_ORDER.map((type) => {
         const meta = ORG_UNIT_TYPE_META[type];
         const Icon = meta.icon;
+
         return (
           <span
             key={type}
@@ -389,11 +395,13 @@ function OrgTreeSelectedFooter({
   const chain = visibleAncestorChain(selected, unitsById);
   const breadcrumb = chain.map((u) => u.name).join(" › ");
   const eff = effectiveRoleFor(selected, unitsById);
+
   const roleText = eff
     ? eff.inherited
       ? `Your role here: ${ROLE_LABEL[eff.role]} · inherited from ${eff.via.name}`
       : `Your role here: ${ROLE_LABEL[eff.role]} · direct`
     : "You have no direct role on this unit.";
+
   const SelectedTypeIcon = ORG_UNIT_TYPE_META[selected.type].icon;
 
   return (

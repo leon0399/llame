@@ -41,14 +41,17 @@ function fold(ignored: IgnoredAccumulator, paths: ReadonlyArray<string>): void {
 describe('mergePage', () => {
   it('caps one scope at one thousand directories across pages', () => {
     const ignored = ignoredAccumulator(SCOPE);
+
     const first = Array.from(
       { length: 600 },
       (_, index) => `a${String(index)}`,
     );
+
     const second = Array.from(
       { length: 600 },
       (_, index) => `b${String(index)}`,
     );
+
     fold(ignored, first);
     expect(ignored.paths).toHaveLength(600);
     expect(ignored.atLeast).toBe(false);

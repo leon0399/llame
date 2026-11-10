@@ -25,7 +25,9 @@ type ParallelToolArguments = {
 function payloadOf(value: McpCallResult): ParallelPayload {
   if (value.isError === true) throw new EngineFailure('upstream_error');
   const parsed = ParallelPayloadSchema.safeParse(value.structuredContent);
+
   if (!parsed.success) throw new EngineFailure('upstream_error');
+
   return parsed.data;
 }
 
@@ -38,9 +40,11 @@ export function createParallelMcpEngine(deps: {
     toolName: PARALLEL_MCP_TOOL_NAME,
     fetch: deps.fetch,
   });
+
   return async (request) => {
     const extra =
       request.recency === undefined ? {} : { notes: [RECENCY_NOTE] };
+
     const payload = await mcp.call(
       {
         objective: request.objective ?? request.query,
@@ -50,12 +54,14 @@ export function createParallelMcpEngine(deps: {
       { signal: request.signal, userAgent: request.userAgent },
       payloadOf,
     );
+
     // The hosted tool takes no result count, so the cut comes after URLs that
     // fail validation are gone.
     const results = canonicalizeResults(mapParallelResults(payload)).slice(
       0,
       request.limit,
     );
+
     return results.length > 0
       ? { kind: 'results', results, ...extra }
       : { kind: 'empty', ...extra };

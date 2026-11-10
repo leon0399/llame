@@ -87,6 +87,7 @@ export function quoteGitPath(value: string): string {
     UNSAFE_PATH_CHARACTER,
     (character) => NAMED_ESCAPES.get(character) ?? octal(character),
   );
+
   return body === value ? value : `"${body}"`;
 }
 
@@ -103,6 +104,7 @@ function branchValues(view: GitStateView) {
   const { upstream, operation } = view;
   const total = operation?.total;
   const step = operation?.step;
+
   return {
     detached: view.detached,
     branch: text(view.branch ?? ''),

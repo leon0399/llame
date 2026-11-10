@@ -54,7 +54,9 @@ import { retryFailedDocuments } from './retry-failed';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const TEST_UNPRIVILEGED_DB_URL = process.env['TEST_UNPRIVILEGED_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const text = (t: string) => [{ type: 'text', text: t }];
 const MODEL_KEY = 'ops-test-model';
 
@@ -87,6 +89,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
       await chats.createIfAbsent({ id, ownerUserId: ownerId, title });
+
       for (const m of msgs) {
         await messages.create({
           chatId: id,
@@ -96,6 +99,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         });
       }
     });
+
     return id;
   }
 
@@ -108,6 +112,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
       sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${chatId} LIMIT 1`,
       z.object({ content_hash: z.string() }),
     );
+
     return rows[0].content_hash;
   }
 
@@ -176,6 +181,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
       sql`SELECT model_key FROM embedding_model_bindings WHERE model_key = ${modelKey}`,
       z.object({ model_key: z.string() }),
     );
+
     return rows.length > 0;
   }
 
@@ -198,6 +204,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
     indexService = new SearchIndexService(tenantDb);
     owner = crypto.randomUUID();
     otherOwner = crypto.randomUUID();
+
     for (const id of [owner, otherOwner]) {
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'Ops', ${`ops-${id}@t.com`})`;
     }
@@ -217,6 +224,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
       await indexService.reindexChat(id, owner);
 
       const enqueueChatEmbedStrict = vi.fn().mockResolvedValue(undefined);
+
       const { enqueued, failures } = await runBackfill(
         tenantDb,
         { enqueueChatEmbedStrict },
@@ -328,21 +336,25 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
           )
           ORDER BY p.proname
         `;
+
         expect(rows).toEqual([
           { proname: 'llame_search_embedding_backlog', can_execute: false },
           { proname: 'llame_search_embedding_coverage', can_execute: false },
           { proname: 'llame_search_embedding_report', can_execute: false },
         ]);
+
         return;
       }
 
       const ssl = /sslmode=require/.test(TEST_UNPRIVILEGED_DB_URL)
         ? 'require'
         : false;
+
       const unprivileged = postgres(TEST_UNPRIVILEGED_DB_URL, {
         ssl,
         max: 1,
       });
+
       try {
         for (const statement of [
           `SELECT * FROM llame_search_embedding_coverage('probe', 1, 1)`,
@@ -372,6 +384,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         owner,
         'Under an undeclared model, owner 1',
       );
+
       await indexService.reindexChat(prunedChatOwner1, owner);
       await stampEmbedded(
         owner,
@@ -384,6 +397,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         otherOwner,
         'Under an undeclared model, owner 2',
       );
+
       await indexService.reindexChat(prunedChatOwner2, otherOwner);
       await stampEmbedded(
         otherOwner,
@@ -417,6 +431,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
           has_embedding: z.boolean(),
         }),
       );
+
       expect(keptRow.embedding_model_key).toBe(declaredModel);
       expect(keptRow.has_embedding).toBe(true);
 
@@ -437,6 +452,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
             has_embedding: z.boolean(),
           }),
         );
+
         expect(prunedRow.embedding_model_key).toBeNull();
         expect(prunedRow.embedded_content_hash).toBeNull();
         expect(prunedRow.embed_input_version).toBeNull();
@@ -465,6 +481,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         MODEL_KEY,
         EMBED_INPUT_VERSION,
       );
+
       expect(clearedDocuments).toBeGreaterThanOrEqual(1);
       expect(affectedOwners).toBeGreaterThanOrEqual(1);
 
@@ -485,6 +502,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
           embedding_fail_reason: z.string().nullable(),
         }),
       );
+
       expect(row.embedding_model_key).toBeNull();
       expect(row.embedded_content_hash).toBeNull();
       expect(row.embed_input_version).toBeNull();
@@ -504,6 +522,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         sql`SELECT embedding_fail_reason FROM search_chat_documents WHERE chat_id = ${id}`,
         z.object({ embedding_fail_reason: z.string().nullable() }),
       );
+
       expect(row.embedding_fail_reason).not.toBeNull();
     });
   });
@@ -525,6 +544,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         EMBED_INPUT_VERSION,
         1000,
       );
+
       const row = report.find((r) => r.chatId === id);
       expect(row).toBeDefined();
       expect(row).toMatchObject({ outstanding: 0, embedded: 0, failed: 1 });
@@ -540,6 +560,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
         EMBED_INPUT_VERSION,
         1000,
       );
+
       const row = report.find((r) => r.chatId === id);
       expect(row).toBeDefined();
       expect(row!.outstanding).toBeGreaterThanOrEqual(1);

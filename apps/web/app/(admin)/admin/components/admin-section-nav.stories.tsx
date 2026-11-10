@@ -27,6 +27,7 @@ const meta = {
 } satisfies Meta<typeof AdminSectionNav>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -61,6 +62,7 @@ export const Basic: Story = {
       await expect(button).toHaveAttribute("tabindex", "-1");
       await expect(button?.textContent).toContain("soon");
     }
+
     await expect(
       canvas.queryByRole("link", { name: /Users & accounts/i }),
     ).not.toBeInTheDocument();

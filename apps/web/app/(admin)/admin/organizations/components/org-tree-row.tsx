@@ -104,6 +104,7 @@ function TreeRowExpander({
   if (!hasChildren) {
     return <span aria-hidden className="size-5 shrink-0" />;
   }
+
   return (
     <button
       type="button"
@@ -249,6 +250,7 @@ function TreeRowLabel({
   isRoot: boolean;
 }) {
   const TypeIcon = ORG_UNIT_TYPE_META[unit.type].icon;
+
   return (
     <>
       <span

@@ -96,6 +96,7 @@ function ToolPartView({ part }: { part: UIMessage["parts"][number] }) {
   if (!isToolUIPart(part)) return null;
   const toolName = getToolName(part);
   const toolState = toolHeaderState(part);
+
   return (
     <Tool>
       <ToolHeader
@@ -135,6 +136,7 @@ function ReasoningPanel({
   renderers: ChatMarkdownRenderers;
 }) {
   const ReasoningContent = renderers.ReasoningContent;
+
   return (
     <Reasoning isStreaming={isStreaming} defaultOpen={false}>
       <ReasoningTrigger />
@@ -204,6 +206,7 @@ function ToolUIPartView({
     },
     renderers,
   );
+
   return row ?? <ToolPartView part={part} />;
 }
 
@@ -220,24 +223,31 @@ function MessagePartView({
 }) {
   if (part.type === "text") {
     const MessageResponse = renderers.MessageResponse;
+
     return <MessageResponse>{part.text}</MessageResponse>;
   }
+
   if (isToolUIPart(part)) {
     return <ToolUIPartView part={part} renderers={renderers} />;
   }
+
   if (part.type === "data-cap-notice") {
     // Step-cap notice (D6): persisted alongside the tool call/result parts
     // when a run hits tools.maxStepsPerRun. Same part → same chip, live or
     // reloaded from history.
     const capNotice = parseCapNoticePart(part);
+
     return capNotice ? <ToolCapNoticePart {...capNotice} /> : null;
   }
+
   if (isInstructionsPart(part)) {
     return <InstructionsPart {...part.data.payload} />;
   }
+
   if (isPromptImportsPart(part)) {
     return <PromptImportsPart {...part.data.payload} />;
   }
+
   return <span>unsupported part type: {part.type}</span>;
 }
 
@@ -268,10 +278,13 @@ export function messageRowMode({
   status: ChatStatus;
 }): MessageRowMode {
   if (message.role !== "assistant") return "content";
+
   if (hasVisibleContent(message.parts)) return "content";
+
   if (isLast && (status === "submitted" || status === "streaming")) {
     return "pending";
   }
+
   return messageSeqFromMetadata(message.metadata) === null
     ? "hidden"
     : "content";
@@ -418,6 +431,7 @@ function AssistantContextActions({
   onInspectContext: (runId: string) => void;
 }) {
   const contextRunId = runIdFromMessageMetadata(metadata);
+
   return (
     <>
       {contextRunId && (
@@ -457,6 +471,7 @@ function MessageSegments({
 }) {
   return groupAssistantParts(parts).map((segment) => {
     if (!isVisibleSegment(segment)) return null;
+
     if (segment.kind !== "reasoning") {
       return (
         <MessagePartView
@@ -466,6 +481,7 @@ function MessageSegments({
         />
       );
     }
+
     return (
       <ReasoningPanel
         key={`message-part-${renderKey}-${segment.startIndex}`}
@@ -485,6 +501,7 @@ function MessageNotice({ message }: { message: UIMessage }) {
   if (message.role !== "user") return null;
   const interrupted = interruptedNoticePart(message);
   const regenerated = regenerateNoticePart(message);
+
   return (
     <>
       {interrupted === null ? null : <InterruptedNoticePart />}
@@ -510,6 +527,7 @@ function MessageBubble({
   renderers: ChatMarkdownRenderers;
 }) {
   if (mode !== "pending" && !hasVisibleContent(parts)) return null;
+
   return (
     <MessageContent>
       {mode === "pending" ? (
@@ -535,11 +553,13 @@ export function ChatMessageRow({
   const { message, status } = footerProps;
   const messageSeq = messageSeqFromMetadata(message.metadata);
   const renderers = useChatMarkdownRenderers();
+
   // Parent gates the transcript on renderers !== null; fail closed if a row
   // somehow mounts earlier rather than painting empty Streamdown shells.
   if (renderers === null) return null;
 
   const mode = messageRowMode({ message, isLast, status });
+
   // Live-only empty placeholders omit the bubble, but the compaction /
   // model-switch marker is about the transcript position — keep it.
   return (

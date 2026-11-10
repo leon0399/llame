@@ -45,6 +45,7 @@ import {
 
 /** Poll cadence for new events while a run is in flight. */
 const EVENT_POLL_MS = 500;
+
 /** Hard cap on one SSE connection — clients reconnect with their cursor. */
 const MAX_STREAM_MS = 5 * 60 * 1000;
 
@@ -86,6 +87,7 @@ export class RunsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<RunResponse> {
     const run = await this.findOwnedRun(id, userId);
+
     return toRunResponse(run);
   }
 
@@ -101,11 +103,13 @@ export class RunsController {
   ): Promise<ContextReceiptResponse> {
     const result = await this.tenantDb.runAs(userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(id, userId);
+
       if (!run) return undefined;
 
       const receipts = await new SystemPromptReceiptsRepository(
         tx,
       ).findByOwnedRun(id, userId);
+
       return toContextReceiptResponse(run, receipts);
     });
 
@@ -150,9 +154,11 @@ export class RunsController {
     // The atomic guard missed: missing/cross-tenant (404), already terminal
     // (409), or already cancel-requested (idempotent 200).
     const run = await this.findOwnedRun(id, userId);
+
     if (isTerminalRunStatus(run.status)) {
       throw new ConflictException('Run already finished');
     }
+
     return toRunResponse(run);
   }
 
@@ -227,6 +233,7 @@ export class RunsController {
     const current = await this.tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findById(runId, userId),
     );
+
     return current ? isTerminalRunStatus(current.status) : undefined;
   }
 
@@ -242,11 +249,14 @@ export class RunsController {
         afterSequence: cursor,
       }),
     );
+
     let nextCursor = cursor;
+
     for (const event of events) {
       response.write(formatSseEvent(event));
       nextCursor = event.sequence;
     }
+
     return { cursor: nextCursor, count: events.length };
   }
 
@@ -286,6 +296,7 @@ export class RunsController {
         cursor,
         response,
       );
+
       cursor = drained.cursor;
 
       // Terminal check AFTER draining, so the tail is never cut off. The
@@ -299,9 +310,11 @@ export class RunsController {
 
       if (!terminalSeen && drained.count > 0) {
         const resolved = await this.refreshTerminalSeen(run.id, userId);
+
         if (resolved === undefined) {
           break;
         }
+
         terminalSeen = resolved;
       }
 
@@ -321,6 +334,7 @@ export class RunsController {
     const run = await this.tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findById(runId, userId),
     );
+
     if (!run) {
       throw new NotFoundException(`Run ${runId} not found`);
     }
@@ -333,17 +347,21 @@ export class RunsController {
 function lastEventId(request: RunEventRequest): number | undefined {
   const raw = request.headers['last-event-id'];
   const value = Array.isArray(raw) ? raw[0] : raw;
+
   // Blank counts as absent: Number('') coerces to 0, which would override a
   // valid query cursor and force a full replay.
   if (value === undefined || value.trim() === '') {
     return undefined;
   }
+
   const parsed = Number(value);
+
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function formatSseEvent(event: RunEvent): string {
   const ownerEvent = ownerEventForSse(event);
+
   const data = JSON.stringify({
     sequence: ownerEvent.sequence,
     eventType: ownerEvent.eventType,
@@ -367,6 +385,7 @@ function ownerEventForSse(event: RunEvent): RunEvent {
 
   let payload = withoutRetainedMediaPayload(event.eventType, event.payload);
   payload = withoutProviderMetadataPayload(event.eventType, payload);
+
   if (event.eventType === 'native.attempt' && payload['operation'] === 'bash') {
     payload = { ...payload };
     delete payload['path'];

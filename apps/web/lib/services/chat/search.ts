@@ -31,6 +31,7 @@ export async function searchChats(
     signal === undefined ? undefined : { signal },
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );
+
   return results;
 }
 
@@ -45,6 +46,7 @@ export const chatSearchQueryKey = chatQueryKeys.search;
  */
 export function useChatSearchQuery(q: string) {
   const trimmed = q.trim();
+
   return useQuery({
     queryKey: chatSearchQueryKey({ q: trimmed }),
     queryFn: ({ signal }) => searchChats(trimmed, signal),

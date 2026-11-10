@@ -37,7 +37,9 @@ import { SearchReindexWorker } from './search-reindex.worker';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const text = (t: string) => [{ type: 'text', text: t }];
 
 describeIfDb(
@@ -67,6 +69,7 @@ describeIfDb(
         const chats = new ChatsRepository(tx);
         const messages = new MessagesRepository(tx);
         await chats.createIfAbsent({ id, ownerUserId: u, title });
+
         for (const m of msgs) {
           await messages.create({
             chatId: id,
@@ -76,6 +79,7 @@ describeIfDb(
           });
         }
       });
+
       return id;
     }
 
@@ -114,6 +118,7 @@ describeIfDb(
      *  integration suite. */
     async function buildReindexWorker(modelId: string) {
       const enqueueChatEmbed = vi.fn().mockResolvedValue(undefined);
+
       const moduleRef = await Test.createTestingModule({
         providers: [
           SearchReindexWorker,
@@ -135,7 +140,9 @@ describeIfDb(
           },
         ],
       }).compile();
+
       openModules.push(moduleRef);
+
       return { worker: moduleRef.get(SearchReindexWorker), enqueueChatEmbed };
     }
 
@@ -158,7 +165,9 @@ describeIfDb(
           },
         ],
       }).compile();
+
       openModules.push(moduleRef);
+
       return moduleRef.get(SearchEmbedWorker);
     }
 
@@ -183,6 +192,7 @@ describeIfDb(
         sql`SELECT model_key FROM embedding_model_bindings WHERE model_key = ${modelId}`,
         z.object({ model_key: z.string() }),
       );
+
       return rows.length > 0;
     }
 
@@ -218,6 +228,7 @@ describeIfDb(
       const id = await seed('Never-used model backlog', [
         { role: 'user', text: 'outstanding under a brand-new model' },
       ]);
+
       await indexService.reindexChat(id, u);
 
       const { worker, enqueueChatEmbed } = await buildReindexWorker(modelId);
@@ -238,6 +249,7 @@ describeIfDb(
       const seededChat = await seed('Bootstraps the ledger row', [
         { role: 'user', text: 'first ever embed for this model' },
       ]);
+
       await indexService.reindexChat(seededChat, u);
       const embedWorker = await buildEmbedWorker(modelId);
       await embedWorker.embedChat(
@@ -253,6 +265,7 @@ describeIfDb(
       const outstandingChat = await seed('Ordinary incremental lag', [
         { role: 'user', text: 'new content under an already-in-service model' },
       ]);
+
       await indexService.reindexChat(outstandingChat, u);
 
       const { worker, enqueueChatEmbed } = await buildReindexWorker(modelId);

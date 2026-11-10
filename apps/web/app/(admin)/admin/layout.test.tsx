@@ -20,6 +20,7 @@ const { cookiesMock, headersMock } = vi.hoisted(() => ({
     get: (_name: string): string | null => null,
   })),
 }));
+
 vi.mock("next/headers", () => ({ cookies: cookiesMock, headers: headersMock }));
 
 import AdminLayout from "./layout";
@@ -31,7 +32,9 @@ function childrenOf(element: ReactNode): ReadonlyArray<ReactNode> {
   if (!isValidElement<{ children: ReactNode }>(element)) {
     throw new Error("expected an element");
   }
+
   const kids = element.props.children;
+
   return Array.isArray(kids) ? kids : [kids];
 }
 
@@ -39,6 +42,7 @@ function childrenOf(element: ReactNode): ReadonlyArray<ReactNode> {
 async function renderShell(): Promise<ReactNode> {
   const frame = await AdminLayout({ children: "content" });
   expect(isValidElement(frame) && frame.type).toBe(AppShellFrame);
+
   return childrenOf(frame)[0];
 }
 
@@ -54,6 +58,7 @@ describe("AdminLayout", () => {
     const element = await renderShell();
 
     expect(isValidElement<{ defaultOpen: boolean }>(element)).toBe(true);
+
     if (!isValidElement<{ defaultOpen: boolean }>(element)) return;
     expect(element.type).toBe(SidebarProvider);
     expect(element.props.defaultOpen).toBe(false);
@@ -66,9 +71,11 @@ describe("AdminLayout", () => {
     });
 
     const element = await renderShell();
+
     if (!isValidElement<{ defaultOpen: boolean }>(element)) {
       throw new Error("expected SidebarProvider element");
     }
+
     expect(element.props.defaultOpen).toBe(true);
   });
 
@@ -79,9 +86,11 @@ describe("AdminLayout", () => {
 
     const element = await renderShell();
     const [, nav] = childrenOf(childrenOf(element)[0]);
+
     if (!isValidElement<{ host: string }>(nav)) {
       throw new Error("expected AdminSectionNav element");
     }
+
     expect(nav.type).toBe(AdminSectionNav);
     expect(nav.props.host).toBe("admin.example.com");
   });
@@ -89,9 +98,11 @@ describe("AdminLayout", () => {
   it("falls back to 'instance' when the host header is absent", async () => {
     const element = await renderShell();
     const [, nav] = childrenOf(childrenOf(element)[0]);
+
     if (!isValidElement<{ host: string }>(nav)) {
       throw new Error("expected AdminSectionNav element");
     }
+
     expect(nav.props.host).toBe("instance");
   });
 });

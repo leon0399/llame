@@ -56,6 +56,7 @@ function runResponseFixture(
 }
 
 let fetchMock: Mock<typeof fetch>;
+
 // Per-test-overridable handlers for the two endpoints this provider polls —
 // letting a test hold GET /me/runs open (the rehydration race) or answer
 // GET /runs/:id with the requested id, the way the real API would.
@@ -70,8 +71,10 @@ function stubActiveRunsNetwork() {
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname } = new URL(request.url);
+
     if (pathname === "/api/v1/me/runs") return activeRunsHandler();
     const runMatch = /^\/api\/v1\/runs\/(.+)$/.exec(pathname);
+
     if (runMatch) return runHandler(runMatch[1]!);
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
   });
@@ -91,6 +94,7 @@ function Probe({
     untrackChat,
     markChatSeen,
   } = useActiveRuns();
+
   return (
     <div>
       {viewedChatId ? <ViewedChatRegistration chatId={viewedChatId} /> : null}
@@ -118,6 +122,7 @@ function Probe({
 function ViewedChatRegistration({ chatId }: { chatId: string }) {
   const { registerViewedChat } = useActiveRuns();
   useEffect(() => registerViewedChat(chatId), [chatId, registerViewedChat]);
+
   return null;
 }
 
@@ -126,6 +131,7 @@ function renderProbe(
   { viewedChatId }: { viewedChatId?: string } = {},
 ) {
   const queryClient = new QueryClient();
+
   const tree = (nextChatId: string, nextViewedChatId?: string) => (
     <QueryClientProvider client={queryClient}>
       <ActiveRunsProvider>
@@ -134,7 +140,9 @@ function renderProbe(
       </ActiveRunsProvider>
     </QueryClientProvider>
   );
+
   const rendered = render(tree(chatId, viewedChatId));
+
   return {
     queryClient,
     rerenderProbe: (nextChatId: string, nextViewedChatId?: string) =>
@@ -294,6 +302,7 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     const { queryClient } = renderProbe("chat-viewed", {
       viewedChatId: "chat-viewed",
     });
+
     queryClient.setQueryData(chatQueryKeys.infinite({ pinned: "exclude" }), {
       pages: [[]],
       pageParams: [undefined],
@@ -350,6 +359,7 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     const { queryClient, rerenderProbe } = renderProbe("chat-viewed", {
       viewedChatId: "chat-viewed",
     });
+
     screen.getByText("track").click();
     await waitFor(() =>
       expect(screen.getByTestId("processing").textContent).toBe("true"),

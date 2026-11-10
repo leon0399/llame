@@ -33,6 +33,7 @@ function ioFor(
   return {
     fetch: (url) => {
       requests.push(url);
+
       return Promise.resolve<WebResponse | WebFetchFailure>(result);
     },
   };
@@ -89,6 +90,7 @@ describe('rewrite web adapter reads', () => {
 
   it('maps an adapter status failure without exposing a body', async () => {
     const adapter = createRewriteAdapter(BASE_CONFIG);
+
     const outcome = await adapter.read(
       new URL('https://x.com/article'),
       ioFor(
@@ -104,6 +106,7 @@ describe('rewrite web adapter reads', () => {
       type: 'call_timeout',
       message: 'The web read exceeded its deadline.',
     };
+
     const outcome = await createRewriteAdapter(BASE_CONFIG).read(
       new URL('https://x.com/article'),
       ioFor(failure, []),
@@ -118,6 +121,7 @@ describe('rewrite web adapter reads', () => {
 
   it('maps an unconverted HTML response to parse', async () => {
     const adapter = createRewriteAdapter(BASE_CONFIG);
+
     const outcome = await adapter.read(
       new URL('https://x.com/article'),
       ioFor(
@@ -134,6 +138,7 @@ describe('rewrite web adapter reads', () => {
 
   it('maps a blank response to empty', async () => {
     const adapter = createRewriteAdapter(BASE_CONFIG);
+
     const outcome = await adapter.read(
       new URL('https://x.com/article'),
       ioFor(response(' \n\t', 'text/html'), []),
@@ -146,6 +151,7 @@ describe('rewrite web adapter reads', () => {
     const adapter = createRewriteAdapter(
       config({ target: 'https://reader.example.dev/view{path}' }),
     );
+
     const fetch = vi.fn<WebAdapterIo['fetch']>(() =>
       Promise.resolve<WebResponse | WebFetchFailure>(
         response(

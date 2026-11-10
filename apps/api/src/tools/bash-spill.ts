@@ -55,6 +55,7 @@ const renderOmittedLine = loadPackagedTemplate<{
 }>(__dirname, 'bash-spill-omitted');
 
 const STREAM_NAMES = ['stdout', 'stderr'] as const;
+
 type StreamName = (typeof STREAM_NAMES)[number];
 
 /** The two streams of one call, as the executor returned them. */
@@ -93,17 +94,20 @@ export async function spillBashResult(
 ): Promise<ToolResult> {
   if (!carriesStreams(result)) return toToolResult(result);
   const streams = { stdout: result.stdout, stderr: result.stderr };
+
   const spilled = await spillBashStreams(
     context,
     streams,
     !result.truncated,
     hostFilesOnly,
   );
+
   const inline: BashObservedResult = {
     ...result,
     stdout: spilled.streams.stdout,
     stderr: spilled.streams.stderr,
   };
+
   return toToolResult(
     inline,
     spilled.artifact === undefined || spilled.notice === undefined
@@ -115,6 +119,7 @@ export async function spillBashResult(
 /** A result whose output the executor produced, bounded or not. */
 function carriesStreams(result: BashResult): result is BashObservedResult {
   if (!('type' in result)) return true;
+
   return result.type === 'timed_out';
 }
 
@@ -136,13 +141,18 @@ export async function spillBashStreams(
   hostFilesOnly = false,
 ): Promise<SpilledBashStreams> {
   const spilling = spillingStreams(streams);
+
   if (spilling.length === 0) return { streams };
   const written = await writeStreamParts(context, spilling, complete);
+
   const rendered = STREAM_NAMES.map((name) => {
     const spill = spilling.find((stream) => stream.name === name);
+
     return spill === undefined ? streams[name] : previewText(spill, written);
   });
+
   const [stdout, stderr] = rendered;
+
   return {
     streams: { stdout, stderr },
     ...(written !== undefined && { artifact: written.locator }),
@@ -159,10 +169,13 @@ export async function spillBashStreams(
  */
 function spillingStreams(streams: BashStreams): Array<SpillingStream> {
   const shares = inlineShares(streams);
+
   return STREAM_NAMES.flatMap((name) => {
     const share = shares[name];
+
     if (share === undefined) return [];
     const text = streams[name];
+
     return [{ name, text, preview: previewStream(text, share) }];
   });
 }
@@ -174,13 +187,17 @@ function inlineShares(
   let budget = RESULT_TRUNCATE_CHARS;
   let pending = STREAM_NAMES.filter((name) => streams[name] !== '');
   const spilled: Partial<Record<StreamName, number>> = {};
+
   for (;;) {
     const share = Math.floor(budget / pending.length);
     const fitting = pending.filter((name) => streams[name].length <= share);
+
     if (fitting.length === 0) {
       for (const name of pending) spilled[name] = share;
+
       return spilled;
     }
+
     for (const name of fitting) budget -= streams[name].length;
     pending = pending.filter((name) => streams[name].length > share);
   }
@@ -200,6 +217,7 @@ export function previewStream(text: string, share: number): StreamPreview {
   const headBudget = Math.floor(share / HEAD_SHARE);
   const head = takeHead(pieces, headBudget);
   const tail = takeTail(pieces, share - headBudget, head.consumed);
+
   // The first tail line is one past the last omitted line, whether that tail
   // line is whole or a cut: a cut line's front is only reachable by reading it.
   return {
@@ -230,6 +248,7 @@ function takeHead(pieces: ReadonlyArray<string>, budget: number): HeadLines {
   const lines: Array<string> = [];
   let used = 0;
   let index = 0;
+
   for (const piece of pieces) {
     if (used + piece.length + 1 <= budget) {
       lines.push(piece);
@@ -237,12 +256,14 @@ function takeHead(pieces: ReadonlyArray<string>, budget: number): HeadLines {
       index += 1;
       continue;
     }
+
     // The line is longer than this end's whole share: cut it by code units,
     // and keep counting it as a line the head does not hold in full.
     if (lines.length === 0 && budget > 0)
       lines.push(cutStringAtCodePointBoundary(piece, budget));
     break;
   }
+
   return { lines, consumed: index };
 }
 
@@ -255,17 +276,21 @@ function takeTail(
   const lines: Array<string> = [];
   let used = 0;
   let start = pieces.length;
+
   while (start > headConsumed) {
     const piece = pieces[start - 1];
+
     if (used + piece.length + 1 <= budget) {
       lines.unshift(piece);
       used += piece.length + 1;
       start -= 1;
       continue;
     }
+
     if (lines.length === 0) lines.push(tailCut(piece, budget));
     break;
   }
+
   return { lines, start };
 }
 
@@ -275,6 +300,7 @@ function tailCut(piece: string, budget: number): string {
   // A pair straddling the start moves the cut one unit forward, so the kept
   // text opens on a whole code point rather than a lone low surrogate.
   const safe = codePointSafeCutIndex(piece, start);
+
   return piece.slice(safe === start ? start : start + 1);
 }
 
@@ -285,9 +311,11 @@ function previewText(
 ): string {
   const { preview } = stream;
   const lines = [...preview.head];
+
   if (preview.omitted !== undefined)
     lines.push(omittedLine(preview.omitted, written, stream.name));
   lines.push(...preview.tail);
+
   return lines.join('\n');
 }
 
@@ -325,9 +353,11 @@ function storedNotice(
     locator: formatArtifactLocator('bash', written.seq, stream.name),
     lines: artifactLineCount(stream.text),
   }));
+
   const notice = artifactNotice(parts, {
     hostFiles: bashHostFiles(context, written, elsewhere),
   });
+
   return notice.slice(1, -1);
 }
 
@@ -344,7 +374,9 @@ function bashHostFiles(
   elsewhere: boolean,
 ): ArtifactNoticeHostFiles | undefined {
   const directory = written.hostDirectory;
+
   if (directory === undefined) return undefined;
+
   return {
     directory,
     elsewhere,
@@ -363,8 +395,11 @@ async function writeStreamParts(
   complete: boolean,
 ): Promise<WrittenArtifact | undefined> {
   const { runId, toolCallId, userId, chatId } = context;
+
   if (runId === undefined || toolCallId === undefined) return undefined;
+
   if (!canReadArtifacts(context, 'bash')) return undefined;
+
   return writeWhileLive(context, async () => {
     const written = await writeToolArtifact(
       context.tenantDb,
@@ -391,6 +426,7 @@ async function writeStreamParts(
         timeoutSignal: context.timeoutSignal,
       },
     );
+
     // The probe before the write cannot know the counter value, so the
     // allocated locator is judged again: a denied one is never advertised, and
     // its row stays an orphan the store has no delete for (D4). A host route
@@ -417,8 +453,10 @@ async function writeWhileLive(
   if (context.abortSignal?.aborted || context.timeoutSignal?.aborted)
     return undefined;
   const signal = context.abortSignal;
+
   if (signal === undefined) return await write().catch(() => undefined);
   const aborted = once(signal, 'abort').then((): undefined => undefined);
+
   return await Promise.race([write().catch(() => undefined), aborted]);
 }
 
@@ -429,6 +467,7 @@ async function writeWhileLive(
 function streamContentType(text: string): string {
   try {
     JSON.parse(text);
+
     return 'application/json';
   } catch {
     return 'text/plain';

@@ -10,6 +10,7 @@ import { type GitFailure } from '@workspace/machine-protocol';
 /** The message one typed git failure reports. */
 export function gitFailureMessage(failure: GitFailure): string {
   if (!('stderr' in failure)) return failure.message;
+
   return failure.stderr === ''
     ? 'The worktree command failed.'
     : failure.stderr;

@@ -34,6 +34,7 @@ let answerRegister: (response: Response) => void;
 /** The "METHOD /path" a fetch call targets. */
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
+
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
@@ -46,6 +47,7 @@ function sentRoutes() {
 // `nextjs.router.push` parameter, so this spy both records the destination and
 // opens it in place of the form, the way the App Router would.
 let navigate: ((href: string) => void) | undefined;
+
 const routerPush = fn((href: string) => navigate?.(href)).mockName(
   "router.push",
 );
@@ -54,6 +56,7 @@ const routerPush = fn((href: string) => navigate?.(href)).mockName(
  *  way the app shell does, through the real useMe(). */
 function Destination({ href }: { href: string }) {
   const { data: user } = useMe();
+
   return (
     <div>
       <p>Opened {href}</p>
@@ -67,10 +70,12 @@ function RegisterThenDestination() {
   const [href, setHref] = useState<string>();
   useEffect(() => {
     navigate = setHref;
+
     return () => {
       navigate = undefined;
     };
   }, []);
+
   return href === undefined ? <RegisterForm /> : <Destination href={href} />;
 }
 
@@ -83,14 +88,17 @@ const meta = {
     fetchMock = stubFetch();
     fetchMock.mockImplementation((input) => {
       const key = routeOf(input);
+
       if (key === REGISTER_ROUTE) {
         return new Promise<Response>((resolve) => {
           answerRegister = resolve;
         });
       }
+
       if (key === ME_ROUTE) return new Promise<Response>(() => {});
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -99,6 +107,7 @@ const meta = {
 } satisfies Meta<typeof RegisterForm>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** Fills the form, confirming `confirmPassword`, and presses Create account. */

@@ -27,6 +27,7 @@ export function isConfiguredExecutor(
 ): boolean {
   if (executorId === config.tools.nativeExecutorId) return true;
   const name = parseMachineExecutorId(executorId);
+
   return (
     name !== undefined &&
     config.machines !== undefined &&
@@ -48,6 +49,7 @@ export function executorOnline(
 ): boolean {
   if (executorId === input.config.tools.nativeExecutorId) return true;
   const name = parseMachineExecutorId(executorId);
+
   return (
     name !== undefined &&
     input.machines.some(
@@ -66,11 +68,15 @@ export function executorTarget(
   address: string,
 ): ExecutorTarget | undefined {
   const name = parseMachineExecutorId(executorId);
+
   if (name === undefined) {
     return { executorId, machine: undefined, path: address };
   }
+
   const parsed = parseMachineLocator(address);
+
   if (parsed.kind !== 'path' || parsed.name !== name) return undefined;
+
   return { executorId, machine: name, path: parsed.path };
 }
 
@@ -86,6 +92,7 @@ export function creationLocationSource(
   online: (executorId: string) => boolean,
 ): StartLocationSource {
   const links = new ProjectLinksRepository(tx);
+
   return {
     listLinks: (owner, projectId) => links.listLinks(owner, projectId),
     findRepository: (owner, repositoryId) =>
@@ -101,6 +108,7 @@ export function creationLocationSource(
         repositoryId,
         executorId,
       );
+
       return executorId === undefined
         ? rows.filter((row) => online(row.executorId))
         : rows;

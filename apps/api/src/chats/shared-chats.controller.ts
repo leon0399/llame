@@ -71,9 +71,11 @@ export class SharedChatsController {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
     });
+
     if (!shared) {
       throw new NotFoundException(`Shared chat ${id} not found`);
     }
+
     return toSharedChatResponse(shared.chat, shared.messages);
   }
 
@@ -104,9 +106,11 @@ export class SharedChatsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ChatResponse> {
     const forked = await this.chatsService.forkSharedChat(id, userId);
+
     if (!forked) {
       throw new NotFoundException(`Shared chat ${id} not found`);
     }
+
     return toChatResponse(forked);
   }
 }

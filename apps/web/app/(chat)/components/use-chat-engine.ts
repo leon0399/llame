@@ -36,6 +36,7 @@ import {
 } from "@/lib/services/models/queries";
 
 const EMPTY_AVAILABLE_MODELS: ReadonlyArray<AvailableModel> = [];
+
 import { parseTurnUsage } from "./message-usage";
 import {
   permissionModesQueryKey,
@@ -66,6 +67,7 @@ export function useChatModelSelection(
 
   useEffect(() => {
     if (!modelsQuery.data || modelsQuery.data.models.length === 0) return;
+
     if (!hasModelId(modelsQuery.data.models, selectedModel)) {
       setSelectedModel(modelsQuery.data.defaultModelId);
     }
@@ -73,17 +75,22 @@ export function useChatModelSelection(
 
   const modelSendUnavailableReason = (() => {
     if (modelsQuery.isPending) return null;
+
     if (modelsQuery.isError) {
       return "Models could not be loaded; chat sending is unavailable.";
     }
+
     if (availableModels.length === 0) {
       return "No chat models are configured; chat sending is unavailable.";
     }
+
     if (!selectedModelAvailable) {
       return "Select an available model to send.";
     }
+
     return null;
   })();
+
   const modelReadyForSend = modelsQuery.isSuccess && selectedModelAvailable;
 
   return { availableModels, modelSendUnavailableReason, modelReadyForSend };
@@ -99,18 +106,22 @@ type LastTurnSelections = {
   effort: string | undefined;
   permissionMode: "bypass" | undefined;
 };
+
 function lastTurnSelections(
   messages: ReadonlyArray<UIMessage>,
 ): LastTurnSelections | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const usage = parseTurnUsage(messages[index]?.metadata);
+
     if (!usage || usage.modelId === undefined) continue;
+
     return {
       modelId: usage.modelId,
       effort: usage.effort,
       permissionMode: usage.permissionMode,
     };
   }
+
   return null;
 }
 
@@ -132,14 +143,17 @@ export function resolveLastTurnModelEffort(
     turn !== null && hasModelId(data.models, turn.modelId)
       ? turn.modelId
       : data.defaultModelId;
+
   const effortLevels =
     data.models.find((model) => model.id === modelId)?.reasoning
       ?.effortLevels ?? [];
+
   const effort =
     turn?.effort !== undefined &&
     effortLevels.some((level) => level.value === turn.effort)
       ? turn.effort
       : undefined;
+
   return { modelId, effort };
 }
 
@@ -177,6 +191,7 @@ type UseChatLastTurnRestoreArgs = {
   mountedAfterTargetSend: boolean;
   targetSeq: number | null;
 };
+
 export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
   useChatModelEffortRestore(args);
   useChatPermissionModeRestore(args);
@@ -194,19 +209,24 @@ function useChatModelEffortRestore({
   const { setSelectedModel, setSelectedEffort } = useChatContext();
   const modelsQuery = useModelsQuery();
   const handledRef = useRef(false);
+
   const skipMount =
     !initialChatExists || targetSeq !== null || mountedAfterTargetSend;
 
   useEffect(() => {
     if (skipMount || handledRef.current) return;
+
     if (chatMessages.length === 0) return; // history still loading
     const data = modelsQuery.data;
+
     if (!data || data.models.length === 0) return;
     handledRef.current = true;
+
     const target = resolveLastTurnModelEffort(
       data,
       lastTurnSelections(chatMessages),
     );
+
     setSelectedModel(target.modelId);
     setSelectedEffort(target.effort);
   }, [
@@ -234,12 +254,15 @@ function useChatPermissionModeRestore({
   const { setPermissionMode } = useChatContext();
   const permissionModesQuery = usePermissionModesQuery();
   const appliedRef = useRef(false);
+
   const skipMount =
     !initialChatExists || targetSeq !== null || mountedAfterTargetSend;
 
   useEffect(() => {
     if (skipMount || appliedRef.current) return;
+
     if (chatMessages.length === 0) return;
+
     if (permissionModesQuery.isPending) return; // not settled yet
     appliedRef.current = true;
     setPermissionMode(
@@ -351,6 +374,7 @@ export function useChatRefresh(chatId: string, queryClient: QueryClient) {
     // too — design D5a: a change to a card field invalidates the pins query.
     void queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
   };
+
   const refreshChatBinding = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
     void queryClient.invalidateQueries({
@@ -371,6 +395,7 @@ export function useChatRefresh(chatId: string, queryClient: QueryClient) {
       }),
     [queryClient, chatId],
   );
+
   const refreshChatData = () => {
     refreshChatList();
     refreshChatMessages();
@@ -389,6 +414,7 @@ function isObjectValue(value: unknown): value is object {
 
 function toEnvelope(value: unknown): ApiErrorBody | undefined {
   if (!isObjectValue(value)) return undefined;
+
   // SAFETY: JSON.parse returns unknown; this cast is narrowed to an object,
   // and callers only read the optional code field.
   return value as ApiErrorBody;
@@ -405,6 +431,7 @@ function parseErrorEnvelope(text: string): ApiErrorBody | undefined {
 function isPermissionModeUnavailableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const body = parseErrorEnvelope(error.message);
+
   return body?.code === "permission_mode_not_available";
 }
 
@@ -446,22 +473,30 @@ function handleChatFinish(
     if (isInterruptedStream(status)) {
       args.onStreamInterrupted(streamingRunId(status.messages));
     }
+
     if (args.onTargetSendInterrupted()) {
       args.refreshChatData();
+
       return;
     }
+
     args.onSendFailed();
     args.refreshChatData();
+
     return;
   }
+
   // A delivery ends the segment, not the Run: it neither finished the turn nor
   // left the registry's tracked run behind, and the next segment attaches once
   // history holds the delivered message.
   const deliveredId = deliveredMessageId(status.message);
+
   if (deliveredId !== null) {
     args.onSegmentDelivered(deliveredId);
+
     return;
   }
+
   // The user watched this finish → drop it from the active-run registry so the
   // background poll can't fire a stale "reply ready" if they navigate away. A
   // target callback already consumed by an interruption is a late duplicate.
@@ -485,10 +520,13 @@ function handleChatError(
     void queryClient.invalidateQueries({ queryKey: permissionModesQueryKey });
     setPermissionMode(args.chatId, "default");
   }
+
   if (args.onTargetSendInterrupted()) {
     args.refreshChatData();
+
     return;
   }
+
   args.onSendFailed();
   args.refreshChatData();
 }
@@ -523,6 +561,7 @@ export function useChatEngine(args: UseChatEngineArgs) {
 
 function hasSuccessStatus(value: unknown): value is { status: "success" } {
   if (!(value instanceof Object) || !("status" in value)) return false;
+
   return value.status === "success";
 }
 
@@ -532,11 +571,13 @@ function successfulWorkspaceTransitionId(
   if (!isToolUIPart(part) || part.state !== "output-available") return null;
 
   const toolName = getToolName(part);
+
   if (toolName !== "enter_workspace" && toolName !== "exit_workspace") {
     return null;
   }
 
   if (!hasSuccessStatus(part.output)) return null;
+
   return part.toolCallId;
 }
 
@@ -552,8 +593,10 @@ function useWorkspacePreparationRefresh(
         refreshed.current = true;
         refreshChatBinding();
       }
+
       return;
     }
+
     if (status === "ready" || status === "error") {
       refreshed.current = false;
     }
@@ -572,9 +615,11 @@ function useWorkspaceTransitionRefresh(
     handledIdsRef.current = handledIds;
 
     let bindingChanged = false;
+
     for (const message of messages) {
       for (const part of message.parts) {
         const toolCallId = successfulWorkspaceTransitionId(part);
+
         if (toolCallId === null || handledIds.has(toolCallId)) continue;
         handledIds.add(toolCallId);
         bindingChanged =
@@ -612,6 +657,7 @@ export function useChatPresenceEffects({
   useEffect(() => {
     if (status !== "streaming" && status !== "submitted") return;
     const runId = streamingRunId(messages);
+
     if (!runId) return;
     trackRun(runId, chatId, notificationLabel(messages));
   }, [status, messages, chatId, trackRun]);

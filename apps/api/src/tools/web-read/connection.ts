@@ -76,6 +76,7 @@ type ConnectionDispatchContext = {
   readonly agent: Agent;
   readonly init?: WebRequestInit;
 };
+
 type AddressResolution =
   | { readonly kind: 'addresses'; readonly addresses: Array<ResolvedAddress> }
   | { readonly kind: 'resolution_failed' }
@@ -104,23 +105,32 @@ export function pinnedLookup(
     address,
     family,
   }));
+
   const error = Object.assign(new Error('The pinned host lookup failed.'), {
     code: 'ENOTFOUND',
   });
+
   return (hostname, options, callback) => {
     if (hostname !== requestHostname) {
       callback(error, '', 0);
+
       return;
     }
+
     if (options.all) {
       callback(null, addresses);
+
       return;
     }
+
     const first = admitted[0];
+
     if (first === undefined) {
       callback(error, '', 0);
+
       return;
     }
+
     callback(null, first.address, first.family);
   };
 }
@@ -134,6 +144,7 @@ export function createConnectionPlanner(
     resolutions: new Map(),
     agents: new Set(),
   };
+
   return {
     request: (url, options, deadline, init) =>
       requestConnection({ state, url, options, deadline, init }),
@@ -148,17 +159,22 @@ async function requestConnection(
   context: ConnectionRequestContext,
 ): Promise<ConnectionRequestOutcome> {
   const plan = await resolveAndAdmit(context);
+
   if (plan.kind === 'failure') return plan;
+
   if (plan.kind === 'refused') {
     return { kind: 'address_refused', locator: plan.locator };
   }
+
   const agent = new Agent({
     allowH2: false,
     connect: {
       lookup: pinnedLookup(plan.requestUrl.hostname, plan.addresses),
     },
   });
+
   context.state.agents.add(agent);
+
   return dispatchRequest({
     url: context.url,
     options: context.options,
@@ -178,31 +194,40 @@ async function resolveAndAdmit({
   if (options.signal?.aborted === true) {
     return { kind: 'failure', failure: abortFailure('aborted') };
   }
+
   deadline.requestStarted();
   const requestUrl = new URL(url);
+
   const resolution = await resolveRequestAddresses(
     requestUrl,
     deadline.signal,
     state.resolutions,
     state.deps.resolve,
   );
+
   if (resolution.kind !== 'addresses') {
     deadline.headersArrived();
+
     const failure =
       resolution.kind === 'aborted'
         ? abortFailure(deadline.reason())
         : HOST_RESOLUTION_FAILURE;
+
     return { kind: 'failure', failure };
   }
+
   const addresses = admittedAddressesFor(
     url,
     resolution.addresses,
     state.deps.admitAddress,
   );
+
   if (addresses.length === 0) {
     deadline.headersArrived();
+
     return { kind: 'refused', locator: url };
   }
+
   return { kind: 'admitted', requestUrl, addresses };
 }
 
@@ -216,6 +241,7 @@ async function dispatchRequest({
 }: ConnectionDispatchContext): Promise<ConnectionDispatchOutcome> {
   const authorization = init?.authorization?.value;
   const body = init?.body;
+
   try {
     const response = await fetch(url, {
       method: body === undefined ? 'GET' : 'POST',
@@ -231,14 +257,19 @@ async function dispatchRequest({
       signal: deadline.signal,
       dispatcher: agent,
     });
+
     deadline.headersArrived();
+
     if (deadline.signal.aborted) {
       void cancelResponseBody(response);
+
       return { kind: 'failure', failure: abortFailure(deadline.reason()) };
     }
+
     return { kind: 'response', response };
   } catch (error) {
     deadline.headersArrived();
+
     return { kind: 'failure', failure: transportFailure(error, deadline) };
   }
 }
@@ -249,12 +280,16 @@ function memoizedResolution(
   resolve: ResolveHost,
 ): Promise<Array<ResolvedAddress>> {
   const existing = resolutions.get(hostname);
+
   if (existing !== undefined) return existing;
+
   const pending = Promise.resolve()
     .then(() => resolve(hostname))
     .then((addresses) => Array.from(addresses));
+
   void pending.catch(() => undefined);
   resolutions.set(hostname, pending);
+
   return pending;
 }
 
@@ -263,14 +298,17 @@ function raceResolution<T>(
   signal: AbortSignal,
 ): Promise<ResolutionRace<T>> {
   if (signal.aborted) return Promise.resolve({ kind: 'aborted' });
+
   return new Promise<ResolutionRace<T>>((resolve) => {
     let settled = false;
+
     const finish = (result: ResolutionRace<T>): void => {
       if (settled) return;
       settled = true;
       signal.removeEventListener('abort', onAbort);
       resolve(result);
     };
+
     const onAbort = (): void => finish({ kind: 'aborted' });
     signal.addEventListener('abort', onAbort, { once: true });
     pending.then(
@@ -287,21 +325,28 @@ async function resolveRequestAddresses(
   resolve: ResolveHost,
 ): Promise<AddressResolution> {
   const literal = hostLiteralAddress(requestUrl);
+
   if (literal !== undefined) {
     const family = isIP(literal);
+
     if (family === 4 || family === 6) {
       return { kind: 'addresses', addresses: [{ address: literal, family }] };
     }
+
     return { kind: 'resolution_failed' };
   }
+
   const pending = memoizedResolution(requestUrl.hostname, resolutions, resolve);
   const result = await raceResolution(pending, signal);
+
   if (result.kind === 'aborted') return { kind: 'aborted' };
+
   // An empty answer resolved nothing; reporting it as refused would blame
   // policy for a host that has no address at all.
   if (result.kind === 'rejected' || result.value.length === 0) {
     return { kind: 'resolution_failed' };
   }
+
   return { kind: 'addresses', addresses: result.value };
 }
 
@@ -311,13 +356,17 @@ function admittedAddressesFor(
   admitAddress: AdmitAddress,
 ): Array<ResolvedAddress> {
   const admitted: Array<ResolvedAddress> = [];
+
   for (const address of addresses) {
     const canonical = canonicalAddress(address.address);
+
     const locator = canonicalHref(
       new URL(addressLocator(requestLocator, address.address)),
     );
+
     if (admitAddress(canonical.text, locator)) admitted.push(address);
   }
+
   return admitted;
 }
 

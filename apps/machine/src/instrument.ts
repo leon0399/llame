@@ -12,6 +12,7 @@ import { sentryOptions } from "./env";
 process.env["UV_THREADPOOL_SIZE"] ??= "16";
 
 const options = sentryOptions();
+
 if (options !== undefined) {
   Sentry.init({
     ...options,

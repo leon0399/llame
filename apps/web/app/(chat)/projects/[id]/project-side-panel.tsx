@@ -51,6 +51,7 @@ const SAMPLE_INSTRUCTIONS =
  */
 function InstructionsSection() {
   const [hasInstructions, setHasInstructions] = useState(false);
+
   return (
     <PanelSection
       title="Instructions"
@@ -88,6 +89,7 @@ function sampleFile(count: number): MediaThumbnailItem {
   const base = SAMPLE_FILES[count % SAMPLE_FILES.length] ?? "Notes.pdf";
   const round = Math.floor(count / SAMPLE_FILES.length);
   const name = round === 0 ? base : base.replace(".pdf", ` ${round + 1}.pdf`);
+
   return { key: `sample-${count}`, kind: "pdf", name };
 }
 
@@ -101,6 +103,7 @@ function sampleFile(count: number): MediaThumbnailItem {
 function ContextSection() {
   const [files, setFiles] = useState<Array<MediaThumbnailItem>>([]);
   const [added, setAdded] = useState(0);
+
   return (
     <PanelSection
       title="Context"

@@ -29,6 +29,7 @@ const meta = {
     api.refusal = null;
     api.registered = localClone;
     api.checkoutsFail = false;
+
     return routeFetch();
   },
   // The section lives in the project page's side panel column.
@@ -42,6 +43,7 @@ const meta = {
 } satisfies Meta<typeof ProjectRepositoriesSection>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

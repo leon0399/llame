@@ -54,14 +54,19 @@ export class PersonalizationController {
     // spreading `input` would write undefined over every absent key and wipe
     // the profile on a single-field PATCH.
     const update: PersonalizationUpdate = {};
+
     if (input.preferredName !== undefined) {
       update.preferredName = input.preferredName;
     }
+
     if (input.about !== undefined) update.about = input.about;
+
     if (input.responsePreferences !== undefined) {
       update.responsePreferences = input.responsePreferences;
     }
+
     if (input.enabled !== undefined) update.enabled = input.enabled;
+
     if (input.shareAccountIdentity !== undefined) {
       update.shareAccountIdentity = input.shareAccountIdentity;
     }

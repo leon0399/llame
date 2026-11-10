@@ -8,6 +8,7 @@ import type {
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
 export type AvailableModel = AvailableModelResponse;
+
 export type ModelsResponse = GeneratedModelsResponse;
 
 export const modelQueryKeys = {

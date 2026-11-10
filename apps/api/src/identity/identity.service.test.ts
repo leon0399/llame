@@ -26,6 +26,7 @@ const root: OrgUnit = {
   createdAt: now,
   updatedAt: now,
 };
+
 const child: OrgUnit = {
   ...root,
   id: '22222222-2222-4222-8222-222222222222',
@@ -34,6 +35,7 @@ const child: OrgUnit = {
   name: 'Child',
   path: `${root.path}/22222222-2222-4222-8222-222222222222`,
 };
+
 const membership: Membership = {
   id: '33333333-3333-4333-8333-333333333333',
   userId: memberId,
@@ -44,15 +46,18 @@ const membership: Membership = {
 
 function makeService() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   const runAs = vi
     .spyOn(tenantDb, 'runAs')
     .mockImplementation(
       async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
     );
+
   return { service: new IdentityService(tenantDb), runAs };
 }
 
@@ -70,12 +75,15 @@ describe('IdentityService organization operations', () => {
 
   it('creates a root, grants the creator ownership, and enriches the result', async () => {
     const { service, runAs } = makeService();
+
     const createRoot = vi
       .spyOn(OrgUnitsRepository.prototype, 'createRoot')
       .mockResolvedValue(root);
+
     const grant = vi
       .spyOn(MembershipsRepository.prototype, 'grant')
       .mockResolvedValue(undefined);
+
     vi.spyOn(MembershipsRepository.prototype, 'summarize').mockResolvedValue(
       summaryFor(root, 'owner'),
     );
@@ -110,9 +118,11 @@ describe('IdentityService organization operations', () => {
       OrgUnitsRepository.prototype,
       'findByIdInLockedTree',
     ).mockResolvedValue(root);
+
     const createChild = vi
       .spyOn(OrgUnitsRepository.prototype, 'createChild')
       .mockResolvedValue(child);
+
     vi.spyOn(MembershipsRepository.prototype, 'summarize').mockResolvedValue(
       new Map(),
     );
@@ -174,6 +184,7 @@ describe('IdentityService organization operations', () => {
     vi.spyOn(OrgUnitsRepository.prototype, 'findById')
       .mockResolvedValueOnce(child)
       .mockResolvedValueOnce(undefined);
+
     const findOnPath = vi
       .spyOn(MembershipsRepository.prototype, 'findByUserOnUnits')
       .mockResolvedValue([membership]);
@@ -191,9 +202,11 @@ describe('IdentityService organization operations', () => {
       root,
       child,
     ]);
+
     const summarize = vi
       .spyOn(MembershipsRepository.prototype, 'summarize')
       .mockResolvedValue(summaryFor(root, 'owner'));
+
     await expect(listed.listOrgUnits(ownerId)).resolves.toEqual([
       { ...root, memberCount: 1, directRole: 'owner' },
       { ...child, memberCount: 0, directRole: null },
@@ -220,19 +233,24 @@ describe('IdentityService organization operations', () => {
 
   it('updates a name, settings, and move-to-root in one owner-scoped operation', async () => {
     const { service } = makeService();
+
     const findById = vi
       .spyOn(OrgUnitsRepository.prototype, 'findById')
       .mockResolvedValueOnce(child)
       .mockResolvedValueOnce(child);
+
     const moveToRoot = vi
       .spyOn(OrgUnitsRepository.prototype, 'moveToRoot')
       .mockResolvedValue(child);
+
     const rename = vi
       .spyOn(OrgUnitsRepository.prototype, 'rename')
       .mockResolvedValue(child);
+
     const updateSettings = vi
       .spyOn(OrgUnitsRepository.prototype, 'updateSettings')
       .mockResolvedValue(child);
+
     vi.spyOn(MembershipsRepository.prototype, 'summarize').mockResolvedValue(
       summaryFor(child, 'admin'),
     );
@@ -258,9 +276,11 @@ describe('IdentityService organization operations', () => {
       .mockResolvedValueOnce(child)
       .mockResolvedValueOnce(root)
       .mockResolvedValueOnce(child);
+
     const move = vi
       .spyOn(OrgUnitsRepository.prototype, 'move')
       .mockResolvedValue(child);
+
     vi.spyOn(MembershipsRepository.prototype, 'summarize').mockResolvedValue(
       new Map(),
     );
@@ -353,6 +373,7 @@ describe('IdentityService organization operations', () => {
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(child)
       .mockResolvedValueOnce(child);
+
     const remove = vi
       .spyOn(OrgUnitsRepository.prototype, 'delete')
       .mockResolvedValueOnce(true)
@@ -380,10 +401,12 @@ describe('IdentityService organization operations', () => {
 
   it('lists a visible roster and maps missing units to 404', async () => {
     const { service } = makeService();
+
     const findById = vi
       .spyOn(OrgUnitsRepository.prototype, 'findById')
       .mockResolvedValueOnce(root)
       .mockResolvedValueOnce(undefined);
+
     const listByUnit = vi
       .spyOn(MembershipsRepository.prototype, 'listByUnit')
       .mockResolvedValue([membership]);
@@ -407,6 +430,7 @@ describe('IdentityService organization operations', () => {
       .mockResolvedValueOnce(membership)
       .mockResolvedValueOnce(membership)
       .mockResolvedValueOnce(membership);
+
     const changeRole = vi
       .spyOn(MembershipsRepository.prototype, 'changeRole')
       .mockResolvedValueOnce({ ...membership, role: 'admin' })
@@ -448,6 +472,7 @@ describe('IdentityService organization operations', () => {
       .mockRejectedValueOnce(
         Object.assign(new Error('last owner'), { code: 'OW001' }),
       );
+
     await expect(
       service.revokeMembership({
         callerId: ownerId,
@@ -476,6 +501,7 @@ describe('IdentityService organization operations', () => {
 
   it('grants memberships and maps duplicate, foreign-key, RLS, and passthrough errors', async () => {
     const { service } = makeService();
+
     const grant = vi
       .spyOn(MembershipsRepository.prototype, 'grant')
       .mockResolvedValueOnce(undefined)
@@ -487,6 +513,7 @@ describe('IdentityService organization operations', () => {
       )
       .mockRejectedValueOnce(Object.assign(new Error('rls'), { code: '42501' }))
       .mockRejectedValueOnce(new Error('other'));
+
     const input = {
       callerId: ownerId,
       userId: memberId,
@@ -574,9 +601,11 @@ describe('IdentityService failure messages', () => {
       OrgUnitsRepository.prototype,
       'findByIdInLockedTree',
     ).mockResolvedValue(root);
+
     const unmapped = Object.assign(new Error('disk on fire'), {
       code: '58030',
     });
+
     vi.spyOn(OrgUnitsRepository.prototype, 'createChild').mockRejectedValue(
       unmapped,
     );
@@ -605,6 +634,7 @@ describe('IdentityService failure messages', () => {
       parentId: root.id,
       name: 'Child',
     });
+
     await expect(refused).rejects.toBeInstanceOf(ForbiddenException);
     await expect(refused).rejects.toThrow(
       'Not permitted to create a child under this org unit',
@@ -719,10 +749,12 @@ describe('IdentityService failure messages', () => {
     const { service } = makeService();
     vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
     const rename = vi.spyOn(OrgUnitsRepository.prototype, 'rename');
+
     const updateSettings = vi.spyOn(
       OrgUnitsRepository.prototype,
       'updateSettings',
     );
+
     const moveToRoot = vi.spyOn(OrgUnitsRepository.prototype, 'moveToRoot');
     vi.spyOn(MembershipsRepository.prototype, 'summarize').mockResolvedValue(
       summaryFor(child, 'admin'),
@@ -807,9 +839,11 @@ describe('IdentityService failure messages', () => {
   it('rethrows an unmapped update failure unchanged', async () => {
     const { service } = makeService();
     vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+
     const unmapped = Object.assign(new Error('disk on fire'), {
       code: '58030',
     });
+
     vi.spyOn(OrgUnitsRepository.prototype, 'rename').mockRejectedValue(
       unmapped,
     );
@@ -842,6 +876,7 @@ describe('IdentityService failure messages', () => {
     const forbidden = new ForbiddenException('custom', {
       cause: Object.assign(new Error('tree changed'), { code: '23514' }),
     });
+
     vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockRejectedValue(
       forbidden,
     );
@@ -1093,6 +1128,7 @@ describe('IdentityService failure messages', () => {
 
   it('grants in the caller’s tenant scope and rethrows an unmapped failure', async () => {
     const { service, runAs } = makeService();
+
     const grant = vi
       .spyOn(MembershipsRepository.prototype, 'grant')
       .mockResolvedValue(undefined);

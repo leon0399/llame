@@ -182,19 +182,26 @@ function parseResolvedDestination(
   output: string,
 ): SshResolvedDestination | undefined {
   const values: Record<string, string> = {};
+
   for (const line of output.split('\n')) {
     const separator = line.indexOf(' ');
+
     if (separator <= 0) continue;
     values[line.slice(0, separator).toLowerCase()] = line
       .slice(separator + 1)
       .trim();
   }
+
   const { user, hostname, port: portText } = values;
+
   if (user === undefined || hostname === undefined) return undefined;
+
   if (portText === undefined || !/^[0-9]{1,5}$/u.test(portText))
     return undefined;
   const port = Number(portText);
+
   if (port < 1 || port > 65_535) return undefined;
+
   return { user, host: hostname.toLowerCase(), port };
 }
 
@@ -243,8 +250,10 @@ function collectStderr(
 ): StderrCollector {
   if (tailBytes <= 0) {
     const text = collectSshDiagnostic(stderr);
+
     return { snapshot: () => ({ text: text(), overflow: false }) };
   }
+
   const head: Array<Buffer> = [];
   let headBytes = 0;
   let tail = Buffer.alloc(0);
@@ -257,19 +266,24 @@ function collectStderr(
     // Both keep copies: a view, even an empty one, would pin the whole chunk
     // and let retained memory grow with the stderr volume.
     const taken = bytes.subarray(0, SSH_DIAGNOSTIC_BYTES - headBytes);
+
     if (taken.length > 0) head.push(Buffer.from(taken));
     headBytes += taken.length;
     const rest = bytes.subarray(taken.length);
+
     if (rest.length === 0) return;
     const kept = Buffer.concat([tail, rest]);
     dropped += Math.max(0, kept.length - tailBytes);
     tail = Buffer.from(kept.subarray(-tailBytes));
   });
   stderr.on('error', () => undefined);
+
   const snapshot = () => {
     cached ??= stderrSnapshot(head, tail, headBytes, dropped);
+
     return cached;
   };
+
   return { snapshot };
 }
 
@@ -288,22 +302,28 @@ function stderrSnapshot(
   dropped: number,
 ): StderrSnapshot {
   const joined = Buffer.concat([...head, tail]);
+
   if (dropped === 0) {
     return { text: joined.toString('utf8'), overflow: false };
   }
+
   const headText = new TextDecoder('utf-8', { ignoreBOM: true }).decode(
     joined.subarray(0, headBytes),
     { stream: true },
   );
+
   let tailStart = headBytes;
   const maxSkip = Math.min(3, joined.length - headBytes);
+
   while (
     tailStart - headBytes < maxSkip &&
     isContinuationByte(joined[tailStart])
   ) {
     tailStart += 1;
   }
+
   const tailText = joined.subarray(tailStart).toString('utf8');
+
   return { text: headText + tailText, overflow: true, gap: headText.length };
 }
 
@@ -319,8 +339,10 @@ function appendBounded(
 ) {
   const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
   const room = maxBytes - current.length;
+
   if (bytes.length <= room)
     return { stdout: Buffer.concat([current, bytes]), overflow: false };
+
   return {
     stdout:
       room > 0 ? Buffer.concat([current, bytes.subarray(0, room)]) : current,
@@ -370,6 +392,7 @@ function runBoundedSsh(
   const stderr = collectStderr(process.stderr, limits.stderrTailBytes ?? 0);
   const state = { stdout: Buffer.alloc(0), overflow: false };
   let settled = false;
+
   const finish = (end: SshRunOutcome) => {
     if (settled) return;
     settled = true;
@@ -378,12 +401,14 @@ function runBoundedSsh(
     process.kill();
     resolve(end);
   };
+
   const fail = (reason: 'client_missing' | 'timed_out' | 'cancelled') =>
     finish({
       outcome: 'failed',
       reason,
       diagnostic: stderr.snapshot().text,
     });
+
   const onAbort = () => fail('cancelled');
   const timer = setTimeout(() => fail('timed_out'), limits.deadlineMs);
 
@@ -394,9 +419,11 @@ function runBoundedSsh(
     finish,
     maxStdoutBytes: limits.maxStdoutBytes,
   });
+
   if (limits.signal?.aborted === true) onAbort();
   else limits.signal?.addEventListener('abort', onAbort, { once: true });
   process.stdin.end(limits.input ?? '');
+
   return promise;
 }
 
@@ -422,8 +449,10 @@ function runArgs(
   request: SshRunRequest,
 ): ReadonlyArray<string> {
   const args = ['-F', configPath, '-T'];
+
   if (request.resolved === undefined) {
     if (request.user !== undefined) args.push('-l', request.user);
+
     if (request.port !== undefined) args.push('-p', String(request.port));
   } else {
     args.push(
@@ -435,7 +464,9 @@ function runArgs(
       `User=${request.resolved.user}`,
     );
   }
+
   args.push('--', request.destination, ...request.remoteCommand);
+
   return args;
 }
 
@@ -449,16 +480,19 @@ function resolvedFromEnd(end: SshRunOutcome): SshResolution {
           diagnostic: end.diagnostic,
         };
   }
+
   if (end.stdoutOverflow)
     return {
       outcome: 'failed',
       reason: 'config',
       diagnostic: 'ssh -G wrote more than its output bound.',
     };
+
   const destination =
     end.code === 0
       ? parseResolvedDestination(end.stdout.toString('utf8'))
       : undefined;
+
   return destination === undefined
     ? { outcome: 'failed', reason: 'config', diagnostic: end.diagnostic }
     : { outcome: 'resolved', destination };
@@ -497,6 +531,7 @@ async function resolveDestination(
     };
   }
 }
+
 export function createSshClient(options: SshClientOptions): SshClient {
   const spawn = options.spawn ?? spawnOneShotSshProcess;
   let configFile = options.configFile;
@@ -514,6 +549,7 @@ export function createSshClient(options: SshClientOptions): SshClient {
       identityAgent: options.ssh.identityAgent,
       includeFile: options.ssh.configFile ?? defaultSshConfigFile(),
     });
+
     return configFile.path;
   }
 

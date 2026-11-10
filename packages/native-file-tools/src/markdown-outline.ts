@@ -32,15 +32,19 @@ type FrontmatterState = {
 function stripAndCutLine(text: string): string {
   const terminator = /\r?\n$/u.exec(text)?.[0] ?? "";
   const body = text.slice(0, text.length - terminator.length);
+
   if (body.length <= MAX_OUTLINE_LINE_UNITS) return text;
   let end = MAX_OUTLINE_LINE_UNITS;
   const code = body.charCodeAt(end - 1);
+
   if (code >= 0xd8_00 && code <= 0xdb_ff) end -= 1;
+
   return body.slice(0, end) + "…" + terminator;
 }
 
 function isFrontmatterKey(text: string): boolean {
   const first = text[0];
+
   return (
     first !== undefined && !/\s/u.test(first) && first !== "#" && first !== "-"
   );
@@ -92,6 +96,7 @@ class MarkdownOutlineReader {
       shownRange: null,
       truncated: false,
     };
+
     if (target.realPath !== undefined) this.result.realPath = target.realPath;
   }
 
@@ -102,20 +107,27 @@ class MarkdownOutlineReader {
       onLine: (line) => {
         this.tables.accept(line);
         const excerpt = this.tables.tableExcerpt();
+
         if (excerpt !== this.table) {
           if (!this.writeTableExcerpt()) return false;
           this.table = excerpt;
+
           if (excerpt !== undefined) this.adoptSectionExcerpt(excerpt);
         }
+
         this.syncSectionExcerpt();
         this.tracker.accept(line);
+
         return this.handleLine(line);
       },
     });
+
     for await (const line of lines) {
       if (!scanner.push(line)) break;
     }
+
     if (!this.stopped) scanner.end();
+
     return this.finish();
   }
 
@@ -127,16 +139,21 @@ class MarkdownOutlineReader {
     ) {
       return { startLine: 1, endLine: Number.MAX_SAFE_INTEGER };
     }
+
     return this.result.requestedRange;
   }
 
   private handleLine(line: MarkdownLine): boolean {
     this.sourceLineCount = line.line;
+
     if (line.role === "frontmatter") return this.handleFrontmatter(line);
+
     if (this.endLine !== undefined && line.line > this.endLine) {
       this.stopped = true;
+
       return false;
     }
+
     if (
       !this.startScope(
         line.line,
@@ -146,34 +163,49 @@ class MarkdownOutlineReader {
       )
     )
       return false;
+
     if (line.role === "heading") return this.handleHeading(line);
+
     if (line.role === "content") return this.handleContent(line);
+
     return true;
   }
 
   private handleFrontmatter(line: MarkdownLine): boolean {
     const entry = { line: line.line, text: line.text };
+
     if (line.line === 1) {
       this.frontmatter = { keyCount: 0, omittedInScope: false };
+
       return this.emitSource(entry);
     }
+
     const state = this.frontmatter;
+
     if (state === undefined) return true;
+
     if (isDelimiter(line.text, true)) {
       this.frontmatter = undefined;
+
       if (state.keyCount > 32 && state.omittedInScope) {
         if (!this.startScope(state.omittedLine ?? line.line)) return false;
         const marker = `[… ${state.keyCount - 32} more frontmatter lines]\n`;
+
         if (!this.append(marker, line.line, false)) return false;
       }
+
       return this.emitSource(entry);
     }
+
     if (!isFrontmatterKey(line.text)) return true;
     state.keyCount += 1;
+
     if (state.keyCount <= 32) return this.emitSource(entry);
+
     if (!this.isInScope(line.line)) return true;
     state.omittedInScope = true;
     state.omittedLine ??= line.line;
+
     return this.startScope(line.line);
   }
 
@@ -181,29 +213,37 @@ class MarkdownOutlineReader {
     if (!this.scoped || this.scopeStarted || line < this.startLine) return true;
     this.scopeStarted = true;
     const ancestors = this.ancestorEntries();
+
     if (!this.fitsAncestorChain(ancestors, firstEntry)) return true;
+
     for (const entry of ancestors) {
       if (!this.appendSource(entry)) return false;
     }
+
     return true;
   }
 
   private ancestorEntries(): Array<NativeEntry> {
     const entries: Array<NativeEntry> = [];
     const taken = new Set<number>();
+
     const add = (entry: NativeEntry) => {
       if (entry.line >= this.startLine || taken.has(entry.line)) return;
       taken.add(entry.line);
       entries.push(entry);
     };
+
     for (const unit of this.tracker.current()) {
       for (const line of unit.lines) {
         if (line.line >= this.startLine) break;
         add({ line: line.line, text: line.text });
       }
+
       for (const excerpt of this.excerpts.get(unit.heading) ?? []) add(excerpt);
     }
+
     for (const entry of this.tableChainEntries()) add(entry);
+
     return entries;
   }
 
@@ -211,12 +251,16 @@ class MarkdownOutlineReader {
    *  always, and its first content row when that row precedes the scope. */
   private tableChainEntries(): Array<NativeEntry> {
     const table = this.tables.tableExcerpt();
+
     if (table === undefined || table.header.line >= this.startLine) return [];
+
     if ((table.last?.line ?? table.delimiter.line) < this.startLine) return [];
     const entries: Array<NativeEntry> = [];
+
     for (const line of [table.header, table.first])
       if (line !== undefined)
         entries.push({ line: line.line, text: line.text });
+
     return entries;
   }
 
@@ -225,8 +269,10 @@ class MarkdownOutlineReader {
    *  emitted is not written again. */
   private adoptSectionExcerpt(table: RootTableExcerpt): void {
     const current = this.tracker.current().at(-1);
+
     if (current === undefined) return;
     const excerpt = this.excerpts.get(current.heading);
+
     if (
       excerpt === undefined ||
       excerpt.length !== 1 ||
@@ -243,8 +289,10 @@ class MarkdownOutlineReader {
   private syncSectionExcerpt(): void {
     const owner = this.tableOwner;
     const table = this.table;
+
     if (owner === undefined || table === undefined) return;
     owner.length = 0;
+
     for (const line of [table.header, table.first, table.last])
       if (line !== undefined) owner.push({ line: line.line, text: line.text });
   }
@@ -254,14 +302,19 @@ class MarkdownOutlineReader {
     const table = this.table;
     this.table = undefined;
     this.tableOwner = undefined;
+
     if (table === undefined) return true;
+
     for (const line of [table.header, table.first, table.last]) {
       if (line === undefined || this.emittedExcerpts.has(line.line)) continue;
       const entry = { line: line.line, text: line.text };
+
       if (!this.isInScope(entry.line)) continue;
       this.emittedExcerpts.add(entry.line);
+
       if (!this.appendSource(entry)) return false;
     }
+
     return true;
   }
 
@@ -272,23 +325,28 @@ class MarkdownOutlineReader {
     if (entries.length + 1 + this.emittedLines > MAX_READ_LINES) return false;
     const first = entries[0] ?? firstEntry;
     const last = firstEntry ?? entries.at(-1);
+
     if (first === undefined || last === undefined) return true;
     let content = this.result.content;
+
     for (const entry of entries) {
       content += renderSourceLine(stripAndCutLine(entry.text), entry.line - 1);
     }
+
     if (firstEntry !== undefined) {
       content += renderSourceLine(
         stripAndCutLine(firstEntry.text),
         firstEntry.line - 1,
       );
     }
+
     const candidate: SingleReadSuccess = {
       ...this.result,
       content,
       requestedRange: this.requestedRangeForAppend(),
       shownRange: { startLine: first.line, endLine: last.line },
     };
+
     return (
       measureReadRendering(candidate, last.line - 1) <=
       resultBudget(this.target)
@@ -298,23 +356,30 @@ class MarkdownOutlineReader {
   private handleHeading(line: MarkdownLine): boolean {
     const heading = line.heading;
     const current = this.tracker.current().at(-1);
+
     if (heading === undefined || current?.heading !== heading) return true;
+
     return this.emitSource({ line: line.line, text: line.text });
   }
 
   private handleContent(line: MarkdownLine): boolean {
     const entry = { line: line.line, text: line.text };
     const current = this.tracker.current().at(-1);
+
     if (current === undefined) {
       if (this.rootExcerptSeen) return true;
       this.rootExcerptSeen = true;
+
       // A document can open with a table, which then takes this line as its
       // own header row: emit it once.
       if (this.isInScope(entry.line)) this.emittedExcerpts.add(entry.line);
+
       return this.emitSource(entry);
     }
+
     if (this.excerpts.has(current.heading)) return true;
     const table = this.table;
+
     if (table !== undefined && table.header.line === line.line) {
       // The section opens with this table, so the table's own position writes
       // the excerpt and the section records it for its ancestor rendering.
@@ -322,12 +387,17 @@ class MarkdownOutlineReader {
       this.excerpts.set(current.heading, owner);
       this.tableOwner = owner;
       this.syncSectionExcerpt();
+
       return this.startScope(entry.line, entry);
     }
+
     this.excerpts.set(current.heading, [entry]);
+
     if (!this.isInScope(entry.line)) return true;
+
     if (!this.startScope(entry.line, entry)) return false;
     this.emittedExcerpts.add(entry.line);
+
     return this.appendSource(entry);
   }
 
@@ -343,11 +413,15 @@ class MarkdownOutlineReader {
     if (!this.isInScope(entry.line)) {
       if (this.endLine !== undefined && entry.line > this.endLine) {
         this.stopped = true;
+
         return false;
       }
+
       return true;
     }
+
     if (!this.startScope(entry.line, entry)) return false;
+
     return this.appendSource(entry);
   }
 
@@ -365,27 +439,32 @@ class MarkdownOutlineReader {
     sourceLine: boolean,
   ): boolean {
     if (this.emittedLines >= MAX_READ_LINES) return this.truncate(coordinate);
+
     const shownRange = sourceLine
       ? {
           startLine: this.result.shownRange?.startLine ?? coordinate,
           endLine: coordinate,
         }
       : this.result.shownRange;
+
     const candidate: SingleReadSuccess = {
       ...this.result,
       content: this.result.content + text,
       requestedRange: this.requestedRangeForAppend(),
       shownRange,
     };
+
     if (
       measureReadRendering(candidate, coordinate) > resultBudget(this.target)
     ) {
       return this.truncate(coordinate);
     }
+
     this.result.content = candidate.content;
     this.result.requestedRange = candidate.requestedRange;
     this.result.shownRange = candidate.shownRange;
     this.emittedLines += 1;
+
     return true;
   }
 
@@ -393,11 +472,13 @@ class MarkdownOutlineReader {
     this.result.truncated = true;
     this.result.nextOffset = coordinate - 1;
     this.stopped = true;
+
     return false;
   }
 
   private finish(): SingleReadSuccess {
     this.writeTableExcerpt();
+
     if (
       this.scoped &&
       this.sourceLineCount < this.startLine &&
@@ -406,6 +487,7 @@ class MarkdownOutlineReader {
     ) {
       throw new NativeFileError("invalid_selector");
     }
+
     if (this.sourceLineCount === 0) {
       this.result.requestedRange = null;
     } else if (this.endLine !== undefined) {
@@ -424,6 +506,7 @@ class MarkdownOutlineReader {
         endLine: this.sourceLineCount,
       };
     }
+
     return this.result;
   }
 }
@@ -433,5 +516,6 @@ export async function outlineMarkdown(
   target: ReadTarget,
 ): Promise<SingleReadSuccess> {
   assertResolvedTarget(target);
+
   return new MarkdownOutlineReader(target).read(lines);
 }

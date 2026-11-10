@@ -14,13 +14,17 @@ import { expect, test, type APIResponse } from "../../support/fixtures";
 
 const MCP_SEARCH_PROMPT =
   "Please search for the current deterministic operator MCP fixture evidence.";
+
 const FIXTURE_ANSWER =
   "Current fixture evidence: deterministic operator MCP search succeeded.";
+
 const FIXTURE_SOURCE_URL = "https://fixture.invalid/operator-mcp/current";
 const mcpFixtureUrl = `http://localhost:${process.env.E2E_MCP_PORT ?? "4304"}`;
+
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
 const apiOrigin = new URL(apiUrl).origin;
 
 type McpFixtureStats = {
@@ -49,20 +53,26 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   });
 
   const chatId = new URL(page.url()).pathname.split("/").pop();
+
   if (!chatId) {
     throw new Error(`Could not extract chat id from URL: ${page.url()}`);
   }
 
   let releaseHistory: () => void = () => undefined;
+
   const historyRelease = new Promise<void>((resolve) => {
     releaseHistory = resolve;
   });
+
   let markHistoryReachedApi: () => void = () => undefined;
   let historyStatus: number | undefined;
+
   const historyReachedApi = new Promise<void>((resolve) => {
     markHistoryReachedApi = resolve;
   });
+
   let markHistoryCommitted: () => void = () => undefined;
+
   const historyCommitted = new Promise<void>((resolve) => {
     markHistoryCommitted = resolve;
   });
@@ -90,6 +100,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   await send.click();
 
   const log = page.getByRole("log");
+
   const settledToolActivities = log
     .getByRole("button")
     .filter({ hasText: "Completed" });
@@ -105,9 +116,11 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   });
   await historyReachedApi;
   expect(historyStatus, "owner history response status").toBe(200);
+
   const fixtureSource = log.getByRole("button", {
     name: "Fixture source opens in a new tab",
   });
+
   const linkSafetyModal = page.locator('[data-streamdown="link-safety-modal"]');
   await expect(fixtureSource).toBeVisible();
   await fixtureSource.click();
@@ -133,6 +146,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
     .poll(async () => {
       const response = await request.get(`${mcpFixtureUrl}/stats`);
       const stats = await readMcpStats(response);
+
       return stats.toolCalls;
     })
     .toBe(baselineStats.toolCalls + 1);

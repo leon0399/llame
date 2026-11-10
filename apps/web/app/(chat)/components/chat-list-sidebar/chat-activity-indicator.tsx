@@ -23,8 +23,11 @@ export function resolveChatActivityStatus(input: {
   // A chat that's actively generating a reply has no outcome to show yet —
   // processing takes precedence over an earlier run's unseen result.
   if (input.processing) return "processing";
+
   if (input.outcome === "failed") return "failed";
+
   if (input.outcome === "completed") return "unread";
+
   return null;
 }
 
@@ -39,6 +42,7 @@ const BADGE_BASE =
  *  refines it without changing its stable "Generating response" prefix. */
 export function processingLabel(phase: RunPhase | undefined): string {
   const base = "Generating response";
+
   switch (phase) {
     case "queued":
       return `${base}: queued`;
@@ -76,6 +80,7 @@ export function ChatActivityIndicator({
       />
     );
   }
+
   if (status === "failed") {
     return (
       <output
@@ -85,6 +90,7 @@ export function ChatActivityIndicator({
       />
     );
   }
+
   if (status === "unread") {
     // The design's blue (#3b82f6), as the semantic `info` token.
     return (
@@ -95,5 +101,6 @@ export function ChatActivityIndicator({
       />
     );
   }
+
   return null;
 }

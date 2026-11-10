@@ -27,12 +27,15 @@ export function placeListingSelector(
 ): { readonly window: ListingWindow } | { readonly refusal: ListingRefusal } {
   if (selector === undefined) return { window: { offset: 0 } };
   let target: ReadTarget;
+
   try {
     target = applySelectorSuffix(locator, selector);
   } catch {
     return { refusal: 'invalid' };
   }
+
   if (target.outline) return { refusal: 'outline' };
+
   if (
     target.raw ||
     target.ranges !== undefined ||
@@ -40,5 +43,6 @@ export function placeListingSelector(
   ) {
     return { refusal: 'range' };
   }
+
   return { window: resolveEndRelativeSelector(target, count) };
 }

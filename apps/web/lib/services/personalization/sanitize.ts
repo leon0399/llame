@@ -68,6 +68,7 @@ const RESERVED_INTENT = /^<\s*\/?\s*([A-Za-z][\w.:-]*)/u;
 
 const OPENER = /^<([A-Za-z][\w.:-]*)(?:[\s/][^<>]*)?>$/u;
 const CLOSER = /^<\/([A-Za-z][\w.:-]*)>$/u;
+
 /** Anything that starts like a closing tag, however malformed. */
 const CLOSER_INTENT = /^<\s*\//u;
 
@@ -84,6 +85,7 @@ function nextToken(value: string, lt: number) {
   const nextLt = value.indexOf("<", lt + 1);
   const complete = gt !== -1 && (nextLt === -1 || gt < nextLt);
   const end = complete ? gt + 1 : nextLt === -1 ? value.length : nextLt;
+
   return { token: value.slice(lt, end), end, complete };
 }
 
@@ -99,32 +101,40 @@ function emitToken(
   stack: Array<string>,
 ): string {
   const reserved = RESERVED_INTENT.exec(token);
+
   if (reserved !== null && RESERVED_TAG_NAMES.has(reserved[1].toLowerCase())) {
     return escapeAngles(token);
   }
 
   const closer = complete ? CLOSER.exec(token) : null;
+
   if (closer !== null) {
     const name = closer[1].toLowerCase();
     const opened = stack.lastIndexOf(name);
+
     if (opened !== -1 && !RESERVED_TAG_NAMES.has(name)) {
       stack.length = opened;
+
       return token;
     }
+
     return escapeAngles(token);
   }
 
   const opener = complete ? OPENER.exec(token) : null;
+
   if (opener !== null) {
     if (!token.endsWith("/>")) {
       stack.push(opener[1].toLowerCase());
     }
+
     return token;
   }
 
   if (CLOSER_INTENT.test(token)) {
     return escapeAngles(token);
   }
+
   // Prose or an unterminated opener fragment, neither of which can close
   // anything.
   return token;
@@ -137,10 +147,12 @@ export function sanitizeAuthoredText(value: string): string {
 
   while (index < value.length) {
     const lt = value.indexOf("<", index);
+
     if (lt === -1) {
       out.push(value.slice(index));
       break;
     }
+
     out.push(value.slice(index, lt));
 
     const { token, end, complete } = nextToken(value, lt);

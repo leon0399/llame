@@ -76,10 +76,12 @@ function resolveImport(
   target: string,
 ): ResolvedImport | undefined {
   if (!isLocalImportTarget(target)) return undefined;
+
   if (!group.knowledge) {
     const machine = isMachineLocator(importer)
       ? parseMachineLocator(importer)
       : undefined;
+
     if (machine?.kind === 'path') {
       // A file inside a Machine imports inside that Machine: the target is
       // addressed in the Machine's own key space, its `..` segments resolve
@@ -88,21 +90,30 @@ function resolveImport(
       const key = target.startsWith('/')
         ? posix.normalize(target)
         : posix.resolve(posix.dirname(machine.path), target);
+
       const path = formatMachineLocator(machine.name, key);
+
       return path === undefined ? undefined : { key, path };
     }
+
     if (machine !== undefined) return undefined;
+
     const key = target.startsWith('/')
       ? posix.normalize(target)
       : posix.resolve(posix.dirname(importer), target);
+
     return { key, path: key };
   }
+
   if (target.startsWith('/')) return undefined;
   const base = candidateDirectory(group, importer);
+
   if (base === undefined) return undefined;
   const key = posix.normalize(posix.join(base, target));
+
   if (key === '..' || key.startsWith('../')) return undefined;
   const relativePath = key === '.' ? '' : key;
+
   return {
     key: relativePath,
     path: group.scope.label(relativePath),
@@ -120,12 +131,17 @@ function candidateDirectory(
     const machine = isMachineLocator(path)
       ? parseMachineLocator(path)
       : undefined;
+
     if (machine?.kind === 'path') return parentKey(machine.path, '/');
+
     return parentKey(path, group.scope.root);
   }
+
   const prefix = `${KNOWLEDGE_LOCATOR_SCHEME}://`;
   const parsed = parseKnowledgeLocator(path.slice(prefix.length));
+
   if ('type' in parsed) return undefined;
+
   return parsed.relativePath === undefined
     ? group.scope.root
     : parentKey(parsed.relativePath, group.scope.root);
@@ -144,10 +160,14 @@ function disclosedForImport(
   canonicalPath: string,
 ): ReadonlySet<string> {
   const lexical = disclosedIn(state, path);
+
   if (canonicalPath === path) return lexical;
   const canonical = disclosedIn(state, canonicalPath);
+
   if (lexical.size === 0) return canonical;
+
   if (canonical.size === 0) return lexical;
+
   return new Set([...lexical, ...canonical]);
 }
 
@@ -156,6 +176,7 @@ function disclosedIn(
   path: string,
 ): ReadonlySet<string> {
   const directory = candidateDirectory(state.group, path);
+
   return directory === undefined
     ? EMPTY_DISCLOSED
     : (state.disclosed.get(directory) ?? EMPTY_DISCLOSED);
@@ -175,6 +196,7 @@ function createLoadedInstructionFile(
     omittedBytes: read.omittedBytes,
     knowledge,
   };
+
   return importedBy === undefined ? file : { ...file, importedBy };
 }
 
@@ -186,20 +208,28 @@ export async function collectInstructionCandidate(
   origin: { hop: number; importedBy?: string; canonicalPath?: string },
 ): Promise<void> {
   const { collector, group } = state;
+
   if (collector.keys.has(candidate.canonicalPath)) return;
+
   if (disclosed.has(candidate.canonicalPath)) return;
+
   if (collector.attempted.has(candidate.path)) return;
   collector.attempted.add(candidate.path);
+
   const read = await readInstructionFile(
     candidate,
     group.page,
     origin.canonicalPath,
   );
+
   if (read.kind === 'denied') {
     collector.denied.push(candidate.path);
+
     return;
   }
+
   if (read.kind === 'failed') return;
+
   if (read.content.length === 0) return;
   collector.keys.add(candidate.canonicalPath);
   collector.files.push(
@@ -210,10 +240,13 @@ export async function collectInstructionCandidate(
       origin.importedBy,
     ),
   );
+
   if (origin.importedBy !== undefined) {
     const directory = candidateDirectory(group, candidate.path);
+
     if (directory !== undefined) await loadDirectoryChain(state, directory);
   }
+
   await expandImports(state, candidate.path, read.content, origin.hop);
 }
 
@@ -224,31 +257,41 @@ async function loadResolvedImport(
   hop: number,
 ): Promise<void> {
   const { collector, group } = state;
+
   if (collector.attempted.has(resolved.path)) return;
   const readPath = `${resolved.path}${IMPORT_PAGE}`;
+
   if (!group.admitsRead(readPath)) {
     collector.attempted.add(resolved.path);
     await group.page(readPath);
     collector.denied.push(resolved.path);
+
     return;
   }
+
   const probe = await group.scope.probe(resolved.key);
+
   if (probe.kind !== 'file') {
     collector.attempted.add(resolved.path);
+
     return;
   }
+
   const canonicalPath =
     probe.canonicalPath !== resolved.path ? probe.canonicalPath : undefined;
+
   const candidate: InstructionCandidate = {
     path: resolved.path,
     canonicalPath: probe.canonicalPath,
     size: probe.size,
   };
+
   const disclosed = disclosedForImport(
     state,
     resolved.path,
     probe.canonicalPath,
   );
+
   await collectInstructionCandidate(state, candidate, disclosed, {
     hop: hop + 1,
     importedBy: importer,
@@ -264,9 +307,11 @@ async function expandImports(
   hop: number,
 ): Promise<void> {
   if (hop >= MAX_IMPORT_HOPS) return;
+
   for (const target of importTargets(content)) {
     state.abortSignal?.throwIfAborted();
     const resolved = resolveImport(state.group, importer, target);
+
     if (resolved !== undefined) {
       await loadResolvedImport(state, importer, resolved, hop);
     }
@@ -283,10 +328,12 @@ async function loadDirectoryChain(
   directory: string,
 ): Promise<void> {
   const { group } = state;
+
   for (const chainDirectory of walkFrom(group.scope.root, directory)) {
     state.abortSignal?.throwIfAborted();
     const disclosed = state.disclosed.get(chainDirectory) ?? EMPTY_DISCLOSED;
     const candidates = await selectCandidates(group.scope, chainDirectory);
+
     for (const candidate of candidates) {
       state.abortSignal?.throwIfAborted();
       await collectInstructionCandidate(state, candidate, disclosed, {

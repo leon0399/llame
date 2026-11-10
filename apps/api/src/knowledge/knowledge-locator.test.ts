@@ -189,6 +189,7 @@ describe('knowledge locator parsing', () => {
   ])('reports %s as an invalid selector', (rest, spelling) => {
     const parsed = parseKnowledgeLocator(rest);
     expect(parsed).toMatchObject({ type: 'invalid_selector' });
+
     if (spelling !== undefined) {
       expect(parsed).toHaveProperty(
         'message',
@@ -263,6 +264,7 @@ describe('knowledge locator resolution', () => {
         throw new Error('not reached');
       },
     };
+
     return {
       configuredCredentials: [],
       userId: 'owner',
@@ -304,11 +306,14 @@ describe('knowledge locator resolution', () => {
   ): ToolContext {
     const isInsideSpace =
       options.isInsideSpace ?? (() => Promise.resolve(true));
+
     const bindingCalls = options.bindingCalls ?? [];
+
     const resolver: KnowledgeToolResolver = {
       listForOwnerPage: () => Promise.resolve({ spaces: [] }),
       resolveBindingForOwnerById: (ownerUserId, knowledgeSpaceId) => {
         bindingCalls.push([ownerUserId, knowledgeSpaceId]);
+
         return Promise.resolve({
           id: SPACE,
           name: 'Personal',
@@ -328,10 +333,12 @@ describe('knowledge locator resolution', () => {
             createDirectories: options?.createDirectories,
             signal: options?.signal,
           });
+
           return resolveHostPath(relativePath);
         },
       }),
     };
+
     return {
       configuredCredentials: [],
       userId: 'owner',
@@ -350,6 +357,7 @@ describe('knowledge locator resolution', () => {
     if ('status' in value) {
       throw new Error(`expected a resolved target, got ${value.status}`);
     }
+
     return value;
   }
 
@@ -360,14 +368,17 @@ describe('knowledge locator resolution', () => {
     // A real signal, not `undefined`: asserting against `undefined` would pass
     // just as happily if the resolver stopped forwarding it at all.
     const controller = new AbortController();
+
     const context = contextWithAdapter(() => Promise.resolve(hostPath), calls, {
       abortSignal: controller.signal,
     });
+
     const target = await resolveKnowledgeLocator(
       context,
       `kb://${SPACE}/note.md`,
       `${SPACE}/note.md`,
     );
+
     expect(target).toMatchObject({
       hostPath,
       locator: `kb://${SPACE}/note.md`,
@@ -410,12 +421,14 @@ describe('knowledge locator resolution', () => {
   // second walk that creates the directories resolution only tolerated.
   it('creates directories as a deferred effect', async () => {
     const calls: Array<ResolveCall> = [];
+
     const target = await resolveKnowledgeLocator(
       contextWithAdapter(() => Promise.resolve(hostPath), calls),
       `kb://${SPACE}/notes/note.md`,
       `${SPACE}/notes/note.md`,
       true,
     );
+
     await expect(
       expectTarget(target).createDirectories(),
     ).resolves.toBeUndefined();
@@ -428,9 +441,11 @@ describe('knowledge locator resolution', () => {
   it('reports a deferred creation failure in the native vocabulary', async () => {
     const calls: Array<ResolveCall> = [];
     let attempts = 0;
+
     const target = await resolveKnowledgeLocator(
       contextWithAdapter(() => {
         attempts += 1;
+
         return attempts === 1
           ? Promise.resolve(hostPath)
           : Promise.reject(
@@ -441,6 +456,7 @@ describe('knowledge locator resolution', () => {
       `${SPACE}/notes/note.md`,
       true,
     );
+
     await expect(
       expectTarget(target).createDirectories(),
     ).resolves.toStrictEqual({
@@ -462,6 +478,7 @@ describe('knowledge locator resolution', () => {
     ],
   ])('answers the late containment check for %s', async (inside, expected) => {
     const calls: Array<ResolveCall> = [];
+
     const target = await resolveKnowledgeLocator(
       contextWithAdapter(() => Promise.resolve(hostPath), calls, {
         isInsideSpace: () => Promise.resolve(inside),
@@ -469,6 +486,7 @@ describe('knowledge locator resolution', () => {
       `kb://${SPACE}/note.md`,
       `${SPACE}/note.md`,
     );
+
     await expect(
       expectTarget(target).assertInsideSpace(),
     ).resolves.toStrictEqual(expected);
@@ -534,11 +552,13 @@ describe('knowledge locator resolution', () => {
     // suffix is what failed: the forms are named first, then the spelling that
     // reads the same resource with the colon made literal.
     const calls: Array<ResolveCall> = [];
+
     const result = await resolveKnowledgeLocator(
       contextWithAdapter(() => Promise.resolve(hostPath), calls),
       `kb://${SPACE}/notes/a:b.md`,
       `${SPACE}/notes/a:b.md`,
     );
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'invalid_selector',

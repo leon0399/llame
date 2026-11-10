@@ -180,6 +180,7 @@ async function runPipeline(
   options: { readonly raw: boolean } = { raw: false },
 ): Promise<WebRender> {
   const result = await renderWebContent(page, options, harness.deps);
+
   if ('type' in result) {
     throw new Error(
       `the pipeline failed with ${result.type}: ${result.message}`,
@@ -213,6 +214,7 @@ describe('renderWebDocument', () => {
       response('text/markdown ; charset=utf-8', body),
       { raw: false },
     );
+
     const html = renderWebDocument(
       response('text/html ; charset=utf-8', ARTICLE_HTML),
       { raw: false },
@@ -273,6 +275,7 @@ describe('renderWebDocument', () => {
     const html = renderWebDocument(response('text/plain', PLAIN_SERVED_HTML), {
       raw: false,
     });
+
     expect(html.method).toBe('negotiated');
     expect(html.content).toBe(PLAIN_SERVED_HTML);
 
@@ -287,9 +290,11 @@ describe('renderWebDocument', () => {
       'what a real README has after its banner block and what the reader must',
       'return untouched rather than extract.',
     ].join('\n');
+
     const render = renderWebDocument(response('text/plain', readme), {
       raw: false,
     });
+
     expect(render.method).toBe('negotiated');
     expect(render.content).toBe(readme);
   });
@@ -316,9 +321,11 @@ describe('renderWebDocument', () => {
     // A page whose content already opens with its title is not given a
     // second one.
     const titled = page.replace('<div>', '<div><h1>Example Domain</h1>');
+
     const second = renderWebDocument(response('text/html', titled), {
       raw: false,
     });
+
     expect(second.content.split('Example Domain')).toHaveLength(2);
   });
 
@@ -495,6 +502,7 @@ describe('passesQualityGate', () => {
         ...Array.from({ length: longCount }, () => LONG_LINE),
         ...Array.from({ length: 400 }, () => SHORT_LINE),
       ].join('\n');
+
     expect(passesQualityGate(document(40))).toBe(true);
     expect(passesQualityGate(document(39))).toBe(false);
   });
@@ -525,6 +533,7 @@ describe('passesQualityGate', () => {
     // Eight lines padded to 40 characters but holding 39 of text are short, so
     // the text fails; measuring the padding instead would pass it.
     const padded = ` ${'a'.repeat(39)}`;
+
     const text = [
       ...Array.from({ length: 8 }, () => padded),
       ...Array.from({ length: 2 }, () => LONG_LINE),
@@ -576,6 +585,7 @@ describe('renderWebContent', () => {
 
   it('fetches a Markdown alternate announced by the Link header', async () => {
     const alternate = `${PAGE}.md`;
+
     const harness = makePipeline({
       [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
     });
@@ -619,6 +629,7 @@ describe('renderWebContent', () => {
 
   it('fetches a head alternate resolved against the page URL', async () => {
     const alternate = `${PAGE}.md`;
+
     const harness = makePipeline({
       [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
     });
@@ -639,6 +650,7 @@ describe('renderWebContent', () => {
     ['a wrapped fragment', FRAGMENT_WITH_ALTERNATE_HTML, '## Fragment render'],
   ])('ignores an alternate link in %s', async (_name, html, prose) => {
     const injected = 'https://docs.example.test/injected.md';
+
     // The injected locator answers with Markdown, so only the head scoping
     // keeps it from becoming the content: markup a contributor wrote must not
     // choose what the read returns.
@@ -658,9 +670,11 @@ describe('renderWebContent', () => {
 
   it('reads a relation and type spelled differently, and finds a later value', async () => {
     const alternate = `${PAGE}.md`;
+
     const harness = makePipeline({
       [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
     });
+
     // A non-alternate value first, an unquoted relation, and a parameterized
     // type in another case: the second value is the announcement.
     const header = [
@@ -679,6 +693,7 @@ describe('renderWebContent', () => {
 
   it('drops the fragment of an announced alternate before admission and request', async () => {
     const alternate = `${PAGE}.md`;
+
     const harness = makePipeline({
       [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
     });
@@ -703,6 +718,7 @@ describe('renderWebContent', () => {
 
   it('blocks a fragment-bearing announcement with a reject on the fragment-free URL', async () => {
     const target = 'https://blocked.example/doc';
+
     // The reject clause names the URL the request would use; the announcement
     // carries a fragment, which the request would drop.
     const harness = makePipeline(
@@ -757,6 +773,7 @@ describe('renderWebContent', () => {
 
   it('ignores an announced alternate that carries credentials', async () => {
     const announced = 'https://user:secret@evil.test/page.md';
+
     // The real client cannot construct this request and repeats the URL
     // verbatim in its `network_error`, so admitting the announcement would put
     // the credential into the result the model reads.
@@ -810,6 +827,7 @@ describe('renderWebContent', () => {
   it('reports where a probe landed when the probe itself followed a redirect', async () => {
     const alternate = `${PAGE}.md`;
     const landed = 'https://cdn.example.test/guides/adapter-pipelines.md';
+
     const harness = makePipeline({
       [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, landed),
     });
@@ -859,6 +877,7 @@ describe('renderWebContent', () => {
     // Long and line-wise nothing like a stub, so only the shape test keeps an
     // HTML error page from becoming the content.
     const errorPage = `<html><body><p>${'not found here '.repeat(20)}</p></body></html>`;
+
     const harness = makePipeline({
       [`${PAGE}.md`]: response('text/html', errorPage, `${PAGE}.md`),
     });
@@ -873,6 +892,7 @@ describe('renderWebContent', () => {
 
   it('disqualifies an alternate whose host never answers headers', async () => {
     const alternate = 'https://cdn.example.test/guides/adapter-pipelines.md';
+
     const harness = makePipeline({
       [alternate]: {
         type: 'headers_timeout',
@@ -897,6 +917,7 @@ describe('renderWebContent', () => {
   it('disqualifies an alternate whose redirect lands on a refused host', async () => {
     const alternate = 'https://cdn.example.test/guides/adapter-pipelines.md';
     const refused = 'https://evil.example.test/steal?token=secret';
+
     const harness = makePipeline({
       [alternate]: {
         type: 'permission_denied',
@@ -927,6 +948,7 @@ describe('renderWebContent', () => {
   it('disqualifies a probe that answered a redirect it cannot follow', async () => {
     const pageUrl = 'https://docs.example.test/a/b/c';
     const candidate = `${pageUrl}.md`;
+
     const harness = makePipeline({
       [candidate]: {
         type: 'invalid_redirect',
@@ -977,6 +999,7 @@ describe('renderWebContent', () => {
 
   it('probes the suffix of the path, without the page query or fragment', async () => {
     const candidate = 'https://docs.example.test/a/b.md';
+
     const harness = makePipeline({
       [candidate]: response('text/markdown', PUBLISHER_MARKDOWN, candidate),
     });
@@ -1026,6 +1049,7 @@ describe('renderWebContent', () => {
   it('walks llms.txt from the page scope to the root after a gated render', async () => {
     const pageUrl = 'https://docs.example.test/a/b/c';
     const root = 'https://docs.example.test/llms.txt';
+
     const harness = makePipeline({
       [root]: response('text/plain', LLMS_TXT, root),
     });
@@ -1050,10 +1074,12 @@ describe('renderWebContent', () => {
 
   it('leaves the raw fallback standing when an llms.txt candidate fails on its own', async () => {
     const pageUrl = 'https://docs.example.test/a/b/c';
+
     const failure: WebFetchFailure = {
       type: 'network_error',
       message: 'The transport failed.',
     };
+
     const harness = makePipeline({ [`${pageUrl}/llms.txt`]: failure });
 
     const render = await runPipeline(
@@ -1071,6 +1097,7 @@ describe('renderWebContent', () => {
   it('disqualifies an llms.txt candidate whose redirect lands on a refused host', async () => {
     const pageUrl = 'https://docs.example.test/a/b/c';
     const root = 'https://docs.example.test/llms.txt';
+
     const harness = makePipeline({
       [`${pageUrl}/llms.txt`]: {
         type: 'permission_denied',
@@ -1157,6 +1184,7 @@ describe('renderWebContent', () => {
       type: 'too_many_redirects',
       message: 'The read followed more than 20 redirects.',
     };
+
     const harness = makePipeline({ [`${PAGE}.md`]: failure });
 
     const result = await renderWebContent(

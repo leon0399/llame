@@ -96,13 +96,17 @@ async function executeGrep(
   context.abortSignal?.throwIfAborted();
   const root = context.workspaceRoot?.current();
   const submitted = grepScopeStrings(input, root);
+
   if (submitted === undefined) return scopesRequiredResult(context);
   const patterns = compileSubmittedPatterns(input);
+
   if ('status' in patterns) return patterns;
 
   const admission = createGrepReadAdmission(context);
+
   try {
     const resolved = await resolveScopes(context, submitted, admission);
+
     if ('result' in resolved) return resolved.result;
 
     return await scanPassages({
@@ -131,6 +135,7 @@ function grepWalkMs(context: ToolContext): number {
     context.timeoutMs ??
     (context.callTimeoutSeconds ?? BUILT_IN_DEFAULTS.tools.callTimeoutSeconds) *
       1000;
+
   return timeoutMs - Math.min(timeoutMs / 2, Math.max(5000, timeoutMs / 10));
 }
 
@@ -154,6 +159,7 @@ type GrepSegment = GrepScope | MachineGrepScope;
 async function scanPassages(request: ScanRequest): Promise<ToolResult> {
   const { patterns, resolved, deadlineAt } = request;
   const budget = grepBudget(request.context);
+
   const state = createPageState({
     maxBytes: artifactMaxBytes(request.context),
     // A `kb://` segment can give a Knowledge passage, whose notice line the
@@ -164,14 +170,17 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
         segment.locatorPrefix.startsWith('kb://'),
     ),
   });
+
   for (const segment of segmentsOf(resolved)) {
     if (!state.complete) break;
     const remaining = budgetAfter(budget, state.consumed, deadlineAt);
+
     // An expired deadline ends the walk before another scope is opened.
     if (remaining.deadlineMs <= 0) {
       endAtDeadline(state);
       break;
     }
+
     const failure = await runSegment({
       request,
       state,
@@ -180,8 +189,10 @@ async function scanPassages(request: ScanRequest): Promise<ToolResult> {
       budget: remaining,
       progressed: state.progressed,
     });
+
     if (failure !== undefined) return failure;
   }
+
   return finishGrepCall(
     state,
     request.context,
@@ -199,6 +210,7 @@ function endAtDeadline(state: PageState): void {
 /** End the walk where the artifact has no room for another passage. */
 function endAtArtifactBound(state: PageState): void {
   state.complete = false;
+
   if (!state.warnings.has('artifact_bound'))
     addWarning(state, 'artifact_bound');
 }
@@ -244,6 +256,7 @@ function keepPassages(
 ): boolean {
   if (addGrepPassages(run.state.artifact, passages)) return true;
   endAtArtifactBound(run.state);
+
   return false;
 }
 
@@ -261,12 +274,15 @@ async function runMachineSegment(
     admission: run.request.admission,
     keepPassages: (passages) => keepPassages(run, passages),
   });
+
   if (machine.status === 'error') return machine.result;
   const { page } = machine;
+
   const unfinished =
     page.unfinished === undefined
       ? undefined
       : namedUnfinished(scope, page.unfinished, run.request.admission);
+
   appendSegment(
     run.state,
     {
@@ -279,7 +295,9 @@ async function runMachineSegment(
     },
     run.request.admission,
   );
+
   if (page.complete !== true) run.state.complete = false;
+
   return undefined;
 }
 
@@ -322,24 +340,31 @@ async function runLocalSegment(
     progressed: run.progressed,
     budget: run.budget,
   };
+
   try {
     for (;;) {
       const scan = await runGrepScan(engineInput(run, scope, walk));
       appendSegment(run.state, localPage(scan), run.request.admission);
+
       // The artifact may reject the passage that overflowed its bound; the
       // walk then stops with the artifact bound, not a page stop.
       if (!keepPassages(run, scan.results)) return undefined;
       const next = nextPage(scan, walk, run.request.deadlineAt);
+
       if (next === undefined) {
         endSegment(run, scan);
+
         return undefined;
       }
+
       // A page that kept nothing and has the same budget left would repeat
       // itself forever: its own reserve left no room for the passage it met.
       if (scan.results.length === 0) {
         endAtArtifactBound(run.state);
+
         return undefined;
       }
+
       walk = next;
     }
   } catch (error) {
@@ -392,6 +417,7 @@ function engineInput(
  */
 function endSegment(run: SegmentRun, scan: GrepScanResult): void {
   if (scan.complete === true) return;
+
   if (stoppedAtBound(scan)) run.state.complete = false;
   else endAtArtifactBound(run.state);
 }
@@ -408,9 +434,12 @@ function nextPage(
   deadlineAt: number,
 ): PageWalk | undefined {
   if (scan.complete || scan.cursor === undefined) return undefined;
+
   if (stoppedAtBound(scan)) return undefined;
   const cursor = decodeGrepCursor(scan.cursor, INTERNAL_CURSOR_HASH);
+
   if ('error' in cursor) return undefined;
+
   return {
     cursor,
     progressed: walk.progressed || scan.progressed,
@@ -447,17 +476,20 @@ function compileSubmittedPatterns(
     (pattern) =>
       Buffer.byteLength(pattern, 'utf8') > GREP_LIMITS.maxPatternBytes,
   );
+
   if (oversized !== -1) {
     return invalidPatternResult(
       oversized,
       `pattern exceeds ${GREP_LIMITS.maxPatternBytes} UTF-8 bytes`,
     );
   }
+
   const compiled = compileGrepPatterns({
     patterns: input.patterns,
     literal: input.literal === true,
     ignoreCase: input.ignoreCase === true,
   });
+
   return compiled.ok
     ? compiled.compiled
     : invalidPatternResult(compiled.index, compiled.message);
@@ -470,6 +502,7 @@ function compileSubmittedPatterns(
  */
 function grepBudget(context: ToolContext): GrepBudget {
   const bounds = context.grepBounds ?? BUILT_IN_DEFAULTS.tools.grep;
+
   return {
     files: bounds.maxFilesExamined,
     entries: bounds.maxEntriesListed,
@@ -505,10 +538,15 @@ export function pageFixedReserve(): number {
  */
 function scopesRequiredResult(context: ToolContext): ToolResult {
   const kinds: Array<string> = [];
+
   if (context.nativeExecutorId !== undefined) kinds.push('host paths');
+
   if (context.machines !== undefined) kinds.push('machine:// locators');
+
   if (context.knowledgeResolver !== undefined) kinds.push('kb:// locators');
+
   if (context.skillCatalog !== undefined) kinds.push('skill:// locators');
+
   return invalidInputResult(
     kinds.length === 0
       ? 'grep requires scopes, and this process has no searchable backend.'
@@ -518,5 +556,6 @@ function scopesRequiredResult(context: ToolContext): ToolResult {
 
 function joinKinds(kinds: ReadonlyArray<string>): string {
   if (kinds.length === 1) return kinds[0];
+
   return `${kinds.slice(0, -1).join(', ')}, and ${kinds.at(-1)}`;
 }

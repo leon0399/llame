@@ -88,12 +88,15 @@ async function changeItem(
 ) {
   try {
     const next = await changeDeliveryMode(ctx.chatId, item.id, mode);
+
     if (next.state === "pending") {
       updateDeliveries(ctx.queryClient, ctx.chatId, (current) =>
         current.map((entry) => (entry.id === next.id ? next : entry)),
       );
+
       return;
     }
+
     // The Chat had no live Run: the change stored the message and started
     // one for it.
     dropItem(ctx, next.id);
@@ -108,9 +111,11 @@ async function withdrawItem(ctx: DeliveryContext, item: ChatDeliveryResponse) {
     const withdrawn = await withdrawDelivery(ctx.chatId, item.id);
     ctx.skip(item.id);
     dropItem(ctx, item.id);
+
     return withdrawn;
   } catch (error) {
     settleFailure(ctx, item, error);
+
     return null;
   }
 }
@@ -123,6 +128,7 @@ async function editItem(
   item: ChatDeliveryResponse,
 ) {
   const withdrawn = await withdrawItem(ctx, item);
+
   if (withdrawn === null) return;
   const text = deliveryText(withdrawn);
   // The owner may have typed during the round trip: their draft stays.
@@ -143,8 +149,10 @@ type Selections = {
 function composedMessage(draft: DraftState) {
   const text = draft.input.trim();
   const files = attachmentFileParts(draft.attachments.items);
+
   if (text === "" && files.length === 0) return null;
   const textParts = text === "" ? [] : [{ type: "text" as const, text }];
+
   return { text, id: safeRandomUUID(), parts: [...textParts, ...files] };
 }
 
@@ -157,10 +165,12 @@ async function sendComposed(
   mode: DeliveryMode,
 ) {
   const message = composedMessage(draft);
+
   if (message === null) return;
   const sent = draft.attachments.items;
   draft.setInput("");
   draft.attachments.clear();
+
   try {
     const result = await sendDelivery({
       chatId: ctx.chatId,
@@ -168,12 +178,16 @@ async function sendComposed(
       message,
       ...selections,
     });
+
     revokePreviews(sent);
+
     if (result.kind === "started") {
       // The Run ended first: the send stored the message and started a Run.
       ctx.begin(message.id);
+
       return;
     }
+
     // Whether the item still waits is the server's to say: a delivery can
     // have taken it before this response arrived.
     void ctx.queryClient.invalidateQueries({
@@ -199,9 +213,11 @@ function useDeliveredItems(
   const seenIds = useRef<ReadonlyArray<string>>([]);
   useEffect(() => {
     const present = new Set(items.map((item) => item.id));
+
     for (const id of seenIds.current) {
       if (!present.has(id)) begin(id);
     }
+
     seenIds.current = items.map((item) => item.id);
   }, [items, begin]);
 }
@@ -209,6 +225,7 @@ function useDeliveredItems(
 /** Whether the document holds an open popup, which Esc closes first. */
 function popupIsOpen() {
   const popup = '[role="menu"], [role="dialog"], [role="alertdialog"]';
+
   return document.querySelector(`${popup}, [role="listbox"]`) !== null;
 }
 
@@ -218,12 +235,16 @@ function useEscapeToStop(runActive: boolean, stop: () => void) {
   const stopRef = useLatestRef(stop);
   useEffect(() => {
     if (!runActive) return;
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+
       if (event.isComposing || popupIsOpen()) return;
       stopRef.current();
     };
+
     document.addEventListener("keydown", onKeyDown);
+
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [runActive, stopRef]);
 }
@@ -243,12 +264,15 @@ type StopInput = {
 function stopOrInterrupt(input: StopInput) {
   const { items, status, latestRun, messages } = input;
   const steer = firstPendingSteer(items);
+
   if (steer !== undefined) return input.interrupt(steer);
+
   // Between two segments no stream message names the Run: the Chat's newest
   // Run does.
   const betweenSegments =
     runIdToCancel(messages) === null &&
     (status === "ready" || status === "error");
+
   if (!betweenSegments || latestRun === null) return input.stop();
   cancelRun(latestRun.id).catch(() =>
     toast.error("Couldn't stop the response. Try again."),
@@ -284,6 +308,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
 
   const interrupt = (item: ChatDeliveryResponse) =>
     void changeItem(ctx, item, "interrupt");
+
   const handleStop = () => stopOrInterrupt({ ...args, items, interrupt });
   useEscapeToStop(runActive, handleStop);
 
@@ -292,7 +317,9 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
     effort: selectedEffort,
     permissionMode: getPermissionMode(chatId),
   };
+
   const canSend = exists && args.modelReadyForSend && !attachments.sendBlocked;
+
   return {
     items,
     runActive,

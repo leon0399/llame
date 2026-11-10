@@ -90,6 +90,7 @@ export function skillCatalogEnvelope(
         MAX_CATALOG_SEARCH_ENTRIES,
       ),
   );
+
   const projections = requested.map(toProjection);
 
   // The window is model-reachable and a source may hold thousands of entries,
@@ -99,6 +100,7 @@ export function skillCatalogEnvelope(
   const shown = largestFittingCount(entries.length, window.offset, projections);
 
   const nextOffset = window.offset + shown;
+
   const listing: CatalogListing = {
     status: 'success',
     locator: 'skill://',
@@ -106,6 +108,7 @@ export function skillCatalogEnvelope(
     skills: projections.slice(0, shown),
     skillPathInstruction: SKILL_PATH_INSTRUCTION,
   };
+
   // Absent rather than `undefined`, matching the native reader's own
   // `nextOffset` contract: present only when the listing continues.
   return nextOffset < entries.length ? { ...listing, nextOffset } : listing;
@@ -123,14 +126,17 @@ function largestFittingCount(
 ): number {
   let low = 0;
   let high = projections.length;
+
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
+
     if (fits(total, offset, projections, middle)) {
       low = middle;
     } else {
       high = middle - 1;
     }
   }
+
   return low;
 }
 
@@ -150,6 +156,7 @@ function fits(
     skillPathInstruction: SKILL_PATH_INSTRUCTION,
     ...(offset + shown < total && { nextOffset: offset + shown }),
   };
+
   return (
     measureJson(neutralizeReservedDelimitersDeep(listing)) <=
     RESULT_TRUNCATE_CHARS

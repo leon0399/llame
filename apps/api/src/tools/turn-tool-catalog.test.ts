@@ -68,6 +68,7 @@ describe('tool availability manifest versions', () => {
     const legacyHash = hashToolAvailabilityManifest(
       TOOL_AVAILABILITY_UNOBSERVED,
     );
+
     const observedEmptyHash = hashToolAvailabilityManifest({
       version: 1,
       entries: [],
@@ -98,6 +99,7 @@ describe('composeTurnToolCatalog', () => {
       callTimeoutSeconds: 15,
       candidates: [available(conversationReadTool)],
     });
+
     const exact = await composeTurnToolCatalog({
       allowedToolRules: ['conversation_read'],
       callTimeoutSeconds: 15,
@@ -376,12 +378,14 @@ describe('composeTurnToolCatalog', () => {
       { id: 'z_tool', state: 'available' },
     ]);
     const [aToolEntry, , zToolEntry] = catalog.manifest.entries;
+
     if (
       aToolEntry?.state !== 'available' ||
       zToolEntry?.state !== 'available'
     ) {
       throw new Error('Expected a_tool and z_tool available');
     }
+
     expect(aToolEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
     expect(zToolEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
@@ -398,6 +402,7 @@ describe('composeTurnToolCatalog', () => {
       callTimeoutSeconds: 15,
       candidates: [available(tool('search'))],
     });
+
     const changed = await composeTurnToolCatalog({
       allowedToolRules: ['search'],
       callTimeoutSeconds: 15,
@@ -440,9 +445,11 @@ describe('composeTurnToolCatalog', () => {
       { id: 'search', state: 'unavailable', reason: 'name_collision' },
     ]);
     const [, safeEntry] = catalog.manifest.entries;
+
     if (safeEntry?.state !== 'available') {
       throw new Error('Expected safe available');
     }
+
     expect(safeEntry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
       'safe',
@@ -589,6 +596,7 @@ describe('parseToolAvailabilityManifest failures', () => {
         'Invalid tool availability manifest: entry must contain a string id.',
       );
     }
+
     expect(() =>
       parseToolAvailabilityManifest({
         version: 1,
@@ -792,8 +800,10 @@ describe('composeTurnToolCatalog description rendering', () => {
       (input: { id: string; admittedToolIds: ReadonlyArray<string> }) => string
     >(({ id, admittedToolIds }) => {
       seenMemberships.push({ id, admittedToolIds });
+
       return `${id}:${admittedToolIds.join(',')}`;
     });
+
     const seenMemberships: Array<{
       id: string;
       admittedToolIds: ReadonlyArray<string>;

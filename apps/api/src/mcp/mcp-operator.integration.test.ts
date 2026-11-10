@@ -137,10 +137,12 @@ async function waitFor(
   timeoutMs = 5000,
 ): Promise<void> {
   const startedAt = Date.now();
+
   while (!(await predicate())) {
     if (Date.now() - startedAt > timeoutMs) {
       throw new Error('timed out waiting for MCP fixture state');
     }
+
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
@@ -157,7 +159,9 @@ async function startRuntimeGraph(
     .overrideProvider(InstanceConfigService)
     .useValue({ config })
     .compile();
+
   await moduleRef.init();
+
   return {
     moduleRef,
     runtime: moduleRef.get(McpRuntimeService, { strict: false }),
@@ -168,6 +172,7 @@ async function turnCatalog(
   runtime: McpRuntimeService,
 ): Promise<TurnToolCatalog> {
   const allowedToolRules = ['mcp__web__*'];
+
   return composeTurnToolCatalog({
     allowedToolRules,
     callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
@@ -201,6 +206,7 @@ function toolCallResponse(): FixtureStreamResponse {
       usage: usage(),
     },
   ];
+
   return {
     stream: simulateReadableStream({ chunks }),
   };
@@ -218,6 +224,7 @@ function textResponse(text: string): FixtureStreamResponse {
       usage: usage(),
     },
   ];
+
   return {
     stream: simulateReadableStream({ chunks }),
   };
@@ -244,14 +251,18 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
             const used = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
+
             if (input.maxSteps != null && used >= input.maxSteps) {
               input.onCapReached?.();
+
               return { activeTools: [] };
             }
+
             return {};
           },
           experimental_repairToolCall: ({ toolCall, error }) => {
             let parsedInput: unknown;
+
             try {
               // SAFETY: JSON.parse returns any; asserting unknown forces the
               // caller to narrow before use rather than silently inheriting any.
@@ -259,6 +270,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
             } catch {
               parsedInput = toolCall.input;
             }
+
             input.onUnavailableToolCall?.({
               toolCallId: toolCall.toolCallId,
               toolName: toolCall.toolName,
@@ -272,11 +284,13 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
                 input: typeof parsedInput === 'object' ? parsedInput : {},
               },
             });
+
             return Promise.resolve(null);
           },
         }),
         onChunk: ({ chunk }) => {
           if (chunk.type === 'text-delta') input.onTextDelta?.(chunk.text);
+
           if (chunk.type === 'reasoning-delta') {
             input.onReasoningDelta?.(chunk.text);
           }
@@ -310,6 +324,7 @@ function executionService(
           )
         : Promise.resolve(null),
   };
+
   return new RunExecutionService(
     tenantDb,
     noopCompaction,
@@ -349,11 +364,13 @@ describe('operator-configured MCP production acceptance', () => {
 
   beforeAll(async () => {
     const testDatabaseUrl = process.env['TEST_DATABASE_URL'];
+
     if (!testDatabaseUrl) {
       throw new Error(
         'Integration global setup did not provide TEST_DATABASE_URL.',
       );
     }
+
     const ssl = /sslmode=require/.test(testDatabaseUrl) ? 'require' : false;
     sql = postgres(testDatabaseUrl, { ssl, max: 2 });
     db = drizzle(sql, { schema });
@@ -377,6 +394,7 @@ describe('operator-configured MCP production acceptance', () => {
       'tools/list': [discoveredSearch()],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const random = vi.spyOn(Math, 'random').mockReturnValue(1);
     let moduleRef: TestingModule | undefined;
 
@@ -391,6 +409,7 @@ describe('operator-configured MCP production acceptance', () => {
           },
         },
       } as const;
+
       const graph = await startRuntimeGraph(config);
       moduleRef = graph.moduleRef;
 
@@ -400,11 +419,13 @@ describe('operator-configured MCP production acceptance', () => {
       );
 
       const requestsBeforeTurns = fixture.requestSummaries();
+
       for (let index = 0; index < 20; index += 1) {
         expect(graph.runtime.snapshotCandidates()).toEqual([
           expect.objectContaining({ state: 'available' }),
         ]);
       }
+
       expect(fixture.requestSummaries()).toEqual(requestsBeforeTurns);
     } finally {
       await moduleRef?.close();
@@ -425,6 +446,7 @@ describe('operator-configured MCP production acceptance', () => {
       'tools/list': [discoveredSearch()],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const random = vi.spyOn(Math, 'random').mockReturnValue(1);
     let moduleRef: TestingModule | undefined;
 
@@ -440,6 +462,7 @@ describe('operator-configured MCP production acceptance', () => {
           },
         },
       } as const;
+
       const graph = await startRuntimeGraph(config);
       moduleRef = graph.moduleRef;
 
@@ -474,8 +497,10 @@ describe('operator-configured MCP production acceptance', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     let moduleRef: TestingModule | undefined;
     const chatId = crypto.randomUUID();
+
     try {
       const graph = await startRuntimeGraph({
         ...BUILT_IN_DEFAULTS,
@@ -483,43 +508,54 @@ describe('operator-configured MCP production acceptance', () => {
           web: { type: 'streamable-http', url: fixture.url },
         },
       });
+
       moduleRef = graph.moduleRef;
       await waitFor(
         () => graph.runtime.resolveDynamicTool(TOOL_ID).state === 'available',
       );
+
       const seeded = await tenantDb.runAs(userId, async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId,
           ownerUserId: userId,
           title: 'MCP retry',
         });
+
         const userMessage = await new MessagesRepository(tx).create({
           chatId,
           role: 'user',
           senderUserId: userId,
           parts: [{ type: 'text', text: 'Run the MCP retry probe.' }],
         });
+
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: userMessage.id,
           userId,
           modelId: 'test:mcp-retry',
         });
+
         const started = await new RunsRepository(tx).markStarted(
           run.id,
           userId,
         );
+
         if (!started) throw new Error('MCP retry Run did not start.');
+
         const startedEvent = await new RunEventsRepository(tx).append(
           run.id,
           'run.started',
         );
+
         return { run, deliverySequence: startedEvent.sequence };
       });
+
       const resolution = graph.runtime.resolveDynamicTool(TOOL_ID);
+
       if (resolution.state !== 'available') {
         throw new Error('expected the dynamic tool to be available');
       }
+
       const context = {
         configuredCredentials: [],
         runId: seeded.run.id,
@@ -529,9 +565,11 @@ describe('operator-configured MCP production acceptance', () => {
         tenantDb,
         toolCallId: 'same-mcp-call',
       };
+
       const first = await resolution.executor.execute(context, {
         query: 'retry',
       });
+
       const second = await resolution.executor.execute(context, {
         query: 'retry',
       });
@@ -541,9 +579,11 @@ describe('operator-configured MCP production acceptance', () => {
         status: 'success',
         output: { structuredContent: { value: 'fixture retry result' } },
       });
+
       const events = await tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
       );
+
       expect(
         events.filter((event) => event.eventType === 'native.attempt'),
       ).toHaveLength(1);
@@ -615,13 +655,16 @@ describe('operator-configured MCP production acceptance', () => {
         { kind: 'raw', status: 204, body: '' },
       ],
     });
+
     const random = vi.spyOn(Math, 'random').mockReturnValue(1);
+
     const logSpies = [
       vi.spyOn(Logger.prototype, 'log'),
       vi.spyOn(Logger.prototype, 'warn'),
       vi.spyOn(Logger.prototype, 'error'),
       vi.spyOn(Logger.prototype, 'debug'),
     ];
+
     let apiModule: TestingModule | undefined;
     let workerModule: TestingModule | undefined;
     let chatId: string | undefined;
@@ -639,6 +682,7 @@ describe('operator-configured MCP production acceptance', () => {
           },
         },
       } as const;
+
       const api = await startRuntimeGraph(config);
       apiModule = api.moduleRef;
       await waitFor(
@@ -663,9 +707,11 @@ describe('operator-configured MCP production acceptance', () => {
         () => worker.runtime.resolveDynamicTool(TOOL_ID).state === 'available',
       );
       const workerExecutor = worker.runtime.resolveDynamicTool(TOOL_ID);
+
       if (workerExecutor.state !== 'available') {
         throw new Error('Worker runtime did not bind the fixture executor.');
       }
+
       const workerDisconnect = await workerExecutor.executor.execute(
         {
           configuredCredentials: [],
@@ -676,6 +722,7 @@ describe('operator-configured MCP production acceptance', () => {
         },
         { query: 'disconnect now' },
       );
+
       expect(workerDisconnect).toMatchObject({ status: 'error' });
       await waitFor(() =>
         worker.runtime
@@ -692,6 +739,7 @@ describe('operator-configured MCP production acceptance', () => {
         new Map(),
         worker.runtime,
       );
+
       expect(
         diverged[0]?.executor.execute(
           {
@@ -721,6 +769,7 @@ describe('operator-configured MCP production acceptance', () => {
         systemPromptSource: 'project_default',
         referencesSkills: false,
       };
+
       const receiptInput = await resolveEffectiveContext({
         model,
         systemPrompt: model.systemPromptTemplate,
@@ -729,6 +778,7 @@ describe('operator-configured MCP production acceptance', () => {
         candidates: [],
         dynamicCandidates: api.runtime.snapshotCandidates(),
       });
+
       expect(
         apiCatalog.admitted.map(({ declaration }) => declaration.id),
       ).toEqual([TOOL_ID]);
@@ -739,36 +789,43 @@ describe('operator-configured MCP production acceptance', () => {
       expect(receiptInput.promptHash).toMatch(/^[0-9a-f]{64}$/);
       expect(canonicalJson(receiptInput)).not.toContain('mcp__web__*');
       chatId = crypto.randomUUID();
+
       const userMessageParts: Array<TextPart> = [
         { type: 'text', text: 'Find the fixture evidence.' },
       ];
+
       const seeded = await tenantDb.runAs(userId, async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId!,
           ownerUserId: userId,
           title: 'MCP operator acceptance',
         });
+
         const userMessage = await new MessagesRepository(tx).create({
           chatId: chatId!,
           role: 'user',
           senderUserId: userId,
           parts: userMessageParts,
         });
+
         const run = await new RunsRepository(tx).create({
           chatId: chatId!,
           messageId: userMessage.id,
           userId,
           modelId: model.id,
         });
+
         return { run, userMessage };
       });
 
       const providerInputs: Array<unknown> = [];
       let step = 0;
+
       const firstModel = new MockLanguageModelV3({
         doStream: (input) => {
           providerInputs.push(input);
           step += 1;
+
           return Promise.resolve(
             step === 1
               ? toolCallResponse()
@@ -776,7 +833,9 @@ describe('operator-configured MCP production acceptance', () => {
           );
         },
       });
+
       const service = executionService(tenantDb, worker.runtime);
+
       const result = await service.executeRun({
         runId: seeded.run.id,
         chatId,
@@ -788,11 +847,13 @@ describe('operator-configured MCP production acceptance', () => {
         },
         client: createMockModelClient(firstModel),
       });
+
       await result.consumeStream?.();
 
       const laterUserMessageParts: Array<TextPart> = [
         { type: 'text', text: 'Replay that evidence.' },
       ];
+
       const later = await tenantDb.runAs(userId, async (tx) => {
         const userMessage = await new MessagesRepository(tx).create({
           chatId: chatId!,
@@ -800,21 +861,27 @@ describe('operator-configured MCP production acceptance', () => {
           senderUserId: userId,
           parts: laterUserMessageParts,
         });
+
         const run = await new RunsRepository(tx).create({
           chatId: chatId!,
           messageId: userMessage.id,
           userId,
           modelId: model.id,
         });
+
         return { run, userMessage };
       });
+
       const replayProviderInputs: Array<unknown> = [];
+
       const replayModel = new MockLanguageModelV3({
         doStream: (input) => {
           replayProviderInputs.push(input);
+
           return Promise.resolve(textResponse('Replayed.'));
         },
       });
+
       const replayResult = await service.executeRun({
         runId: later.run.id,
         chatId,
@@ -826,6 +893,7 @@ describe('operator-configured MCP production acceptance', () => {
         },
         client: createMockModelClient(replayModel),
       });
+
       await replayResult.consumeStream?.();
 
       const [events, messages, receipt] = await tenantDb.runAs(
@@ -839,6 +907,7 @@ describe('operator-configured MCP production acceptance', () => {
           ),
         ],
       );
+
       expect(
         events.find(({ eventType }) => eventType === 'tool.completed')?.payload,
       ).toMatchObject({
@@ -865,6 +934,7 @@ describe('operator-configured MCP production acceptance', () => {
         replayProviderInputs,
         logs: logSpies.flatMap((spy) => spy.mock.calls),
       });
+
       for (const sentinel of [
         HEADER_SENTINEL,
         API_SESSION_SENTINEL,
@@ -873,6 +943,7 @@ describe('operator-configured MCP production acceptance', () => {
       ]) {
         expect(durableAndModelSurfaces).not.toContain(sentinel);
       }
+
       expect(
         fixture.receivedHeaderMatching(
           ({ rpcMethod }) => rpcMethod === 'tools/call',
@@ -882,15 +953,19 @@ describe('operator-configured MCP production acceptance', () => {
       ).toBe(true);
 
       const beforeDisconnect = await turnCatalog(api.runtime);
+
       const apiBound = await resolveBoundExecutableTools(
         beforeDisconnect.admitted.map(({ declaration }) => declaration),
         new Map(),
         api.runtime,
       );
+
       const apiExecutor = apiBound[0];
+
       if (apiExecutor === undefined) {
         throw new Error('API runtime did not bind the fixture executor.');
       }
+
       const disconnectResult = await apiExecutor.executor.execute(
         {
           configuredCredentials: [],
@@ -901,19 +976,23 @@ describe('operator-configured MCP production acceptance', () => {
         },
         { query: 'disconnect now' },
       );
+
       expect(disconnectResult).toMatchObject({ status: 'error' });
 
       const disconnected = await turnCatalog(api.runtime);
+
       const unavailablePayload = deriveToolAvailabilityPayload({
         previous: beforeDisconnect.manifest,
         current: disconnected.manifest,
       });
+
       const unavailablePart =
         unavailablePayload &&
         createToolAvailabilityItem({
           runId: crypto.randomUUID(),
           payload: unavailablePayload,
         });
+
       expect(unavailablePart?.data.text).toContain('Became unavailable:');
 
       try {
@@ -927,22 +1006,27 @@ describe('operator-configured MCP production acceptance', () => {
           { cause: error },
         );
       }
+
       const reconnected = await turnCatalog(api.runtime);
+
       const availablePayload = deriveToolAvailabilityPayload({
         previous: disconnected.manifest,
         current: reconnected.manifest,
       });
+
       const availablePart =
         availablePayload &&
         createToolAvailabilityItem({
           runId: crypto.randomUUID(),
           payload: availablePayload,
         });
+
       expect(availablePart?.data.text).toContain('Now available:');
 
       const definitions = api.moduleRef.get<
         Readonly<Record<string, UnknownRecord>>
       >(MCP_RUNTIME_SERVER_DEFINITIONS);
+
       expect(definitions['web']).toEqual({
         url: fixture.url,
         headers: { authorization: HEADER_SENTINEL },
@@ -953,8 +1037,10 @@ describe('operator-configured MCP production acceptance', () => {
       if (chatId !== undefined) {
         await sql`DELETE FROM chats WHERE id = ${chatId}`;
       }
+
       await workerModule?.close();
       await apiModule?.close();
+
       for (const spy of logSpies) spy.mockRestore();
       random.mockRestore();
       await fixture.close();

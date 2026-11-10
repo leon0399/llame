@@ -80,12 +80,14 @@ export interface PromptImportsPayload extends UnknownRecord {
 }
 
 const storedImageFields = { media: z.string().regex(MEDIA_LOCATOR_PATTERN) };
+
 const unstoredImageFields = {
   thumbnail: z.string().refine(isThumbnailDataUrl).exactOptional(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   mediaType: z.enum(ORIGINAL_MEDIA_TYPES),
 };
+
 const pdfFields = {
   kind: z.literal('pdf'),
   mediaType: z.literal('application/pdf'),
@@ -93,6 +95,7 @@ const pdfFields = {
   byteSize: z.number().int().positive(),
   media: storedImageFields.media.exactOptional(),
 };
+
 const promptImportPdfSchema = z.strictObject(pdfFields);
 
 const promptImportMediaSchema = z.union([
@@ -105,6 +108,7 @@ const entryFields = {
   locator: z.string().refine(isNonEmptyString),
   resolved: z.string().refine(isNonEmptyString).exactOptional(),
 };
+
 const textEntryFields = {
   ...entryFields,
   truncated: z.boolean().exactOptional(),
@@ -152,6 +156,7 @@ export function promptImportMedia(
 ): PromptImportMedia | undefined {
   const { kind, media, mediaType, pages, byteSize, display, width, height } =
     result;
+
   if (kind === 'pdf') {
     return promptImportPdfSchema.safeParse({
       kind,
@@ -161,10 +166,12 @@ export function promptImportMedia(
       ...(media !== undefined && { media }),
     }).data;
   }
+
   if (kind !== 'image') return undefined;
   // The read result keeps its thumbnail as display data, which no rendering
   // shows; this payload copies it into its own model-free entry key.
   const thumbnail = isRecord(display) ? display['thumbnail'] : undefined;
+
   const image = isString(media)
     ? { media }
     : {
@@ -173,6 +180,7 @@ export function promptImportMedia(
         height,
         mediaType,
       };
+
   return promptImportMediaSchema.safeParse(image).data;
 }
 
@@ -193,15 +201,19 @@ export function isPromptImportsPayload(
   value: unknown,
 ): value is PromptImportsPayload {
   const hasOmitted = isRecord(value) && Object.hasOwn(value, 'omitted');
+
   if (!isExactRecord(value, ['imports', ...(hasOmitted ? ['omitted'] : [])])) {
     return false;
   }
+
   const imports = value['imports'];
   const omitted = value['omitted'];
+
   const hasNonEmptyOmitted =
     Array.isArray(omitted) &&
     omitted.length > 0 &&
     omitted.every(isNonEmptyString);
+
   return (
     Array.isArray(imports) &&
     imports.every(isPromptImportsPayloadEntry) &&
@@ -242,10 +254,13 @@ function importRetainedMedia(
 ): RetainedSettlement {
   if (outcome.outcome !== 'imported') return { used };
   const { attachment } = outcome;
+
   if (attachment === undefined || 'media' in attachment) return { used };
+
   const entry = importStep.retained.get(
     promptImportMediaKey(importStep.runId, outcome.locator),
   );
+
   return entry === undefined ? { used } : boundRetained(entry, used);
 }
 
@@ -274,21 +289,27 @@ export function promptImportMediaParts(
   part: ContextItemPart,
 ): PromptImportMediaParts {
   const { producer, payload, runId } = part.data;
+
   if (producer !== 'prompt-imports' || !isPromptImportsPayload(payload)) {
     return { parts: [], retainedMedia: new Map() };
   }
+
   const parts: Array<ImagePart> = [];
   const retainedMedia = new Map<string, RetainedMedia>();
+
   for (const entry of payload.imports) {
     const ref =
       'media' in entry && entry.media !== undefined
         ? parseMediaLocator(entry.media)
         : unstoredEntryRef(entry, runId, retainedMedia);
+
     if (ref === undefined) continue;
     const marker = userImagePart(ref);
+
     if ('kind' in entry) marker.mediaType = entry.mediaType;
     parts.push(marker);
   }
+
   return { parts, retainedMedia };
 }
 
@@ -299,9 +320,11 @@ export function promptImportMediaParts(
  */
 export function promptImportMarkerCount(part: ContextItemPart): number {
   const { producer, payload } = part.data;
+
   if (producer !== 'prompt-imports' || !isPromptImportsPayload(payload)) {
     return 0;
   }
+
   return payload.imports.filter(
     (entry) =>
       ('media' in entry && entry.media !== undefined) ||
@@ -328,13 +351,17 @@ function unstoredEntryRef(
             height: entry.height,
           }
         : undefined;
+
   if (subject === undefined) return undefined;
   const record = 'retainedMedia' in entry ? entry.retainedMedia : undefined;
+
   const retained =
     record === undefined ? undefined : retainedEntry(record, subject);
+
   if (retained === undefined) return undefined;
   const key = promptImportMediaKey(runId, entry.locator);
   retainedMedia.set(key, retained);
+
   return { ...subject, key };
 }
 
@@ -369,8 +396,10 @@ function renderPromptImports(
 ): string {
   const imports: Array<{ locator: string; body: string }> = [];
   const notImported: Array<{ locator: string }> = [];
+
   for (const outcome of outcomes) {
     const locator = sanitizeAuthoredText(outcome.locator);
+
     if (outcome.outcome === 'imported') {
       imports.push({
         locator: escapeXmlAttribute(outcome.locator),
@@ -380,12 +409,14 @@ function renderPromptImports(
       notImported.push({ locator });
     }
   }
+
   const omittedLabel =
     omitted.length === 0
       ? undefined
       : omitted
           .map((locator) => `\`${sanitizeAuthoredText(locator)}\``)
           .join(', ');
+
   return renderPromptImportsTemplate({
     hasImports: imports.length > 0,
     imports,
@@ -408,18 +439,23 @@ export function createPromptImportsItem(input: {
   readonly retainedBefore: number;
 }): AuthoredContextItemPart {
   let used = input.retainedBefore;
+
   const imports = input.outcomes.map((outcome) => {
     const bounded = importRetainedMedia(input, outcome, used);
     used = bounded.used;
+
     return toPayloadEntry(outcome, bounded.record);
   });
+
   const payload: PromptImportsPayload = {
     imports,
     ...(input.omitted.length > 0 && { omitted: [...input.omitted] }),
   };
+
   if (!isPromptImportsPayload(payload)) {
     throw new TypeError('Invalid server-authored prompt imports metadata');
   }
+
   return createRenderedContextItem({
     producer: 'prompt-imports',
     form: 'notice',

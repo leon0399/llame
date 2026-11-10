@@ -206,6 +206,7 @@ export const Disabled: Story = {
     // `disabled:pointer-events-none` makes these unclickable in a real
     // browser too, so we only assert the resulting state here.
     await expect(toggles).toHaveLength(2);
+
     for (const toggle of toggles) {
       await expect(toggle).toBeDisabled();
       await expect(toggle).not.toHaveAttribute("data-pressed");

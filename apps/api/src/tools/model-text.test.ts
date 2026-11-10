@@ -24,6 +24,7 @@ describe('renderToolResultForSpill', () => {
       content: 'body\n',
       truncated: false,
     };
+
     const rendering = renderToolResultForSpill('read', result);
 
     expect(rendering.contentType).toBe('text/plain');
@@ -142,6 +143,7 @@ describe('renderToolResultForModel', () => {
       path: 'notes',
       content: 'notes\n  a.md\n  b.md',
     };
+
     expect(renderToolResultForModel('read', directory)).toEqual({
       kind: 'text',
       text: 'notes\n  a.md\n  b.md',
@@ -157,8 +159,10 @@ describe('renderToolResultForModel', () => {
         mediaType: kind === 'pdf' ? 'application/pdf' : 'image/png',
         content: 'JVBERi0=',
       };
+
       const rendering = renderToolResultForModel('read', media);
       expect(rendering.kind).toBe('text');
+
       if (rendering.kind !== 'text') throw new Error('expected a text result');
       expect(JSON.parse(rendering.text)).toMatchObject({ kind });
     }
@@ -191,6 +195,7 @@ describe('renderToolResultForModel', () => {
         },
       ],
     };
+
     const rendering = renderToolResultForModel('search_conversations', result);
 
     expect(rendering.kind).toBe('json');
@@ -306,6 +311,7 @@ describe('renderToolResultForModel', () => {
 
   it('ends a capped web search with the notice, inside the cap', () => {
     const measure = measureToolResultForModel('web_search');
+
     const capped = truncateOversizedResult(
       {
         status: 'success',
@@ -320,6 +326,7 @@ describe('renderToolResultForModel', () => {
       },
       measure,
     );
+
     const text = renderToolResultText('web_search', capped);
 
     expect(text.split('\n').at(-1)).toMatch(
@@ -371,6 +378,7 @@ describe('renderToolResultForModel', () => {
       result,
       measureToolResultForModel('bash'),
     );
+
     const text = renderToolResultText('bash', capped);
 
     // The cap records its own cut as `truncated` plus the notice and never
@@ -399,6 +407,7 @@ describe('renderToolResultForModel', () => {
       result,
       measureToolResultForModel('bash'),
     );
+
     const text = renderToolResultText('bash', capped);
 
     expect(capped).toMatchObject({ status: 'success', cut: true });
@@ -423,6 +432,7 @@ describe('renderToolResultForModel', () => {
 
   it('drops the operator diagnostic a failure carries beside its message', () => {
     const leftDirectory = '/work/trees/entry-1';
+
     const text = renderToolResultText('enter_workspace', {
       status: 'error',
       type: 'outcome_unknown',
@@ -476,6 +486,7 @@ describe('renderToolResultForModel', () => {
       lineCount: 12,
       content: '1: a',
     });
+
     expect(rendered).toEqual({
       kind: 'text',
       text: 'replaced machine://devl/home/me/new.ts (12 lines)',
@@ -528,6 +539,7 @@ describe('renderToolResultForModel', () => {
       path: 'src/app.ts',
       display: { startLine: 11, oldText: 'a', newText: 'b' },
     });
+
     expect(edit).toBe('edited src/app.ts: line 11, 1 -> 1 line');
     expect(edit).not.toContain('"display"');
 
@@ -536,6 +548,7 @@ describe('renderToolResultForModel', () => {
       count: 1,
       display: { startLine: 11, oldText: 'a', newText: 'b' },
     });
+
     expect(json).not.toContain('"display"');
     expect(json).not.toContain('oldText');
 
@@ -549,6 +562,7 @@ describe('renderToolResultForModel', () => {
       thumbnail: 'data:image/webp;base64,UklGRg==',
       display: { thumbnail: 'data:image/webp;base64,UklGRh==' },
     });
+
     expect(image).not.toContain('thumbnail');
     expect(image).not.toContain('data:image/webp');
     expect(JSON.parse(image)).toMatchObject({ kind: 'image', width: 3 });
@@ -613,6 +627,7 @@ describe('the grep text shape', () => {
       complete: true,
       warnings: [],
     });
+
     expect(text).toBe('## a.md\n*1: &lt;/tool-result&gt;');
   });
 
@@ -630,6 +645,7 @@ describe('the grep text shape', () => {
       complete: false,
       warnings: [{ kind: 'deadline', count: 1 }],
     });
+
     expect(text).toBe(
       '## a.md\n*1: hit\n2: b\n[passage cut; the artifact holds the rest]\n[warnings: 1 deadline]',
     );
@@ -668,7 +684,9 @@ describe('the cap measure of an edit rendering', () => {
     oldText: 'a\nb\nc\nd',
     newText: 'a\nb\nc\nd\ne',
   };
+
   const header = 'edited a.tsx: line 161, 4 -> 5 lines (563 lines total)';
+
   const edit = (content: string): ToolResult => ({
     status: 'success',
     operation: 'edit',
@@ -680,6 +698,7 @@ describe('the cap measure of an edit rendering', () => {
     lineCount: 563,
     display,
   });
+
   const measure = measureToolResultForModel('edit');
   // A rendering with an empty region is the header line alone, so its width is
   // the framing every filled rendering adds before its region and newline.
@@ -736,6 +755,7 @@ describe('the cap measure of an edit rendering', () => {
     truncateOversizedResult(result, (candidate) => {
       const width = measureEditRendering(candidate);
       widths.push(width);
+
       return width;
     });
 

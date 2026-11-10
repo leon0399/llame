@@ -81,6 +81,7 @@ function CodeBlockCode({
     async function highlight() {
       if (!code) {
         setHighlightedHtml("<pre><code></code></pre>");
+
         return;
       }
 
@@ -88,8 +89,10 @@ function CodeBlockCode({
         lang: isLanguageSupported(language) ? language : "plaintext",
         theme,
       });
+
       setHighlightedHtml(html);
     }
+
     highlight();
   }, [code, language, theme]);
 

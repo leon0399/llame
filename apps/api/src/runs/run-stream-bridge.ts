@@ -93,7 +93,9 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (this.startedStream) {
       return [];
     }
+
     this.startedStream = true;
+
     return [{ type: 'start', messageId: this.messageId }];
   }
 
@@ -101,8 +103,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (this.openTextId === null) {
       return [];
     }
+
     const chunk: UiChunk = { type: 'text-end', id: this.openTextId };
     this.openTextId = null;
+
     return [chunk];
   }
 
@@ -110,14 +114,17 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (this.openReasoningId === null) {
       return [];
     }
+
     const chunk: UiChunk = { type: 'reasoning-end', id: this.openReasoningId };
     this.openReasoningId = null;
     this.openReasoningPartId = undefined;
+
     return [chunk];
   }
 
   private settleOpenTools(reason: string): Array<UiChunk> {
     const chunks: Array<UiChunk> = [];
+
     for (const toolCallId of this.openToolCallIds) {
       chunks.push({
         type: 'tool-output-error',
@@ -127,7 +134,9 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         dynamic: true,
       });
     }
+
     this.openToolCallIds.clear();
+
     return chunks;
   }
 
@@ -177,31 +186,40 @@ class RunEventTranslatorImpl implements RunEventTranslator {
    */
   private onRunContinued(event: RunEventLike): Array<UiChunk> {
     const parts = payloadField(event.payload, 'parts');
+
     if (!Array.isArray(parts)) return [];
     const chunks = this.prelude();
+
     for (const kept of keptPartEvents(parts)) {
       chunks.push(...this.translate(kept));
     }
+
     return chunks;
   }
 
   private onModelDelta(event: RunEventLike): Array<UiChunk> {
     const text = payloadString(event.payload, 'text') ?? '';
+
     if (text.length === 0) {
       return [];
     }
+
     const chunks = [...this.prelude(), ...this.closeReasoning()];
+
     if (this.openTextId === null) {
       this.textPartCount += 1;
       this.openTextId = `text-${this.textPartCount}`;
       chunks.push({ type: 'text-start', id: this.openTextId });
     }
+
     chunks.push({ type: 'text-delta', id: this.openTextId, delta: text });
+
     return chunks;
   }
 
   private onReasoningDelta(event: RunEventLike): Array<UiChunk> {
     const text = payloadString(event.payload, 'text') ?? '';
+
     if (text.length === 0) {
       // Also drops the metadata-only event a reasoning part's END produces:
       // the opaque provider metadata it carries is provider plumbing for a
@@ -209,6 +227,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       // (the browser must not receive it), and it moves no boundary.
       return [];
     }
+
     const partId = payloadString(event.payload, 'partId');
     const chunks = [...this.prelude(), ...this.closeText()];
     // Design D8: a new part starts when none is open, or when two defined
@@ -217,6 +236,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     // reasoning part, so this opens a fresh one from the closed state.
     let openReasoningId = this.openReasoningId;
     const openPartId = this.openReasoningPartId;
+
     if (
       openReasoningId === null ||
       (partId !== undefined &&
@@ -233,11 +253,13 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       // A defined id becomes the open part's id; an absent one adds nothing.
       this.openReasoningPartId = partId;
     }
+
     chunks.push({
       type: 'reasoning-delta',
       id: openReasoningId,
       delta: text,
     });
+
     return chunks;
   }
 
@@ -247,10 +269,12 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     // lands `messageMetadata` on `message.metadata`. Not terminal — the
     // stream still finishes on the following run.completed/cancelled.
     const telemetry = payloadField(event.payload, 'telemetry');
+
     if (telemetry === undefined) {
       // Legacy event predating telemetry — nothing to surface.
       return [];
     }
+
     // Close whichever part (text or reasoning) is open first so metadata
     // lands after the answer; run.completed's own close becomes a no-op.
     const chunks = [
@@ -258,10 +282,12 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       ...this.closeReasoning(),
       ...this.closeText(),
     ];
+
     chunks.push({
       type: 'message-metadata',
       messageMetadata: { usage: telemetry },
     });
+
     return chunks;
   }
 
@@ -272,11 +298,14 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (isSystemOriginPayload(event.payload)) return [];
     const toolCallId = payloadString(event.payload, 'toolCallId');
     const toolName = payloadString(event.payload, 'toolName');
+
     if (!toolCallId || !toolName) {
       return [];
     }
+
     const input = payloadField(event.payload, 'input');
     this.openToolCallIds.add(toolCallId);
+
     // Close whichever part (text or reasoning) is open first, same as
     // model.completed/the terminal events — a tool call is a structurally
     // distinct part, so neither should stay open across it.
@@ -299,28 +328,35 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     // chunk would be an orphan the client cannot attach to anything.
     if (isSystemOriginPayload(event.payload)) return [];
     const toolCallId = payloadString(event.payload, 'toolCallId');
+
     // At-most-once: if this call was already settled (by termination or a
     // prior event), a late completion must not emit a second outcome.
     // openToolCallIds tracks open calls; absence means already settled.
     if (!toolCallId || !this.openToolCallIds.delete(toolCallId)) {
       return [];
     }
+
     const status = payloadString(event.payload, 'status');
     const output = payloadField(event.payload, 'output');
+
     // An owner interrupt settled the call: live and reload carry one marker.
     const interrupted =
       isRecord(event.payload) && event.payload['interrupted'] === true;
+
     if (status !== 'error') {
       return [
         ...this.prelude(),
         { type: 'tool-output-available', toolCallId, output, dynamic: true },
       ];
     }
+
     const isCancelled = isRecord(output) && output.type === 'cancelled';
+
     const errorText =
       isRecord(output) && isString(output.message)
         ? output.message
         : 'The tool failed.';
+
     return [
       ...this.prelude(),
       {
@@ -343,9 +379,11 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   private onStepCapReached(event: RunEventLike): Array<UiChunk> {
     const stepsUsed = payloadNumber(event.payload, 'stepsUsed');
     const maxSteps = payloadNumber(event.payload, 'maxSteps');
+
     if (stepsUsed === undefined || maxSteps === undefined) {
       return [];
     }
+
     // Close whichever part is open, same as a tool call — the cap
     // notice is a structurally distinct part.
     return [
@@ -361,6 +399,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
   private onRunTerminated(event: RunEventLike): Array<UiChunk> {
     this.isFinished = true;
+
     return [
       ...this.prelude(),
       ...this.closeReasoning(),
@@ -384,8 +423,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
    */
   private onRunDelivered(event: RunEventLike): Array<UiChunk> {
     const messageId = payloadString(event.payload, 'messageId');
+
     if (messageId === undefined) return [];
     this.isFinished = true;
+
     return [
       ...this.prelude(),
       ...this.closeReasoning(),
@@ -398,6 +439,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   private onRunFailed(event: RunEventLike): Array<UiChunk> {
     this.isFinished = true;
     const message = payloadString(event.payload, 'message') ?? 'Run failed.';
+
     const chunks = [
       ...this.prelude(),
       ...this.closeReasoning(),
@@ -408,7 +450,9 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         ),
       ),
     ];
+
     chunks.push({ type: 'error', errorText: message });
+
     return chunks;
   }
 }
@@ -420,6 +464,7 @@ export function createRunEventTranslator(
 }
 
 const POLL_MS = 200;
+
 /**
  * How long a connection may stay silent before the bridge writes an SSE
  * comment to hold it open. A Run between model requests — thinking, waiting on
@@ -491,21 +536,27 @@ export class RunStreamBridgeService {
     emit: (chunk: UiChunk) => void;
   }): Promise<{ cursor: number; count: number }> {
     const { runId, userId, cursor, translator, emit } = options;
+
     const events = await this.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, userId, {
         afterSequence: cursor,
       }),
     );
+
     let nextCursor = cursor;
+
     for (const event of events) {
       nextCursor = event.sequence;
+
       for (const chunk of translator.translate(event)) {
         emit(chunk);
       }
+
       // A segment ends at its delivery: the events after it belong to the
       // next segment's stream, which a resume replays.
       if (translator.finished()) break;
     }
+
     return { cursor: nextCursor, count: events.length };
   }
 
@@ -522,6 +573,7 @@ export class RunStreamBridgeService {
     const { controller, input, translator } = options;
     let cursor = input.afterSequence ?? 0;
     let lastWriteAt = Date.now();
+
     const emit = (chunk: UiChunk) => {
       lastWriteAt = Date.now();
       controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`);
@@ -536,8 +588,10 @@ export class RunStreamBridgeService {
     for (;;) {
       if (input.abortSignal?.aborted) {
         controller.close();
+
         return;
       }
+
       const drained = await this.drainAndTranslate({
         runId: input.runId,
         userId: input.userId,
@@ -545,14 +599,17 @@ export class RunStreamBridgeService {
         translator,
         emit,
       });
+
       cursor = drained.cursor;
 
       if (translator.finished()) {
         break;
       }
+
       if (input.abortSignal?.aborted) {
         // Client is gone — stop bridging. The run keeps executing.
         controller.close();
+
         return;
       }
 
@@ -564,6 +621,7 @@ export class RunStreamBridgeService {
         const run = await this.tenantDb.runAs(input.userId, (tx) =>
           new RunsRepository(tx).findById(input.runId, input.userId),
         );
+
         if (!run || isTerminalRunStatus(run.status)) {
           await this.drainAndTranslate({
             runId: input.runId,
@@ -575,6 +633,7 @@ export class RunStreamBridgeService {
           break;
         }
       }
+
       // Hold a quiet connection open: the Run is still executing, and an
       // intermediary that sees no bytes for long enough will close the stream
       // under the client. An SSE comment carries no event, so no chunk parser
@@ -583,12 +642,15 @@ export class RunStreamBridgeService {
         lastWriteAt = Date.now();
         controller.enqueue(': keepalive\n\n');
       }
+
       // Floor delay on EVERY non-terminal pass — an actively streaming
       // run yields events on each poll, and without the floor this loop
       // re-queries the DB back-to-back for the whole stream.
       await sleep(POLL_MS);
+
       if (input.abortSignal?.aborted) {
         controller.close();
+
         return;
       }
     }
@@ -596,6 +658,7 @@ export class RunStreamBridgeService {
     if (translator.finished()) {
       controller.enqueue('data: [DONE]\n\n');
     }
+
     controller.close();
   }
 }

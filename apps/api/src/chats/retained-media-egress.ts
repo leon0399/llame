@@ -31,12 +31,15 @@ export function mapStoredParts(
   stripPart: (part: UnknownRecord) => UnknownRecord,
 ): Array<unknown> {
   let stripped: Array<unknown> | undefined;
+
   for (let index = 0; index < parts.length; index += 1) {
     const part = parts[index];
     const next = isRecord(part) ? stripPart(part) : part;
+
     if (next === part) {
       continue;
     }
+
     stripped ??= parts.slice();
     stripped[index] = next;
   }
@@ -58,16 +61,21 @@ export function withoutPayloadParts(
 ): UnknownRecord {
   const keptParts =
     eventType === RUN_CONTINUED_EVENT ? payload['parts'] : undefined;
+
   const strippedParts = Array.isArray(keptParts)
     ? mapStoredParts(keptParts, stripPart)
     : undefined;
+
   let stripped = stripPayload(payload);
+
   if (strippedParts === undefined || strippedParts === keptParts) {
     return stripped;
   }
+
   if (stripped === payload) {
     stripped = { ...payload };
   }
+
   stripped['parts'] = strippedParts;
 
   return stripped;
@@ -112,6 +120,7 @@ function withoutRetainedField(record: UnknownRecord): UnknownRecord {
   if (!Object.hasOwn(record, RETAINED_MEDIA_KEY)) return record;
   const rest = { ...record };
   delete rest[RETAINED_MEDIA_KEY];
+
   return rest;
 }
 
@@ -125,12 +134,14 @@ function stripRetainedMedia(part: UnknownRecord): UnknownRecord {
     part['type'] === DATA_CONTEXT_PART
       ? stripPromptImportData(part['data'])
       : undefined;
+
   if (data === undefined && !Object.hasOwn(part, RETAINED_MEDIA_KEY)) {
     return part;
   }
 
   const stripped = { ...part };
   delete stripped[RETAINED_MEDIA_KEY];
+
   if (data !== undefined) {
     stripped['data'] = data;
   }
@@ -147,27 +158,33 @@ function stripPromptImportData(data: unknown): UnknownRecord | undefined {
   if (!isRecord(data)) {
     return undefined;
   }
+
   if (data['producer'] !== PROMPT_IMPORTS_PRODUCER) {
     return undefined;
   }
 
   const payload = data['payload'];
+
   if (!isRecord(payload)) {
     return undefined;
   }
 
   const storedImports: unknown = payload['imports'];
+
   if (!Array.isArray(storedImports)) {
     return undefined;
   }
 
   const imports: Array<unknown> = storedImports;
   let stripped: Array<unknown> | undefined;
+
   for (let index = 0; index < imports.length; index += 1) {
     const entry = imports[index];
+
     if (!isRecord(entry) || !Object.hasOwn(entry, RETAINED_MEDIA_KEY)) {
       continue;
     }
+
     stripped ??= imports.slice();
     stripped[index] = withoutRetainedField(entry);
   }

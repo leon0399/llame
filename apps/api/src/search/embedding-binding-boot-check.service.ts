@@ -68,13 +68,16 @@ export class EmbeddingBindingBootCheckService implements OnApplicationBootstrap 
         findBinding: (modelKey) =>
           this.tenantDb.runAsPublic((tx) => findEmbeddingBinding(tx, modelKey)),
       };
+
       await assertDeclaredBindingsConsistent(models, ledger);
     }
 
     const declaredKeys = models.map((model) => model.id);
+
     const undeclared = await this.tenantDb.runAsPublic((tx) =>
       listUndeclaredBindingKeys(tx, declaredKeys),
     );
+
     for (const key of undeclared) {
       this.logger.warn(
         `Embedding model "${key}" has stored vectors but is no longer declared in embeddingModels[] — they are left unread and undeleted; run the 'search:prune' operator command to remove them.`,

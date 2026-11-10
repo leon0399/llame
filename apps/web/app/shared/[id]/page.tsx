@@ -32,14 +32,18 @@ async function fetchAllSharedMessages(
   id: string,
 ): Promise<{ title: string | null; messages: Array<SharedChatMessage> }> {
   let title: string | null = null;
+
   const messages = await paginateAllMessages<SharedChatMessage>(
     (beforeSeq) => {
       const options: Parameters<typeof fetchSharedChat>[1] = {
         limit: CHAT_HISTORY_PAGE_SIZE,
       };
+
       if (beforeSeq !== undefined) options.beforeSeq = beforeSeq;
+
       return fetchSharedChat(id, options).then((page) => {
         title = page.title;
+
         return page;
       });
     },
@@ -49,6 +53,7 @@ async function fetchAllSharedMessages(
     // must not silently truncate the shared conversation on top of that.
     Infinity,
   );
+
   return { title, messages };
 }
 
@@ -70,6 +75,7 @@ function ShareForkOrLoginButton({
       </Button>
     );
   }
+
   return (
     <a
       href={loginHref}
@@ -131,6 +137,7 @@ function SharedChatStatus({
       </main>
     );
   }
+
   if (hasError) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-16 text-center">
@@ -141,6 +148,7 @@ function SharedChatStatus({
       </main>
     );
   }
+
   return null;
 }
 
@@ -156,7 +164,9 @@ function SharedMessageList({
           .filter((p) => p.type === "text")
           .map((p) => p.text)
           .join("\n\n");
+
         if (!text) return null;
+
         return (
           <Message key={message.id} from={message.role}>
             <MessageContent>

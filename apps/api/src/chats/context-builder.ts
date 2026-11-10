@@ -154,6 +154,7 @@ export function isReasoningPart(part: unknown): part is ReasoningPart {
  */
 export function isInterruptedReasoning(part: ReasoningPart): boolean {
   const llame = part.providerMetadata?.['llame'];
+
   return isRecord(llame) && llame['interrupted'] === true;
 }
 
@@ -242,17 +243,21 @@ export function userPartsToModelContent(
   const content: Array<TextPart | FilePart | ImagePart> = [];
   const files: Array<FilePart> = [];
   let afterLastItem = 0;
+
   for (const part of parts) {
     if (isTextPart(part)) {
       content.push({ type: 'text', text: part.text });
       continue;
     }
+
     if (isContextItemPart(part)) {
       content.push(...contextItemContent(part, retained));
       afterLastItem = content.length;
       continue;
     }
+
     const file = storedFilePartSchema.safeParse(part);
+
     if (file.success && parseMediaLocator(file.data.url) !== undefined) {
       const { url, mediaType, filename } = file.data;
       files.push({
@@ -263,7 +268,9 @@ export function userPartsToModelContent(
       });
     }
   }
+
   content.splice(afterLastItem, 0, ...files);
+
   return content;
 }
 
@@ -277,11 +284,14 @@ function contextItemContent(
   retained: Map<string, RetainedMedia> | undefined,
 ): Array<TextPart | ImagePart> {
   const text = part.data.text;
+
   if (text === undefined || text.length === 0) return [];
   const media = promptImportMediaParts(part);
+
   if (retained !== undefined) {
     mergeRetainedMedia(retained, media.retainedMedia);
   }
+
   return [{ type: 'text', text }, ...media.parts];
 }
 
@@ -305,6 +315,7 @@ export function toPromptReasoningPart(
   part: ReasoningPart,
 ): PromptReasoningPart {
   const providerOptions: ProviderMetadata | undefined = part.providerMetadata;
+
   return {
     type: 'reasoning',
     text: part.text,
@@ -369,6 +380,7 @@ function startsNewStep(
   if (open.number !== undefined && partNumber !== undefined) {
     return partNumber !== open.number;
   }
+
   if (
     isTool &&
     partNumber === undefined &&
@@ -376,6 +388,7 @@ function startsNewStep(
   ) {
     return false;
   }
+
   return open.results.length > 0;
 }
 
@@ -412,8 +425,11 @@ class StoredReplyProjection {
     for (const [partIndex, part] of parts.entries()) {
       this.appendPart(part, partIndex);
     }
+
     this.closeStep();
+
     if (this.interruptedReply) this.dropTrailingReasoning();
+
     return this.messages;
   }
 
@@ -426,7 +442,9 @@ class StoredReplyProjection {
     const index = this.messages.findLastIndex(
       ({ role }) => role === 'assistant',
     );
+
     const last = this.messages[index];
+
     if (
       last?.role !== 'assistant' ||
       !Array.isArray(last.content) ||
@@ -434,9 +452,13 @@ class StoredReplyProjection {
     ) {
       return;
     }
+
     const kept = [...last.content];
+
     while (kept.at(-1)?.type === 'reasoning') kept.pop();
+
     if (kept.length === last.content.length) return;
+
     if (kept.length === 0) this.messages.splice(index, 1);
     else this.messages[index] = { ...last, content: kept };
   }
@@ -445,18 +467,25 @@ class StoredReplyProjection {
     // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guard narrows it to the replayable variant.
     if (isTextPart(part)) {
       this.appendText(part);
+
       return;
     }
+
     // eslint-disable-next-line anti-slop/no-known-value-widening -- the stored part union is the runtime I/O shape; the guard narrows it to the replayable variant.
     if (isReasoningPart(part)) {
       this.appendReasoning(part);
+
       return;
     }
+
     if (isContextItemPart(part)) {
       this.appendContextItem(part.data.text);
+
       return;
     }
+
     const observation = projectStoredToolPart(part, this.mediaKey(partIndex));
+
     if (observation !== undefined) {
       this.appendTool(partStep(part), observation);
     }
@@ -497,6 +526,7 @@ class StoredReplyProjection {
     step.content.push(this.callPart(observation));
     step.results.push(this.resultPart(observation));
     const { retained } = observation;
+
     if (retained !== undefined) {
       this.retainedMedia.set(retained.key, retained.entry);
     }
@@ -510,27 +540,35 @@ class StoredReplyProjection {
 
   private openStep(stepNumber: number | undefined, isTool: boolean): OpenStep {
     const { open } = this;
+
     if (open !== null && !startsNewStep(open, stepNumber, isTool)) {
       // A numbered part that leads into the open unnumbered step adopts it, so
       // the rest of that response joins the same assistant message.
       open.number ??= stepNumber;
+
       return open;
     }
+
     this.closeStep();
+
     const created: OpenStep = {
       content: [],
       results: [],
       number: stepNumber,
     };
+
     this.open = created;
+
     return created;
   }
 
   private closeStep(): void {
     const step = this.open;
     this.open = null;
+
     if (step === null || step.content.length === 0) return;
     this.messages.push({ role: 'assistant', content: step.content });
+
     if (step.results.length > 0) {
       this.messages.push({ role: 'tool', content: step.results });
     }
@@ -538,10 +576,12 @@ class StoredReplyProjection {
 
   private callPart(observation: StoredToolObservation): ToolCallPart {
     const { pair } = observation;
+
     const part =
       pair.refused && !this.privateParts && !isRecord(pair.toolCallPart.input)
         ? { ...pair.toolCallPart, input: {} }
         : pair.toolCallPart;
+
     return this.privateParts && pair.providerMetadata !== undefined
       ? { ...part, providerOptions: pair.providerMetadata }
       : part;
@@ -553,6 +593,7 @@ class StoredReplyProjection {
    */
   private resultPart(observation: StoredToolObservation): ToolResultPart {
     const { pair } = observation;
+
     return this.privateParts &&
       !pair.refused &&
       pair.providerMetadata !== undefined
@@ -581,12 +622,14 @@ export function projectStoredReplyParts(
   options: StoredReplyProjectionOptions,
 ): Pick<ModelRequestContext, 'messages' | 'retainedMedia'> {
   const retainedMedia = new Map<string, RetainedMedia>();
+
   const messages = new StoredReplyProjection(
     options.privateParts,
     false,
     retainedMedia,
     options.mediaKey,
   ).project(parts);
+
   return { messages, retainedMedia };
 }
 
@@ -673,6 +716,7 @@ function appendUserMessage(
   retained: Map<string, RetainedMedia>,
 ): void {
   const content = userPartsToModelContent(m.parts, retained);
+
   if (content.length > 0) {
     result.push({ role: 'user', content });
   }

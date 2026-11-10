@@ -54,6 +54,7 @@ type AdmittedBashExecution = Extract<
   ReturnType<typeof admitManagedBash>,
   { readonly run: () => Promise<BashResult> }
 >;
+
 type AdmittedBashContext = ToolContext &
   Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
 
@@ -75,6 +76,7 @@ function machineWorkingDirectory(
   path: string,
 ): MachineWorkingDirectory | undefined {
   const locator = formatMachineLocator(name, path);
+
   return locator === undefined ? undefined : { name, path, locator };
 }
 
@@ -90,14 +92,18 @@ function projectBashInput(
   input: BashInput,
 ): BashInput | ToolResult {
   const root = context.workspaceRoot?.current();
+
   // An `ssh://` cwd addresses its own host in every Workspace, including a
   // Machine one, so projection leaves it exactly as submitted.
   if (input.cwd !== undefined && isSshLocator(input.cwd)) return input;
+
   if (input.cwd !== undefined && isMachineLocator(input.cwd))
     return projectMachineCwd(input, input.cwd);
   const machineRoot = machineWorkspaceRoot(root);
+
   if (machineRoot !== undefined && root !== undefined)
     return projectMachineWorkspaceCwd(input, root, machineRoot);
+
   return projectLocalCwd(input, root);
 }
 
@@ -107,10 +113,12 @@ function projectMachineCwd(
   cwd: string,
 ): BashInput | ToolResult {
   const target = parseMachineLocator(cwd);
+
   const machine =
     target.kind === 'path' && target.selector === undefined
       ? machineWorkingDirectory(target.name, target.path)
       : undefined;
+
   return machine === undefined
     ? {
         status: 'error',
@@ -132,6 +140,7 @@ function projectMachineWorkspaceCwd(
 ): BashInput | ToolResult {
   if (input.cwd === undefined) {
     const machine = machineWorkingDirectory(machineRoot.name, machineRoot.path);
+
     return machine === undefined
       ? {
           status: 'error',
@@ -140,10 +149,13 @@ function projectMachineWorkspaceCwd(
         }
       : { ...input, cwd: machine.locator };
   }
+
   if (isWorkspaceRelative(input.cwd))
     return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
+
   if (input.cwd.startsWith('/'))
     return { ...input, cwd: mapToWorkspaceHost(root, input.cwd) };
+
   return {
     status: 'error',
     type: 'invalid_path',
@@ -168,9 +180,13 @@ function projectLocalCwd(
       message: 'The working directory must be a local path.',
     };
   }
+
   if (root === undefined) return input;
+
   if (input.cwd === undefined) return { ...input, cwd: root };
+
   if (!isWorkspaceRelative(input.cwd)) return input;
+
   return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
 }
 
@@ -187,13 +203,16 @@ async function runMachineBash(
 ): Promise<ToolResult> {
   const { name, path, locator } = machine;
   const connector = machineConnector(context);
+
   if (connector === undefined)
     return {
       status: 'error',
       type: 'executor_unavailable',
       message: 'Native host authority is unavailable.',
     };
+
   if (!connector.isConfigured(name)) return machineNotFoundResult(name);
+
   return runMachineMutation(
     context,
     { name, operation: 'bash', locator },
@@ -212,9 +231,12 @@ async function runMachineBash(
         },
         { signal: context.abortSignal },
       );
+
       const result = readProcBashResult(raw);
+
       if (result === undefined) return machineUnusableResult(name);
       const sanitized = sanitizeMachineBashResult(context, result);
+
       // The Machine opens its own paths; the llame host files are a cache this
       // command cannot reach (tool-result-artifacts D10).
       return spillBashResult(context, sanitized, true);
@@ -233,8 +255,10 @@ function sanitizeMachineBashResult(
   result: ProcBashResult,
 ): ProcBashResult {
   if (!('stdout' in result)) return result;
+
   const endedByLlame =
     result.truncated || ('type' in result && result.type === 'timed_out');
+
   return sanitizeKnownResultAtBound(
     result,
     MACHINE_BASH_STREAM_BOUND,
@@ -255,18 +279,22 @@ function machineBashExecution(
   input: BashInput,
 ): ToolResult | Promise<ToolResult> | undefined {
   const cwd = input.cwd;
+
   if (cwd === undefined || !isMachineLocator(cwd)) return undefined;
   const target = parseMachineLocator(cwd);
+
   const machine =
     target.kind === 'path'
       ? machineWorkingDirectory(target.name, target.path)
       : undefined;
+
   if (machine === undefined)
     return {
       status: 'error',
       type: 'invalid_path',
       message: 'The working directory is not a Machine path.',
     };
+
   return runMachineBash(context, input, machine);
 }
 
@@ -276,8 +304,10 @@ async function runAdmittedBash(
 ): Promise<ToolResult> {
   const { runId, userId, nativeExecutorId, toolCallId } = context;
   const onAbort = () => admitted.release();
+
   if (context.abortSignal?.aborted) admitted.release();
   else context.abortSignal?.addEventListener('abort', onAbort, { once: true });
+
   try {
     const prior = await context.tenantDb.runAs(userId, (db) =>
       new NativeFilesRepository(db).begin({
@@ -291,6 +321,7 @@ async function runAdmittedBash(
         path: admitted.cwd,
       }),
     );
+
     if (prior) return prior;
     // A host command always runs on the llame host, so the notice names the
     // directory: in a Machine Workspace every spilled call is a Machine one
@@ -302,6 +333,7 @@ async function runAdmittedBash(
         result,
       });
     });
+
     return result;
   } finally {
     context.abortSignal?.removeEventListener('abort', onAbort);
@@ -324,8 +356,10 @@ export const bashTool: Tool<BashInput> = {
   }),
   execute: async (context, input): Promise<ToolResult> => {
     const projectedInput = projectBashInput(context, input);
+
     if ('status' in projectedInput) return projectedInput;
     const routed = routedBashExecution(context, projectedInput);
+
     return routed ?? runHostBash(context, projectedInput);
   },
 };
@@ -340,8 +374,11 @@ function routedBashExecution(
   input: BashInput,
 ): ToolResult | Promise<ToolResult> | undefined {
   const machineExecution = machineBashExecution(context, input);
+
   if (machineExecution !== undefined) return machineExecution;
+
   if (input.cwd === undefined || !isSshLocator(input.cwd)) return undefined;
+
   return executeSshBash(context, { ...input, cwd: input.cwd });
 }
 
@@ -351,6 +388,7 @@ async function runHostBash(
   input: BashInput,
 ): Promise<ToolResult> {
   const { runId, userId, nativeExecutorId, toolCallId } = context;
+
   if (!runId || !nativeExecutorId || !toolCallId) {
     return {
       status: 'error',
@@ -358,6 +396,7 @@ async function runHostBash(
       message: 'Native host authority is unavailable.',
     };
   }
+
   // Repair the Chat's artifact files before this command can open them; a
   // failed reconcile leaves them as they were (tool-result-artifacts D10).
   if (context.artifactHostFiles === true) {
@@ -365,6 +404,7 @@ async function runHostBash(
       bashLogger.warn(`Artifact file reconcile failed: ${String(error)}`);
     });
   }
+
   // Always wrap in bash -c: the managed allowlist only admits basenames like
   // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
   const admitted = admitManagedBash(
@@ -383,7 +423,9 @@ async function runHostBash(
       protectedValues: context.configuredCredentials,
     },
   );
+
   if ('type' in admitted) return toToolResult(admitted);
+
   return runAdmittedBash(
     { ...context, runId, userId, nativeExecutorId, toolCallId },
     admitted,

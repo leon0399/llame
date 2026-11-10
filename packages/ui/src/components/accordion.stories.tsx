@@ -110,6 +110,7 @@ export const Basic: Story = {
     const firstTrigger = canvas.getByRole("button", {
       name: "How do I reset my password?",
     });
+
     const secondTrigger = canvas.getByRole("button", {
       name: "Can I change my subscription plan?",
     });
@@ -172,6 +173,7 @@ export const Multiple: Story = {
     const notificationsTrigger = canvas.getByRole("button", {
       name: "Notification Settings",
     });
+
     const privacyTrigger = canvas.getByRole("button", {
       name: "Privacy & Security",
     });
@@ -237,6 +239,7 @@ export const Disabled: Story = {
     const disabledTrigger = canvas.getByRole("button", {
       name: "Premium feature information",
     });
+
     const emailTrigger = canvas.getByRole("button", {
       name: "How do I update my email address?",
     });
@@ -303,6 +306,7 @@ export const Borders: Story = {
     const billingTrigger = canvas.getByRole("button", {
       name: "How does billing work?",
     });
+
     const securityTrigger = canvas.getByRole("button", {
       name: "Is my data secure?",
     });
@@ -375,6 +379,7 @@ export const InCard: Story = {
     const plansTrigger = canvas.getByRole("button", {
       name: "What subscription plans do you offer?",
     });
+
     const billingTrigger = canvas.getByRole("button", {
       name: "How does billing work?",
     });

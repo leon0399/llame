@@ -13,14 +13,18 @@ function responseFromChunks(
   keepOpen = false,
 ): Response {
   let index = 0;
+
   return new Response(
     new ReadableStream<Uint8Array>({
       pull(controller) {
         const chunk = chunks[index++];
+
         if (chunk === undefined) {
           if (!keepOpen) controller.close();
+
           return;
         }
+
         controller.enqueue(chunk);
       },
       cancel: onCancel,
@@ -58,9 +62,11 @@ describe('MCP byte-bounded fetch', () => {
   it('forces redirect error and captures the session before returning the response', async () => {
     const seen: Array<RequestInit> = [];
     let session: string | null = null;
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: (_input, init) => {
         seen.push(init ?? {});
+
         return Promise.resolve(
           new Response('{}', {
             headers: { 'mcp-session-id': 'session-sentinel' },
@@ -84,6 +90,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('does not call onSessionId when the response omits the session header', async () => {
     const onSessionId = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(new Response('{}')),
       maxResponseBytes: 16,
@@ -143,6 +150,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('returns the original bodyless response when no oversized claim exists', async () => {
     const original = new Response(null);
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(original),
       maxResponseBytes: 16,
@@ -155,6 +163,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('caps a non-2xx body while response.text consumes it and cancels upstream', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -195,6 +204,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('rejects an oversized claimed body before returning it', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -220,6 +230,7 @@ describe('MCP byte-bounded fetch', () => {
       const streamedResponse = responseFromChunks([bytes('123456789')], {
         headers: { 'content-length': contentLength },
       });
+
       const boundedFetch = createMcpBoundedFetch({
         fetch: () => Promise.resolve(streamedResponse),
         maxResponseBytes: 8,
@@ -247,6 +258,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('allows an exact-limit Content-Length claim and consumes the body', async () => {
     const body = '12345678';
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -279,6 +291,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('recognizes a parameterized SSE content type', async () => {
     const body = 'data: 1\n\ndata: 2\n\n';
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -298,6 +311,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('resets the SSE event budget for a leading LF blank line', async () => {
     const body = '\ndata: 1\n\n';
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -314,6 +328,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('resets the SSE event budget for bare-CR blank lines', async () => {
     const body = 'data: 1\r\rdata: 2\r\r';
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -330,6 +345,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('caps a non-2xx SSE-labeled body across events and cancels upstream', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -352,6 +368,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('resets the byte budget after a CRLF-delimited event at the exact limit', async () => {
     const body = 'data: 1\r\n\r\ndata: 2\r\n\r\n';
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -368,6 +385,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('does not reset an SSE event at a bare-CR nonblank line', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -388,6 +406,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('does not reset an SSE event at a CRLF nonblank line', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -408,6 +427,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('does not reset an SSE event at an LF nonblank line', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -428,6 +448,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('rejects one oversized SSE event across chunk boundaries', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -449,6 +470,7 @@ describe('MCP byte-bounded fetch', () => {
   it('lets an aggregate consumer abort and cleans up the body', async () => {
     const cancelled = vi.fn();
     let total = 0;
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -462,6 +484,7 @@ describe('MCP byte-bounded fetch', () => {
       maxResponseBytes: 16,
       onBytes: (count) => {
         total += count;
+
         if (total > 4) throw new Error('aggregate limit');
       },
     });
@@ -473,6 +496,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('forwards explicit consumer cancellation to the upstream reader', async () => {
     const cancelled = vi.fn();
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () =>
         Promise.resolve(
@@ -501,11 +525,13 @@ describe('MCP byte-bounded fetch', () => {
       statusText: 'Accepted sentinel',
       headers: { 'x-sentinel': 'preserved' },
     });
+
     Object.defineProperties(upstream, {
       redirected: { value: true },
       type: { value: 'cors' },
       url: { value: 'https://upstream.example/sentinel' },
     });
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(upstream),
       maxResponseBytes: 16,
@@ -524,6 +550,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('identifies the trusted outbound RPC method for aggregate accounting', async () => {
     const observed: Array<{ count: number; rpcMethod: string | null }> = [];
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(new Response('{}')),
       maxResponseBytes: 16,
@@ -538,6 +565,7 @@ describe('MCP byte-bounded fetch', () => {
       method: 'POST',
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
+
     await response.text();
 
     expect(observed).toEqual([{ count: 2, rpcMethod: 'tools/list' }]);
@@ -549,6 +577,7 @@ describe('MCP byte-bounded fetch', () => {
       httpMethod: string;
       rpcMethod: string | null;
     }> = [];
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(new Response('{}')),
       maxResponseBytes: 16,
@@ -558,6 +587,7 @@ describe('MCP byte-bounded fetch', () => {
     const response = await boundedFetch('https://example.invalid', {
       method: 'post',
     });
+
     await response.text();
 
     expect(observed).toEqual([
@@ -571,6 +601,7 @@ describe('MCP byte-bounded fetch', () => {
       httpMethod: string;
       rpcMethod: string | null;
     }> = [];
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(new Response('{}')),
       maxResponseBytes: 16,
@@ -580,6 +611,7 @@ describe('MCP byte-bounded fetch', () => {
     const response = await boundedFetch(
       new Request('https://example.invalid', { method: 'patch' }),
     );
+
     await response.text();
 
     expect(observed).toEqual([
@@ -593,6 +625,7 @@ describe('MCP byte-bounded fetch', () => {
       httpMethod: string;
       rpcMethod: string | null;
     }> = [];
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(new Response('{}')),
       maxResponseBytes: 16,
@@ -616,6 +649,7 @@ describe('MCP byte-bounded fetch', () => {
       httpMethod: string;
       rpcMethod: string | null;
     }> = [];
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(new Response('{}')),
       maxResponseBytes: 16,
@@ -626,6 +660,7 @@ describe('MCP byte-bounded fetch', () => {
       method: 'put',
       body: new URLSearchParams({ method: 'tools/list' }),
     });
+
     await response.text();
 
     expect(observed).toEqual([
@@ -645,6 +680,7 @@ describe('MCP byte-bounded fetch', () => {
         httpMethod: string;
         rpcMethod: string | null;
       }> = [];
+
       const boundedFetch = createMcpBoundedFetch({
         fetch: () => Promise.resolve(new Response('{}')),
         maxResponseBytes: 16,
@@ -655,6 +691,7 @@ describe('MCP byte-bounded fetch', () => {
         method: 'post',
         body: JSON.stringify({ method }),
       });
+
       await response.text();
 
       expect(observed).toEqual([
@@ -669,6 +706,7 @@ describe('MCP byte-bounded fetch', () => {
       httpMethod: string;
       rpcMethod: string | null;
     }> = [];
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: () => Promise.resolve(new Response('{}')),
       maxResponseBytes: 16,
@@ -679,6 +717,7 @@ describe('MCP byte-bounded fetch', () => {
       method: 'post',
       body: '{"method":',
     });
+
     await expect(response.text()).resolves.toBe('{}');
 
     expect(observed).toEqual([
@@ -688,6 +727,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('rejects an oversized serialized tool call before network execution', async () => {
     const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: fetchSpy,
       maxRequestBytes: 8,
@@ -705,6 +745,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('counts UTF-8 string request bodies at the exact byte limit', async () => {
     const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: fetchSpy,
       maxRequestBytes: 2,
@@ -722,6 +763,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('allows an absent request body at a zero-byte limit', async () => {
     const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: fetchSpy,
       maxRequestBytes: 0,
@@ -736,6 +778,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('allows an explicit null request body at a zero-byte limit', async () => {
     const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: fetchSpy,
       maxRequestBytes: 0,
@@ -753,6 +796,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('rejects an unsupported ReadableStream request body before fetch', async () => {
     const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: fetchSpy,
       maxRequestBytes: 0,
@@ -771,6 +815,7 @@ describe('MCP byte-bounded fetch', () => {
   it('delegates an unsupported ReadableStream request body when the request limit is omitted', async () => {
     const sentinel = new Error('underlying fetch sentinel');
     const fetchSpy = vi.fn(() => Promise.reject(sentinel));
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: fetchSpy,
       maxResponseBytes: 16,
@@ -787,6 +832,7 @@ describe('MCP byte-bounded fetch', () => {
 
   it('allows a supported string request body below the byte limit', async () => {
     const fetchSpy = vi.fn(() => Promise.resolve(new Response('{}')));
+
     const boundedFetch = createMcpBoundedFetch({
       fetch: fetchSpy,
       maxRequestBytes: 2,
@@ -806,6 +852,7 @@ describe('MCP byte-bounded fetch', () => {
     'enforces the request byte limit for $label bodies',
     async ({ body, byteLength }) => {
       const exactFetch = vi.fn(() => Promise.resolve(new Response('{}')));
+
       const exactBoundedFetch = createMcpBoundedFetch({
         fetch: exactFetch,
         maxRequestBytes: byteLength,
@@ -821,6 +868,7 @@ describe('MCP byte-bounded fetch', () => {
       expect(exactFetch).toHaveBeenCalledOnce();
 
       const belowFetch = vi.fn(() => Promise.resolve(new Response('{}')));
+
       const belowBoundedFetch = createMcpBoundedFetch({
         fetch: belowFetch,
         maxRequestBytes: byteLength - 1,

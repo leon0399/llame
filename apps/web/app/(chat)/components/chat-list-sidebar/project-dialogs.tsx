@@ -21,6 +21,7 @@ import type { ProjectResponse } from "@/lib/services/project/types";
 // Mirrors ../app-sidebar/chat-item-dialogs.tsx's Dialog / AlertDialog shapes,
 // no new visual language.
 const NAME_MAX = 200;
+
 // The API's own cap on an owner-authored description (Create/UpdateProjectDto);
 // the browser stops typing here rather than letting a save come back 400.
 const DESCRIPTION_MAX = 1000;
@@ -44,6 +45,7 @@ function ProjectNameField({
   onSubmit: () => void;
 }) {
   const id = useId();
+
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>Name</Label>
@@ -78,6 +80,7 @@ function ProjectDescriptionField({
   onDescriptionChange: (description: string) => void;
 }) {
   const id = useId();
+
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>Description</Label>
@@ -111,6 +114,7 @@ function ProjectDetailsFields({
 }) {
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
+
   const submit = () => {
     if (!name.trim() || pending) return;
     onSubmit(name, description);
@@ -163,6 +167,7 @@ function NewProjectForm({
   onCreated?: (project: ProjectResponse) => void;
 }) {
   const create = useCreateProject();
+
   return (
     <ProjectDetailsFields
       initial={{ name: "", description: "" }}
@@ -233,10 +238,13 @@ function projectDetailsPatch(
   const nextName = name.trim();
   const nextDescription = description.trim();
   const patch: UpdateProjectPatch = {};
+
   if (nextName !== project.name) patch.name = nextName;
+
   if (nextDescription !== (project.description ?? "").trim()) {
     patch.description = nextDescription || null;
   }
+
   return Object.keys(patch).length === 0 ? null : patch;
 }
 
@@ -268,6 +276,7 @@ export function EditProjectDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { description } = project;
+
   return (
     <DialogFrame open={open} onOpenChange={onOpenChange} title="Edit details">
       {description === undefined ? (
@@ -292,6 +301,7 @@ function EditProjectForm({
   onClose: () => void;
 }) {
   const update = useUpdateProject();
+
   return (
     <ProjectDetailsFields
       initial={{ name: project.name, description: project.description ?? "" }}
@@ -300,6 +310,7 @@ function EditProjectForm({
       onClose={onClose}
       onSubmit={(name, description) => {
         const patch = projectDetailsPatch(project, name, description);
+
         if (patch === null) return onClose();
         update.mutate({ id: project.id, ...patch }, { onSuccess: onClose });
       }}

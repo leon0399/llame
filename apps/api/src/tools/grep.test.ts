@@ -68,11 +68,13 @@ async function spaceFixture(
 ): Promise<SpaceFixture> {
   const directory = path.join(root, id);
   await mkdir(directory, { recursive: true });
+
   for (const [relative, content] of Object.entries(files)) {
     const target = path.join(directory, ...relative.split('/'));
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, content);
   }
+
   return { binding: { id, name: id, root, directory }, directory };
 }
 
@@ -165,16 +167,20 @@ function success(result: ToolResult) {
   if (result.status !== 'success') {
     throw new Error(`expected success, received ${result.type}`);
   }
+
   return result;
 }
 
 /** The result's passage list, as values this file still has to check. */
 function resultList(result: ToolResult): ReadonlyArray<unknown> {
   const results = success(result).results;
+
   if (!Array.isArray(results)) return [];
   // Copy the unchecked list into `unknown`, so every field is parsed below.
   const list: Array<unknown> = [];
+
   for (const entry of results) list.push(entry);
+
   return list;
 }
 
@@ -183,12 +189,14 @@ function locatorsOf(result: ToolResult): ReadonlyArray<string> {
     if (!isRecord(passage) || !isString(passage.locator)) {
       throw new Error('a passage carries a locator');
     }
+
     return passage.locator;
   });
 }
 
 function passageOf(result: ToolResult, index: number) {
   const passage = resultList(result)[index];
+
   if (
     !isRecord(passage) ||
     !isString(passage.locator) ||
@@ -197,6 +205,7 @@ function passageOf(result: ToolResult, index: number) {
   ) {
     throw new Error('the passage is well formed');
   }
+
   return {
     locator: passage.locator,
     content: passage.content,
@@ -206,17 +215,21 @@ function passageOf(result: ToolResult, index: number) {
 
 function warningsOf(result: ToolResult): ReadonlyArray<unknown> {
   const warnings = success(result).warnings;
+
   return Array.isArray(warnings) ? warnings : [];
 }
 
 function run(context: ToolContext, args: unknown) {
   const parsed = grepInputSchema.safeParse(args);
+
   if (!parsed.success) throw new Error('the fixture arguments must parse');
+
   return nativeGrepTool.execute(context, parsed.data);
 }
 
 async function withRoot<T>(callback: (root: string) => Promise<T>): Promise<T> {
   const root = await temporaryRoot();
+
   try {
     return await callback(root);
   } finally {
@@ -263,6 +276,7 @@ describe('pattern compilation', () => {
       patterns: ['needle', String.raw`(a)\1`],
       scopes: ['skill://'],
     });
+
     expect(result).toMatchObject({ status: 'error', type: 'invalid_pattern' });
     expect('message' in result ? result.message : '').toMatch(/^Pattern 1: /);
   });
@@ -272,6 +286,7 @@ describe('pattern compilation', () => {
       patterns: ['é'.repeat(300)],
       scopes: ['skill://'],
     });
+
     expect(result).toMatchObject({ status: 'error', type: 'invalid_pattern' });
   });
 
@@ -283,10 +298,12 @@ describe('pattern compilation', () => {
         path.join(pkg, 'SKILL.md'),
         lineNumbered('axb(', 'filler', 'a.b('),
       );
+
       const result = await run(
         contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
         { patterns: ['a.b('], literal: true, scopes: ['skill://pdf'] },
       );
+
       expect(result).toMatchObject({ status: 'success', complete: true });
       const passage = passageOf(result, 0);
       expect(passage.content).toContain('a.b(');
@@ -317,6 +334,7 @@ describe('scope refusals', () => {
       }),
       { patterns: ['x'] },
     );
+
     expect(result).toMatchObject({ status: 'error', type: 'invalid_input' });
     const message = 'message' in result ? result.message : '';
     expect(message).toContain('kb://');
@@ -329,6 +347,7 @@ describe('scope refusals', () => {
       patterns: ['x'],
       scopes: ['/srv/data/**'],
     });
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'executor_unavailable',
@@ -342,9 +361,11 @@ describe('Knowledge scopes', () => {
       const a = await spaceFixture(root, SPACE_A, {
         'notes/a.md': lineNumbered('needle in a'),
       });
+
       const b = await spaceFixture(root, SPACE_B, {
         'notes/b.md': lineNumbered('needle in b'),
       });
+
       const result = await run(
         contextOf({
           resolver: knowledgeResolver(
@@ -357,6 +378,7 @@ describe('Knowledge scopes', () => {
         }),
         { patterns: ['needle'], scopes: ['kb://'] },
       );
+
       expect(result).toMatchObject({ status: 'success', complete: true });
       expect(locatorsOf(result)).toEqual([
         `kb://${SPACE_A}/notes/a.md:1-1`,
@@ -370,6 +392,7 @@ describe('Knowledge scopes', () => {
       contextOf({ resolver: knowledgeResolver(new Map()) }),
       { patterns: ['x'], scopes: ['kb://'] },
     );
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'knowledge_space_not_configured',
@@ -381,6 +404,7 @@ describe('Knowledge scopes', () => {
       patterns: ['x'],
       scopes: [`kb://${SPACE_A}/notes`],
     });
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'knowledge_space_unavailable',
@@ -390,12 +414,14 @@ describe('Knowledge scopes', () => {
   it("reports another owner's Space as not found without probing it", async () => {
     await withRoot(async (root) => {
       const a = await spaceFixture(root, SPACE_A, { 'a.md': 'needle' });
+
       const result = await run(
         contextOf({
           resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
         }),
         { patterns: ['needle'], scopes: [`kb://${SPACE_B}/a.md`] },
       );
+
       expect(result).toMatchObject({
         status: 'error',
         type: 'knowledge_space_not_found',
@@ -408,11 +434,14 @@ describe('Knowledge scopes', () => {
       const a = await spaceFixture(root, SPACE_A, {
         'notes/a.md': lineNumbered('one', 'two', 'three', 'four', 'five'),
       });
+
       const resolver = knowledgeResolver(new Map([[SPACE_A, a.binding]]));
+
       const grep = await run(contextOf({ resolver }), {
         patterns: ['four'],
         scopes: [`kb://${SPACE_A}/notes`],
       });
+
       expect(grep).toMatchObject({ status: 'success' });
       const passage = passageOf(grep, 0);
       expect(passage.locator).toBe(`kb://${SPACE_A}/notes/a.md:3-5`);
@@ -421,6 +450,7 @@ describe('Knowledge scopes', () => {
       const read = await nativeReadTool.execute(contextOf({ resolver }), {
         path: passage.locator,
       });
+
       expect(read).toMatchObject({ status: 'success' });
       // The window carries one context line on each side of the hit.
       expect('shownRange' in read ? read.shownRange : undefined).toEqual({
@@ -436,11 +466,14 @@ describe('Knowledge scopes', () => {
       const a = await spaceFixture(root, SPACE_A, {
         'notes/a*.md': lineNumbered('one', 'two', 'needle', 'four'),
       });
+
       const resolver = knowledgeResolver(new Map([[SPACE_A, a.binding]]));
+
       const first = await run(contextOf({ resolver }), {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}/notes`],
       });
+
       const hit = passageOf(first, 0).locator;
       // The scheme's formatter encodes no glob character: `*` stays as written.
       expect(hit).toBe(`kb://${SPACE_A}/notes/a*.md:2-4`);
@@ -449,6 +482,7 @@ describe('Knowledge scopes', () => {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}/notes/a%2A.md`],
       });
+
       expect(locatorsOf(second)).toEqual([`kb://${SPACE_A}/notes/a*.md:2-4`]);
     });
   });
@@ -460,6 +494,7 @@ describe('Knowledge scopes', () => {
         'notes/.env': lineNumbered('needle'),
         'notes/a.md': lineNumbered('needle'),
       });
+
       const map: ToolPermissionMap = {
         grep: { allow: true },
         read: {
@@ -467,15 +502,19 @@ describe('Knowledge scopes', () => {
           reject: [{ field: 'path', regex: '\\.env$|secret\\.md$' }],
         },
       };
+
       const resolver = knowledgeResolver(new Map([[SPACE_A, a.binding]]));
+
       const exact = await run(contextOf({ resolver, map }), {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}/secret.md`],
       });
+
       const missing = await run(contextOf({ resolver, map }), {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}/absent.md`],
       });
+
       expect(exact).toEqual(missing);
       expect(exact).toMatchObject({ status: 'error', type: 'not_found' });
 
@@ -483,6 +522,7 @@ describe('Knowledge scopes', () => {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}/notes`],
       });
+
       expect(walk).toMatchObject({ status: 'success', complete: true });
       expect(locatorsOf(walk)).toEqual([`kb://${SPACE_A}/notes/a.md:1-1`]);
       expect(walk).not.toHaveProperty('readRefused');
@@ -495,7 +535,9 @@ describe('Knowledge scopes', () => {
         'notes/.env': lineNumbered('needle'),
         'notes/a.md': lineNumbered('needle'),
       });
+
       const derived: Array<DerivedDecision> = [];
+
       const result = await run(
         contextOf({
           resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
@@ -510,6 +552,7 @@ describe('Knowledge scopes', () => {
         }),
         { patterns: ['needle'], scopes: [`kb://${SPACE_A}/notes`] },
       );
+
       expect(result).toMatchObject({ status: 'success' });
       expect(result).not.toHaveProperty('readRefused');
       expect(derived).toHaveLength(1);
@@ -522,7 +565,9 @@ describe('Knowledge scopes', () => {
       const a = await spaceFixture(root, SPACE_A, {
         'secret.md': lineNumbered('needle'),
       });
+
       const derived: Array<DerivedDecision> = [];
+
       const result = await run(
         contextOf({
           resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
@@ -551,6 +596,7 @@ describe('Knowledge scopes', () => {
       const a = await spaceFixture(root, SPACE_A, {
         'note.md': lineNumbered('needle'),
       });
+
       const pkg = path.join(root, 'pdf');
       await mkdir(pkg);
       await writeFile(path.join(pkg, 'SKILL.md'), lineNumbered('needle'));
@@ -561,12 +607,14 @@ describe('Knowledge scopes', () => {
         }),
         { patterns: ['needle'], scopes: [`kb://${SPACE_A}`] },
       );
+
       expect(success(knowledge).notice).toBe(KNOWLEDGE_CONTENT_NOTICE);
 
       const skill = await run(
         contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
         { patterns: ['needle'], scopes: ['skill://pdf'] },
       );
+
       expect(success(skill)).not.toHaveProperty('notice');
     });
   });
@@ -578,6 +626,7 @@ describe('skill scopes', () => {
       patterns: ['x'],
       scopes: ['skill://'],
     });
+
     expect(result).toMatchObject({
       status: 'success',
       results: [],
@@ -601,6 +650,7 @@ describe('skill scopes', () => {
         contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
         { patterns: ['needle'], scopes: ['skill://pdf'] },
       );
+
       expect(result).toMatchObject({ status: 'success', complete: true });
       expect(locatorsOf(result)).toEqual([
         'skill://pdf/SKILL.md:1-1',
@@ -629,6 +679,7 @@ describe('skill scopes', () => {
         patterns: ['needle'],
         scopes: ['skill://'],
       });
+
       expect(bare).toMatchObject({
         status: 'success',
         results: [],
@@ -639,6 +690,7 @@ describe('skill scopes', () => {
         contextOf({ catalog, selection: new Set(['manual']) }),
         { patterns: ['needle'], scopes: ['skill://'] },
       );
+
       expect(locatorsOf(selected)).toEqual(['skill://manual/SKILL.md:1-1']);
     });
   });
@@ -655,6 +707,7 @@ describe('one walk per call', () => {
       complete: true,
       notice: KNOWLEDGE_CONTENT_NOTICE,
     });
+
     expect(pageFixedReserve()).toBe(notice + 2);
     expect(grepWarningsUnits(new Map([['binary', 1]]))).toBe(
       grepWarningsUnits(new Map([['binary', 999_999]])) - 5,
@@ -668,8 +721,10 @@ describe('one walk per call', () => {
       // internal pages and the result holds them all.
       const matched = `${'x'.repeat(480)}needle`;
       const lines: Array<string> = [];
+
       for (let index = 0; index < 14; index += 1)
         lines.push('ctx', 'ctx', 'ctx', matched);
+
       const a = await spaceFixture(
         root,
         SPACE_A,
@@ -680,6 +735,7 @@ describe('one walk per call', () => {
           ]),
         ),
       );
+
       const context = contextOf({
         resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
       });
@@ -688,17 +744,20 @@ describe('one walk per call', () => {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}`],
       });
+
       // The inline part keeps the head of the walk; the left-out count names
       // the files the walk still reached, so every one of the 24 is accounted
       // for even though this Run cannot read an artifact.
       expect(measureGrepRendering(result)).toBeLessThanOrEqual(15_000);
       expect(success(result).complete).toBe(true);
       expect(result).not.toHaveProperty('cursor');
+
       const files = new Set(
         locatorsOf(result).map((locator) =>
           locator.slice(0, locator.lastIndexOf(':')),
         ),
       );
+
       expect(success(result).leftOut).toMatchObject({
         of: 'files',
         count: 24 - files.size,
@@ -712,17 +771,21 @@ describe('one walk per call', () => {
       // so a call that restarted its walk is visible as more than 5,000 reads.
       const space = path.join(root, SPACE_A);
       await mkdir(space, { recursive: true });
+
       const misses = Array.from(
         { length: 4900 },
         (_, index) => `f${String(index).padStart(4, '0')}.md`,
       );
+
       await Promise.all(
         misses.map((name) => writeFile(path.join(space, name), 'miss\n')),
       );
       const matched = `${'x'.repeat(480)}needle`;
       const lines: Array<string> = [];
+
       for (let index = 0; index < 20; index += 1)
         lines.push('ctx', matched, 'ctx', 'ctx');
+
       for (let index = 0; index < 6; index += 1)
         await writeFile(
           path.join(space, `note-${String(index)}.md`),
@@ -730,6 +793,7 @@ describe('one walk per call', () => {
         );
 
       const reads = vi.spyOn(KnowledgeFilesystemAdapter.prototype, 'openWalk');
+
       try {
         const result = await run(
           contextOf({
@@ -750,8 +814,10 @@ describe('one walk per call', () => {
           }),
           { patterns: ['needle'], scopes: [`kb://${SPACE_A}`] },
         );
+
         expect(result).toMatchObject({ status: 'success', complete: true });
         expect(reads.mock.calls.length).toBeLessThanOrEqual(5000);
+
         // Six notes give the walk 120 passages; the head keeps what it can
         // and the left-out count names the files it did not hold.
         const files = new Set(
@@ -759,6 +825,7 @@ describe('one walk per call', () => {
             locator.slice(0, locator.lastIndexOf(':')),
           ),
         );
+
         expect(success(result).leftOut).toMatchObject({
           of: 'files',
           count: 6 - files.size,
@@ -776,24 +843,29 @@ describe('one walk per call', () => {
       const space = await spaceFixture(root, SPACE_A, {
         'a.md': lineNumbered('needle'),
       });
+
       const resolver: KnowledgeToolResolver = {
         ...knowledgeResolver(new Map([[SPACE_A, space.binding]])),
         // Resolving the scope spends the whole 108-second walk. A deadline
         // taken after resolution would leave a fresh one and find the needle.
         resolveBindingForOwnerById: (owner, id) => {
           vi.setSystemTime(109_000);
+
           return knowledgeResolver(
             new Map([[SPACE_A, space.binding]]),
           ).resolveBindingForOwnerById(owner, id);
         },
       };
+
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(0);
+
       try {
         const result = await run(contextOf({ resolver }), {
           patterns: ['needle'],
           scopes: [`kb://${SPACE_A}`],
         });
+
         expect(result).toMatchObject({ status: 'success', results: [] });
         expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
         expect(success(result).complete).toBe(false);
@@ -809,9 +881,11 @@ describe('one walk per call', () => {
       const a = await spaceFixture(root, SPACE_A, {
         'note.md': lineNumbered('needle'),
       });
+
       const b = await spaceFixture(root, SPACE_B, {
         'note.md': lineNumbered('needle'),
       });
+
       const context = contextOf({
         resolver: knowledgeResolver(
           new Map([
@@ -825,6 +899,7 @@ describe('one walk per call', () => {
         patterns: ['needle'],
         scopes: ['kb://'],
       });
+
       // Each expanded Space is its own scope, and one call walks them all.
       expect(locatorsOf(result)).toEqual([
         `kb://${SPACE_A}/note.md:1-1`,
@@ -844,6 +919,7 @@ describe('one walk per call', () => {
           lineNumbered('needle'),
         );
       }
+
       const context = contextOf({
         catalog: catalogOf([
           packageEntry('pdf', path.join(root, 'pdf')),
@@ -855,6 +931,7 @@ describe('one walk per call', () => {
         patterns: ['needle'],
         scopes: ['skill://'],
       });
+
       expect(locatorsOf(result)).toEqual([
         'skill://alpha/SKILL.md:1-1',
         'skill://pdf/SKILL.md:1-1',
@@ -868,10 +945,12 @@ describe('one walk per call', () => {
       const pkg = path.join(root, 'pdf');
       await mkdir(pkg);
       await writeFile(path.join(pkg, 'a.md'), lineNumbered('nothing here'));
+
       const result = await run(
         contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
         { patterns: ['needle'], scopes: ['skill://pdf'] },
       );
+
       expect(result).toEqual({
         status: 'success',
         results: [],
@@ -888,19 +967,23 @@ describe('native attempt', () => {
       const a = await spaceFixture(root, SPACE_A, {
         'notes/a.md': lineNumbered('needle'),
       });
+
       const runAs = vi.fn(() =>
         Promise.reject(new Error('grep never opens a tenant transaction')),
       );
+
       const context: ToolContext = {
         ...contextOf({
           resolver: knowledgeResolver(new Map([[SPACE_A, a.binding]])),
         }),
         tenantDb: { runAs },
       };
+
       const result = await run(context, {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}/notes`],
       });
+
       expect(result).toMatchObject({ status: 'success' });
       expect(runAs).not.toHaveBeenCalled();
     });
@@ -922,6 +1005,7 @@ describe('unavailable catalog', () => {
       }),
       { patterns: ['x'], scopes: ['skill://pdf'] },
     );
+
     expect(result).toEqual(skillCatalogUnavailableResult());
   });
 });
@@ -962,6 +1046,7 @@ describe('pattern and scope ordering', () => {
         path.join(pkg, 'SKILL.md'),
         lineNumbered('x'.repeat(512)),
       );
+
       const result = await run(
         contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
         { patterns: ['x'.repeat(512)], scopes: ['skill://pdf'] },
@@ -977,12 +1062,14 @@ describe('matching modes', () => {
     const pkg = path.join(root, 'pdf');
     await mkdir(pkg, { recursive: true });
     await writeFile(path.join(pkg, 'SKILL.md'), lineNumbered(content));
+
     return pkg;
   }
 
   it('matches case-sensitively unless ignoreCase asks otherwise', async () => {
     await withRoot(async (root) => {
       const pkg = await packageWith(root, 'Needle in a haystack');
+
       const context = contextOf({
         catalog: catalogOf([packageEntry('pdf', pkg)]),
       });
@@ -1005,6 +1092,7 @@ describe('matching modes', () => {
   it('reads metacharacters as syntax unless literal asks otherwise', async () => {
     await withRoot(async (root) => {
       const pkg = await packageWith(root, 'axb');
+
       const context = contextOf({
         catalog: catalogOf([packageEntry('pdf', pkg)]),
       });
@@ -1041,6 +1129,7 @@ describe('no model cursor', () => {
       await mkdir(pkg);
       await writeFile(path.join(pkg, 'a.md'), lineNumbered('miss'));
       await writeFile(path.join(pkg, 'b.md'), lineNumbered('needle'));
+
       const result = await run(
         contextOf({
           catalog: catalogOf([packageEntry('pdf', pkg)]),
@@ -1053,6 +1142,7 @@ describe('no model cursor', () => {
         }),
         { patterns: ['needle'], scopes: ['skill://pdf'] },
       );
+
       expect(result).toMatchObject({
         status: 'success',
         results: [],
@@ -1071,6 +1161,7 @@ describe('no model cursor', () => {
       // file's match is never reached.
       await writeFile(path.join(pkg, 'a.md'), lineNumbered('miss'));
       await writeFile(path.join(pkg, 'b.md'), lineNumbered('needle'));
+
       const result = await run(
         contextOf({
           catalog: catalogOf([packageEntry('pdf', pkg)]),
@@ -1083,6 +1174,7 @@ describe('no model cursor', () => {
         }),
         { patterns: ['needle'], scopes: ['skill://pdf'] },
       );
+
       expect(result).toMatchObject({ status: 'success', results: [] });
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'entry_bound', count: 1 }]);
@@ -1138,6 +1230,7 @@ describe('scope kinds message', () => {
         { ...contextOf(), ...extra },
         { patterns: ['x'] },
       );
+
       expect(result).toEqual({
         status: 'error',
         type: 'invalid_input',
@@ -1155,6 +1248,7 @@ describe('walk failures', () => {
       await writeFile(path.join(pkg, 'SKILL.md'), lineNumbered('needle'));
       const controller = new AbortController();
       const catalog = catalogOf([packageEntry('pdf', pkg)]);
+
       const context: ToolContext = {
         ...contextOf(),
         abortSignal: controller.signal,
@@ -1163,6 +1257,7 @@ describe('walk failures', () => {
             // Cancel while the scope resolves: the entry check has already
             // run, so the cancellation has to travel out of the walk itself.
             controller.abort();
+
             return catalog.getSnapshot(sources);
           },
         },
@@ -1178,6 +1273,7 @@ describe('walk failures', () => {
     await withRoot(async (root) => {
       const pkg = path.join(root, 'pdf');
       await mkdir(pkg);
+
       const result = await run(
         contextOf({ catalog: catalogOf([packageEntry('pdf', pkg)]) }),
         { patterns: ['needle'], scopes: ['skill://pdf/absent/**'] },

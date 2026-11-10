@@ -98,6 +98,7 @@ function makeService(
   // oxlint's typescript-aware unbound-method rule flags the latter.
   const ensureQueueSpy = vi.fn().mockResolvedValue(undefined);
   const consumeSpy = vi.fn<ConsumeMockFn>().mockResolvedValue('consumer-id');
+
   const queue: QueueConsumer = {
     ensureQueue: ensureQueueSpy,
     consume: consumeSpy,
@@ -141,14 +142,17 @@ function makeService(
   const runAsSpy = vi.fn(
     <T>(_userId: string, _cb: (tx: Db) => T | Promise<T>) => {},
   );
+
   // A mocked generic method infers a concrete T that can't structurally
   // satisfy `runAs`'s own `<T>`. A plain (non-mocked) arrow function assigned
   // to the generic-typed slot lets TS infer the real generic signature; it
   // delegates to the spy for tracking without ever widening then asserting.
   const runAs: TenantRunner['runAs'] = (userId, fn) => {
     runAsSpy(userId, fn);
+
     return fn(tx);
   };
+
   const tenantDb: TenantRunner = { runAs };
 
   const service = new RunsWorkerService(
@@ -179,12 +183,15 @@ async function captureRunsHandler(
   consumeSpy: Mock<ConsumeMockFn>,
 ): Promise<(job: RunJob) => Promise<void>> {
   await service.onApplicationBootstrap();
+
   const call = consumeSpy.mock.calls.find(
     ([definition]) => definition.name === RUNS_QUEUE.name,
   );
+
   if (!call) {
     throw new Error('runs consumer was never registered');
   }
+
   return call[1];
 }
 
@@ -195,12 +202,15 @@ async function captureDeadLetterHandler(
 ): Promise<(job: RunJob) => Promise<void>> {
   await service.onApplicationBootstrap();
   const deadQueueName = deadLetterQueue(RUNS_QUEUE).name;
+
   const call = consumeSpy.mock.calls.find(
     ([definition]) => definition.name === deadQueueName,
   );
+
   if (!call) {
     throw new Error('runs.dead consumer was never registered');
   }
+
   return call[1];
 }
 
@@ -218,6 +228,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+
     for (const root of hostRoots.splice(0)) {
       rmSync(root, { recursive: true, force: true });
     }
@@ -228,6 +239,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     const root = mkdtempSync(path.join(tmpdir(), 'artifact-worker-sweep-'));
     hostRoots.push(root);
     vi.stubEnv('TMPDIR', root);
+
     return root;
   }
 
@@ -243,19 +255,23 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
 
   it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
     hostTmpdir();
+
     const stale = path.join(
       artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
       'bash-1',
     );
+
     const live = path.join(
       artifactDirectory('5d0e9d9e-9a5f-4cbb-8a0f-6c4a1f6a2e77'),
       'bash-2',
     );
+
     mkdirSync(stale, { recursive: true, mode: 0o700 });
     mkdirSync(live, { recursive: true, mode: 0o700 });
     const staleSeen = new Date(Date.now() - SWEEP_AFTER_MS - 1);
     utimesSync(dirname(dirname(stale)), staleSeen, staleSeen);
     const tx = makeFakeTx();
+
     const { service } = makeService(tx, {
       allowedTools: ['bash'],
       nativeExecutorId: 'host-a',
@@ -272,10 +288,12 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
 
   it('sweeps nothing when the worker keeps no host files', async () => {
     hostTmpdir();
+
     const stale = path.join(
       artifactDirectory('0b0b2a2e-7a7f-4a53-9d0e-2f2f6a3c3b11'),
       'bash-1',
     );
+
     mkdirSync(stale, { recursive: true, mode: 0o700 });
     const staleSeen = new Date(Date.now() - SWEEP_AFTER_MS - 1);
     utimesSync(dirname(dirname(stale)), staleSeen, staleSeen);
@@ -290,15 +308,18 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
   it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {
     const warnSpy = vi.spyOn(Logger.prototype, 'warn');
     const tx = makeFakeTx();
+
     const settleTerminalRun = vi
       .fn()
       .mockResolvedValue({ outcome: 'won' as const });
+
     const { service, consumeSpy } = makeService(tx, {
       runExecution: {
         executeRun: unstubbed('executeRun'),
         settleTerminalRun,
       },
     });
+
     const handler = await captureDeadLetterHandler(service, consumeSpy);
 
     await handler(job);
@@ -330,16 +351,19 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     // The central finalizer reports a guarded markFinished loss when another
     // terminal writer already won; the dead-letter consumer accepts that no-op.
     const tx = makeFakeTx();
+
     const settleTerminalRun = vi.fn().mockResolvedValue({
       outcome: 'lost' as const,
       finalStatus: 'completed',
     });
+
     const { service, consumeSpy } = makeService(tx, {
       runExecution: {
         executeRun: unstubbed('executeRun'),
         settleTerminalRun,
       },
     });
+
     const handler = await captureDeadLetterHandler(service, consumeSpy);
 
     await handler(job);
@@ -363,6 +387,7 @@ describe('RunsWorkerService — canonical search coverage admission', () => {
     'gates a runs-consuming worker before queue registration %s',
     async (_name, allowedTools) => {
       const assertReady = vi.fn().mockResolvedValue(undefined);
+
       const { service, consumeSpy } = makeService(makeFakeTx(), {
         allowedTools,
         canonicalSearchCoverage: { assertReady },
@@ -381,6 +406,7 @@ describe('RunsWorkerService — canonical search coverage admission', () => {
     const assertReady = vi
       .fn()
       .mockRejectedValue(new Error('aggregate coverage incomplete'));
+
     const { service, consumeSpy, ensureQueueSpy } = makeService(makeFakeTx(), {
       canonicalSearchCoverage: { assertReady },
     });
@@ -394,6 +420,7 @@ describe('RunsWorkerService — canonical search coverage admission', () => {
 
   it('skips coverage and queue registration for a non-Run worker profile', async () => {
     const assertReady = vi.fn().mockResolvedValue(undefined);
+
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       allowedTools: ['search_conversations'],
       runsConcurrency: null,
@@ -419,6 +446,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       parts: [{ type: 'text', text: 'Continue.' }],
     } satisfies RunUserMessage,
   };
+
   const queuedRun = {
     id: job.runId,
     chatId: job.chatId,
@@ -440,6 +468,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     followUpAction: null,
     sourceRunId: null,
   };
+
   const cancellationMessage =
     'Run was cancelled before this worker attempt started.';
 
@@ -461,6 +490,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     const abort = new AbortController();
     const unregister = vi.fn();
     const tx = makeFakeTx();
+
     const { service, consumeSpy, runAsSpy } = makeService(tx, {
       models: { createClient: vi.fn().mockReturnValue({}) },
       runExecution: {
@@ -472,6 +502,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
         unregister,
       },
     });
+
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await expect(handler(job)).rejects.toThrow(
@@ -488,16 +519,20 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       ...queuedRun,
       cancelRequestedAt: new Date(),
     });
+
     const settleTerminalRun = vi.fn().mockResolvedValue({
       outcome: 'won' as const,
     });
+
     const tx = makeFakeTx();
+
     const { service, consumeSpy } = makeService(tx, {
       runExecution: {
         executeRun: unstubbed('executeRun'),
         settleTerminalRun,
       },
     });
+
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await handler(job);
@@ -518,12 +553,15 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
         ...queuedRun,
         cancelRequestedAt: new Date(),
       });
+
     const settleTerminalRun = vi.fn().mockResolvedValue({
       outcome: 'won' as const,
     });
+
     const abort = new AbortController();
     const unregister = vi.fn();
     const tx = makeFakeTx();
+
     const { service, consumeSpy } = makeService(tx, {
       models: { createClient: vi.fn().mockReturnValue({}) },
       runExecution: {
@@ -535,6 +573,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
         unregister,
       },
     });
+
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await handler(job);
@@ -551,10 +590,13 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 
   it('routes a pickup failure through central terminal settlement, which refreshes search', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
+
     const settleTerminalRun = vi.fn().mockResolvedValue({
       outcome: 'won' as const,
     });
+
     const unavailable = new ModelNotAvailableError(job.modelId);
+
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       models: {
         createClient: () => {
@@ -566,6 +608,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
         settleTerminalRun,
       },
     });
+
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await handler(job);
@@ -594,6 +637,7 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
       parts: [{ type: 'text', text: 'Continue.' }],
     } satisfies RunUserMessage,
   };
+
   const queuedRun = {
     id: job.runId,
     chatId: job.chatId,
@@ -626,6 +670,7 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
     const abort = vi.fn();
     const controller = new AbortController();
+
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       timeoutSeconds,
       models: { createClient: vi.fn().mockReturnValue({}) },
@@ -644,9 +689,11 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
         unregister: vi.fn(),
       },
     });
+
     const handler = await captureRunsHandler(service, consumeSpy);
     void handler(job);
     await vi.waitFor(() => expect(abort).not.toHaveBeenCalled());
+
     return abort;
   }
 
@@ -712,19 +759,23 @@ describe('RunsWorkerService — durable run-level failures', () => {
       followUpAction: null,
       sourceRunId: null,
     } as const;
+
     vi.spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValueOnce(run)
       .mockResolvedValueOnce(run)
       .mockResolvedValueOnce({ ...run, status: 'failed' });
     const createClient = vi.fn().mockReturnValue({});
+
     const executeRun = vi
       .fn()
       .mockRejectedValue(
         new ModelContextExecutionError('snapshot tool declaration drifted'),
       );
+
     const abort = new AbortController();
     const unregister = vi.fn();
     const tx = makeFakeTx();
+
     const { service, consumeSpy } = makeService(tx, {
       models: { createClient },
       runExecution: {
@@ -736,6 +787,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
         unregister,
       },
     });
+
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await expect(handler(job)).resolves.toBeUndefined();
@@ -767,12 +819,16 @@ describe('RunsWorkerService — durable run-level failures', () => {
       followUpAction: null,
       sourceRunId: null,
     };
+
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+
     const contextError = new ModelContextExecutionError(
       'snapshot tool declaration drifted',
     );
+
     const abort = new AbortController();
     const tx = makeFakeTx();
+
     const { service, consumeSpy } = makeService(tx, {
       models: {
         createClient: vi.fn().mockReturnValue({}),
@@ -786,6 +842,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
         unregister: vi.fn(),
       },
     });
+
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await expect(handler(job)).rejects.toBe(contextError);

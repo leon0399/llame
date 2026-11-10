@@ -52,10 +52,12 @@ export function rebasePath(
   if (path === oldPrefix) {
     return newPrefix;
   }
+
   if (!isDescendantPath(path, oldPrefix)) {
     throw new Error(
       `Path "${path}" is not inside subtree "${oldPrefix}" — refusing to rebase.`,
     );
   }
+
   return `${newPrefix}${path.slice(oldPrefix.length)}`;
 }

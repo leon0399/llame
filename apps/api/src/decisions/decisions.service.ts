@@ -41,6 +41,7 @@ export const RELEVANCE_YES = loadPackagedTemplate<Record<string, never>>(
   __dirname,
   'relevance-yes',
 )(NO_VALUES);
+
 export const RELEVANCE_NO = loadPackagedTemplate<Record<string, never>>(
   __dirname,
   'relevance-no',
@@ -167,6 +168,7 @@ export function buildJudgeRequest(input: {
   // The objective, when present, is the criterion: it is why the model wants
   // the candidates, while the query is only how it searched.
   const field = input.objective !== undefined ? 'objective' : 'query';
+
   const state = {
     query: input.query,
     ...(input.objective !== undefined && { objective: input.objective }),
@@ -174,6 +176,7 @@ export function buildJudgeRequest(input: {
     criteria: { yes: RELEVANCE_YES, no: RELEVANCE_NO },
     task: UNTRUSTED_STATE_INSTRUCTION,
   };
+
   const questions = Object.fromEntries(
     input.cards.map((card) => [
       card.key,
@@ -191,6 +194,7 @@ export function buildJudgeRequest(input: {
       },
     ]),
   );
+
   return { state, questions };
 }
 
@@ -247,22 +251,27 @@ export async function judgeCandidatesWith(
 ): Promise<CandidateJudgement> {
   input.abortSignal?.throwIfAborted();
   const send = (request: DecisionRequest) => client.decide(request);
+
   return judgeRequests(input, options, send, () => {
     const { wireCards, requests } = buildRequests(
       input,
       options.protectedValues ?? [],
     );
+
     return {
       requests,
       scoreOf: (outcomes) => {
         const answers: Record<string, DecisionAnswer> = {};
+
         for (const outcome of outcomes) {
           if (outcome.status === 'answered' && 'answers' in outcome) {
             Object.assign(answers, outcome.answers);
           }
         }
+
         return (index) => {
           const wireKey = wireCards[index]?.key;
+
           return wireKey === undefined ? undefined : answers[wireKey]?.noul;
         };
       },
@@ -298,17 +307,22 @@ async function judgeRequests<R>(
       options.logger,
     );
   }
+
   const { requests, scoreOf } = plan();
+
   const outcomes = await Promise.all(
     requests.map((request) => sendSafely(() => send(request))),
   );
+
   const judgement = logged(
     input,
     requests.length,
     mergeOutcomes(input, outcomes, scoreOf(outcomes)),
     options.logger,
   );
+
   input.abortSignal?.throwIfAborted();
+
   return judgement;
 }
 
@@ -324,6 +338,7 @@ function logged(
   } catch {
     // A logging failure never fails a tool call.
   }
+
   return judgement;
 }
 
@@ -339,11 +354,14 @@ function buildRequests(
 ) {
   const protect = (text: string) =>
     redactProtectedString(text, protectedValues);
+
   const width = String(input.cards.length - 1).length;
+
   const wireCards = input.cards.map((card, index) => ({
     key: cardKey(index, width),
     text: cutStringAtCodePointBoundary(protect(card.text), input.cardBound),
   }));
+
   const shared = {
     query: protect(input.query),
     ...(input.objective !== undefined && {
@@ -351,7 +369,9 @@ function buildRequests(
     }),
     rubric: input.rubric,
   };
+
   const requests: Array<DecisionRequest> = [];
+
   for (
     let start = 0;
     start < wireCards.length;
@@ -365,6 +385,7 @@ function buildRequests(
       ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
     });
   }
+
   return { wireCards, requests };
 }
 
@@ -391,6 +412,7 @@ function sumAccepted(
   let inputTokens: number | null = 0;
   let outputTokens = 0;
   let costUsd: number | null = 0;
+
   for (const { usage } of answered) {
     inputTokens =
       inputTokens === null || usage.inputTokens === null
@@ -402,6 +424,7 @@ function sumAccepted(
         ? null
         : costUsd + usage.costUsd;
   }
+
   return { inputTokens, outputTokens, costUsd };
 }
 
@@ -419,10 +442,13 @@ function mergeOutcomes(
     0,
     ...outcomes.map((outcome) => outcome.latencyMs),
   );
+
   const answered = outcomes.flatMap((outcome) =>
     outcome.status === 'answered' ? [outcome] : [],
   );
+
   const first = answered[0];
+
   if (first === undefined) {
     return unavailableJudgement(input, firstFailureReason(outcomes), latencyMs);
   }
@@ -431,9 +457,11 @@ function mergeOutcomes(
   const unanswered: Array<string> = [];
   input.cards.forEach((card, index) => {
     const score = scoreOf(index);
+
     if (score === undefined) unanswered.push(card.key);
     else probabilities.set(card.key, score);
   });
+
   return {
     status: 'answered',
     probabilities,
@@ -450,6 +478,7 @@ function firstFailureReason(
   for (const outcome of outcomes) {
     if (outcome.status === 'unavailable') return outcome.reason;
   }
+
   return 'upstream_error';
 }
 
@@ -473,10 +502,12 @@ export async function judgeCandidatesWithReranker(
 ): Promise<CandidateJudgement> {
   input.abortSignal?.throwIfAborted();
   const send = (request: RerankRequest) => client.rerank(request);
+
   return judgeRequests(input, options, send, () => ({
     requests: buildRerankRequests(input, options.protectedValues ?? []),
     scoreOf: (outcomes) => {
       const scored = scoresByCardIndex(outcomes);
+
       return (index) => scored.get(index);
     },
   }));
@@ -489,11 +520,15 @@ function buildRerankRequests(
 ): Array<RerankRequest> {
   const protect = (text: string) =>
     redactProtectedString(text, protectedValues);
+
   const query = protect(input.objective ?? input.query);
+
   const documents = input.cards.map((card) =>
     cutStringAtCodePointBoundary(protect(card.text), input.cardBound),
   );
+
   const requests: Array<RerankRequest> = [];
+
   for (
     let start = 0;
     start < documents.length;
@@ -508,6 +543,7 @@ function buildRerankRequests(
       ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
     });
   }
+
   return requests;
 }
 
@@ -519,10 +555,12 @@ function scoresByCardIndex(
   outcomes.forEach((outcome, chunk) => {
     if (outcome.status !== 'answered' || !('scores' in outcome)) return;
     const start = chunk * RERANK_MAX_DOCUMENTS_PER_REQUEST;
+
     for (const [index, score] of outcome.scores) {
       scored.set(start + index, score);
     }
   });
+
   return scored;
 }
 
@@ -575,8 +613,10 @@ export class DecisionsService implements DecisionJudge {
     const { config } = instanceConfig;
     const providers = new Map(config.providers.map((p) => [p.id, p]));
     const entries = new Map<string, CatalogueEntry>();
+
     for (const entry of config.decisionModels ?? []) {
       const provider = providers.get(entry.provider);
+
       if (provider?.type !== 'system-one') continue;
       const client = createDecisionClient(provider, entry.model);
       const protectedValues = normalizeProtectedValues([provider.key]);
@@ -586,19 +626,24 @@ export class DecisionsService implements DecisionJudge {
         protectedValues,
       });
     }
+
     for (const entry of config.rerankModels ?? []) {
       const provider = providers.get(entry.provider);
+
       if (provider?.type !== 'cohere-rerank') continue;
       const client = createRerankClient(provider, entry.model);
+
       const protectedValues = normalizeProtectedValues(
         provider.key === null ? [] : [provider.key],
       );
+
       entries.set(entry.id, {
         judge: (input) =>
           judgeCandidatesWithReranker(client, input, { protectedValues }),
         protectedValues,
       });
     }
+
     this.entries = entries;
   }
 
@@ -606,16 +651,21 @@ export class DecisionsService implements DecisionJudge {
     input: JudgeCandidatesInput,
   ): Promise<CandidateJudgement> {
     const entry = this.entries.get(input.model);
+
     if (entry === undefined) {
       input.abortSignal?.throwIfAborted();
+
       return logged(input, 0, unavailableJudgement(input, 'unknown_model'));
     }
+
     return entry.judge(input);
   }
 
   protectText(model: string, text: string): string {
     const entry = this.entries.get(model);
+
     if (entry === undefined) return text;
+
     return redactProtectedString(text, entry.protectedValues);
   }
 }

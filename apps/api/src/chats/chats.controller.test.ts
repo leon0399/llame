@@ -94,8 +94,10 @@ describe('ChatsController', () => {
         headersSent: false,
       },
     );
+
     response.status.mockReturnValue(response);
     response.setHeader.mockReturnValue(response);
+
     return response;
   }
 
@@ -117,7 +119,9 @@ describe('ChatsController', () => {
       deleteChat: vi.fn<ChatsControllerService['deleteChat']>(),
       forkChat: vi.fn<ChatsControllerService['forkChat']>(),
     } satisfies ChatsControllerService;
+
     Object.assign(chatsService, service);
+
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
       createDeliveryMessage: vi.fn<ChatLoopService['createDeliveryMessage']>(),
@@ -126,16 +130,21 @@ describe('ChatsController', () => {
       ChatLoopService,
       'createMessageStream' | 'createDeliveryMessage' | 'finalizeAcceptedRun'
     >;
+
     const followUpAdmission = {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
+
     const tx: Db = drizzle.mock({ schema });
+
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
       callback: (scoped: Db) => Promise<T>,
     ) => callback(tx);
+
     const tenantDb: TenantRunner = { runAs };
     const runAsSpy = vi.spyOn(tenantDb, 'runAs');
+
     const bridge = {
       createUiMessageStreamResponse:
         vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
@@ -182,6 +191,7 @@ describe('ChatsController', () => {
   });
   it('returns the canonical Workspace root for an owner-bound Chat', async () => {
     const workspaceRoot = '/srv/workspaces/owner-chat';
+
     const { controller } = makeController({
       getChatById: vi.fn().mockResolvedValue({ ...chat, workspaceRoot }),
     });
@@ -213,6 +223,7 @@ describe('ChatsController', () => {
 
   it('omits non-text parts from the excerpt and truncates long text', async () => {
     const longText = 'word '.repeat(60).trim();
+
     const toolMessage: Message = {
       ...chatMessages[1],
       parts: [
@@ -220,6 +231,7 @@ describe('ChatsController', () => {
         { type: 'text', text: longText },
       ],
     };
+
     const { controller } = makeController({
       listChatsWithLastMessage: vi
         .fn()
@@ -298,6 +310,7 @@ describe('ChatsController', () => {
       followUpAction: 'continue',
       sourceRunId: null,
     };
+
     const { controller } = makeController({
       getChatMessages: vi
         .fn()
@@ -375,6 +388,7 @@ describe('ChatsController', () => {
 
   it('patches a chat scoped to the verified user only', async () => {
     const { controller, chatsService } = makeController();
+
     const input = {
       title: 'Renamed',
       ownerUserId: 'attacker',
@@ -414,9 +428,11 @@ describe('ChatsController', () => {
 
   it('forks a chat scoped to the verified user only', async () => {
     const forked: Chat = { ...chat, id: 'forked-chat-id' };
+
     const { controller, chatsService } = makeController({
       forkChat: vi.fn().mockResolvedValue(forked),
     });
+
     const fromMessageId = chatMessages[0].id;
 
     const result = await controller.forkChat('verified-user', chat.id, {
@@ -433,6 +449,7 @@ describe('ChatsController', () => {
 
   it('forks the whole chat when fromMessageId is absent (clone)', async () => {
     const forked: Chat = { ...chat, id: 'cloned-chat-id' };
+
     const { controller, chatsService } = makeController({
       forkChat: vi.fn().mockResolvedValue(forked),
     });
@@ -449,6 +466,7 @@ describe('ChatsController', () => {
 
   it('streams messages with userId from the verified session only', async () => {
     const { controller, chatLoopService } = makeController();
+
     const streamResult = streamText({
       model: new MockLanguageModelV3({
         provider: 'test',
@@ -478,9 +496,11 @@ describe('ChatsController', () => {
       }),
       messages: [{ role: 'user', content: 'Hello' }],
     });
+
     chatLoopService.createMessageStream.mockResolvedValue(streamResult);
 
     const userMessageId = '33333333-3333-3333-3333-333333333333';
+
     const input = {
       modelId: 'system:openai:gpt-5.4-mini',
       permissionMode: 'bypass' as const,
@@ -490,6 +510,7 @@ describe('ChatsController', () => {
         parts: [{ type: 'text' as const, text: 'Hello' }],
       },
     };
+
     await controller.createMessage(
       'verified-user',
       chat.id,
@@ -514,6 +535,7 @@ describe('ChatsController', () => {
 
   it('does not forward an omitted permission mode to the chat loop', async () => {
     const { controller, chatLoopService } = makeController();
+
     const streamResult = streamText({
       model: new MockLanguageModelV3({
         provider: 'test',
@@ -543,6 +565,7 @@ describe('ChatsController', () => {
       }),
       messages: [{ role: 'user', content: 'Hello' }],
     });
+
     chatLoopService.createMessageStream.mockResolvedValue(streamResult);
 
     await controller.createMessage(
@@ -733,6 +756,7 @@ describe('ChatsController', () => {
 describe('ChatsController response plumbing', () => {
   function makeWritableResponse() {
     const chunks: Array<string> = [];
+
     const response = Object.assign(
       new Writable({
         write(chunk: Buffer | string, _encoding, callback) {
@@ -746,8 +770,10 @@ describe('ChatsController response plumbing', () => {
         headersSent: false,
       },
     );
+
     response.status.mockReturnValue(response);
     response.setHeader.mockReturnValue(response);
+
     return Object.assign(response, { chunks });
   }
 
@@ -771,6 +797,7 @@ describe('ChatsController response plumbing', () => {
         .mockResolvedValue(false),
       forkChat: vi.fn<ChatsControllerService['forkChat']>(),
     } satisfies ChatsControllerService;
+
     const chatLoopService = {
       createMessageStream: vi.fn<ChatLoopService['createMessageStream']>(),
       createDeliveryMessage: vi.fn<ChatLoopService['createDeliveryMessage']>(),
@@ -779,19 +806,25 @@ describe('ChatsController response plumbing', () => {
       ChatLoopService,
       'createMessageStream' | 'createDeliveryMessage' | 'finalizeAcceptedRun'
     >;
+
     const followUpAdmission = {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
+
     const tx: Db = drizzle.mock({ schema });
+
     const tenantDb: TenantRunner = {
       runAs: async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
         callback(tx),
     };
+
     const runAsSpy = vi.spyOn(tenantDb, 'runAs');
+
     const bridge = {
       createUiMessageStreamResponse:
         vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
     } satisfies RunStreamResponder;
+
     return {
       controller: new ChatsController(
         chatsService,
@@ -863,13 +896,16 @@ describe('ChatsController response plumbing', () => {
 
   it('answers a client error frame and logs the model failure', async () => {
     const { controller, chatLoopService } = makeController();
+
     const logger = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     const errors: Array<(error: unknown) => string> = [];
     chatLoopService.createMessageStream.mockResolvedValue({
       toUIMessageStreamResponse: (given) => {
         if (given?.onError !== undefined) errors.push(given.onError);
+
         return new Response(null);
       },
     });
@@ -1020,9 +1056,11 @@ describe('ChatsController response plumbing', () => {
 
   it('keeps replayed provider metadata out of the owner-visible error and the log when the model request fails', async () => {
     const { controller, chatLoopService } = makeController();
+
     const errorSpy = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
+
     // Production shape: the SDK's APICallError carries the request body it
     // sent — including any replayed reasoning item and its encrypted content —
     // on `requestBodyValues`, while `message`/`stack` hold the response side.
@@ -1041,6 +1079,7 @@ describe('ChatsController response plumbing', () => {
       statusCode: 400,
       isRetryable: false,
     });
+
     const streamResult = streamText({
       model: new MockLanguageModelV3({
         provider: 'test',
@@ -1049,9 +1088,11 @@ describe('ChatsController response plumbing', () => {
       }),
       messages: [{ role: 'user', content: 'Hello' }],
     });
+
     chatLoopService.createMessageStream.mockResolvedValue(streamResult);
 
     const response = makeWritableResponse();
+
     try {
       await controller.createMessage(
         'u',
@@ -1172,6 +1213,7 @@ describe('ChatsController response plumbing', () => {
     let captured: AbortSignal | undefined;
     bridge.createUiMessageStreamResponse.mockImplementation((input) => {
       captured = input.abortSignal;
+
       return new Response(null, { status: 200 });
     });
     const response = makeWritableResponse();
@@ -1185,6 +1227,7 @@ describe('ChatsController response plumbing', () => {
     bridge.createUiMessageStreamResponse.mockImplementation((input) => {
       liveSignal = input.abortSignal;
       live.emit('close');
+
       return new Response(null, { status: 200 });
     });
     await controller.resumeChatStream('u', chatId, live);
@@ -1204,6 +1247,7 @@ describe('ChatsController response plumbing', () => {
     bridge.createUiMessageStreamResponse.mockImplementation((input) => {
       captured = input.abortSignal;
       response.emit('close');
+
       return new Response(null, { status: 200 });
     });
 

@@ -15,9 +15,11 @@ export async function missingFileMessage(
   try {
     const parent = dirname(hostPath);
     const stats = await lstat(parent);
+
     if (!followSymlinks && stats.isSymbolicLink()) return NOT_FOUND;
     const names = await siblingNames(parent);
     const suggestions = similarNames(basename(hostPath), names);
+
     return suggestions.length === 0
       ? NOT_FOUND
       : `${NOT_FOUND} Similar names in the same directory: ${suggestions.join(", ")}.`;
@@ -30,8 +32,10 @@ export async function missingFileMessage(
 
 async function siblingNames(parent: string): Promise<Array<string>> {
   const directory = await opendir(parent);
+
   try {
     const names: Array<string> = [];
+
     for (
       let entry = await directory.read();
       entry !== null;
@@ -40,6 +44,7 @@ async function siblingNames(parent: string): Promise<Array<string>> {
       if (names.length === DIRECTORY_TRAVERSAL_BUDGET) return [];
       names.push(entry.name);
     }
+
     return names.sort();
   } finally {
     await directory.close();
@@ -48,6 +53,7 @@ async function siblingNames(parent: string): Promise<Array<string>> {
 
 function normalizedName(name: string): string {
   const normalized = name.normalize("NFC");
+
   try {
     return decodeURIComponent(normalized).normalize("NFC").toLowerCase();
   } catch {
@@ -57,6 +63,7 @@ function normalizedName(name: string): string {
 
 function splitName(name: string): { stem: string; extension: string } {
   const dot = name.lastIndexOf(".");
+
   return dot > 0
     ? { stem: name.slice(0, dot), extension: name.slice(dot + 1) }
     : { stem: name, extension: "" };
@@ -78,18 +85,22 @@ function similarNames(requested: string, names: Array<string>): Array<string> {
   // the costly split and the distance floor are computed in this one pass,
   // over a directory that can hold tens of thousands of entries.
   let minimumCells = 0;
+
   for (const name of names) {
     if (name === requested) continue;
     const entry = { name, ...splitName(normalizedName(name)) };
     minimumCells += distanceCells(request.stem, entry.stem);
     entries.push(entry);
   }
+
   if (minimumCells > SCORING_CELL_BUDGET) return [];
   const budget = { remaining: SCORING_CELL_BUDGET };
   const candidates: Array<{ name: string; score: number }> = [];
+
   for (const candidate of entries) {
     const penalty = request.extension === candidate.extension ? 0 : 0.1;
     let score = similarity(request.stem, candidate.stem, budget) - penalty;
+
     if (
       score < MIN_SIMILARITY &&
       Math.min(request.stem.length, candidate.stem.length) >= 3
@@ -101,10 +112,13 @@ function similarNames(requested: string, names: Array<string>): Array<string> {
           budget,
         ) - penalty;
     }
+
     if (budget.remaining < 0) return [];
+
     if (score >= MIN_SIMILARITY)
       candidates.push({ name: candidate.name, score });
   }
+
   // Stable sorting retains the directory's name order for equal scores.
   return candidates
     .sort((a, b) => b.score - a.score)
@@ -119,9 +133,12 @@ function similarity(
 ): number {
   if (left === right) return 1;
   const cells = distanceCells(left, right);
+
   if (cells === 0) return 0;
   budget.remaining -= cells;
+
   if (budget.remaining < 0) return 0;
+
   return (
     1 - damerauLevenshtein(left, right) / Math.max(left.length, right.length)
   );
@@ -142,21 +159,27 @@ function damerauLevenshtein(left: string, right: string): number {
   const distance = new Uint16Array((left.length + 2) * width);
   const infinity = left.length + right.length;
   distance[0] = infinity;
+
   for (let row = 0; row <= left.length; row++) {
     distance[(row + 1) * width] = infinity;
     distance[(row + 1) * width + 1] = row;
   }
+
   for (let column = 0; column <= right.length; column++) {
     distance[column + 1] = infinity;
     distance[width + column + 1] = column;
   }
+
   const lastRow = new Map<string, number>();
+
   for (let row = 1; row <= left.length; row++) {
     let lastColumn = 0;
+
     for (let column = 1; column <= right.length; column++) {
       const priorRow = lastRow.get(right[column - 1]) ?? 0;
       const priorColumn = lastColumn;
       const equal = left[row - 1] === right[column - 1];
+
       if (equal) lastColumn = column;
       distance[(row + 1) * width + column + 1] = Math.min(
         distance[row * width + column] + (equal ? 0 : 1),
@@ -170,7 +193,9 @@ function damerauLevenshtein(left: string, right: string): number {
           1,
       );
     }
+
     lastRow.set(left[row - 1], row);
   }
+
   return distance[(left.length + 1) * width + right.length + 1];
 }

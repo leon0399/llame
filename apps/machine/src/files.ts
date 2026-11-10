@@ -64,6 +64,7 @@ function displayPathFor(prefix: string, path: string): string {
 async function pathExists(target: string): Promise<boolean> {
   try {
     await lstat(target);
+
     return true;
   } catch {
     return false;
@@ -81,6 +82,7 @@ async function verifyUnchanged(
   guarded: GuardedPath,
 ): Promise<void> {
   const after = await guard.resolvePath(path);
+
   if (after.canonical !== guarded.canonical)
     throw new MachineRequestError(
       "path_not_registered",
@@ -93,10 +95,13 @@ export async function statOperation(
   context: OperationContext,
 ): Promise<FsStatResult> {
   const source = paramRecord(params, FS_STAT_METHOD);
+
   const guarded = await context.guard.resolvePath(
     requireString(source, "path", FS_STAT_METHOD),
   );
+
   const stat: FsStatResult = { kind: guarded.kind, isLink: guarded.isLink };
+
   return guarded.kind === "missing"
     ? stat
     : { ...stat, realPath: guarded.canonical, size: guarded.size };
@@ -104,6 +109,7 @@ export async function statOperation(
 
 async function entriesOf(directory: string): Promise<Array<FsListEntry>> {
   const entries: Array<FsListEntry> = [];
+
   // The async iterator closes the handle when it completes.
   for await (const entry of await opendir(directory)) {
     entries.push({
@@ -117,9 +123,11 @@ async function entriesOf(directory: string): Promise<Array<FsListEntry>> {
             : "other",
     });
   }
+
   return entries.sort((left, right) => {
     const leftDirectory = left.kind === "directory" ? 0 : 1;
     const rightDirectory = right.kind === "directory" ? 0 : 1;
+
     return leftDirectory === rightDirectory
       ? left.name.localeCompare(right.name)
       : leftDirectory - rightDirectory;
@@ -133,15 +141,19 @@ export async function listOperation(
   const source = paramRecord(params, FS_LIST_METHOD);
   const path = requireString(source, "path", FS_LIST_METHOD);
   const guarded = await context.guard.resolvePath(path);
+
   if (guarded.kind !== "directory")
     return failure("not_regular_file", NOT_DIRECTORY_MESSAGE);
   let entries: Array<FsListEntry>;
+
   try {
     entries = await entriesOf(guarded.path);
   } catch {
     return failure("executor_unavailable", LISTING_FAILED_MESSAGE);
   }
+
   await verifyUnchanged(context.guard, path, guarded);
+
   return {
     entries: entries.slice(0, DIRECTORY_TRAVERSAL_BUDGET),
     totalCount: entries.length,
@@ -176,6 +188,7 @@ function withCanonicalPath(
   prefix: string,
 ): FsReadResult {
   if (result.status !== "success" || result.kind !== "file") return result;
+
   return guarded.canonical === guarded.path
     ? result
     : { ...result, realPath: displayPathFor(prefix, guarded.canonical) };
@@ -189,6 +202,7 @@ export async function readOperation(
   const path = requireString(source, "path", FS_READ_METHOD);
   const options = requireDisplayOptions(source, FS_READ_METHOD);
   const guarded = await context.guard.resolvePath(path);
+
   const result = await readResolvedFile(
     guarded.path,
     readOptions(
@@ -197,7 +211,9 @@ export async function readOperation(
       context.signal,
     ),
   );
+
   await verifyUnchanged(context.guard, path, guarded);
+
   return withCanonicalPath(result, guarded, options.displayPrefix);
 }
 
@@ -218,10 +234,12 @@ async function createParentDirectories(
 ): Promise<void> {
   const missing: Array<string> = [];
   let current = dirname(target);
+
   while (current !== dirname(current) && !(await pathExists(current))) {
     missing.push(current);
     current = dirname(current);
   }
+
   for (const directory of missing.reverse()) {
     // A parallel write may have created it since the existence check.
     await mkdir(directory).catch((error: unknown) => {
@@ -243,6 +261,7 @@ async function createParentDirectories(
  */
 function withoutEchoedText(result: EditSuccess | FileFailure): FsMutateResult {
   if (result.status !== "success") return result;
+
   return { ...result, display: { startLine: result.display.startLine } };
 }
 
@@ -254,6 +273,7 @@ export async function editOperation(
   const path = requireString(source, "path", FS_EDIT_METHOD);
   const options = requireDisplayOptions(source, FS_EDIT_METHOD);
   const guarded = await context.guard.resolvePath(path);
+
   const result = await editFile(
     {
       path: guarded.canonical,
@@ -263,7 +283,9 @@ export async function editOperation(
     context.signal,
     mutateOptions(options, guarded),
   );
+
   await verifyUnchanged(context.guard, path, guarded);
+
   return withoutEchoedText(result);
 }
 
@@ -275,29 +297,41 @@ export async function writeOperation(
   const path = requireString(source, "path", FS_WRITE_METHOD);
   const options = requireDisplayOptions(source, FS_WRITE_METHOD);
   const guarded = await context.guard.resolvePath(path);
+
   const input = {
     path: guarded.canonical,
     content: requireString(source, "content", FS_WRITE_METHOD),
   };
+
   const replace = optionalBoolean(source, "replace", FS_WRITE_METHOD) === true;
+
   if (!replace) await createParentDirectories(context.guard, guarded.canonical);
+
   const result = replace
     ? await replaceFile(input, context.signal, mutateOptions(options, guarded))
     : await createFile(input, context.signal, mutateOptions(options, guarded));
+
   await verifyUnchanged(context.guard, path, guarded);
+
   return result;
 }
 
 function mediaTypeOf(bytes: Buffer): string {
   const head = bytes.subarray(0, SIGNATURE_BYTES).toString("latin1");
+
   if (head.startsWith("\u0089PNG\r\n\u001a\n")) return "image/png";
+
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
     return "image/jpeg";
+
   if (head.startsWith("GIF87a") || head.startsWith("GIF89a"))
     return "image/gif";
+
   if (head.startsWith("RIFF") && head.slice(8, 12) === "WEBP")
     return "image/webp";
+
   if (head.startsWith("%PDF-")) return "application/pdf";
+
   return OCTET_STREAM;
 }
 
@@ -324,15 +358,19 @@ export async function bytesOperation(
   const source = paramRecord(params, FS_BYTES_METHOD);
   const path = requireString(source, "path", FS_BYTES_METHOD);
   const guarded = await context.guard.resolvePath(path);
+
   if (guarded.kind !== "file")
     return failure("not_regular_file", NOT_REGULAR_FILE);
   const tooLarge = failure("media_too_large", MEDIA_TOO_LARGE_MESSAGE);
+
   if ((guarded.size ?? 0) > MEDIA_MAX_BYTES) return tooLarge;
   const bytes = await readFile(guarded.path);
+
   // The size probe and the read are two syscalls; the bytes themselves decide.
   if (bytes.byteLength > MEDIA_MAX_BYTES) return tooLarge;
   // Re-verify before any byte leaves, as `read` and `list` do.
   await verifyUnchanged(context.guard, path, guarded);
   sendChunks(context, bytes);
+
   return { size: bytes.byteLength, mediaType: mediaTypeOf(bytes) };
 }

@@ -74,6 +74,7 @@ async function httpFixture(
     content: [{ type: 'text', text: `workspace-${label}` }],
     structuredContent: { label, authorization },
   };
+
   return createMcpTestFixture({
     $get: Array.from({ length: connectionCount }, () => ({
       kind: 'raw' as const,
@@ -107,6 +108,7 @@ describe('Workspace MCP production integration', () => {
 
   beforeAll(async () => {
     const url = process.env['TEST_DATABASE_URL'];
+
     if (!url)
       throw new Error(
         'Integration global setup did not provide TEST_DATABASE_URL.',
@@ -134,6 +136,7 @@ describe('Workspace MCP production integration', () => {
     const secondChat = crypto.randomUUID();
     const secondOwnerId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${secondOwnerId}, 'Workspace MCP Second Owner', ${`workspace-mcp-b-${secondOwnerId}@test.com`})`;
+
     try {
       await writeConfig(firstRoot, {
         web: { type: 'streamable-http', url: firstFixture.url },
@@ -160,25 +163,30 @@ describe('Workspace MCP production integration', () => {
         root: secondRoot,
         generation: 1,
       });
+
       const first = clients
         .resolverFor(
           { chatId: firstChat, root: firstRoot, generation: 1 },
           undefined,
         )
         .resolveDynamicTool('mcp__web__search');
+
       const second = clients
         .resolverFor(
           { chatId: secondChat, root: secondRoot, generation: 1 },
           undefined,
         )
         .resolveDynamicTool('mcp__web__search');
+
       if (first.state !== 'available' || second.state !== 'available') {
         throw new Error('Workspace HTTP tools did not become available.');
       }
+
       const firstResult = await first.executor.execute(
         { configuredCredentials: [], userId, chatId: firstChat, tenantDb },
         {},
       );
+
       const secondResult = await second.executor.execute(
         {
           configuredCredentials: [],
@@ -188,6 +196,7 @@ describe('Workspace MCP production integration', () => {
         },
         {},
       );
+
       expect(JSON.stringify(firstResult)).toContain('workspace-first');
       expect(JSON.stringify(firstResult)).not.toContain('workspace-second');
       expect(JSON.stringify(secondResult)).toContain('workspace-second');
@@ -208,13 +217,16 @@ describe('Workspace MCP production integration', () => {
     const fixture = await httpFixture('current', undefined, 4);
     const oldRoot = await mkdtemp(join(tmpdir(), 'workspace-mcp-old-'));
     const currentRoot = await mkdtemp(join(tmpdir(), 'workspace-mcp-current-'));
+
     const malformedRoot = await mkdtemp(
       join(tmpdir(), 'workspace-mcp-malformed-'),
     );
+
     const operator = new McpRuntimeService({});
     const firstProcess = new WorkspaceMcpClients(operator);
     const secondProcess = new WorkspaceMcpClients(operator);
     const chatId = crypto.randomUUID();
+
     try {
       await writeConfig(oldRoot, {
         web: { type: 'streamable-http', url: fixture.url },
@@ -235,22 +247,26 @@ describe('Workspace MCP production integration', () => {
         secondProcess.stateForKey({ chatId, root: oldRoot, generation: 1 }),
       ).toBeUndefined();
       expect(state.servers).toEqual([{ id: 'web', state: 'available' }]);
+
       const malformed = await firstProcess.startForChat({
         chatId: crypto.randomUUID(),
         root: malformedRoot,
         generation: 1,
       });
+
       expect(malformed.servers).toEqual([
         expect.objectContaining({ id: '.mcp.json', state: 'unavailable' }),
       ]);
       await writeConfig(malformedRoot, {
         unsupported: { type: 'sse', url: fixture.url },
       });
+
       const unsupported = await firstProcess.startForChat({
         chatId: crypto.randomUUID(),
         root: malformedRoot,
         generation: 2,
       });
+
       expect(unsupported.servers).toEqual([
         {
           id: 'unsupported',
@@ -276,6 +292,7 @@ describe('Workspace MCP production integration', () => {
     const operator = new McpRuntimeService({});
     const clients = new WorkspaceMcpClients(operator);
     const chatId = crypto.randomUUID();
+
     try {
       await writeConfig(root, {
         web: {
@@ -285,15 +302,19 @@ describe('Workspace MCP production integration', () => {
         },
       });
       await clients.startForChat({ chatId, root, generation: 1 });
+
       const resolution = clients
         .resolverFor({ chatId, root, generation: 1 }, undefined)
         .resolveDynamicTool('mcp__web__search');
+
       if (resolution.state !== 'available')
         throw new Error('Workspace redaction tool unavailable.');
+
       const result = await resolution.executor.execute(
         { configuredCredentials: [], userId, chatId, tenantDb },
         {},
       );
+
       expect(JSON.stringify(result)).not.toContain(secret);
       expect(JSON.stringify(result)).toContain('[REDACTED]');
       expect(fixture.receivedHeader(3, 'authorization', secret)).toBe(true);
@@ -308,15 +329,18 @@ describe('Workspace MCP production integration', () => {
   it('runs a real stdio Workspace child without inheriting an ambient variable', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-stdio-'));
     const dump = join(root, 'env.json');
+
     const fixturePath = join(
       process.cwd(),
       'src/mcp/mcp-stdio-test-fixture.mjs',
     );
+
     const operator = new McpRuntimeService({});
     const clients = new WorkspaceMcpClients(operator);
     const chatId = crypto.randomUUID();
     const previous = process.env['LLAME_WORKSPACE_AMBIENT_ONLY'];
     process.env['LLAME_WORKSPACE_AMBIENT_ONLY'] = 'must-not-leak';
+
     try {
       await writeConfig(root, {
         stdio: {
@@ -336,9 +360,11 @@ describe('Workspace MCP production integration', () => {
       // checks below rather than silently inheriting any.
       const environment = JSON.parse(dumpText) as unknown;
       expect(environment).not.toHaveProperty('LLAME_WORKSPACE_AMBIENT_ONLY');
+
       const resolution = clients
         .resolverFor({ chatId, root, generation: 1 }, undefined)
         .resolveDynamicTool('mcp__stdio__search');
+
       expect(resolution.state).toBe('available');
     } finally {
       if (previous === undefined)
@@ -356,40 +382,50 @@ describe('Workspace MCP production integration', () => {
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
     const clients = new WorkspaceMcpClients(operator);
+
     try {
       await writeConfig(root, {
         web: { type: 'streamable-http', url: fixture.url },
       });
+
       const seeded = await tenantDb.runAs(userId, async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId,
           ownerUserId: userId,
           title: 'Workspace entry',
         });
+
         const message = await new MessagesRepository(tx).create({
           chatId,
           role: 'user',
           senderUserId: userId,
           parts: [{ type: 'text', text: 'Enter the Workspace.' }],
         });
+
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: message.id,
           userId,
           modelId: 'test:workspace-entry',
         });
+
         const started = await new RunsRepository(tx).markStarted(
           run.id,
           userId,
         );
+
         if (!started) throw new Error('Workspace entry Run did not start.');
+
         const event = await new RunEventsRepository(tx).append(
           run.id,
           'run.started',
         );
+
         return { runId: run.id, deliverySequence: event.sequence };
       });
+
       const bound = new Map<string, AttemptToolBinding>();
+
       const additions = new AttemptToolAdditions({
         allowedToolRules: ['mcp__web__*'],
         callTimeoutSeconds: 120,
@@ -402,8 +438,10 @@ describe('Workspace MCP production integration', () => {
           execute: () => ({ status: 'success' as const }),
         }),
       });
+
       const record = {};
       additions.bindToolRecord(record);
+
       const context = {
         configuredCredentials: [],
         runId: seeded.runId,
@@ -418,15 +456,18 @@ describe('Workspace MCP production integration', () => {
         workspaceMcp: clients,
         toolAdditions: additions,
       };
+
       const entry = await enterWorkspaceTool.execute(context, { path: root });
       expect(entry).toMatchObject({
         status: 'success',
         mcpServers: [{ id: 'web', state: 'available' }],
       });
       const added = additions.executorFor('mcp__web__search');
+
       if (added === undefined) {
         throw new Error('Workspace entry did not bind the added executor.');
       }
+
       const callResult = await added.execute(
         {
           configuredCredentials: [],
@@ -439,8 +480,10 @@ describe('Workspace MCP production integration', () => {
         },
         {},
       );
+
       expect(JSON.stringify(callResult)).toContain('workspace-entering-run');
       context.workspaceRoot?.beginStep();
+
       const sameRoot = await enterWorkspaceTool.execute(
         {
           ...context,
@@ -448,20 +491,25 @@ describe('Workspace MCP production integration', () => {
         },
         { path: root },
       );
+
       expect(sameRoot).toMatchObject({
         status: 'success',
         mcpServers: [{ id: 'web', state: 'available' }],
       });
+
       const chat = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).findById(chatId, userId),
       );
+
       if (chat === undefined || chat.workspaceRoot === null)
         throw new Error('Workspace was not bound.');
+
       const next = await clients.startForChat({
         chatId,
         root: chat.workspaceRoot,
         generation: chat.workspaceGeneration,
       });
+
       const catalog = await composeTurnToolCatalog({
         allowedToolRules: ['mcp__web__*'],
         callTimeoutSeconds: 120,
@@ -471,23 +519,28 @@ describe('Workspace MCP production integration', () => {
           generation: chat.workspaceGeneration,
         }),
       });
+
       expect(catalog.admitted[0]?.declaration.id).toBe('mcp__web__search');
       expect(next.servers).toEqual([{ id: 'web', state: 'available' }]);
       context.workspaceRoot?.beginStep();
+
       const exited = await exitWorkspaceTool.execute(
         { ...context, toolCallId: 'exit-workspace' },
         {},
       );
+
       expect(exited).toMatchObject({
         status: 'success',
         state: 'exited',
       });
       const unavailable = additions.executorFor('mcp__web__search');
+
       if (unavailable === undefined) {
         throw new Error(
           'Workspace declaration was removed instead of disabled.',
         );
       }
+
       expect(
         unavailable.execute(
           {
@@ -536,24 +589,30 @@ describe('Workspace MCP production integration', () => {
         ownerUserId: userId,
         title,
       });
+
       const message = await new MessagesRepository(tx).create({
         chatId,
         role: 'user',
         senderUserId: userId,
         parts: [{ type: 'text', text }],
       });
+
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: message.id,
         userId,
         modelId: `test:${crypto.randomUUID()}`,
       });
+
       const started = await new RunsRepository(tx).markStarted(run.id, userId);
+
       if (!started) throw new Error('Test Run did not start.');
+
       const event = await new RunEventsRepository(tx).append(
         run.id,
         'run.started',
       );
+
       return { runId: run.id, deliverySequence: event.sequence };
     });
   }
@@ -586,15 +645,18 @@ describe('Workspace MCP production integration', () => {
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
     const clients = new WorkspaceMcpClients(operator);
+
     try {
       await writeConfig(root, {
         docs: { type: 'streamable-http', url: 'http://127.0.0.1:1/mcp' },
       });
+
       const seeded = await seedStartedRun(
         chatId,
         'Workspace read-only entry',
         'Enter the Workspace read-only.',
       );
+
       const context = readOnlyEntryContext(
         seeded,
         chatId,
@@ -625,6 +687,7 @@ describe('Workspace MCP production integration', () => {
         other: { type: 'streamable-http', url: 'http://127.0.0.1:1/mcp' },
       });
       context.workspaceRoot?.beginStep();
+
       const sameRoot = await enterWorkspaceTool.execute(
         {
           ...context,
@@ -632,6 +695,7 @@ describe('Workspace MCP production integration', () => {
         },
         { path: root },
       );
+
       expect(sameRoot).toMatchObject({
         status: 'success',
         state: 'unchanged',
@@ -656,13 +720,16 @@ describe('Workspace MCP production integration', () => {
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
     const clients = new WorkspaceMcpClients(operator);
+
     try {
       await writeFile(join(root, '.mcp.json'), '{ malformed', 'utf8');
+
       const seeded = await seedStartedRun(
         chatId,
         'Workspace read-only malformed',
         'Enter the malformed Workspace.',
       );
+
       const entry = await enterWorkspaceTool.execute(
         readOnlyEntryContext(seeded, chatId, clients, 'enter-read-only-bad'),
         { path: root },
@@ -692,15 +759,18 @@ describe('Workspace MCP production integration', () => {
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
     const clients = new WorkspaceMcpClients(operator);
+
     try {
       await writeConfig(root, {
         web: { type: 'streamable-http', url: fixture.url },
       });
+
       const seeded = await seedStartedRun(
         chatId,
         'Workspace read-only same root',
         'Enter the same root read-only.',
       );
+
       await tenantDb.runAs(userId, (tx) =>
         new WorkspaceBindingRepository(tx).enter({
           chatId,
@@ -719,6 +789,7 @@ describe('Workspace MCP production integration', () => {
       ).toMatchObject({ servers: [{ id: 'web', state: 'available' }] });
       const requestsBefore = fixture.requestSummaries().length;
       const addToAttempt = vi.spyOn(clients, 'addToAttempt');
+
       const context = readOnlyEntryContext(
         seeded,
         chatId,
@@ -755,47 +826,58 @@ describe('Workspace MCP production integration', () => {
     const malformedRoot = await mkdtemp(
       join(tmpdir(), 'workspace-mcp-bad-file-'),
     );
+
     const unsupportedRoot = await mkdtemp(
       join(tmpdir(), 'workspace-mcp-bad-type-'),
     );
+
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
     const clients = new WorkspaceMcpClients(operator);
+
     try {
       await writeFile(join(malformedRoot, '.mcp.json'), '{ malformed', 'utf8');
       await writeConfig(unsupportedRoot, {
         unsupported: { type: 'sse', url: 'http://127.0.0.1:1/mcp' },
       });
+
       const seeded = await tenantDb.runAs(userId, async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId,
           ownerUserId: userId,
           title: 'Workspace invalid config',
         });
+
         const message = await new MessagesRepository(tx).create({
           chatId,
           role: 'user',
           senderUserId: userId,
           parts: [{ type: 'text', text: 'Enter the Workspace.' }],
         });
+
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: message.id,
           userId,
           modelId: 'test:workspace-invalid',
         });
+
         const started = await new RunsRepository(tx).markStarted(
           run.id,
           userId,
         );
+
         if (!started)
           throw new Error('Workspace invalid-config Run did not start.');
+
         const event = await new RunEventsRepository(tx).append(
           run.id,
           'run.started',
         );
+
         return { runId: run.id, deliverySequence: event.sequence };
       });
+
       const context = {
         configuredCredentials: [],
         runId: seeded.runId,
@@ -812,6 +894,7 @@ describe('Workspace MCP production integration', () => {
       const malformed = await enterWorkspaceTool.execute(context, {
         path: malformedRoot,
       });
+
       expect(malformed).toMatchObject({
         status: 'success',
         mcpServers: [
@@ -830,6 +913,7 @@ describe('Workspace MCP production integration', () => {
         },
         { path: unsupportedRoot },
       );
+
       expect(unsupported).toMatchObject({
         status: 'success',
         mcpServers: [

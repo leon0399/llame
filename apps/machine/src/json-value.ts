@@ -33,15 +33,19 @@ function toJsonContainer(
 ): JsonValue {
   if (Array.isArray(value)) {
     const items: ReadonlyArray<unknown> = value;
+
     return items.map((item) => toJsonValue(item));
   }
+
   const record: Record<string, JsonValue> = {};
+
   for (const [key, entry] of Object.entries(value)) {
     // An absent value is an omitted property in JSON, exactly as the frame
     // encoder treats it.
     if (entry === undefined) continue;
     record[key] = toJsonValue(entry);
   }
+
   return record;
 }
 
@@ -52,7 +56,9 @@ function toJsonContainer(
  */
 export function toJsonValue(value: unknown): JsonValue {
   if (isJsonContainer(value)) return toJsonContainer(value);
+
   if (value === null || isString(value) || isBoolean(value)) return value;
+
   if (isNumber(value) && Number.isFinite(value)) return value;
   throw new UnserializableJsonError();
 }

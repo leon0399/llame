@@ -42,6 +42,7 @@ export async function getEmbeddingCoverageReport(
       FROM llame_search_embedding_report(${modelId}, ${inputVersion}, ${maxRows})
     `),
   );
+
   return [...rows].map((row) => ({
     chatId: row.chat_id,
     ownerUserId: row.owner_user_id,

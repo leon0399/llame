@@ -11,6 +11,7 @@ import {
 
 /** Fixed bound on configured sources (system-provided-skills D1). */
 export const MAX_SKILL_SOURCES = 32;
+
 /** Fixed bound on immediate children read from one source. */
 export const MAX_SOURCE_CHILDREN = 10_000;
 
@@ -37,6 +38,7 @@ export function joinCatalogPath(
 ): string {
   const scheme = SCHEME_PREFIX.exec(base)?.[0];
   const joined = path.join(base, ...segments);
+
   return scheme === undefined
     ? joined
     : `${scheme}${joined.slice(scheme.length - 1)}`;
@@ -71,24 +73,31 @@ export const NODE_SKILL_FILE_SYSTEM: SkillCatalogFileSystem = {
   readDirectory: (directoryPath) => {
     const dir = opendirSync(directoryPath);
     const entries: Array<CatalogDirent> = [];
+
     try {
       let dirent = dir.readSync();
+
       while (dirent !== null) {
         entries.push(dirent);
+
         if (entries.length > MAX_SOURCE_CHILDREN) break;
         dirent = dir.readSync();
       }
     } finally {
       dir.closeSync();
     }
+
     return entries;
   },
   readTextFile: (filePath) => readFileSync(filePath, 'utf8'),
   fileKind: (filePath) => {
     try {
       const link = lstatSync(filePath);
+
       if (link.isSymbolicLink()) return followedKind(filePath);
+
       if (link.isFile()) return 'file';
+
       return link.isDirectory() ? 'directory' : 'unavailable';
     } catch (error) {
       return isNotFound(error) ? 'missing' : 'unavailable';
@@ -154,29 +163,36 @@ export class SkillCatalog {
   getSnapshot(extraSources: ReadonlyArray<string> = []): SkillCatalogSnapshot {
     const operatorDirectories = this.directories;
     const directories = [...operatorDirectories, ...extraSources];
+
     if (operatorDirectories.length > MAX_SKILL_SOURCES) {
       return this.unavailable(
         directories,
         `At most ${MAX_SKILL_SOURCES} skill sources are supported; the catalog is unavailable.`,
       );
     }
+
     if (directories.length === 0) {
       return { available: true, directories, entries: [], diagnostics: [] };
     }
 
     const winners = new Map<string, SkillCatalogEntry>();
     const effectiveDirectories: Array<string> = [];
+
     for (const [index, directory] of directories.entries()) {
       const result = this.readSource(directory);
+
       if (result.status === 'unavailable') {
         if (index < operatorDirectories.length) {
           return this.unavailable(directories, result.diagnostic);
         }
+
         // Workspace sources are live, optional additions. A source that cannot
         // be read contributes nothing without poisoning the operator catalog.
         continue;
       }
+
       effectiveDirectories.push(directory);
+
       for (const entry of result.entries) winners.set(entry.name, entry);
     }
 
@@ -197,6 +213,7 @@ export class SkillCatalog {
       }
     | { readonly status: 'unavailable'; readonly diagnostic: string } {
     let children: ReadonlyArray<CatalogDirent>;
+
     try {
       children = this.fileSystem.readDirectory(sourceDirectory);
     } catch {
@@ -205,6 +222,7 @@ export class SkillCatalog {
         diagnostic: `Skill source ${sourceDirectory} is missing or unreadable; the catalog is unavailable.`,
       };
     }
+
     if (children.length > MAX_SOURCE_CHILDREN) {
       return {
         status: 'unavailable',
@@ -213,9 +231,11 @@ export class SkillCatalog {
     }
 
     const entries: Array<SkillCatalogEntry> = [];
+
     try {
       for (const child of children) {
         const entry = this.readChild(child, sourceDirectory);
+
         if (entry !== undefined) entries.push(entry);
       }
     } catch {
@@ -224,6 +244,7 @@ export class SkillCatalog {
         diagnostic: `Skill source ${sourceDirectory} is missing or unreadable; the catalog is unavailable.`,
       };
     }
+
     return { status: 'read', entries };
   }
 
@@ -235,7 +256,9 @@ export class SkillCatalog {
     sourceDirectory: string,
   ): SkillCatalogEntry | undefined {
     const resolved = this.resolvePackageDirectory(child, sourceDirectory);
+
     if (resolved.status === 'not-a-package') return undefined;
+
     if (resolved.status === 'unavailable') {
       return this.unavailableEntry(
         child.name,
@@ -248,7 +271,9 @@ export class SkillCatalog {
     const document = this.readSkillDocument(
       joinCatalogPath(resolved.directory, SKILL_DOCUMENT_FILENAME),
     );
+
     if (document.status === 'missing') return undefined;
+
     if (document.status === 'unavailable') {
       return this.unavailableEntry(
         child.name,
@@ -275,6 +300,7 @@ export class SkillCatalog {
     text: string,
   ): SkillCatalogEntry {
     const parsed = parseSkillPackage(text, name);
+
     if (parsed.status === 'invalid') {
       return this.unavailableEntry(
         name,
@@ -288,6 +314,7 @@ export class SkillCatalog {
       packageDirectory,
       parsed.frontmatter,
     );
+
     if (proactive === 'invalid') {
       return this.unavailableEntry(
         name,
@@ -317,6 +344,7 @@ export class SkillCatalog {
     sourceDirectory: string,
   ): PackageDirectoryResolution {
     const childPath = joinCatalogPath(sourceDirectory, child.name);
+
     if (!child.isSymbolicLink()) {
       return child.isDirectory()
         ? { status: 'package', directory: childPath }
@@ -324,9 +352,11 @@ export class SkillCatalog {
     }
 
     const kind = this.fileSystem.fileKind(childPath);
+
     if (kind === 'directory') {
       return { status: 'package', directory: childPath };
     }
+
     if (kind === 'file') {
       return {
         status: 'unavailable',
@@ -334,6 +364,7 @@ export class SkillCatalog {
         diagnostic: `The package symlink ${childPath} resolves to a regular file, not a directory.`,
       };
     }
+
     return {
       status: 'unavailable',
       directory: childPath,
@@ -343,13 +374,16 @@ export class SkillCatalog {
 
   private readSkillDocument(documentPath: string): SkillDocumentRead {
     const kind = this.fileSystem.fileKind(documentPath);
+
     if (kind === 'missing') return { status: 'missing' };
+
     if (kind !== 'file') {
       return {
         status: 'unavailable',
         diagnostic: `${SKILL_DOCUMENT_FILENAME} is not a readable regular file.`,
       };
     }
+
     try {
       return { status: 'ok', text: this.fileSystem.readTextFile(documentPath) };
     } catch {
@@ -372,21 +406,27 @@ export class SkillCatalog {
     const llame = this.readSidecarControl(
       joinCatalogPath(packageDirectory, LLAME_SIDECAR_PATH),
     );
+
     if (llame !== 'absent') return llame;
 
     const declared = readFrontmatterInvocationControl(frontmatter);
+
     if (declared !== 'absent') return declared;
 
     const openai = this.readSidecarControl(
       joinCatalogPath(packageDirectory, OPENAI_SIDECAR_PATH),
     );
+
     return openai === 'absent' ? true : openai;
   }
 
   private readSidecarControl(filePath: string): InvocationControlValue {
     const kind = this.fileSystem.fileKind(filePath);
+
     if (kind === 'missing') return 'absent';
+
     if (kind !== 'file') return 'invalid';
+
     try {
       return readSidecarInvocationControl(
         this.fileSystem.readTextFile(filePath),
@@ -449,9 +489,11 @@ export function compareSkillNames(left: string, right: string): number {
   const a = Array.from(left, (character) => character.codePointAt(0) ?? 0);
   const b = Array.from(right, (character) => character.codePointAt(0) ?? 0);
   const shared = Math.min(a.length, b.length);
+
   for (let index = 0; index < shared; index += 1) {
     if (a[index] !== b[index]) return a[index] - b[index];
   }
+
   return a.length - b.length;
 }
 
@@ -463,7 +505,9 @@ export function compareSkillNames(left: string, right: string): number {
 function followedKind(filePath: string): CatalogFileKind {
   try {
     const target = statSync(filePath);
+
     if (target.isDirectory()) return 'directory';
+
     return target.isFile() ? 'file' : 'unavailable';
   } catch {
     return 'unavailable';

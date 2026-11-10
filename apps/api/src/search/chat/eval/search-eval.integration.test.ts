@@ -33,7 +33,9 @@ import {
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const K = 10;
 
 describeIfDb('chat search — relevance eval', () => {
@@ -60,6 +62,7 @@ describeIfDb('chat search — relevance eval', () => {
         const chats = new ChatsRepository(tx);
         const messages = new MessagesRepository(tx);
         await chats.createIfAbsent({ id, ownerUserId: u, title: fx.title });
+
         for (const m of fx.messages) {
           const msg = await messages.create({
             chatId: id,
@@ -67,6 +70,7 @@ describeIfDb('chat search — relevance eval', () => {
             senderUserId: m.role === 'user' ? u : null,
             parts: [{ type: 'text', text: m.text }],
           });
+
           if (m.createdAt) {
             await tx.execute(
               sql`UPDATE messages SET created_at = ${m.createdAt.toISOString()}::timestamptz WHERE id = ${msg.id}`,
@@ -82,11 +86,14 @@ describeIfDb('chat search — relevance eval', () => {
       'range-preferred',
       'timeline',
     ]);
+
     for (const q of EVAL_QUERIES) {
       if (RANGE_CATEGORIES.has(q.category)) continue;
+
       const rows = await tenantDb.runAs(u, (tx) =>
         new ChatsRepository(tx).searchByOwner(u, q.query, { limit: K }),
       );
+
       results.push({
         category: q.category,
         rankedIds: rows.map((r) => r.id),
@@ -114,11 +121,13 @@ describeIfDb('chat search — relevance eval', () => {
 
   it('records the relevance baseline (Recall@10, MRR, zero-result-rate)', () => {
     const summary = summarizeEval(results, K);
+
     if (process.env['RUN_SEARCH_EVAL']) {
       console.log(
         '\n[search-eval] baseline\n' + JSON.stringify(summary, null, 2),
       );
     }
+
     expect(summary.count).toBe(results.length);
     expect(summary.recallAtK).toBeGreaterThan(0);
   });
@@ -136,6 +145,7 @@ describeIfDb('chat search — relevance eval', () => {
     if (!process.env['RUN_SEARCH_EVAL']) return;
 
     const resolved = resolveEvalEmbedBackend();
+
     if (!resolved) return;
     const { backend, modelKey, dimensions: dims } = resolved;
 
@@ -147,6 +157,7 @@ describeIfDb('chat search — relevance eval', () => {
           WHERE chat_id = ${chatId} AND embedding IS NULL
         `),
       );
+
       for (const doc of docs) {
         const results = await backend.embedDocuments([
           {
@@ -155,7 +166,9 @@ describeIfDb('chat search — relevance eval', () => {
             content: String(doc.content),
           },
         ]);
+
         const vector = results[0]?.embedding;
+
         if (vector && vector.length === dims) {
           const vecLiteral = JSON.stringify(Array.from(vector));
           await tenantDb.runAs(u, (tx) =>
@@ -174,24 +187,29 @@ describeIfDb('chat search — relevance eval', () => {
 
     // Run hybrid searches
     const hybridResults: Array<EvalQueryResult> = [];
+
     for (const q of EVAL_QUERIES) {
       let vectorParams:
         | { queryVector: ReadonlyArray<number>; modelKey: string }
         | undefined;
+
       try {
         const qv = await backend.embedQuery(q.query);
+
         if (qv.length === dims) {
           vectorParams = { queryVector: qv, modelKey };
         }
       } catch {
         // provider error on this query — skip vector leg
       }
+
       const rows = await tenantDb.runAs(u, (tx) =>
         new ChatsRepository(tx).searchByOwner(u, q.query, {
           limit: K,
           vector: vectorParams,
         }),
       );
+
       hybridResults.push({
         category: q.category,
         rankedIds: rows.map((r) => r.id),

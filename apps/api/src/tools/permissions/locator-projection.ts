@@ -37,45 +37,58 @@ const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);
 export function withoutReadSelector(value: string): string {
   if (isFileAlias(value)) return withoutFileAliasSelector(value);
   const scheme = parsePathScheme(value);
+
   const parse =
     scheme?.scheme === KNOWLEDGE_LOCATOR_SCHEME
       ? parseKnowledgeLocator
       : scheme?.scheme === SKILL_LOCATOR_SCHEME
         ? parseSkillLocator
         : undefined;
+
   if (scheme !== undefined && parse !== undefined) {
     // Both parsers split the selector off at the first colon of the rest.
     const parsed = parse(scheme.rest);
+
     if ('type' in parsed || parsed.selector === undefined) return value;
+
     return value.slice(
       0,
       value.length - scheme.rest.length + scheme.rest.indexOf(':'),
     );
   }
+
   if (scheme?.scheme !== undefined && scheme.scheme in WEB_LOCATOR_SCHEMES) {
     const fragmentFree = stripFragment(value);
     const { url, selector } = splitWebSelector(fragmentFree);
+
     return selector !== undefined && isSelectorSuffix(selector)
       ? `${url}${value.slice(fragmentFree.length)}`
       : value;
   }
+
   const { path, selector } = splitSelectorSuffix(value);
+
   return selector !== undefined && isSelectorSuffix(selector) ? path : value;
 }
 
 function withoutFileAliasSelector(value: string): string {
   const alias = decodeFileAlias(value);
+
   if (!alias.ok) return value;
   const { path, selector } = splitSelectorSuffix(alias.hostPath);
+
   if (selector === undefined || !isSelectorSuffix(selector)) return value;
+
   // The selector starts at a colon written literally or as `%3A`; cut at the
   // last such colon whose prefix decodes to the selector-free path, so any
   // other spelling in the submitted text is left as written.
   for (const match of [...value.matchAll(/:|%3A/giu)].reverse()) {
     const prefix = value.slice(0, match.index);
     const decoded = decodeFileAlias(prefix);
+
     if (decoded.ok && decoded.hostPath === path) return prefix;
   }
+
   return value;
 }
 
@@ -106,17 +119,23 @@ export function projectNativeFilePath(
 ): string {
   if (isFileAlias(value)) {
     const alias = decodeFileAlias(value);
+
     if (!alias.ok) return value;
+
     return alias.hostPath;
   }
+
   const projected =
     workspaceRoot === undefined
       ? value
       : isWorkspaceRelative(value)
         ? resolveWorkspacePath(workspaceRoot, value)
         : mapToWorkspaceHost(workspaceRoot, value);
+
   const scheme = parsePathScheme(projected);
+
   if (scheme === undefined) return projected;
+
   if (scheme.scheme === MACHINE_SCHEME) {
     // The Machine grammar decodes the path once before this text is matched,
     // so a `%2E` spelling cannot miss a reject written against the decoded
@@ -124,20 +143,28 @@ export function projectNativeFilePath(
     // listing or malformed locator is matched as the model wrote it.
     return canonicalMachineLocator(projected);
   }
+
   if (scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
     const parsed = parseKnowledgeLocator(scheme.rest);
+
     // A refused selector and a malformed part are the same unmatched text to
     // policy, which is what the reported failure type separates for the reader
     // that reports it.
     if ('type' in parsed) return projected;
+
     return withSelector(formatKnowledgeLocator(parsed), parsed.selector);
   }
+
   if (scheme.scheme === SKILL_LOCATOR_SCHEME) {
     const parsed = parseSkillLocator(scheme.rest);
+
     if ('type' in parsed) return projected;
+
     return withSelector(formatSkillLocator(parsed), parsed.selector);
   }
+
   if (scheme.scheme in WEB_LOCATOR_SCHEMES) return projectWebLocator(projected);
+
   return projected;
 }
 
@@ -150,9 +177,11 @@ export function projectNativeFilePath(
  */
 function projectWebLocator(projected: string): string {
   const parsed = parseWebLocator(projected);
+
   if ('type' in parsed) return projected;
   const fragmentFree = stripFragment(projected);
   const split = splitWebSelector(fragmentFree);
+
   return split.selector === undefined
     ? parsed.url
     : `${parsed.url}${fragmentFree.slice(split.url.length)}`;
@@ -175,9 +204,11 @@ export function nativeFileProjection(
   if (!NATIVE_FILE_PERMISSION_TOOL_IDS.has(toolId)) {
     return (_field, value) => value;
   }
+
   return (field, value) => {
     if (field !== 'path') return value;
     const projected = projectNativeFilePath(value, workspaceRoot);
+
     return toolId === 'read' ? withoutReadSelector(projected) : projected;
   };
 }

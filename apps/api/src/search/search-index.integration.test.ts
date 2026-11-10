@@ -26,7 +26,9 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const text = (t: string) => [{ type: 'text', text: t }];
 
 describeIfDb('search projection — SearchIndexService + discovery', () => {
@@ -47,6 +49,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         ),
       )
       .then((rows) => [...rows][0].n);
+
   // Run an owner-scoped read of an RLS-protected table, validating each row
   // against the caller-supplied schema. Raw SQL rows are untyped at the
   // driver boundary — Zod parsing is real runtime evidence for the shape,
@@ -58,6 +61,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     tenantDb
       .runAs(u, (tx) => tx.execute(frag))
       .then((rows) => rowSchema.array().parse([...rows]));
+
   const staleIds = (): Promise<Array<string>> =>
     tenantDb
       .runAsPublic((tx) =>
@@ -65,6 +69,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
           SELECT chat_id FROM llame_search_stale_chats(${CHUNKER_VERSION}, 1000)`),
       )
       .then((rows) => [...rows].map((r) => r.chat_id));
+
   // chat-search-embeddings, design D10 — cross-tenant embedding-lag discovery.
   type CoverageRow = {
     chat_id: string;
@@ -73,6 +78,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     embedded_count: number;
     failed_count: number;
   };
+
   const embeddingCoverage = (
     modelKey: string,
     inputVersion: number,
@@ -98,6 +104,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
       await chats.createIfAbsent({ id, ownerUserId: u, title });
+
       for (const m of msgs) {
         await messages.create({
           chatId: id,
@@ -108,6 +115,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         });
       }
     });
+
     return id;
   }
 
@@ -132,10 +140,12 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('Indexing', [{ role: 'user', text: 'hello world' }]);
     await indexService.reindexChat(id, u);
     expect(await docCount(id)).toBeGreaterThan(0);
+
     const state = await ownedRows(
       sql`SELECT chunker_version FROM search_chat_state WHERE chat_id = ${id}`,
       z.object({ chunker_version: z.number() }),
     );
+
     expect(state[0].chunker_version).toBe(CHUNKER_VERSION);
   });
 
@@ -144,7 +154,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       { role: 'user', text: 'hello' },
       { role: 'assistant', text: 'answer-1' },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const [row] = await ownedRows(
       sql`
       SELECT content, normalized_content, fts::text AS fts
@@ -155,6 +167,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         fts: z.string(),
       }),
     );
+
     expect(row.content).toBe('[user] hello\n\n[assistant] answer-1');
     expect(row.normalized_content).toBe('hello answer-1');
     expect(row.fts).not.toContain('user');
@@ -172,7 +185,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         ],
       },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const [row] = await ownedRows(
       sql`
       SELECT content, first_message_text_offset, last_message_text_offset_exclusive
@@ -186,6 +201,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         last_message_text_offset_exclusive: z.number(),
       }),
     );
+
     expect(row).toEqual({
       content: '[user] alpha\n\nbeta',
       first_message_text_offset: 0,
@@ -202,7 +218,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         usage: { status: 'error' },
       },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const rows = await ownedRows(
       sql`
       SELECT content, normalized_content
@@ -214,6 +232,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         normalized_content: z.string(),
       }),
     );
+
     expect(rows).toEqual([
       {
         content: '[user] stable prompt',
@@ -231,11 +250,14 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         usage: { status: 'completed' },
       },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const [{ id: assistantId }] = await ownedRows(
       sql`SELECT id FROM messages WHERE chat_id = ${id} AND role = 'assistant'`,
       z.object({ id: z.string() }),
     );
+
     expect(
       (
         await ownedRows(
@@ -261,6 +283,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       ORDER BY chunk_ordinal`,
       z.object({ content: z.string(), normalized_content: z.string() }),
     );
+
     expect(rows).toEqual([
       {
         content: '[user] stable prompt',
@@ -273,6 +296,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('NoOp', [
       { role: 'user', text: 'stable content here' },
     ]);
+
     await indexService.reindexChat(id, u);
     const q = sql`SELECT id, updated_at::text AS updated_at FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal`;
     const rowSchema = z.object({ updated_at: z.string() });
@@ -290,7 +314,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('Locator repair', [
       { role: 'user', text: 'stable source coordinates' },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const [before] = await ownedRows(
       sql`
       SELECT content_hash, first_message_text_offset,
@@ -340,6 +366,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         embedding_fail_reason: z.string().nullable(),
       }),
     );
+
     expect(after.content_hash).toBe(before.content_hash);
     expect(after.first_message_text_offset).toBe(
       before.first_message_text_offset,
@@ -363,6 +390,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         usage: { status: 'completed' },
       },
     ]);
+
     await indexService.reindexChat(id, u);
 
     const rowSchema = z.object({
@@ -377,6 +405,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       embed_input_version: z.number().nullable(),
       embedding_fail_reason: z.string().nullable(),
     });
+
     const readRow = async () => {
       const [row] = await ownedRows(
         sql`
@@ -388,8 +417,10 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         WHERE chat_id = ${id}`,
         rowSchema,
       );
+
       return row;
     };
+
     const messageRows = await ownedRows(
       sql`
       SELECT id
@@ -398,6 +429,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       ORDER BY seq`,
       z.object({ id: z.string() }),
     );
+
     const before = await readRow();
     expect(messageRows).toHaveLength(2);
     expect(before.first_message_id).toBe(messageRows[0].id);
@@ -414,6 +446,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
               embedding_fail_reason = 'stale boundary fixture'
           WHERE chat_id = ${id}`),
       );
+
     const expectRepairedAndCleared = async () => {
       const after = await readRow();
       expect(after.first_message_id).toBe(before.first_message_id);
@@ -458,13 +491,16 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       { role: 'user', text: 'alpha bravo charlie' },
       { role: 'assistant', text: 'delta echo foxtrot' },
     ]);
+
     await indexService.reindexChat(id, u);
     const q = sql`SELECT chunk_ordinal, content_hash, content FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal`;
+
     const rowSchema = z.object({
       chunk_ordinal: z.number(),
       content_hash: z.string(),
       content: z.string(),
     });
+
     const first = await ownedRows(q, rowSchema);
     // A genuine concurrent race isn't worth flaking a test over — concurrent
     // rebuilds of one chat run under REPEATABLE READ, and a loser that hits a
@@ -508,15 +544,19 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('Edit', [
       { role: 'user', text: 'original phrasing' },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const [{ id: msgId }] = await ownedRows(
       sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
       z.object({ id: z.string() }),
     );
+
     const before = await ownedRows(
       sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
       z.object({ content_hash: z.string() }),
     );
+
     const newParts = JSON.stringify(text('rewritten distinctive wording'));
     await tenantDb.runAs(u, (tx) =>
       tx.execute(
@@ -524,10 +564,12 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       ),
     );
     await indexService.reindexChat(id, u);
+
     const after = await ownedRows(
       sql`SELECT content, content_hash FROM search_chat_documents WHERE chat_id = ${id} ORDER BY chunk_ordinal LIMIT 1`,
       z.object({ content: z.string(), content_hash: z.string() }),
     );
+
     expect(after[0].content_hash).not.toBe(before[0].content_hash);
     expect(after[0].content).toContain('rewritten distinctive wording');
   });
@@ -550,11 +592,14 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('Stale vector guard', [
       { role: 'user', text: 'original embeddable phrasing' },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const [{ content_hash: originalHash }] = await ownedRows(
       sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
       z.object({ content_hash: z.string() }),
     );
+
     // Simulate a prior successful embed directly, as the coverage-predicate
     // tests above already do — nothing in this layer writes an embedding yet.
     await tenantDb.runAs(u, (tx) =>
@@ -572,6 +617,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
       z.object({ id: z.string() }),
     );
+
     await tenantDb.runAs(u, (tx) =>
       tx.execute(
         sql`UPDATE messages SET parts = ${JSON.stringify(text('a completely different embeddable phrasing'))}::jsonb WHERE id = ${msgId}`,
@@ -587,6 +633,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       embed_input_version: z.number().nullable(),
       embedding_fail_reason: z.string().nullable(),
     });
+
     const [after] = await ownedRows(
       sql`
       SELECT content_hash, embedding::text AS embedding, embedding_model_key,
@@ -594,6 +641,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       FROM search_chat_documents WHERE chat_id = ${id}`,
       rowSchema,
     );
+
     expect(after.content_hash).not.toBe(originalHash);
     expect(after.embedding).toBeNull();
     expect(after.embedding_model_key).toBeNull();
@@ -606,11 +654,14 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     const id = await seed('Stable vector', [
       { role: 'user', text: 'content that will not change' },
     ]);
+
     await indexService.reindexChat(id, u);
+
     const [{ content_hash }] = await ownedRows(
       sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
       z.object({ content_hash: z.string() }),
     );
+
     await tenantDb.runAs(u, (tx) =>
       tx.execute(sql`
         UPDATE search_chat_documents
@@ -629,12 +680,14 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       embedding: z.string().nullable(),
       embedding_model_key: z.string().nullable(),
     });
+
     const [after] = await ownedRows(
       sql`
       SELECT embedding::text AS embedding, embedding_model_key
       FROM search_chat_documents WHERE chat_id = ${id}`,
       rowSchema,
     );
+
     expect(after.embedding).not.toBeNull();
     expect(after.embedding_model_key).toBe('model-a');
   });
@@ -647,10 +700,12 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       tx.execute(sql`DELETE FROM chats WHERE id = ${id}`),
     );
     expect(await docCount(id)).toBe(0);
+
     const state = await ownedRows(
       sql`SELECT count(*)::int AS n FROM search_chat_state WHERE chat_id = ${id}`,
       z.object({ n: z.number() }),
     );
+
     expect(state[0].n).toBe(0);
   });
 
@@ -678,6 +733,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       { role: 'user', text: 'hello' },
       { role: 'assistant', text: 'answer-1' },
     ]);
+
     await indexService.reindexChat(id, u);
     await tenantDb.runAs(u, (tx) =>
       tx.execute(sql`
@@ -691,6 +747,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     );
     expect(await staleIds()).toContain(id);
     await indexService.reindexChat(id, u);
+
     const rows = await ownedRows(
       sql`
       SELECT chunker_version, normalized_content, fts::text AS fts
@@ -701,6 +758,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         fts: z.string(),
       }),
     );
+
     expect(rows).toHaveLength(1);
     expect(rows[0].chunker_version).toBe(CHUNKER_VERSION);
     expect(rows[0].normalized_content).toBe('hello answer-1');
@@ -713,7 +771,9 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         sql`SELECT * FROM llame_search_stale_chats(${CHUNKER_VERSION}, 1)`,
       ),
     );
+
     const cols = new Set(Object.keys([...rows][0] ?? {}));
+
     // If there is a row, it must expose exactly the identifier/timestamp shape.
     if (cols.size > 0) {
       expect([...cols].sort()).toEqual(
@@ -730,6 +790,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       const id = await seed('Never embedded', [
         { role: 'user', text: 'find this via embedding one day' },
       ]);
+
       await indexService.reindexChat(id, u);
       const rows = await embeddingCoverage('model-a', 1);
       const row = rows.find((r) => r.chat_id === id);
@@ -743,11 +804,14 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       const id = await seed('Fully embedded', [
         { role: 'user', text: 'already covered content' },
       ]);
+
       await indexService.reindexChat(id, u);
+
       const [{ content_hash }] = await ownedRows(
         sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
         z.object({ content_hash: z.string() }),
       );
+
       await tenantDb.runAs(u, (tx) =>
         tx.execute(sql`
           UPDATE search_chat_documents
@@ -765,11 +829,14 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       const id = await seed('Rebuilt after embed', [
         { role: 'user', text: 'original content' },
       ]);
+
       await indexService.reindexChat(id, u);
+
       const [{ content_hash }] = await ownedRows(
         sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${id}`,
         z.object({ content_hash: z.string() }),
       );
+
       await tenantDb.runAs(u, (tx) =>
         tx.execute(sql`
           UPDATE search_chat_documents
@@ -787,6 +854,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
         sql`SELECT id FROM messages WHERE chat_id = ${id} LIMIT 1`,
         z.object({ id: z.string() }),
       );
+
       await tenantDb.runAs(u, (tx) =>
         tx.execute(
           sql`UPDATE messages SET parts = ${JSON.stringify(text('rewritten content'))}::jsonb WHERE id = ${msgId}`,
@@ -797,6 +865,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       const row = (await embeddingCoverage('model-a', 1)).find(
         (r) => r.chat_id === id,
       );
+
       expect(row).toBeDefined();
       expect(row!.outstanding_count).toBeGreaterThan(0);
     });
@@ -810,6 +879,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       const id = await seed('Coverage shape check', [
         { role: 'user', text: 'row shape only' },
       ]);
+
       await indexService.reindexChat(id, u);
       const rows = await embeddingCoverage('coverage-shape-model', 1);
       expect(rows.length).toBeGreaterThan(0);

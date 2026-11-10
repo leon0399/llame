@@ -58,6 +58,7 @@ describe('registry startup validation (fail loud, not at call time)', () => {
       id: 'no_classification',
       classification: undefined,
     };
+
     expect(() => buildRegistry([unclassified])).toThrow(/no classification/);
   });
 
@@ -79,6 +80,7 @@ describe('registry startup validation (fail loud, not at call time)', () => {
       id: 'remote_adapter',
       classification: 'unverified' as const,
     };
+
     expect(buildRegistry([mcpAdapter]).get(mcpAdapter.id)).toBe(mcpAdapter);
   });
 
@@ -99,6 +101,7 @@ describe('registry startup validation (fail loud, not at call time)', () => {
       ...searchConversationsTool,
       id: 'mcp__web__search',
     };
+
     expect(() => buildRegistry([reserved])).toThrow(/reserved.*mcp__/i);
   });
 });
@@ -119,6 +122,7 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
       id: 'write_something',
       classification: 'write_low_risk',
     };
+
     expect(
       resolveAdvertisedTools(new Set(['write_something']), [writeTool]),
     ).toEqual([]);
@@ -129,6 +133,7 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
       id: 'remote_adapter',
       classification: 'unverified',
     };
+
     expect(
       resolveAdvertisedTools(new Set(['remote_adapter']), [unverifiedTool]),
     ).toEqual([]);
@@ -139,11 +144,13 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
       id: 'mcp__web__search',
       classification: 'unverified',
     };
+
     const otherTool: Tool = {
       ...searchConversationsTool,
       id: 'remote_adapter',
       classification: 'unverified',
     };
+
     const wrongMcpTool: Tool = {
       ...searchConversationsTool,
       id: 'mcp__web__wrong',
@@ -168,11 +175,13 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
       id: 'mcp__web__search',
       classification: 'unverified' as const,
     };
+
     const webExtraTool = {
       ...searchConversationsTool,
       id: 'mcp__webExtra__search',
       classification: 'unverified' as const,
     };
+
     expect(
       resolveAdvertisedTools(new Set(['mcp__web__*']), [
         webTool,
@@ -186,6 +195,7 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
       id: 'mcp__web__search',
       classification: 'unverified' as const,
     };
+
     expect(
       resolveAdvertisedTools(new Set(['mcp__web__*', tool.id]), [tool]),
     ).toEqual([tool]);
@@ -210,7 +220,9 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
 describe('interrupt fate (run-steering D7)', () => {
   const fateOfId = (id: string) => {
     const tool = TOOL_REGISTRY.get(id);
+
     if (tool === undefined) throw new Error(`Tool "${id}" is not registered.`);
+
     return interruptFateOf(tool);
   };
 
@@ -243,6 +255,7 @@ describe('interrupt fate (run-steering D7)', () => {
       id: 'mcp__docs__search',
       classification: 'unverified',
     };
+
     expect(interruptFateOf(binding)).toBe('cancel');
   });
 });

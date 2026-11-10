@@ -7,6 +7,7 @@ import { type Db } from '../db/tenant-db.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 type QueryCall = { method: string; args: Array<unknown> };
+
 type LoggedQuery = { sql: string; params: Array<unknown> };
 
 type ActiveRunSummary = {
@@ -37,14 +38,19 @@ type QueryInput =
 function queryResult(value: QueryRows, calls: Array<QueryCall>) {
   const terminal = Promise.resolve(value);
   const chain = () => terminal;
+
   const values = (valueToInsert: QueryInput) => {
     calls.push({ method: 'values', args: [valueToInsert] });
+
     return terminal;
   };
+
   const set = (valueToSet: QueryInput) => {
     calls.push({ method: 'set', args: [valueToSet] });
+
     return terminal;
   };
+
   return Object.assign(terminal, {
     from: chain,
     innerJoin: chain,
@@ -56,6 +62,7 @@ function queryResult(value: QueryRows, calls: Array<QueryCall>) {
     set,
     returning: () => {
       calls.push({ method: 'returning', args: [] });
+
       return terminal;
     },
   });
@@ -78,21 +85,25 @@ function makeDb(options: {
   const selectResults = [...(options.select ?? [])];
   const insertResults = [...(options.insert ?? [])];
   const updateResults = [...(options.update ?? [])];
+
   const select = vi
     .spyOn(db, 'select')
     .mockImplementation(() =>
       asQuery(queryResult(selectResults.shift() ?? [], calls)),
     );
+
   const insert = vi
     .spyOn(db, 'insert')
     .mockImplementation(() =>
       asQuery(queryResult(insertResults.shift() ?? [], calls)),
     );
+
   const update = vi
     .spyOn(db, 'update')
     .mockImplementation(() =>
       asQuery(queryResult(updateResults.shift() ?? [], calls)),
     );
+
   // `execute` carries the run-control NOTIFY; the mock driver has no client.
   const execute = vi.spyOn(db, 'execute').mockImplementation(
     () =>
@@ -100,19 +111,23 @@ function makeDb(options: {
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       Promise.resolve([]) as never,
   );
+
   return { db, calls, select, insert, update, execute };
 }
 
 function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
   });
+
   return { db, queries };
 }
 
 const now = new Date('2026-09-02T00:00:00.000Z');
+
 const run: Run = {
   id: 'run-1',
   chatId: 'chat-1',
@@ -151,6 +166,7 @@ describe('RunsRepository', () => {
   it('includes optional id and effort only when supplied to create', async () => {
     const { db, calls } = makeDb({ insert: [[run], [run]] });
     const repository = new RunsRepository(db);
+
     const input = {
       chatId: run.chatId,
       messageId: 'message-1',
@@ -166,6 +182,7 @@ describe('RunsRepository', () => {
     const values = calls
       .filter(({ method }) => method === 'values')
       .map(({ args }) => args[0]);
+
     expect(values[0]).toMatchObject({ id: run.id, effort: 'high' });
     expect(values[1]).not.toHaveProperty('id');
     expect(values[1]).not.toHaveProperty('effort');
@@ -174,6 +191,7 @@ describe('RunsRepository', () => {
     const bypassRun = { ...run, permissionMode: 'bypass' as const };
     const { db, calls } = makeDb({ insert: [[bypassRun], [run]] });
     const repository = new RunsRepository(db);
+
     const input = {
       chatId: run.chatId,
       messageId: 'message-1',
@@ -189,6 +207,7 @@ describe('RunsRepository', () => {
     const values = calls
       .filter(({ method }) => method === 'values')
       .map(({ args }) => args[0]);
+
     expect(values[0]).toHaveProperty('permissionMode', 'bypass');
     expect(values[1]).not.toHaveProperty('permissionMode');
   });
@@ -199,8 +218,10 @@ describe('RunsRepository', () => {
       followUpAction: 'continue' as const,
       sourceRunId: 'run-source',
     };
+
     const { db, calls } = makeDb({ insert: [[followUpRun], [run]] });
     const repository = new RunsRepository(db);
+
     const input = {
       chatId: run.chatId,
       messageId: 'message-1',
@@ -220,6 +241,7 @@ describe('RunsRepository', () => {
     const values = calls
       .filter(({ method }) => method === 'values')
       .map(({ args }) => args[0]);
+
     expect(values[0]).toStrictEqual({
       ...input,
       followUpAction: 'continue',
@@ -230,9 +252,11 @@ describe('RunsRepository', () => {
 
   it('findMostRecentByMessageSequence returns the run and triggering sequence, with a strict message-sequence bound', async () => {
     const triggeringUserSeq = 7;
+
     const { db } = makeDb({
       select: [[{ runs: run, triggeringSeq: triggeringUserSeq }], []],
     });
+
     const repository = new RunsRepository(db);
 
     await expect(
@@ -292,9 +316,11 @@ describe('RunsRepository', () => {
       status: run.status,
       createdAt: run.createdAt,
     };
+
     const { db, select } = makeDb({
       select: [[run], [run], [activeSummary], [run]],
     });
+
     const repository = new RunsRepository(db);
 
     await expect(
@@ -322,6 +348,7 @@ describe('RunsRepository', () => {
     const sets = calls
       .filter(({ method }) => method === 'set')
       .map(({ args }) => args[0]);
+
     expect(sets[0]).toMatchObject({
       workerId: 'worker-1',
       status: 'running_model',
@@ -333,6 +360,7 @@ describe('RunsRepository', () => {
     const { db, calls, execute } = makeDb({
       update: [[run], [run], [run], [run]],
     });
+
     const repository = new RunsRepository(db);
 
     await expect(
@@ -353,6 +381,7 @@ describe('RunsRepository', () => {
     const sets = calls
       .filter(({ method }) => method === 'set')
       .map(({ args }) => args[0]);
+
     expect(sets[0]).toMatchObject({ status: 'cancelled' });
     expect(sets[1]).toHaveProperty('cancelRequestedAt');
     expect(sets[2]).toMatchObject({
@@ -393,6 +422,7 @@ describe('RunsRepository', () => {
     const sets = calls
       .filter(({ method }) => method === 'set')
       .map(({ args }) => args[0]);
+
     expect(sets[0]).toMatchObject({
       status: 'completed',
       completedAttemptId: 'attempt-1',
@@ -410,6 +440,7 @@ describe('RunsRepository', () => {
     const pauseBehind = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'pauseBehind')
       .mockResolvedValue();
+
     const { db } = makeDb({ update: [[run], []] });
     const repository = new RunsRepository(db);
 
@@ -444,6 +475,7 @@ describe('RunEventsRepository', () => {
       insert: [[event]],
       select: [[{ run_events: event }], []],
     });
+
     const repository = new RunEventsRepository(db);
 
     await expect(
@@ -492,6 +524,7 @@ describe('RunsRepository.findCompletedReplyRunBefore', () => {
 
   it('falls back when the named Run recorded no completed attempt', async () => {
     const previous: Run = { ...run, id: 'run-previous' };
+
     const { db } = makeDb({
       select: [
         [{ runId: completedRun.id }],
@@ -513,6 +546,7 @@ describe('RunsRepository.findCompletedReplyRunBefore', () => {
 
   it('falls back to the newest completed turn when the named Run is not completed', async () => {
     const previous: Run = { ...run, id: 'run-previous' };
+
     const { db } = makeDb({
       select: [
         [{ runId: completedRun.id }],
@@ -532,6 +566,7 @@ describe('RunsRepository.findCompletedReplyRunBefore', () => {
 
   it('falls back when the reply names no Run', async () => {
     const previous: Run = { ...run, id: 'run-previous' };
+
     const { db } = makeDb({
       select: [[], [{ runs: previous, triggeringSeq: 3 }]],
     });
@@ -547,6 +582,7 @@ describe('RunsRepository.findCompletedReplyRunBefore', () => {
 
   it('falls back when the named Run has no trigger row', async () => {
     const previous: Run = { ...run, id: 'run-previous' };
+
     const { db } = makeDb({
       select: [
         [{ runId: completedRun.id }],

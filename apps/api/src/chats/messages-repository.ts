@@ -128,6 +128,7 @@ export class MessagesRepository {
       eq(messages.chatId, chatId),
       eq(chats.ownerUserId, ownerUserId),
     ];
+
     if (anchorSeq !== undefined) {
       predicates.push(
         sql`(${lte(messages.seq, anchorSeq)} or (${eq(messages.role, 'checkpoint')} and ${lte(messages.absorbedThroughSeq, anchorSeq)}))`,
@@ -386,6 +387,7 @@ export class MessagesRepository {
     if (chatIds.length === 0) {
       return [];
     }
+
     const rows = await this.db
       .selectDistinctOn([messages.chatId])
       .from(messages)
@@ -410,6 +412,7 @@ export class MessagesRepository {
     if (chatIds.length === 0) {
       return new Map();
     }
+
     const rows = await this.db
       .select({ chatId: messages.chatId, value: count() })
       .from(messages)
@@ -487,9 +490,11 @@ export class MessagesRepository {
       .from(messages)
       .innerJoin(chats, eq(messages.chatId, chats.id))
       .where(and(...predicates));
+
     const rows = options?.orderBySeq
       ? await query.orderBy(asc(messages.seq)).limit(1)
       : await query.limit(1);
+
     return rows.map((r) => r.messages)[0];
   }
 
@@ -511,11 +516,13 @@ export class MessagesRepository {
       eq(messages.role, 'user'),
       eq(chats.ownerUserId, ownerUserId),
     ]);
+
     const assistantMessage = await this.findReply(
       chatId,
       ownerUserId,
       userMessageId,
     );
+
     return { userMessage, assistantMessage };
   }
 
@@ -564,6 +571,7 @@ export class MessagesRepository {
         ),
       )
       .limit(1);
+
     return row !== undefined;
   }
 
@@ -577,6 +585,7 @@ export class MessagesRepository {
       .from(messages)
       .where(eq(messages.chatId, chatId))
       .limit(1);
+
     return row !== undefined;
   }
 
@@ -609,6 +618,7 @@ export class MessagesRepository {
       usage: input.usage,
       inReplyTo: input.inReplyTo ?? null,
     };
+
     if (input.id !== undefined) values.id = input.id;
 
     const created = await insertWithChatSequence(
@@ -616,12 +626,15 @@ export class MessagesRepository {
       values,
       async (tx, row) => {
         const [inserted] = await tx.insert(messages).values(row).returning();
+
         return inserted;
       },
     );
+
     if (!created) {
       throw new Error('Message insert returned no row');
     }
+
     return created;
   }
 
@@ -648,6 +661,7 @@ export class MessagesRepository {
           .values(row)
           .onConflictDoNothing({ target: messages.id })
           .returning();
+
         return created;
       },
     );
@@ -676,6 +690,7 @@ export class MessagesRepository {
           .values(row)
           .onConflictDoNothing({ target: messages.inReplyTo })
           .returning();
+
         return created;
       },
     );
@@ -692,6 +707,7 @@ export class MessagesRepository {
     beforeSeq: number,
   ): Promise<string | undefined> {
     const modelId = sql<string>`(${messages.usage} ->> 'modelId')`;
+
     const [row] = await this.db
       .select({ modelId })
       .from(messages)

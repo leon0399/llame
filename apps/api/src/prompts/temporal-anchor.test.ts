@@ -73,6 +73,7 @@ describe('resolveInstanceTimezone', () => {
   // a time zone but which is not an identifier and carries no DST rule.
   it('rejects a bare UTC offset in favour of UTC', () => {
     const original = process.env.TZ;
+
     try {
       process.env.TZ = 'GMT+2';
       // Only meaningful if this host actually resolves the POSIX form to an

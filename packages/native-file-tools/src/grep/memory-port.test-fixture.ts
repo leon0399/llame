@@ -61,11 +61,14 @@ function resolveMemoryNode(
   rel: string,
 ): MemoryNode | undefined {
   let node: MemoryNode | undefined = { kind: "directory", children: tree };
+
   if (rel.length === 0) return node;
+
   for (const segment of rel.split("/")) {
     if (node === undefined || node.kind !== "directory") return undefined;
     node = node.children[segment];
   }
+
   return node;
 }
 
@@ -75,14 +78,19 @@ function openMemoryNode(
 ): GrepFileStream | { readonly kind: "oversized" | "unreadable" } {
   if (node === undefined || (node.kind !== "file" && node.kind !== "binary"))
     return { kind: "unreadable" };
+
   if (node.kind === "file" && node.refusal !== undefined)
     return { kind: node.refusal };
+
   const bytes =
     node.kind === "file" ? Buffer.from(node.content, "utf8") : node.bytes;
+
   const chunks: Array<
     Uint8Array | { readonly kind: "oversized" | "unreadable" }
   > = chunkBytes(bytes, node.chunkBytes ?? bytes.byteLength);
+
   if (node.lateRefusal !== undefined) chunks.push({ kind: node.lateRefusal });
+
   return {
     size: node.announcedSize ?? bytes.byteLength,
     close,
@@ -112,19 +120,23 @@ export function chunkBytes(
   if (!Number.isInteger(width) || width <= 0)
     throw new RangeError("a chunk width must be a positive integer");
   const chunks: Array<Uint8Array> = [];
+
   for (let offset = 0; offset < bytes.byteLength; offset += width)
     chunks.push(bytes.subarray(offset, offset + width));
+
   return chunks;
 }
 
 /** One list handed over as the async chunk sequence a port streams. */
 export function chunkSequence<T>(items: ReadonlyArray<T>): AsyncIterable<T> {
   let index = 0;
+
   return {
     [Symbol.asyncIterator]: () => ({
       next: () => {
         const value = items[index];
         index += 1;
+
         return value === undefined
           ? Promise.resolve({ done: true, value: undefined })
           : Promise.resolve({ done: false, value });
@@ -135,8 +147,10 @@ export function chunkSequence<T>(items: ReadonlyArray<T>): AsyncIterable<T> {
 
 function entryFor(name: string, child: MemoryNode): GrepEntry {
   if (child.kind === "binary") return { name, kind: "file" };
+
   if (child.kind === "directory")
     return { name, kind: "directory", identity: child.identity };
+
   return { name, kind: child.kind };
 }
 
@@ -147,6 +161,7 @@ function memoryIgnoreText(
 ): string | undefined {
   if (node === undefined || node.kind !== "directory") return undefined;
   const file = node.children[name];
+
   return file !== undefined && file.kind === "file" ? file.content : undefined;
 }
 
@@ -162,6 +177,7 @@ export function createMemoryPort(
   const lists: Array<string> = [];
   const reads: Array<string> = [];
   const closes: Array<string> = [];
+
   return {
     followsLinks,
     lists,
@@ -170,8 +186,10 @@ export function createMemoryPort(
     list(rel: string): Promise<ReadonlyArray<GrepEntry>> {
       lists.push(rel);
       const node = resolveMemoryNode(tree, rel);
+
       if (node === undefined || node.kind !== "directory")
         return Promise.reject(new GrepPortError(`not a directory: ${rel}`));
+
       return Promise.resolve(
         Object.entries(node.children).map(([name, child]) =>
           entryFor(name, child),
@@ -183,12 +201,15 @@ export function createMemoryPort(
       // One release per opened stream: a cancel closes it, and the stream's
       // own end closes it again.
       let released = false;
+
       const close = (): Promise<void> => {
         if (released) return Promise.resolve();
         released = true;
         closes.push(rel);
+
         return Promise.resolve();
       };
+
       return Promise.resolve(
         openMemoryNode(resolveMemoryNode(tree, rel), close),
       );
@@ -196,10 +217,13 @@ export function createMemoryPort(
     ignoreFiles(rel: string): Promise<ReadonlyArray<string>> {
       const node = resolveMemoryNode(tree, rel);
       const texts: Array<string> = [];
+
       for (const name of GREP_IGNORE_FILE_NAMES) {
         const text = memoryIgnoreText(node, name);
+
         if (text !== undefined) texts.push(text);
       }
+
       return Promise.resolve(texts);
     },
     ignoreAncestors: () => Promise.resolve(ancestors),
@@ -217,6 +241,7 @@ export function createSingleFilePort(
 ): MemoryPort {
   const reads: Array<string> = [];
   const closes: Array<string> = [];
+
   return {
     followsLinks: false,
     lists: [],
@@ -228,12 +253,15 @@ export function createSingleFilePort(
     open(rel: string) {
       reads.push(rel);
       let released = false;
+
       const close = (): Promise<void> => {
         if (released) return Promise.resolve();
         released = true;
         closes.push(rel);
+
         return Promise.resolve();
       };
+
       return Promise.resolve(
         openMemoryNode(rel.length === 0 ? node : undefined, close),
       );
@@ -307,7 +335,9 @@ export function runMemoryScan(
     literal: options.literal ?? false,
     ignoreCase: options.ignoreCase ?? false,
   });
+
   if (!compiled.ok) throw new Error(compiled.message);
+
   return runGrepScan({
     scopes,
     patterns: compiled.compiled,

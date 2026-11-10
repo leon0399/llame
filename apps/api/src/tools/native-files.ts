@@ -92,8 +92,10 @@ function executeNative(
   call: NativeCall,
 ): Promise<ToolResult> {
   let hostCall: NativeCall;
+
   if (isFileAlias(call.input.path)) {
     const alias = decodeFileAlias(call.input.path);
+
     if (!alias.ok)
       return Promise.resolve({
         status: 'error' as const,
@@ -103,21 +105,27 @@ function executeNative(
     hostCall = rewritePath(call, alias.hostPath);
   } else {
     const scheme = parsePathScheme(call.input.path);
+
     if (scheme !== undefined) {
       const reader = LOCATOR_READERS.get(scheme.scheme);
+
       return reader === undefined
         ? Promise.resolve(unknownSchemeResult())
         : reader(context, call, scheme.rest);
     }
+
     hostCall = projectNativeCall(context, call);
+
     // A Machine Workspace maps relative and absolute paths to the Machine's
     // own locator, so they take the Machine branch like a written one.
     if (isMachineLocator(hostCall.input.path))
       return executeMachineNative(context, hostCall, call.input.path);
   }
+
   // A media placeholder names the path as submitted, not the host path.
   if (hostCall.operation === 'read')
     return executeNativeBound(context, hostCall, call.input.path);
+
   return serializeMutation(() =>
     executeNativeBound(context, hostCall, call.input.path),
   );
@@ -169,17 +177,22 @@ export function readLocatorSchemes(): ReadonlyArray<string> {
 
 function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {
   const root = context.workspaceRoot?.current();
+
   if (root === undefined) return call;
+
   if (isWorkspaceRelative(call.input.path))
     return rewritePath(call, resolveWorkspacePath(root, call.input.path));
   const mapped = mapToWorkspaceHost(root, call.input.path);
+
   return mapped === call.input.path ? call : rewritePath(call, mapped);
 }
 
 function rewritePath(call: NativeCall, path: string): NativeCall {
   if (call.operation === 'read') return { operation: 'read', input: { path } };
+
   if (call.operation === 'edit')
     return { operation: 'edit', input: { ...call.input, path } };
+
   return { operation: 'write', input: { ...call.input, path } };
 }
 
@@ -192,6 +205,7 @@ function serializeMutation(
     () => {},
     () => {},
   );
+
   return pending;
 }
 
@@ -201,6 +215,7 @@ async function executeKnowledge(
   rest: string,
 ): Promise<ToolResult> {
   context.abortSignal?.throwIfAborted();
+
   // Reads reach the native miss handler for sibling suggestions; a create may
   // create a missing leaf or parent, while a replace asserts the leaf exists.
   // All still prove ancestor containment.
@@ -210,13 +225,16 @@ async function executeKnowledge(
     rest,
     call.operation !== 'edit' && !replacing(call),
   );
+
   if ('status' in target)
     return replacing(call) && target.type === 'not_found'
       ? { ...target, message: REPLACE_TARGET_MISSING_MESSAGE }
       : target;
+
   if (call.operation === 'read') return readKnowledge(context, target);
   // A `const` keeps the narrowing across the closure the queue runs later.
   const mutation = call;
+
   return serializeMutation(() => mutateKnowledge(context, mutation, target));
 }
 
@@ -234,22 +252,30 @@ async function executeSkill(
   if (call.operation !== 'read') return skillMutationUnsupportedResult();
   context.abortSignal?.throwIfAborted();
   const catalog = context.skillCatalog;
+
   if (catalog === undefined) return skillCatalogUnavailableResult();
   const root = context.workspaceRoot?.current();
+
   const extraSources =
     root === undefined ? undefined : workspaceSkillSources(root);
+
   const resolved = await resolveSkillLocator(
     catalog,
     rest,
     context.skillSelection ?? NO_SKILL_SELECTION,
     extraSources,
   );
+
   if ('status' in resolved) return resolved;
+
   if (isSkillCatalogResult(resolved)) {
     const window = catalogWindow(resolved.selector, resolved.entries.length);
+
     if ('status' in window) return window;
+
     return skillCatalogEnvelope(resolved.entries, window);
   }
+
   return readResolvedSkillTarget(context, resolved);
 }
 
@@ -264,12 +290,15 @@ async function readResolvedSkillTarget(
   target: ResolvedSkillTarget,
 ): Promise<ToolResult> {
   const envelope = skillResultEnvelope(target);
+
   if (isMachineLocator(target.hostPath)) {
     const machineResult = await readMachineSkillFile(context, target);
+
     return machineResult.status === 'success'
       ? { ...machineResult, ...envelope }
       : machineResult;
   }
+
   const options: NativeReadOptions = {
     displayPath: target.locator,
     reserveCodeUnits: readAttributionReserve(envelope),
@@ -277,12 +306,14 @@ async function readResolvedSkillTarget(
     signal: context.abortSignal,
     media: context.media?.readMedia(target.locator, context.toolCallId),
   };
+
   const result = await readResolvedFile(
     target.hostPath,
     target.selector === undefined
       ? options
       : { ...options, selector: target.selector },
   );
+
   return result.status === 'success' ? { ...result, ...envelope } : result;
 }
 
@@ -297,12 +328,15 @@ function readMachineSkillFile(
   target: ResolvedSkillTarget,
 ): Promise<ToolResult> {
   const parsed = parseMachineLocator(target.hostPath);
+
   if (parsed.kind !== 'path')
     return Promise.resolve(skillCatalogUnavailableResult());
   const selector = target.selector ?? parsed.selector;
   const locator = formatMachineLocator(parsed.name, parsed.path, selector);
+
   if (locator === undefined)
     return Promise.resolve(skillCatalogUnavailableResult());
+
   return executeMachineNative(
     context,
     { operation: 'read', input: { path: locator } },
@@ -325,6 +359,7 @@ function catalogWindow(
   count: number,
 ): { readonly offset: number; readonly limit?: number } | ToolResult {
   const placed = placeListingSelector(SKILL_CATALOG_LOCATOR, selector, count);
+
   if ('refusal' in placed) {
     return invalidCatalogSelectorResult(
       placed.refusal === 'invalid'
@@ -334,6 +369,7 @@ function catalogWindow(
           : 'The skill catalog accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.',
     );
   }
+
   return placed.window;
 }
 
@@ -356,8 +392,10 @@ async function readKnowledge(
   target: ResolvedKnowledgeTarget,
 ): Promise<ToolResult> {
   const escaped = await target.assertInsideSpace();
+
   if (escaped) return escaped;
   const envelope = knowledgeResultEnvelope(target);
+
   const options: NativeReadOptions = {
     displayPath: target.locator,
     reserveCodeUnits: readAttributionReserve(envelope),
@@ -367,12 +405,14 @@ async function readKnowledge(
     signal: context.abortSignal,
     media: context.media?.readMedia(target.locator, context.toolCallId),
   };
+
   const result = await readResolvedFile(
     target.hostPath,
     target.selector === undefined
       ? options
       : { ...options, selector: target.selector },
   );
+
   return result.status === 'success' ? { ...result, ...envelope } : result;
 }
 
@@ -388,8 +428,11 @@ async function mutateKnowledge(
   target: ResolvedKnowledgeTarget,
 ): Promise<ToolResult> {
   const { runId, toolCallId, userId } = context;
+
   if (!runId || !toolCallId) return knowledgeFenceUnavailableResult();
+
   if (target.selector !== undefined) return selectorOnMutationResult();
+
   const prior = await context.tenantDb.runAs(userId, (db) =>
     new NativeFilesRepository(db).begin({
       runId,
@@ -402,6 +445,7 @@ async function mutateKnowledge(
       path: target.locator,
     }),
   );
+
   if (prior) return prior;
   context.abortSignal?.throwIfAborted();
   const settled = await settleKnowledgeMutation(context, call, target);
@@ -413,6 +457,7 @@ async function mutateKnowledge(
       result: settled,
     });
   });
+
   return settled;
 }
 
@@ -429,16 +474,20 @@ async function settleKnowledgeMutation(
     call.operation === 'write' && !replacing(call)
       ? await target.createDirectories()
       : undefined;
+
   if (blocked) return blocked;
   const escaped = await target.assertInsideSpace();
+
   if (escaped) return escaped;
   const envelope = knowledgeResultEnvelope(target);
+
   const result = await performMutation(call, target.hostPath, {
     signal: context.abortSignal,
     displayPath: target.locator,
     // Edit and write still render as JSON here; the reads reserve text width.
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
   });
+
   return result.status === 'success' ? { ...result, ...envelope } : result;
 }
 
@@ -454,6 +503,7 @@ async function executeNativeBound(
 ): Promise<ToolResult> {
   const { runId, nativeExecutorId, toolCallId, userId } = context;
   const nativeDeliverySequence = context.nativeDeliverySequence;
+
   if (!runId || !nativeExecutorId || !toolCallId)
     return {
       status: 'error',
@@ -461,6 +511,7 @@ async function executeNativeBound(
       message: 'Native host authority is unavailable.',
     };
   context.abortSignal?.throwIfAborted();
+
   const prior = await context.tenantDb.runAs(userId, (db) =>
     new NativeFilesRepository(db).begin({
       runId,
@@ -473,9 +524,11 @@ async function executeNativeBound(
       path: call.input.path,
     }),
   );
+
   if (prior) return prior;
   context.abortSignal?.throwIfAborted();
   const result = await performNative(call, context, submitted);
+
   if (call.operation !== 'read') {
     await context.tenantDb.runAs(userId, async (db) => {
       await new RunEventsRepository(db).append(runId, 'native.result', {
@@ -484,6 +537,7 @@ async function executeNativeBound(
       });
     });
   }
+
   return result;
 }
 
@@ -518,10 +572,12 @@ function performMutation(
       reserveCodeUnits: runtime.reserveCodeUnits,
     });
   const input = { path: hostPath, content: call.input.content };
+
   const options = {
     displayPath: runtime.displayPath,
     reserveCodeUnits: runtime.reserveCodeUnits,
   };
+
   return replacing(call)
     ? replaceFile(input, runtime.signal, options)
     : createFile(input, runtime.signal, options);
@@ -553,6 +609,7 @@ function selectorOnMutationResult(): ToolResult {
     message: 'A line selector cannot be used with edit or write.',
   };
 }
+
 export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',
   classification: 'read_only',

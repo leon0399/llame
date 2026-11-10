@@ -18,16 +18,20 @@ export async function collectStreamBytes(
 ): Promise<Buffer> {
   const parts: Array<Uint8Array> = [];
   let total = 0;
+
   for await (const chunk of chunks) {
     if (!(chunk instanceof Uint8Array))
       throw new Error(`the stream refused: ${chunk.kind}`);
     total += chunk.byteLength;
+
     if (total > limit)
       throw new Error(`the stream passed ${limit} bytes without ending`);
+
     if (parts.length === MAX_STREAM_CHUNKS)
       throw new Error(`the stream passed ${MAX_STREAM_CHUNKS} chunks`);
     parts.push(chunk);
   }
+
   return Buffer.concat(parts);
 }
 
@@ -37,10 +41,13 @@ export async function drainStream<T>(
   limit: number,
 ): Promise<Array<T>> {
   const drained: Array<T> = [];
+
   for await (const item of items) {
     drained.push(item);
+
     if (drained.length > limit)
       throw new Error(`the stream passed ${limit} items without ending`);
   }
+
   return drained;
 }

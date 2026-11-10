@@ -13,28 +13,37 @@ import "./preview.css";
 // - pins/mutations: keeps pin/unpin/reorder off the network and exposes
 //   assertable `mutate` spies for the interaction stories.
 sb.mock(import("../../web/contexts/active-runs-context.tsx"));
+
 sb.mock(import("../../web/lib/services/pins/mutations.ts"));
+
 // - chat/runs: `useRunContextReceipt` fetches a run's context receipt; the
 //   mock lets the effective-context-inspector stories present receipt states
 //   without a backend.
 sb.mock(import("../../web/lib/services/chat/runs.ts"));
+
 // - chat/fork: exposes a stable `forkMutate` spy for the fork-affordance
 //   interaction stories.
 sb.mock(import("../../web/lib/services/chat/fork.ts"));
+
 // - models/queries: stubs only the catalog query hook (the real
 //   modelDisplayName/hasModelId helpers are re-exported) so model-picker
 //   stories can drive loading/loaded catalogs without a backend.
 sb.mock(import("../../web/lib/services/models/queries.ts"));
+
 // - permission-modes/queries: stubs the enabled-mode listing so selector
 //   stories can drive default-only, bypass-enabled, and unavailable states.
 sb.mock(import("../../web/lib/services/permission-modes/queries.ts"));
+
 // - memory queries/mutations: provide controllable settings state and a stable
 // update spy for the Memory settings card without calling an API.
 sb.mock(import("../../web/lib/services/memory/queries.ts"));
+
 sb.mock(import("../../web/lib/services/memory/mutations.ts"));
+
 // - media/uploads: keeps composer attachment uploads off the network; stories
 //   resolve, reject, or hold `uploadAttachment` to show each upload state.
 sb.mock(import("../../web/lib/services/media/uploads.ts"));
+
 // - machines/queries: stubs the Machine status list so the settings section
 //   and the chat's session details sidebar can show online/offline/absent
 //   Machines without an SSH-backed backend.

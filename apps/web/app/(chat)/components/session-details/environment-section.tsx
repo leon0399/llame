@@ -127,7 +127,9 @@ function StaticRow({
 /** When the hub last reached the Machine, kept current while shown. */
 function LastSeen({ machine }: { machine: MachineResponse | undefined }) {
   if (machine === undefined) return <>Status unknown</>;
+
   if (machine.lastSeenAt === null) return <>Never connected</>;
+
   return (
     <>
       Last seen <RelativeTime date={machine.lastSeenAt} />
@@ -137,6 +139,7 @@ function LastSeen({ machine }: { machine: MachineResponse | undefined }) {
 
 function machineState(machine: MachineResponse | undefined) {
   if (machine === undefined) return "Unknown";
+
   return machine.status === "online" ? "Online" : "Offline";
 }
 
@@ -156,6 +159,7 @@ function MachineStatusBadge({
       </SidebarMenuBadge>
     );
   }
+
   return (
     <SidebarMenuBadge>
       <span className="flex items-center gap-1.5">
@@ -190,6 +194,7 @@ function MachineRow({
     machine?.status === "offline" && machine.failureReason !== null
       ? FAILURE_LABELS[machine.failureReason]
       : undefined;
+
   const state = machineState(machine);
 
   return (
@@ -227,6 +232,7 @@ function MachineRow({
  */
 function WorkspaceRow({ workspaceRoot }: { workspaceRoot: string }) {
   const path = machinePathFromRoot(workspaceRoot) ?? workspaceRoot;
+
   return (
     <SidebarMenuItem>
       <span className="flex h-8 min-w-0 items-center gap-2 pr-8 pl-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0">
@@ -249,6 +255,7 @@ function WorkspaceRow({ workspaceRoot }: { workspaceRoot: string }) {
  */
 function RepositoryRow({ checkout }: { checkout: EnvironmentCheckout }) {
   const page = forgePage(checkout.remote);
+
   if (page === undefined) {
     return (
       <StaticRow icon={<BookMarkedIcon />}>
@@ -258,6 +265,7 @@ function RepositoryRow({ checkout }: { checkout: EnvironmentCheckout }) {
       </StaticRow>
     );
   }
+
   return (
     <SidebarMenuItem>
       <Tooltip>
@@ -287,6 +295,7 @@ function RepositoryRow({ checkout }: { checkout: EnvironmentCheckout }) {
 
 function branchLabel(state: GitStateOkResponse) {
   if (!state.detached) return state.branch ?? "No branch";
+
   return `Detached HEAD at ${state.head?.short ?? "unknown"}`;
 }
 
@@ -325,12 +334,15 @@ function BranchRow({
 
 function upstreamLabel({ upstream }: GitStateOkResponse) {
   if (upstream === null) return "No upstream";
+
   if (upstream.gone) return `${upstream.name} · upstream gone`;
   const counts = `${upstream.ahead ?? 0} ahead, ${upstream.behind ?? 0} behind`;
+
   const updated =
     upstream.updatedAt === null
       ? "update time unknown"
       : `as of ${upstream.updatedAt.slice(0, 16).replace("T", " ")} UTC`;
+
   return `${upstream.name} · ${counts} · ${updated}`;
 }
 
@@ -341,18 +353,22 @@ function countsLabel({ counts }: GitStateOkResponse) {
     [counts.untracked, "untracked"],
     [counts.conflicted, "conflicted"],
   ];
+
   const parts = entries.flatMap(([count, name]) =>
     count > 0 ? [`${count} ${name}`] : [],
   );
+
   return parts.length === 0 ? "No changes" : parts.join(" · ");
 }
 
 function operationLabel({ operation }: GitStateOkResponse) {
   if (operation === null) return null;
+
   const step =
     operation.step !== undefined && operation.total !== undefined
       ? `, step ${operation.step} of ${operation.total}`
       : "";
+
   return `${operation.kind} in progress${step}`;
 }
 
@@ -366,6 +382,7 @@ function GitStateOkRows({
   worktree: boolean;
 }) {
   const operation = operationLabel(state);
+
   return (
     <>
       <BranchRow label={branchLabel(state)} worktree={worktree} />
@@ -477,6 +494,7 @@ function ProjectSlot({
   project: EnvironmentProject | null | undefined;
 }) {
   if (project === undefined) return <SkeletonRow />;
+
   return project === null ? null : <ProjectRow project={project} />;
 }
 
@@ -494,7 +512,9 @@ export function EnvironmentSection(props: EnvironmentSectionProps) {
       </SidebarMenu>
     );
   }
+
   const { workspaceRoot } = props;
+
   return (
     <SidebarMenu>
       <ProjectSlot project={props.project} />
@@ -518,8 +538,10 @@ export function environmentSummary({
   project,
 }: EnvironmentSectionProps): ReactNode {
   if (!chatLoaded) return <Skeleton className="h-3 w-16" />;
+
   if (workspaceRoot === null) return project?.name ?? "No Workspace";
   const path = machinePathFromRoot(workspaceRoot) ?? workspaceRoot;
   const folder = path.replace(/\/+$/, "").split("/").pop() || path;
+
   return machineName === undefined ? folder : `${machineName} · ${folder}`;
 }

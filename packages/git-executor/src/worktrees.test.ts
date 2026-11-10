@@ -124,6 +124,7 @@ describe("addWorktree", () => {
     );
     const previousPath = process.env["PATH"];
     process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
+
     try {
       await addWorktree({
         source: "/srv/app",
@@ -140,6 +141,7 @@ describe("addWorktree", () => {
       .split("CALL\n")
       .filter((call) => call !== "")
       .map((call) => call.trimEnd().split("\n"));
+
     expect(calls[0]?.slice(-8)).toEqual([
       "worktree",
       "add",
@@ -181,6 +183,7 @@ describe("addWorktree", () => {
         addWorktree({ source, branch, directory }),
       ).resolves.toMatchObject({ status: "error", type: "invalid_input" });
     }
+
     expect(existsSync(directory)).toBe(false);
   });
 
@@ -387,6 +390,7 @@ describe("the worktree operations over one inspected repository", () => {
       branch: "llame/shop",
       directory,
     });
+
     const inspected = await inspectRepository({ path: directory });
     const listed = await listWorktrees({ path: source });
 
@@ -398,6 +402,7 @@ describe("the worktree operations over one inspected repository", () => {
       mainWorktree: source,
       branch: "llame/shop",
     });
+
     if (listed.status !== "ok")
       throw new Error(`the listing failed: ${JSON.stringify(listed)}`);
     expect(listed.worktrees.map((entry) => entry.path)).toContain(directory);

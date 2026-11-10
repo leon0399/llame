@@ -78,6 +78,7 @@ d('grep artifact producer', () => {
     if (previousTmpdir === undefined) delete process.env['TMPDIR'];
     else process.env['TMPDIR'] = previousTmpdir;
     await rm(root, { recursive: true, force: true });
+
     if (sql) {
       await sql`DELETE FROM users WHERE id = ${owner}`;
       await sql.end();
@@ -87,6 +88,7 @@ d('grep artifact producer', () => {
   /** A read context: no Workspace root, so a finding keeps its host path. */
   function readContext(policy: ToolPermissionMap): ToolContext {
     const { workspaceRoot: _root, ...context } = contextWith(policy);
+
     return context;
   }
 
@@ -111,7 +113,9 @@ d('grep artifact producer', () => {
     return await tenantDb.runAs(owner, async (tx) => {
       const repository = new ArtifactsRepository(tx);
       const part = await repository.readPart(chatId, 'grep', SEQ, '');
+
       if (part === undefined) throw new Error('the call stored no part');
+
       return part;
     });
   }
@@ -128,14 +132,18 @@ d('grep artifact producer', () => {
     }>
   > {
     const document = (await storedPart()).findings;
+
     if (!isRecord(document) || !Array.isArray(document['findings'])) return [];
+
     return document['findings'].flatMap((entry) => {
       if (!isRecord(entry)) return [];
       const locators = entry['locators'];
       const start = entry['start'];
       const end = entry['end'];
+
       if (!Array.isArray(locators) || !isNumber(start) || !isNumber(end))
         return [];
+
       return [
         {
           locators: locators.filter((locator): locator is string =>
@@ -153,9 +161,11 @@ d('grep artifact producer', () => {
     policy: ToolPermissionMap,
   ): Promise<string> {
     const result = await readArtifact(readContext(policy), 'read', locator);
+
     if (result.status !== 'success' || !isString(result['content'])) {
       throw new Error(`Expected a read success: ${JSON.stringify(result)}`);
     }
+
     return result['content'];
   }
 
@@ -164,14 +174,18 @@ d('grep artifact producer', () => {
       patterns: ['needle'],
       scopes: [`${root}/**`],
     });
+
     if (!parsed.success) throw new Error('the fixture arguments must parse');
+
     const result: ToolResult = await nativeGrepTool.execute(
       contextWith({ grep: { allow: true }, read: { allow: true } }),
       parsed.data,
     );
+
     if (result.status !== 'success' || !isString(result['artifact'])) {
       throw new Error(`Expected a stored artifact: ${JSON.stringify(result)}`);
     }
+
     const locator = result['artifact'];
     const secretDir = `${root}/secrets/`;
     const secretFile = `${secretDir}a.ts`;
@@ -186,6 +200,7 @@ d('grep artifact producer', () => {
     const outline = await read(`${locator}:outline`, {
       read: { allow: true },
     });
+
     expect(outline).toContain(`## ${secretFile}`);
     expect(outline).toContain(`## ${root}/public/file-000.ts`);
     const findings = await storedFindings();
@@ -193,6 +208,7 @@ d('grep artifact producer', () => {
     const textLines = text.split('\n');
     const secret = findingOf(findings, secretFile);
     expect(textLines[secret.start - 1]).toBe(`## ${secretFile}`);
+
     if (secret.end < textLines.length)
       expect(textLines[secret.end]).toMatch(/^## /u);
     // The two-passage file: its range spans the blank separator, so a range
@@ -214,21 +230,26 @@ d('grep artifact producer', () => {
     const admitted = await read(range, { read: { allow: true } });
     expect(admitted).toContain(`## ${secretFile}`);
     expect(admitted).toContain(': needle');
+
     const withheld = await read(range, {
       read: {
         allow: true,
         reject: [{ field: 'path', regex: `^${escapeRegex(secretDir)}` }],
       },
     });
+
     // The read window may include neighbouring lines; judge the finding's own
     // numbered lines, which must all be withheld.
     const served = withheld.split('\n').flatMap((line) => {
       const match = /^(\d+): /u.exec(line);
+
       return match === null ? [] : [{ number: Number(match[1]), line }];
     });
+
     const own = served.filter(
       (entry) => entry.number >= secret.start && entry.number <= secret.end,
     );
+
     expect(own).toHaveLength(secret.end - secret.start + 1);
     expect(own.every((entry) => entry.line.endsWith('[withheld]'))).toBe(true);
     expect(withheld).not.toContain('needle');
@@ -236,6 +257,7 @@ d('grep artifact producer', () => {
     // A file next to it keeps its own heading and lines.
     const publicFile = `${root}/public/file-000.ts`;
     const publicFinding = findingOf(findings, publicFile);
+
     const visible = await read(
       `${locator}:${String(publicFinding.start)}-${String(publicFinding.end)}`,
       {
@@ -245,6 +267,7 @@ d('grep artifact producer', () => {
         },
       },
     );
+
     expect(visible).toContain(`## ${publicFile}`);
     expect(visible).not.toContain('[withheld]');
 
@@ -257,6 +280,7 @@ d('grep artifact producer', () => {
       'artifacts',
       `grep-${String(SEQ)}.md`,
     );
+
     const stored = await readFile(hostFile, 'utf8');
     expect(stored).toContain(`## ${secretFile}`);
     expect(stored).toContain('needle');
@@ -277,7 +301,9 @@ function findingOf(
   file: string,
 ): ArtifactFindingRow {
   const found = findings.find((finding) => finding.locators.includes(file));
+
   if (found === undefined) throw new Error(`no finding recorded for ${file}`);
+
   return found;
 }
 

@@ -39,6 +39,7 @@ const acme = unit({
   directRole: "owner",
   memberCount: 5,
 });
+
 const teamA = unit({
   id: "teamA",
   name: "Team A",
@@ -47,6 +48,7 @@ const teamA = unit({
   path: "org1/teamA",
   memberCount: 2,
 });
+
 const deptB = unit({
   id: "deptB",
   name: "Dept B",
@@ -55,6 +57,7 @@ const deptB = unit({
   path: "org1/deptB",
   memberCount: 4,
 });
+
 const teamC = unit({
   id: "teamC",
   name: "Team C",
@@ -63,6 +66,7 @@ const teamC = unit({
   path: "org1/deptB/teamC",
   memberCount: 1,
 });
+
 const homeLab = unit({
   id: "org2",
   name: "Home Lab",
@@ -78,6 +82,7 @@ let fetchMock: Mock<typeof fetch>;
 function stubOrgUnitsFetch() {
   fetchMock = stubFetch();
   fetchMock.mockImplementation(async () => emptyResponse());
+
   return () => {
     vi.unstubAllGlobals();
   };
@@ -93,6 +98,7 @@ const meta = {
 } satisfies Meta<typeof OrgUnitsTree>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /** Cancel the open form dialog and wait until it has gone. */

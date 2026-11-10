@@ -34,13 +34,16 @@ export class NativeFilesRepository {
   }): Promise<boolean> {
     if (input.deliverySequence === undefined) return false;
     const locked = await this.lockRun(input.runId, input.userId);
+
     if (locked === undefined) return false;
+
     if (
       input.attemptId !== undefined &&
       locked.activeAttemptId !== input.attemptId
     ) {
       return false;
     }
+
     return (
       (await this.latestStartedSequence(input.runId)) === input.deliverySequence
     );
@@ -73,13 +76,16 @@ export class NativeFilesRepository {
       }))
     )
       return executorUnavailable();
+
     if (
       input.fence.bound &&
       !(await this.bind(input.runId, input.userId, input.fence.executorId))
     )
       return executorUnavailable();
+
     if (input.operation === 'read') return undefined;
     const outcome = await this.priorOutcome(input.runId, input.toolCallId);
+
     if (outcome) return outcome;
     await new RunEventsRepository(this.db).append(
       input.runId,
@@ -90,6 +96,7 @@ export class NativeFilesRepository {
         path: input.path,
       },
     );
+
     return undefined;
   }
 
@@ -103,6 +110,7 @@ export class NativeFilesRepository {
       .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
       .for('update')
       .limit(1);
+
     return row;
   }
 
@@ -117,6 +125,7 @@ export class NativeFilesRepository {
       )
       .orderBy(desc(runEvents.sequence))
       .limit(1);
+
     return latestStarted?.sequence;
   }
 
@@ -138,6 +147,7 @@ export class NativeFilesRepository {
         ),
       )
       .returning({ id: runs.id });
+
     return rows.length === 1;
   }
 
@@ -156,6 +166,7 @@ export class NativeFilesRepository {
           eq(runEvents.eventType, 'run.delivered'),
         ),
       );
+
     const rows = await this.db
       .select({ id: runEvents.sequence })
       .from(runEvents)
@@ -167,6 +178,7 @@ export class NativeFilesRepository {
         ),
       )
       .limit(1);
+
     return rows.length > 0;
   }
 
@@ -189,12 +201,16 @@ export class NativeFilesRepository {
       )
       .orderBy(desc(runEvents.sequence))
       .limit(1);
+
     if (!event) return undefined;
+
     if (event.eventType === 'native.result' && isRecord(event.payload)) {
       const result = event.payload.result;
       const recorded = isRecord(result) ? recordedResult(result) : undefined;
+
       if (recorded !== undefined) return recorded;
     }
+
     return {
       status: 'error',
       type: 'outcome_unknown',
@@ -212,15 +228,19 @@ export class NativeFilesRepository {
 function recordedResult(result: UnknownRecord): ToolResult | undefined {
   if (result.status === 'success') {
     const { artifact, ...rest } = result;
+
     return {
       ...rest,
       status: 'success',
       ...(isArtifactLocator(artifact) && { artifact }),
     };
   }
+
   if (result.status !== 'error') return undefined;
+
   if (!isString(result.type) || !isString(result.message)) return undefined;
   const artifact = result.artifact;
+
   return {
     status: 'error',
     type: result.type,

@@ -64,6 +64,7 @@ const openApiObjectSchema = z.object({
 const rawDocument: unknown = JSON.parse(
   readFileSync(join(__dirname, '../openapi.json'), 'utf8'),
 );
+
 const document = openApiObjectSchema.parse(rawDocument);
 
 const EXPECTED_OPERATION_IDS = [
@@ -170,6 +171,7 @@ function operations(): Array<OperationEntry> {
   return Object.entries(document.paths).flatMap(([path, pathItem]) =>
     HTTP_METHODS.flatMap((method) => {
       const operation = pathItem[method];
+
       return operation ? [{ method, path, operation }] : [];
     }),
   );
@@ -179,9 +181,11 @@ function operation(method: OperationEntry['method'], path: string) {
   const match = operations().find(
     (entry) => entry.method === method && entry.path === path,
   );
+
   if (!match) {
     throw new Error(`Missing operation ${method.toUpperCase()} ${path}`);
   }
+
   return match.operation;
 }
 
@@ -191,11 +195,13 @@ function response(
   status: string,
 ): z.infer<typeof responseObjectSchema> {
   const result = operation(method, path).responses[status];
+
   if (!result) {
     throw new Error(
       `Missing response ${method.toUpperCase()} ${path} ${status}`,
     );
   }
+
   return result;
 }
 
@@ -205,6 +211,7 @@ function pinnedItemResponseSchema(
 ): z.infer<typeof pinnedItemSchema> {
   const schema = response(method, path, '200').content?.['application/json']
     ?.schema;
+
   return pinnedItemSchema.parse(
     method === 'get' ? pinnedListSchema.parse(schema).items : schema,
   );
@@ -239,6 +246,7 @@ describe('committed OpenAPI contract', () => {
       pinnedItemResponseSchema('get', '/api/v1/pins'),
       pinnedItemResponseSchema('put', '/api/v1/pins/{itemType}/{itemId}'),
     ];
+
     const expectedPinnedSchema = {
       oneOf: [
         { $ref: '#/components/schemas/ChatPinnedItemResponse' },
@@ -279,9 +287,11 @@ describe('committed OpenAPI contract', () => {
     const schema = schemaObjectSchema.parse(
       document.components?.schemas?.OrgUnitResponse,
     );
+
     const properties = z
       .record(z.string(), z.unknown())
       .parse(schema.properties);
+
     const directRole = schemaObjectSchema.parse(properties.directRole);
 
     expect(schema.required).toContain('directRole');
@@ -298,9 +308,11 @@ describe('committed OpenAPI contract', () => {
       const schema = schemaObjectSchema.parse(
         document.components?.schemas?.UpdatePersonalizationDto,
       );
+
       const properties = z
         .record(z.string(), z.unknown())
         .parse(schema.properties);
+
       const field = schemaObjectSchema.parse(properties[property]);
 
       expect(schema.required ?? []).not.toContain(property);
@@ -316,9 +328,11 @@ describe('committed OpenAPI contract', () => {
     const schema = schemaObjectSchema.parse(
       document.components?.schemas?.OrgUnitConflictErrorResponse,
     );
+
     const properties = z
       .record(z.string(), z.unknown())
       .parse(schema.properties);
+
     const code = schemaObjectSchema.parse(properties.code);
 
     expect(code.enum).toEqual(EXPECTED_ORG_UNIT_CONFLICT_CODES);
@@ -347,6 +361,7 @@ describe('committed OpenAPI contract', () => {
     expect(
       operation('patch', '/api/v1/knowledge-spaces/{id}').responses,
     ).toHaveProperty('200');
+
     const listParameters = z
       .array(
         z.object({
@@ -355,6 +370,7 @@ describe('committed OpenAPI contract', () => {
         }),
       )
       .parse(operation('get', '/api/v1/knowledge-spaces').parameters);
+
     expect(
       listParameters.find(({ name }) => name === 'limit')?.schema.type,
     ).toBe('integer');
@@ -400,6 +416,7 @@ describe('committed OpenAPI contract', () => {
       const schema = referenceObjectSchema.parse(
         response(method, path, status).content?.['application/json']?.schema,
       );
+
       expect(schema).toEqual({
         $ref: `#/components/schemas/${schemaName}`,
       });

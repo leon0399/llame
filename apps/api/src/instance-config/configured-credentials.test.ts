@@ -19,6 +19,7 @@ function membersOf(
 ): ReadonlyArray<string> {
   const collector = new ConfiguredCredentialCollector(env);
   add(collector);
+
   return collector.snapshot();
 }
 
@@ -50,6 +51,7 @@ function tempJson(serialized: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'llame-credentials-'));
   const file = path.join(dir, 'secret.json');
   writeFileSync(file, serialized);
+
   return file;
 }
 
@@ -169,6 +171,7 @@ describe('ConfiguredCredentialCollector — POSTGRES_URL', () => {
 
   it('reads only the environment it was given', () => {
     process.env.POSTGRES_URL = 'postgres://app:pw-canary-1065-long@db/llame';
+
     try {
       expect(membersOf(() => {})).toEqual([]);
     } finally {

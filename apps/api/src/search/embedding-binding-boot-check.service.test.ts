@@ -40,6 +40,7 @@ function fakeTx(rows: Array<FakeRow>) {
         where: () => Promise.resolve(rows),
       }),
   };
+
   return query;
 }
 
@@ -50,10 +51,12 @@ async function buildService(
 ) {
   let calls = 0;
   const declaredKeyCount = embeddingModels.length;
+
   const runAsPublic = async <T>(
     fn: (tx: ReturnType<typeof fakeTx>) => Promise<T>,
   ): Promise<T> => {
     calls += 1;
+
     // The first `declaredKeyCount` calls are per-key lookups (in `models`
     // order); the one call after that (task 7.3) lists every ledger row —
     // fed `undeclaredKeys` directly since `listUndeclaredBindingKeys` does
@@ -61,7 +64,9 @@ async function buildService(
     if (calls > declaredKeyCount) {
       return fn(fakeTx(undeclaredKeys.map((modelKey) => ({ modelKey }))));
     }
+
     const key = Object.keys(bindingsByKey)[calls - 1] ?? '';
+
     return fn(fakeTx(bindingsByKey[key] ?? []));
   };
 
@@ -75,7 +80,9 @@ async function buildService(
       { provide: TenantDbService, useValue: { runAsPublic } },
     ],
   }).compile();
+
   openModules.push(moduleRef);
+
   return {
     service: moduleRef.get(EmbeddingBindingBootCheckService),
     callCount: () => calls,
@@ -102,6 +109,7 @@ describe('EmbeddingBindingBootCheckService', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     const { service } = await buildService([], {}, ['embed-model-a']);
 
     await service.onApplicationBootstrap();
@@ -126,6 +134,7 @@ describe('EmbeddingBindingBootCheckService', () => {
       ],
       { e: [] },
     );
+
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
     // 1 per-key lookup for 'e' + 1 undeclared-keys listing (task 7.3).
     expect(callCount()).toBe(2);
@@ -135,6 +144,7 @@ describe('EmbeddingBindingBootCheckService', () => {
     const warnSpy = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const { service } = await buildService(
       [
         {
@@ -149,6 +159,7 @@ describe('EmbeddingBindingBootCheckService', () => {
       { e: [] },
       ['retired-model'],
     );
+
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('"retired-model"'),
@@ -160,6 +171,7 @@ describe('EmbeddingBindingBootCheckService', () => {
     const warnSpy = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const { service } = await buildService(
       [
         {
@@ -174,6 +186,7 @@ describe('EmbeddingBindingBootCheckService', () => {
       { e: [] },
       [],
     );
+
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -209,6 +222,7 @@ describe('EmbeddingBindingBootCheckService', () => {
         ],
       },
     );
+
     await expect(service.onApplicationBootstrap()).rejects.toThrow(
       /embeddingModels\[e\]\.providerModelId/,
     );

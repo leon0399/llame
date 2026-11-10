@@ -17,6 +17,7 @@ import { useOpenChat } from "@/lib/services/chat/queries";
  *  again here — so a draft, which no cache holds, is never archived. */
 export function useOpenChatArchived(chatId: string): boolean {
   const chat = useOpenChat(chatId, { fetch: false });
+
   return chat !== undefined && chat.archivedAt !== null;
 }
 
@@ -24,6 +25,7 @@ export function useOpenChatArchived(chatId: string): boolean {
  *  the one action that makes it writable again. */
 export function ArchivedChatBanner({ chatId }: { chatId: string }) {
   const archive = useSetChatArchive();
+
   return (
     <div className="mx-auto w-full max-w-3xl px-3 pb-2 md:px-5">
       <Alert>

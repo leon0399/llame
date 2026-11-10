@@ -94,15 +94,18 @@ export async function resolveSkillLocator(
   extraSources?: ReadonlyArray<string>,
 ): Promise<ResolvedSkillTarget | ResolvedSkillCatalog | ToolResult> {
   const parsed = parseSkillLocator(rest);
+
   if ('type' in parsed) return { status: 'error', ...parsed };
 
   const snapshot = catalog.getSnapshot(extraSources);
+
   if (!snapshot.available) return skillCatalogUnavailableResult();
 
   if (parsed.catalog === true) {
     const entries = snapshot.entries.filter((entry) =>
       isListable(entry, selection),
     );
+
     return parsed.selector === undefined
       ? { catalog: true, entries }
       : { catalog: true, entries, selector: parsed.selector };
@@ -111,10 +114,13 @@ export async function resolveSkillLocator(
   const entry = snapshot.entries.find(
     (candidate) => candidate.name === parsed.name,
   );
+
   if (entry === undefined) return skillNotFoundResult();
+
   if (!entry.available || entry.skillDirectory === null) {
     return skillUnavailableResult();
   }
+
   if (!isReadable(entry, selection))
     return skillRequiresSelectionResult(entry.name);
 
@@ -143,6 +149,7 @@ async function resolveWithinPackage(
   skillDirectory: string,
 ): Promise<ResolvedSkillTarget | ToolResult> {
   const relativePath = parsed.relativePath;
+
   // A Machine package's directory is a locator, so its document path is joined
   // with the scheme intact — `path.join` would collapse `//` and the read
   // would look on the hub.
@@ -158,6 +165,7 @@ async function resolveWithinPackage(
   // validated segments join the discovered package directory as it stands and
   // a link is followed wherever it leads.
   const realSkillDirectory = await realPackageDirectory(skillDirectory);
+
   const target: ResolvedSkillTarget = {
     // The separator rides along so the reader's own open applies the native
     // rule: a directory resolves, a file is `ENOTDIR` and reports `not_found`.
@@ -171,6 +179,7 @@ async function resolveWithinPackage(
     ...(realSkillDirectory !== undefined && { realSkillDirectory }),
     sourceDirectory: entry.sourceDirectory ?? skillDirectory,
   };
+
   return parsed.selector === undefined
     ? target
     : { ...target, selector: parsed.selector };
@@ -187,11 +196,13 @@ async function realPackageDirectory(
   skillDirectory: string,
 ): Promise<string | undefined> {
   let real: string;
+
   try {
     real = await realpath(skillDirectory);
   } catch {
     return undefined;
   }
+
   return real === skillDirectory ? undefined : real;
 }
 

@@ -40,6 +40,7 @@ import { MachinesStatusRepository } from './machines-status.repository';
         status: MachinesStatusRepository,
       ) => {
         const logger = new Logger(MachineConnector.name);
+
         return new MachineConnector({
           machines: instanceConfig.config.machines,
           // The handshake's hub version is llame's own identity token

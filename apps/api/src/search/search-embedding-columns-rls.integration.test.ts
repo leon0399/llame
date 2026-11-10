@@ -41,7 +41,9 @@ import { SearchIndexService } from './search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const text = (t: string) => [{ type: 'text', text: t }];
 
 describeIfDb('search_chat_documents embedding columns — RLS negatives', () => {
@@ -61,9 +63,11 @@ describeIfDb('search_chat_documents embedding columns — RLS negatives', () => 
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
       await chats.createIfAbsent({ id, ownerUserId: ownerId, title: 'Embed' });
+
       if (visibility === 'public') {
         await chats.update(id, ownerId, { visibility });
       }
+
       await messages.create({
         chatId: id,
         role: 'user',
@@ -79,6 +83,7 @@ describeIfDb('search_chat_documents embedding columns — RLS negatives', () => 
         SET embedding = '[0.1,0.2,0.3]', embedding_model_key = 'rls-test-model'
         WHERE chat_id = ${id}`),
     );
+
     return id;
   }
 
@@ -104,6 +109,7 @@ describeIfDb('search_chat_documents embedding columns — RLS negatives', () => 
     indexService = new SearchIndexService(tenantDb);
     owner = crypto.randomUUID();
     other = crypto.randomUUID();
+
     for (const id of [owner, other]) {
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'E', ${`e-${id}@t.com`})`;
     }
@@ -119,12 +125,14 @@ describeIfDb('search_chat_documents embedding columns — RLS negatives', () => 
   it('the harness is meaningful: non-superuser, non-BYPASSRLS role, FORCE RLS on search_chat_documents', async () => {
     const [role] =
       await sqlClient`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
     const [rel] = await sqlClient`
       SELECT relrowsecurity, relforcerowsecurity FROM pg_class
       WHERE relname = 'search_chat_documents'`;
+
     expect(rel.relrowsecurity).toBe(true);
     expect(rel.relforcerowsecurity).toBe(true);
   });

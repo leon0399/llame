@@ -79,6 +79,7 @@ function stripPayloadMetadata(
   const stripsPartId = eventType === 'model.delta';
   const stripsMetadata = stripsPartId || eventType === 'tool.requested';
   const stripsRefusal = eventType === 'tool.completed';
+
   if (
     (!stripsMetadata && !stripsRefusal) ||
     (!Object.hasOwn(payload, METADATA_KEY) &&
@@ -91,7 +92,9 @@ function stripPayloadMetadata(
   const stripped = { ...payload };
   delete stripped[METADATA_KEY];
   delete stripped[SDK_REFUSAL_KEY];
+
   if (stripsPartId) delete stripped[PART_ID_KEY];
+
   return stripped;
 }
 
@@ -102,15 +105,20 @@ function stripPayloadMetadata(
  */
 function stripPartMetadata(part: UnknownRecord): UnknownRecord {
   const type = part['type'];
+
   const stripsMetadata =
     Object.hasOwn(part, METADATA_KEY) &&
     isString(type) &&
     (type === TEXT_PART || type.startsWith(TOOL_PART_PREFIX));
+
   const stripsRefusal = Object.hasOwn(part, SDK_REFUSAL_KEY);
+
   if (!stripsMetadata && !stripsRefusal) return part;
 
   const stripped = { ...part };
+
   if (stripsMetadata) delete stripped[METADATA_KEY];
   delete stripped[SDK_REFUSAL_KEY];
+
   return stripped;
 }

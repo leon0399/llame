@@ -39,6 +39,7 @@ function makeController() {
     getCreationRecord:
       vi.fn<ChatCreationControllerService['getCreationRecord']>(),
   } satisfies ChatCreationControllerService;
+
   return { controller: new ChatCreationController(chatCreation), chatCreation };
 }
 

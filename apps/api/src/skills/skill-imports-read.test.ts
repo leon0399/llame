@@ -18,6 +18,7 @@ const DEADLINE = 10_000;
 function freezeClock(now: number) {
   const clock = { now };
   vi.spyOn(Date, 'now').mockImplementation(() => clock.now);
+
   return clock;
 }
 
@@ -35,6 +36,7 @@ function expand(
   } = {},
 ) {
   const h = auditedContext();
+
   return expandSkillImports({
     skill: 'research',
     runId: STUB_RUN_ID,
@@ -77,6 +79,7 @@ describe('package import reads', () => {
           '@a.md @b.md',
           scriptedReadTool(() => {
             clock.now = DEADLINE;
+
             return { status: 'error', type, message: 'ended' };
           }),
           { deadline: DEADLINE },
@@ -93,6 +96,7 @@ describe('package import reads', () => {
 
     it('keeps going when a read times out with time still on the clock', async () => {
       freezeClock(1000);
+
       const slow: ToolResult = {
         status: 'error',
         type: 'timeout',
@@ -120,6 +124,7 @@ describe('package import reads', () => {
         '@a.md',
         scriptedReadTool(() => {
           clock.now = DEADLINE + 1;
+
           return notFoundResult();
         }),
         { deadline: DEADLINE },
@@ -136,6 +141,7 @@ describe('package import reads', () => {
         '@a.md',
         scriptedReadTool(() => {
           clock.now = DEADLINE + 1;
+
           return fileResult('A', { type: 'timeout' });
         }),
         { deadline: DEADLINE },
@@ -154,6 +160,7 @@ describe('package import reads', () => {
         scriptedReadTool((_path, context) => {
           controller.abort();
           wasAbortedByRun.push(context.abortSignal?.aborted === true);
+
           return notFoundResult();
         }),
         { abortSignal: controller.signal },
@@ -168,6 +175,7 @@ describe('package import reads', () => {
         '@a.md',
         scriptedReadTool((_path, context) => {
           budget.push(context.abortSignal);
+
           return new Promise<ToolResult>(() => undefined);
         }),
         {
@@ -199,6 +207,7 @@ describe('package import reads', () => {
     });
 
     const fileFields = { kind: 'file', content: 'leaked' };
+
     const leaked: ToolResult = {
       ...fileFields,
       status: 'error',
@@ -211,6 +220,7 @@ describe('package import reads', () => {
       kind: 'directory',
       content: 'listing',
     };
+
     const noText: ToolResult = { status: 'success', kind: 'file' };
 
     it.each([
@@ -259,6 +269,7 @@ describe('package import reads', () => {
         { length: SKILL_MAX_PATH_COMPONENTS - 1 },
         () => 'n',
       ).join('/')}/leaf.md`;
+
       const long = `${'a'.repeat(SKILL_MAX_PATH_BYTES - '.md'.length)}.md`;
 
       const { requestedPaths } = await expand(
@@ -291,6 +302,7 @@ describe('package import reads', () => {
         (sum, file) => sum + file.path.length + file.body.length,
         0,
       );
+
     const first = 'skill://research/a.md';
     const second = 'skill://research/b.md';
 

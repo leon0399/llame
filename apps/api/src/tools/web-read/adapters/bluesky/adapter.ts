@@ -31,10 +31,12 @@ type BlueskyTarget =
 /** AT Protocol handle and DID syntax, and the record-key charset. */
 const HANDLE = String.raw`(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?`;
 const DID = 'did:[a-z]+:[A-Za-z0-9._:%-]*[A-Za-z0-9._-]';
+
 const PROFILE_PATH = new RegExp(
   `^/profile/(${HANDLE}|${DID})(?:/post/([A-Za-z0-9._:~-]{1,512})|/(followers|follows))?$`,
   'u',
 );
+
 const MAX_HANDLE_LENGTH = 253;
 const MAX_DID_LENGTH = 2048;
 
@@ -43,16 +45,21 @@ export function parseBlueskyUrl(source: URL): BlueskyTarget | undefined {
   if (source.protocol !== 'https:' || source.host !== 'bsky.app') {
     return undefined;
   }
+
   // A DID's colons in the last segment arrive as `%3A`: `read` takes a
   // literal colon there as a selector.
   const match = PROFILE_PATH.exec(source.pathname.replaceAll(/%3A/giu, ':'));
   const actor = match?.[1];
+
   if (match === null || actor === undefined) return undefined;
   const limit = actor.startsWith('did:') ? MAX_DID_LENGTH : MAX_HANDLE_LENGTH;
+
   if (actor.length > limit) return undefined;
 
   const [, , rkey, list] = match;
+
   if (rkey !== undefined) return { kind: 'post', actor, rkey };
+
   return {
     kind: list === 'followers' || list === 'follows' ? list : 'profile',
     actor,
@@ -65,18 +72,21 @@ export function createBlueskyAdapter(
   options: { readonly apiOrigin?: string } = {},
 ): WebAdapter {
   const apiOrigin = options.apiOrigin ?? BLUESKY_API_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
     match: (source) => parseBlueskyUrl(source) !== undefined,
     read: async (source, io) => {
       const target = parseBlueskyUrl(source)!;
+
       const xrpc = (method: string, params: Record<string, string>) =>
         io.fetch(`${apiOrigin}/xrpc/${method}?${new URLSearchParams(params)}`, {
           accept: 'application/json',
         });
 
       if (target.kind === 'profile') return readProfile(target.actor, xrpc);
+
       const fetched =
         target.kind === 'post'
           ? await xrpc('app.bsky.feed.getPostThread', {
@@ -88,7 +98,9 @@ export function createBlueskyAdapter(
                 : 'app.bsky.graph.getFollows',
               { actor: target.actor, limit: FOLLOW_PAGE_SIZE },
             );
+
       if ('type' in fetched) return primaryFailure(fetched);
+
       return outcome(
         target.kind === 'post'
           ? renderThread(fetched.body)
@@ -111,8 +123,10 @@ async function readProfile(
   xrpc: Xrpc,
 ): Promise<WebAdapterOutcome> {
   const fetched = await xrpc('app.bsky.actor.getProfile', { actor });
+
   if ('type' in fetched) return primaryFailure(fetched);
   const parsed = parseProfile(fetched.body);
+
   if ('failure' in parsed) return { kind: 'failed', failure: parsed.failure };
 
   const feed = await xrpc('app.bsky.feed.getAuthorFeed', {
@@ -120,18 +134,22 @@ async function readProfile(
     filter: 'posts_no_replies',
     limit: LATEST_POSTS,
   });
+
   if (!('type' in feed)) {
     const posts = parseAuthorFeed(feed.body);
+
     return outcome(
       { content: renderProfile(parsed.profile, posts) },
       posts === undefined ? ['posts omitted: parse'] : [],
     );
   }
+
   // A deadline reached after the profile keeps what arrived; any other
   // call-ending failure ends the read, as GitHub's secondary sections do.
   if (isFatalAdapterFailure(feed) && feed.type !== 'call_timeout') {
     return primaryFailure(feed);
   }
+
   return outcome({ content: renderProfile(parsed.profile, undefined) }, [
     omissionNote('posts', feed),
   ]);

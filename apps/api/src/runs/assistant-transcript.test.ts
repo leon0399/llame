@@ -13,8 +13,10 @@ import { projectStoredToolPart } from '../chats/tool-observation-part';
 const project = (parts: ReadonlyArray<MessagePart>) =>
   parts.flatMap((part, partIndex) => {
     const stored = projectStoredToolPart(part, `msg-1:${partIndex}`);
+
     return stored === undefined ? [] : [stored];
   });
+
 import {
   REJECTED_HOP_MESSAGE,
   REJECTED_URL_BOUND,
@@ -444,6 +446,7 @@ describe('AssistantPartCollector seeding (Continue runs)', () => {
       'not a part',
       { type: 'text', text: 'kept answer' },
     ];
+
     collector.seed(asDouble<ReadonlyArray<MessagePart>>(malformed));
 
     expect(collector.parts()).toEqual([{ type: 'text', text: 'kept answer' }]);
@@ -489,6 +492,7 @@ describe('toolActivityPart', () => {
   it('stores a refused call’s step and the SDK’s own form of it', () => {
     const sdkErrorText =
       'Invalid input for tool read: Type validation failed. Received: {"path":3}';
+
     const part = toolActivityPart({
       toolCallId: 'call-1',
       toolName: 'read',
@@ -560,6 +564,7 @@ describe('toolActivityPart', () => {
         artifact: 'artifact://grep-7',
       },
     });
+
     expect(wellFormed.artifact).toBe('artifact://grep-7');
 
     const malformed: ToolResult = {
@@ -567,6 +572,7 @@ describe('toolActivityPart', () => {
       content: 'answer',
       artifact: 'artifact://grep-7:1-20',
     };
+
     expect(
       Object.hasOwn(
         toolActivityPart({
@@ -590,6 +596,7 @@ describe('toolActivityPart', () => {
         { title: 'Example', url: 'https://example.com/docs', snippet: 'S.' },
       ],
     };
+
     const part = toolActivityPart({
       toolCallId: 'call-web',
       toolName: 'web_search',
@@ -656,6 +663,7 @@ describe('toolActivityPart', () => {
         errorText: result.message,
         outcome,
       });
+
       if (result.type === 'cancelled') {
         expect(part.resultProviderMetadata).toEqual({
           llame: { cancelled: true },
@@ -668,6 +676,7 @@ describe('toolActivityPart', () => {
 
   it('stores the refused target a hop rejection names beside its error', () => {
     const refusedUrl = 'https://blocked.example.test/page';
+
     const part = toolActivityPart({
       toolCallId: 'call-1',
       toolName: 'read',
@@ -807,6 +816,7 @@ describe('reconstructDurableAssistant', () => {
     const start = { openai: { itemId: 'msg_1' } };
     const end = { openai: { itemId: 'msg_1', annotations: [] } };
     const second = { openai: { itemId: 'msg_2' } };
+
     const result = reconstructDurableAssistant([
       // The live order of one Responses item: its start's metadata, its
       // text, then its end. A second item is a second part (design A7).
@@ -832,6 +842,7 @@ describe('reconstructDurableAssistant', () => {
 
   it('rebuilds a call’s provider metadata onto its tool part', () => {
     const metadata = { openai: { itemId: 'fc_1' } };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'c1',
@@ -908,9 +919,11 @@ describe('reconstructDurableAssistant', () => {
 
   it('replays each reasoning part’s provider metadata onto its own part', () => {
     const earlierMetadata = { openai: { itemId: 'rs_1' } };
+
     const laterMetadata = {
       openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
     };
+
     const result = reconstructDurableAssistant([
       event('reasoning.delta', { text: 'first summary', partId: 'rs_1:0' }),
       event('reasoning.delta', { text: 'second summary', partId: 'rs_1:1' }),
@@ -947,6 +960,7 @@ describe('reconstructDurableAssistant', () => {
 
   it('starts an empty part for a metadata-only event whose id the log never carried (D18)', () => {
     const withheld = { anthropic: { signature: 'SIG_WITHHELD' } };
+
     const result = reconstructDurableAssistant([
       event('model.delta', { text: 'the answer so far' }),
       // A block whose text the provider withheld: the run records its
@@ -981,6 +995,7 @@ describe('reconstructDurableAssistant', () => {
 
   it('replays a reasoning part longer than the former cap whole', () => {
     const long = 'z'.repeat(30_000);
+
     const result = reconstructDurableAssistant([
       event('reasoning.delta', { text: long, partId: 'rs_1:0' }),
     ]);
@@ -1043,6 +1058,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'explicit_reject' as const,
       reference: { groupId: 'bash', list: 'reject' as const, clauseIndex: 0 },
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1160,6 +1176,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'permission_mode_read_only' as const,
       reference: null,
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1176,6 +1193,7 @@ describe('reconstructDurableAssistant', () => {
         },
       }),
     ]);
+
     const [part] = result.collector.parts();
 
     // The stored tool part keeps the decision for the owner's reload; model
@@ -1237,6 +1255,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'matched_allow' as const,
       reference: { groupId: 'read', list: 'allow' as const, clauseIndex: null },
     };
+
     const derivedDecisions = [
       { ...permission, kind: 'alternate' as const },
       {
@@ -1251,6 +1270,7 @@ describe('reconstructDurableAssistant', () => {
         kind: 'canonical' as const,
       },
     ];
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1290,6 +1310,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'no_allow' as const,
       reference: null,
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1323,6 +1344,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'permission_mode_bypass' as const,
       reference: null,
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1381,6 +1403,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'matched_allow' as const,
       reference: null,
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1408,6 +1431,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'explicit_reject' as const,
       reference: null,
     };
+
     const hopDecision = {
       kind: 'hop' as const,
       policyId: 'policy-hop',
@@ -1415,14 +1439,18 @@ describe('reconstructDurableAssistant', () => {
       reason: 'no_allow' as const,
       reference: null,
     };
+
     const stored: Array<unknown> = [];
+
     for (let index = 0; index < 30; index += 1) {
       stored.push(
         { ...addressDecision, policyId: `address-${index}` },
         { ...hopDecision, policyId: `hop-${index}` },
       );
     }
+
     stored.splice(1, 0, { ...addressDecision, kind: 'redirect' });
+
     const expected = [
       ...Array.from({ length: 16 }, (_, index) => [
         { ...addressDecision, policyId: `address-${index}` },
@@ -1433,6 +1461,7 @@ describe('reconstructDurableAssistant', () => {
         policyId: `hop-${index + 16}`,
       })),
     ];
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1449,6 +1478,7 @@ describe('reconstructDurableAssistant', () => {
     const toolPart = result.collector
       .parts()
       .find((part): part is ToolActivityPart => part.type === 'tool-read');
+
     expect(toolPart?.derivedDecisions).toStrictEqual(expected);
     expect(
       toolPart?.derivedDecisions?.filter(({ kind }) => kind === 'address'),
@@ -1466,6 +1496,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'explicit_reject' as const,
       reference: null,
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1486,6 +1517,7 @@ describe('reconstructDurableAssistant', () => {
     const toolPart = result.collector
       .parts()
       .find((part): part is ToolActivityPart => part.type === 'tool-grep');
+
     expect(toolPart?.derivedDecisions).toStrictEqual([
       { ...refused, count: 40 },
       { ...refused, policyId: 'policy-zero', count: 0 },
@@ -1501,6 +1533,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'explicit_reject' as const,
       reference: null,
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1513,6 +1546,7 @@ describe('reconstructDurableAssistant', () => {
         derivedDecisions: [decision],
       }),
     ]);
+
     const [part] = result.collector.parts();
 
     // The record appears once, in its own field: the observation the model
@@ -1534,6 +1568,7 @@ describe('reconstructDurableAssistant', () => {
       reason: 'explicit_reject',
       reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
     };
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1554,6 +1589,7 @@ describe('reconstructDurableAssistant', () => {
 
   it('reloads a refused hop target from storage and re-attaches it to model replay', () => {
     const refusedUrl = 'https://blocked.example.test/page';
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -1659,9 +1695,11 @@ describe('reconstructDurableAssistant', () => {
           },
         }),
       ]);
+
       const [part] = result.collector.parts();
 
       expect(part).toMatchObject({ outcome: 'permission_denied' });
+
       if (accepted) {
         expect(part).toHaveProperty('errorRejectedUrl', rejectedUrl);
       } else {
@@ -1691,6 +1729,7 @@ describe('reconstructDurableAssistant', () => {
           },
         }),
       ]);
+
       const [part] = result.collector.parts();
 
       expect(part).not.toHaveProperty('errorRejectedUrl');
@@ -1716,6 +1755,7 @@ describe('reconstructDurableAssistant', () => {
         },
       }),
     ]);
+
     const [part] = result.collector.parts();
 
     expect(part).not.toHaveProperty('errorRejectedUrl');
@@ -1860,6 +1900,7 @@ describe('reconstructDurableAssistant', () => {
     ]);
 
     const parts = result.collector.parts();
+
     // An unnumbered step stays unnumbered: the projection's consecutive-call
     // rule reads it, and nothing here invents a step for it (design D5).
     for (const part of parts) expect(part).not.toHaveProperty('step');
@@ -1895,6 +1936,7 @@ describe('reconstructDurableAssistant', () => {
   it('rebuilds a refused call’s SDK text and input beside llame’s error', () => {
     const sdkErrorText =
       "Model tried to call unavailable tool 'fetch_page'. Available tools: read.";
+
     const result = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'call-1',
@@ -2022,6 +2064,7 @@ describe('system-origin tool activity', () => {
         origin: 'prompt-import',
       }),
     ]);
+
     expect(completed.collector.parts()).toEqual([]);
     expect(completed.openToolCalls).toEqual(new Map());
 
@@ -2035,6 +2078,7 @@ describe('system-origin tool activity', () => {
         origin: 'prompt-import',
       }),
     ]);
+
     expect(open.collector.parts()).toEqual([]);
     expect(open.openToolCalls).toEqual(new Map());
   });
@@ -2153,6 +2197,7 @@ describe('stored tool-part classification (turn-actions D10)', () => {
         expected === undefined ? {} : { classification: expected },
       ),
     );
+
     if (expected === undefined) {
       expect(part).not.toHaveProperty('classification');
     }
@@ -2296,6 +2341,7 @@ describe('an owner interrupt in the stored transcript (run-steering D7, D8)', ()
       result: { status: 'success', exitCode: 143, stdout: '', stderr: '' },
       interrupted: true,
     });
+
     const plain = toolActivityPart({
       toolCallId: 'call_2',
       toolName: 'read',

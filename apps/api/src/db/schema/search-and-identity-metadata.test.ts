@@ -33,6 +33,7 @@ function policyContracts(table: PgTable): Array<string> {
   const config = getTableConfig(table);
   expect(config.enableRLS).toBe(true);
   const dialect = new PgDialect();
+
   for (const policy of config.policies) {
     for (const clause of [policy.using, policy.withCheck]) {
       if (clause !== undefined) {
@@ -42,6 +43,7 @@ function policyContracts(table: PgTable): Array<string> {
       }
     }
   }
+
   return config.policies.map(
     (policy) =>
       `${policy.name}:${policy.for ?? 'all'}:${policy.using ? 'using' : '-'}:${policy.withCheck ? 'check' : '-'}`,
@@ -151,12 +153,15 @@ describe('chat schema metadata', () => {
       'messages_owner:all:using:-',
       'messages_public_read:select:using:-',
     ]);
+
     const publicPolicy = getTableConfig(messages).policies.find(
       ({ name }) => name === 'messages_public_read',
     );
+
     if (publicPolicy?.using === undefined) {
       throw new Error('messages public policy missing');
     }
+
     expect(new PgDialect().sqlToQuery(publicPolicy.using).sql).toContain(
       "role::text <> 'checkpoint'",
     );
@@ -166,6 +171,7 @@ describe('chat schema metadata', () => {
     const check = getTableConfig(chats).checks.find(
       ({ name }) => name === 'chats_workspace_detach_reason_check',
     );
+
     if (check === undefined) throw new Error('Workspace detach check missing');
     expect(new PgDialect().sqlToQuery(check.value).sql).toBe(
       `"chats"."workspace_detach_reason" IS NULL OR "chats"."workspace_detach_reason" IN ('executor_mismatch', 'executor_absent', 'root_missing', 'root_moved', 'permission_rejected', 'tool_not_allowed')`,
@@ -176,11 +182,14 @@ describe('chat schema metadata', () => {
     const column = getTableConfig(messages).columns.find(
       ({ name }) => name === 'absorbed_through_seq',
     );
+
     if (column === undefined) throw new Error('checkpoint boundary missing');
     expect(column.notNull).toBe(false);
+
     const index = getTableConfig(messages).indexes.find(
       ({ config }) => config.name === 'messages_chat_absorbed_through_seq_uidx',
     );
+
     if (index === undefined)
       throw new Error('checkpoint boundary index missing');
     expect(index.config.unique).toBe(true);
@@ -189,15 +198,19 @@ describe('chat schema metadata', () => {
         'name' in indexColumn ? indexColumn.name : undefined,
       ),
     ).toEqual(['chat_id', 'absorbed_through_seq']);
+
     if (index.config.where === undefined) {
       throw new Error('checkpoint boundary predicate missing');
     }
+
     expect(new PgDialect().sqlToQuery(index.config.where).sql).toContain(
       'IS NOT NULL',
     );
+
     const check = getTableConfig(messages).checks.find(
       ({ name }) => name === 'messages_checkpoint_boundary_check',
     );
+
     if (check === undefined)
       throw new Error('checkpoint boundary check missing');
     expect(new PgDialect().sqlToQuery(check.value).sql).toBe(
@@ -240,9 +253,11 @@ describe('search and pin schema metadata', () => {
     ]);
     // #597: md5 is only a candidate filter over rows that carry a vector.
     const dialect = new PgDialect();
+
     const reuseIndex = getTableConfig(searchChatDocuments).indexes.find(
       (index) => index.config.name === 'search_chat_documents_embed_reuse_idx',
     );
+
     expect(
       reuseIndex?.config.columns.map(
         (column) => is(column, SQL) && dialect.sqlToQuery(column).sql,

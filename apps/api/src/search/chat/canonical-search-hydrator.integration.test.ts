@@ -28,6 +28,7 @@ import { SearchIndexService } from '../search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
 
 type SeedMessage = {
@@ -59,6 +60,7 @@ describeIfDb('canonical search hydration', () => {
         ownerUserId,
         title: 'Canonical hydration',
       });
+
       for (const seedMessage of seedMessages) {
         const created = await messages.create({
           chatId,
@@ -67,9 +69,11 @@ describeIfDb('canonical search hydration', () => {
           parts: seedMessage.parts,
           usage: seedMessage.usage,
         });
+
         messageIds.push(created.id);
       }
     });
+
     return { chatId, messageIds };
   }
 
@@ -85,6 +89,7 @@ describeIfDb('canonical search hydration', () => {
         ORDER BY chunk_ordinal
       `),
     );
+
     return [...rows].map((row) => row.id);
   }
 
@@ -122,6 +127,7 @@ describeIfDb('canonical search hydration', () => {
         LIMIT 1
       `),
     );
+
     return z.string().parse(row?.id);
   }
 
@@ -132,6 +138,7 @@ describeIfDb('canonical search hydration', () => {
     indexService = new SearchIndexService(tenantDb);
     ownerA = crypto.randomUUID();
     ownerB = crypto.randomUUID();
+
     for (const id of [ownerA, ownerB]) {
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'Hydration', ${`hydration-${id}@test.com`})`;
     }
@@ -147,6 +154,7 @@ describeIfDb('canonical search hydration', () => {
   it('hydrates partial boundaries, complete intermediates, and all visible text parts', async () => {
     const firstText = 'first visible\n\nsecond visible';
     const lastText = 'last\r\nline';
+
     const seeded = await seedChat(ownerA, [
       {
         role: 'user',
@@ -167,6 +175,7 @@ describeIfDb('canonical search hydration', () => {
       },
       { role: 'user', parts: [textPart(lastText)] },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
     const documentId = await firstDocumentId(ownerA, seeded.chatId);
 
@@ -220,9 +229,11 @@ describeIfDb('canonical search hydration', () => {
 
   it('hydrates a same-message UTF-16 range without exposing projection identity', async () => {
     const visibleText = 'A😀BC';
+
     const seeded = await seedChat(ownerA, [
       { role: 'user', parts: [textPart(visibleText)] },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
     const documentId = await firstDocumentId(ownerA, seeded.chatId);
     await updateDocument(
@@ -254,6 +265,7 @@ describeIfDb('canonical search hydration', () => {
       { role: 'user', parts: [textPart('first source')] },
       { role: 'user', parts: [textPart('last source')] },
     ]);
+
     await indexService.reindexChat(multi.chatId, ownerA);
     const multiDocumentId = await firstDocumentId(ownerA, multi.chatId);
 
@@ -287,6 +299,7 @@ describeIfDb('canonical search hydration', () => {
     const same = await seedChat(ownerA, [
       { role: 'user', parts: [textPart('same source')] },
     ]);
+
     await indexService.reindexChat(same.chatId, ownerA);
     const sameDocumentId = await firstDocumentId(ownerA, same.chatId);
     await updateDocument(
@@ -314,6 +327,7 @@ describeIfDb('canonical search hydration', () => {
       },
       { role: 'user', parts: [textPart('visible last')] },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
     const documentId = await firstDocumentId(ownerA, seeded.chatId);
 
@@ -340,6 +354,7 @@ describeIfDb('canonical search hydration', () => {
         usage: { status: 'completed' },
       },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
     const documentId = await firstDocumentId(ownerA, seeded.chatId);
 
@@ -389,6 +404,7 @@ describeIfDb('canonical search hydration', () => {
       },
       { role: 'user', parts: [textPart('follow-up')] },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
     const documentId = await firstDocumentId(ownerA, seeded.chatId);
     await expect(
@@ -417,6 +433,7 @@ describeIfDb('canonical search hydration', () => {
       },
       { role: 'user', parts: [textPart('visible last')] },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
     const documentId = await firstDocumentId(ownerA, seeded.chatId);
 
@@ -453,6 +470,7 @@ describeIfDb('canonical search hydration', () => {
   it('hydrates every overlapping oversized document from raw source text', async () => {
     const userText = `${'user '.repeat(900)}tail`;
     const assistantText = `${'assistant '.repeat(900)}tail`;
+
     const seeded = await seedChat(ownerA, [
       { role: 'user', parts: [textPart(userText)] },
       {
@@ -465,19 +483,24 @@ describeIfDb('canonical search hydration', () => {
         usage: { status: 'completed' },
       },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
 
     const documentIds = await documentIdsAs(ownerA, seeded.chatId);
     expect(documentIds.length).toBeGreaterThan(1);
+
     const hydrated = await Promise.all(
       documentIds.map((documentId) =>
         hydrateAs(ownerA, seeded.chatId, documentId),
       ),
     );
+
     expect(hydrated.every((document) => document !== null)).toBe(true);
+
     const sourceMessages = hydrated.flatMap(
       (document) => document?.messages ?? [],
     );
+
     expect(
       sourceMessages.some((message) => message.visibleText === userText),
     ).toBe(true);
@@ -530,6 +553,7 @@ describeIfDb('canonical search hydration', () => {
     const seeded = await seedChat(ownerA, [
       { role: 'user', parts: [textPart('stable source')] },
     ]);
+
     await indexService.reindexChat(seeded.chatId, ownerA);
     const documentId = await firstDocumentId(ownerA, seeded.chatId);
     await mutate(seeded.chatId, documentId);
@@ -547,6 +571,7 @@ describeIfDb('canonical search hydration', () => {
         usage: { status: 'completed' },
       },
     ]);
+
     await indexService.reindexChat(retryable.chatId, ownerA);
     const retryDocument = await firstDocumentId(ownerA, retryable.chatId);
     await tenantDb.runAs(ownerA, (tx) =>
@@ -562,6 +587,7 @@ describeIfDb('canonical search hydration', () => {
     const deleted = await seedChat(ownerA, [
       { role: 'user', parts: [textPart('deleted source')] },
     ]);
+
     await indexService.reindexChat(deleted.chatId, ownerA);
     const deletedDocument = await firstDocumentId(ownerA, deleted.chatId);
     await tenantDb.runAs(ownerA, (tx) =>
@@ -574,9 +600,11 @@ describeIfDb('canonical search hydration', () => {
     const foreign = await seedChat(ownerB, [
       { role: 'user', parts: [textPart('foreign source')] },
     ]);
+
     const owned = await seedChat(ownerA, [
       { role: 'user', parts: [textPart('owned source')] },
     ]);
+
     await indexService.reindexChat(foreign.chatId, ownerB);
     await indexService.reindexChat(owned.chatId, ownerA);
     const ownedDocument = await firstDocumentId(ownerA, owned.chatId);
@@ -600,6 +628,7 @@ describeIfDb('canonical search hydration', () => {
       { role: 'user', parts: [textPart('first source')] },
       { role: 'user', parts: [textPart('last source')] },
     ]);
+
     await indexService.reindexChat(ordered.chatId, ownerA);
     const orderedDocument = await firstDocumentId(ownerA, ordered.chatId);
     await updateDocument(

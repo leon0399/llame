@@ -51,6 +51,7 @@ describeIfDb(
     const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
       sql.begin(async (tx: SqlClient) => {
         await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
         return fn(tx);
       });
 
@@ -66,6 +67,7 @@ describeIfDb(
       ownerId = crypto.randomUUID();
       memberId = crypto.randomUUID();
       strangerId = crypto.randomUUID();
+
       for (const [id, name] of [
         [ownerId, 'Org Owner'],
         [memberId, 'Team Member'],
@@ -82,6 +84,7 @@ describeIfDb(
         await asUser(ownerId, async (tx) => {
           const units =
             await tx`SELECT id, path FROM org_units WHERE created_by = ${ownerId} ORDER BY length(path) DESC`;
+
           for (const u of units) {
             await tx`DELETE FROM org_units WHERE id = ${u.id}`;
           }
@@ -94,6 +97,7 @@ describeIfDb(
     it('harness is meaningful: non-superuser, RLS ENABLED + FORCED on all three tables', async () => {
       const [role] =
         await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
       expect(role.rolsuper).toBe(false);
       expect(role.rolbypassrls).toBe(false);
 
@@ -102,7 +106,9 @@ describeIfDb(
       FROM pg_class
       WHERE relname IN ('org_units', 'memberships', 'external_identities')
       ORDER BY relname`;
+
       expect(rows.length).toBe(3);
+
       for (const r of rows) {
         expect(r.relrowsecurity).toBe(true);
         expect(r.relforcerowsecurity).toBe(true);
@@ -116,6 +122,7 @@ describeIfDb(
         JOIN pg_type t ON t.oid = e.enumtypid
         WHERE t.typname = 'org_unit_type'
         ORDER BY e.enumsortorder`;
+
       const labels = rows.map((r) => r.enumlabel);
       expect(labels).toEqual(['organization', 'group', 'team', 'department']);
       expect(labels).not.toContain('project');
@@ -131,6 +138,7 @@ describeIfDb(
         name: 'Acme',
         type: 'organization',
       });
+
       rootId = root.id;
       expect(root.path).toBe(root.id);
 
@@ -138,6 +146,7 @@ describeIfDb(
         userId: ownerId,
         orgUnitId: rootId,
       });
+
       expect(role).toEqual({
         role: 'owner',
         viaOrgUnitId: rootId,
@@ -152,6 +161,7 @@ describeIfDb(
         name: 'Platform',
         type: 'team',
       });
+
       teamId = team.id;
       expect(team.path).toBe(`${rootId}/${teamId}`);
 
@@ -164,6 +174,7 @@ describeIfDb(
         name: 'Assistant',
         type: 'department',
       });
+
       projectId = project.id;
       expect(project.path).toBe(`${rootId}/${teamId}/${projectId}`);
     });
@@ -173,6 +184,7 @@ describeIfDb(
         strangerId,
         (tx) => tx`SELECT id FROM org_units WHERE id = ${rootId}`,
       );
+
       expect(visible.length).toBe(0);
 
       await expect(
@@ -220,6 +232,7 @@ describeIfDb(
         memberId,
         (tx) => tx`SELECT id FROM org_units ORDER BY path`,
       );
+
       const ids = visible.map((r) => r.id);
       expect(ids).toContain(teamId);
       expect(ids).toContain(projectId);
@@ -232,6 +245,7 @@ describeIfDb(
         userId: memberId,
         orgUnitId: projectId,
       });
+
       expect(projectRole).toEqual({
         role: 'member',
         viaOrgUnitId: teamId,
@@ -251,10 +265,12 @@ describeIfDb(
           role: 'member',
         }),
       ).rejects.toThrow(/not permitted to grant membership/i);
+
       const rows = await asUser(
         strangerId,
         (tx) => tx`SELECT id FROM memberships WHERE user_id = ${strangerId}`,
       );
+
       expect(rows.length).toBe(0);
     });
 
@@ -279,6 +295,7 @@ describeIfDb(
         (tx) =>
           tx`SELECT role FROM memberships WHERE org_unit_id = ${teamId} AND user_id = ${strangerId}`,
       );
+
       expect(granted).toEqual([{ role: 'owner' }]);
 
       // Clean up — later tests assume strangerId holds nothing on teamId.
@@ -321,6 +338,7 @@ describeIfDb(
         strangerId,
         (tx) => tx`SELECT id FROM memberships WHERE org_unit_id = ${teamId}`,
       );
+
       expect(granted.length).toBe(0);
 
       await sql`DELETE FROM users WHERE id = ${adminOnTeamId}`;
@@ -356,11 +374,13 @@ describeIfDb(
         (tx) =>
           tx`UPDATE memberships SET role = 'viewer' WHERE user_id = ${memberId} AND org_unit_id = ${teamId}`,
       );
+
       const memberNowViewer = await asUser(
         memberId,
         (tx) =>
           tx`SELECT role FROM memberships WHERE user_id = ${memberId} AND org_unit_id = ${teamId}`,
       );
+
       expect(memberNowViewer).toEqual([{ role: 'viewer' }]);
 
       // But the SAME admin cannot touch the co-owner's row at all — not
@@ -375,6 +395,7 @@ describeIfDb(
         (tx) =>
           tx`UPDATE memberships SET role = 'member' WHERE user_id = ${coOwnerId} AND org_unit_id = ${teamId}`,
       );
+
       expect(updateResult.count).toBe(0);
 
       const deleteResult = await asUser(
@@ -382,6 +403,7 @@ describeIfDb(
         (tx) =>
           tx`DELETE FROM memberships WHERE user_id = ${coOwnerId} AND org_unit_id = ${teamId}`,
       );
+
       expect(deleteResult.count).toBe(0);
 
       const stillOwner = await asUser(
@@ -389,6 +411,7 @@ describeIfDb(
         (tx) =>
           tx`SELECT role FROM memberships WHERE user_id = ${coOwnerId} AND org_unit_id = ${teamId}`,
       );
+
       expect(stillOwner).toEqual([{ role: 'owner' }]);
 
       // Cleanup: owner-tier (ownerId) can legitimately revoke the co-owner —
@@ -419,6 +442,7 @@ describeIfDb(
       const moved = await tenantDb.runAs(ownerId, (tx) =>
         new OrgUnitsRepository(tx).findById(projectId),
       );
+
       expect(moved?.path).toBe(`${rootId}/${ops.id}/${projectId}`);
       expect(moved?.parentId).toBe(ops.id);
 
@@ -428,6 +452,7 @@ describeIfDb(
         memberId,
         (tx) => tx`SELECT id FROM org_units WHERE id = ${projectId}`,
       );
+
       expect(visible.length).toBe(0);
     });
 
@@ -447,6 +472,7 @@ describeIfDb(
         strangerId,
         (tx) => tx`SELECT id FROM memberships`,
       );
+
       expect(foreign.length).toBe(0);
 
       await asUser(
@@ -455,15 +481,19 @@ describeIfDb(
           tx`INSERT INTO external_identities (user_id, provider, external_subject)
            VALUES (${memberId}, 'telegram', ${`tg-${memberId}`})`,
       );
+
       const mine = await asUser(
         memberId,
         (tx) => tx`SELECT provider FROM external_identities`,
       );
+
       expect(mine.length).toBe(1);
+
       const others = await asUser(
         ownerId,
         (tx) => tx`SELECT provider FROM external_identities`,
       );
+
       expect(others.length).toBe(0);
     });
 
@@ -471,6 +501,7 @@ describeIfDb(
       const rows = await sql.begin(
         (tx: SqlClient) => tx`SELECT id FROM org_units`,
       );
+
       expect(rows.length).toBe(0);
     });
 
@@ -484,20 +515,24 @@ describeIfDb(
           role: 'viewer',
         });
       });
+
       const demoted = await identity.resolveRole({
         userId: ownerId,
         orgUnitId: teamId,
       });
+
       expect(demoted).toEqual({
         role: 'viewer',
         viaOrgUnitId: teamId,
         inherited: false,
       });
+
       // Root scope is untouched.
       const atRoot = await identity.resolveRole({
         userId: ownerId,
         orgUnitId: rootId,
       });
+
       expect(atRoot?.role).toBe('owner');
     });
   },

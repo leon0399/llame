@@ -11,6 +11,7 @@ import { SessionTokenService } from './session-token.service';
 import type { Session, User } from '../db/schema';
 
 import type { Mocked } from 'vitest';
+
 const user: User = {
   id: 'user-1',
   name: 'Alice',
@@ -63,6 +64,7 @@ function makeService(overrides?: {
   };
 
   const tokenService = new SessionTokenService();
+
   const service = new AuthService(
     users,
     sessions,
@@ -83,11 +85,13 @@ describe('AuthService', () => {
     const password = 'correct horse battery staple';
     const passwordHash = 'stored-bcrypt-hash';
     const passwordUser = { ...user, password: passwordHash };
+
     const { service, users, sessions, tokenService, passwordService } =
       makeService({
         users: { getUserByEmail: vi.fn().mockResolvedValue(passwordUser) },
         passwordService: { compare: vi.fn().mockResolvedValue(true) },
       });
+
     sessions.create.mockImplementation((input) =>
       Promise.resolve({
         id: 'session-1',
@@ -127,6 +131,7 @@ describe('AuthService', () => {
 
   it('registers a normalized email, hashes the password, and issues a session', async () => {
     const created: User = { ...user, password: 'hashed-password' };
+
     const { service, users, passwordService, sessions } = makeService({
       users: {
         getUserByEmail: vi.fn().mockResolvedValue(undefined),
@@ -172,6 +177,7 @@ describe('AuthService', () => {
     const uniqueFailure = Object.assign(new Error('duplicate'), {
       code: '23505',
     });
+
     const { service: uniqueService } = makeService({
       users: {
         getUserByEmail: vi.fn().mockResolvedValue(undefined),
@@ -188,6 +194,7 @@ describe('AuthService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     const otherFailure = new Error('database offline');
+
     const { service: otherService } = makeService({
       users: {
         getUserByEmail: vi.fn().mockResolvedValue(undefined),
@@ -195,6 +202,7 @@ describe('AuthService', () => {
       },
       passwordService: { hash: vi.fn().mockResolvedValue('hash') },
     });
+
     await expect(
       otherService.register(
         { email: 'alice@example.com', name: 'Alice', password: 'secret' },
@@ -209,6 +217,7 @@ describe('AuthService', () => {
         getUserByEmail: vi.fn().mockResolvedValue({ ...user, password: null }),
       },
     });
+
     await expect(
       missingPasswordService.login(
         { email: 'alice@example.com', password: 'secret' },
@@ -221,6 +230,7 @@ describe('AuthService', () => {
       users: { getUserByEmail: vi.fn().mockResolvedValue(user) },
       passwordService: { compare: vi.fn().mockResolvedValue(false) },
     });
+
     await expect(
       mismatchService.login(
         { email: 'alice@example.com', password: 'wrong' },
@@ -260,6 +270,7 @@ describe('AuthService', () => {
     const { service } = makeService({
       users: { getUserById: vi.fn().mockResolvedValue(user) },
     });
+
     await expect(service.getCurrentUser(user.id)).resolves.toEqual({
       id: user.id,
       name: user.name,
@@ -271,6 +282,7 @@ describe('AuthService', () => {
     const { service: missingService } = makeService({
       users: { getUserById: vi.fn().mockResolvedValue(undefined) },
     });
+
     await expect(missingService.getCurrentUser(user.id)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
@@ -278,6 +290,7 @@ describe('AuthService', () => {
 
   it('lists sessions and marks only the current session', async () => {
     const second = { ...session, id: 'session-2' };
+
     const { service, sessions } = makeService({
       sessions: { listForUser: vi.fn().mockResolvedValue([session, second]) },
     });
@@ -298,6 +311,7 @@ describe('AuthService', () => {
     const { service, sessions } = makeService({
       sessions: { findByIdForUser: vi.fn().mockResolvedValue(session) },
     });
+
     await expect(
       service.getCurrentSession(user.id, session.id),
     ).resolves.toEqual(

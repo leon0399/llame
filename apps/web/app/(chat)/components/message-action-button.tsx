@@ -46,6 +46,7 @@ export function MessageActionButton({
       <Icon aria-hidden="true" />
     </Button>
   );
+
   return (
     <Tooltip>
       {buttonProps.disabled ? (

@@ -15,12 +15,14 @@ const adapter = createBlueskyAdapter(
   { id: 'bluesky', use: 'bluesky' },
   { apiOrigin: API_ORIGIN },
 );
+
 /** Marks an author as self-labeled `!no-unauthenticated`; `author` fills in
  *  the label's `src` with that author's own DID. */
 const HIDDEN = [{ val: '!no-unauthenticated' }];
 
 function author(handle: string, extra: JsonObject = {}): JsonObject {
   const did = `did:plc:${handle.split('.')[0]}`;
+
   return {
     did,
     handle,
@@ -60,6 +62,7 @@ function xrpc(method: string, params: Record<string, string>): string {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return {
     outcome,
     urls: run.requests.map(({ url }) => url),
@@ -69,13 +72,16 @@ async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
 
 function contentOf(outcome: WebAdapterOutcome) {
   if (outcome.kind !== 'rendered') throw new Error(JSON.stringify(outcome));
+
   return outcome.content;
 }
 
 const THREAD_URL = xrpc('app.bsky.feed.getPostThread', {
   uri: 'at://alice.test/app.bsky.feed.post/p1',
 });
+
 const PROFILE_URL = xrpc('app.bsky.actor.getProfile', { actor: 'alice.test' });
+
 const FEED_URL = xrpc('app.bsky.feed.getAuthorFeed', {
   actor: 'did:plc:alice',
   filter: 'posts_no_replies',
@@ -95,6 +101,7 @@ describe('Bluesky adapter claim', () => {
 
   it('requests a DID profile spelled with %3A, as read requires', async () => {
     const url = xrpc('app.bsky.actor.getProfile', { actor: 'did:plc:abc' });
+
     const failure: WebFetchFailure = {
       type: 'http_status',
       message: 'HTTP 400',
@@ -129,6 +136,7 @@ describe('Bluesky adapter posts', () => {
   it('renders a thread in x.md order with labels, embeds, and links', async () => {
     const text = 'Read café notes at example.com/very… now';
     const start = Buffer.byteLength('Read café notes at ');
+
     const focal = {
       ...post('alice.test', 'p1', text, {
         author: { displayName: 'Alice' },
@@ -182,6 +190,7 @@ describe('Bluesky adapter posts', () => {
         ],
       },
     };
+
     const thread = node(focal, {
       parent: node(post('root.test', 'r0', 'Root post'), {
         parent: node(
@@ -271,6 +280,7 @@ describe('Bluesky adapter posts', () => {
       $type: 'app.bsky.embed.record#view',
       record,
     });
+
     const thread = node(
       post('alice.test', 'p1', '', {
         embed: {
@@ -356,11 +366,13 @@ describe('Bluesky adapter posts', () => {
 
   it('falls through on status, rate limit, and malformed thread payloads', async () => {
     const source = 'https://bsky.app/profile/alice.test/post/p1';
+
     const notFound: WebFetchFailure = {
       type: 'http_status',
       message: 'HTTP 400',
       httpStatus: 400,
     };
+
     const limited: WebFetchFailure = {
       type: 'http_status',
       message: 'HTTP 429',
@@ -389,6 +401,7 @@ describe('Bluesky adapter profiles', () => {
     followsCount: 7,
     postsCount: 89,
   });
+
   const header = [
     '# [Alice (@alice.test)](https://bsky.app/profile/alice.test)',
     '',
@@ -435,6 +448,7 @@ describe('Bluesky adapter profiles', () => {
       message: 'HTTP 429',
       httpStatus: 429,
     };
+
     const deadline: WebFetchFailure = {
       type: 'call_timeout',
       message: 'deadline',
@@ -449,6 +463,7 @@ describe('Bluesky adapter profiles', () => {
         [PROFILE_URL, response(profile)],
         [FEED_URL, reply],
       ]);
+
       expect(outcome).toStrictEqual({
         kind: 'rendered',
         content: header,
@@ -515,6 +530,7 @@ describe('Bluesky adapter follow lists', () => {
     'renders /%s with hidden accounts skipped',
     async (list, method, title) => {
       const url = xrpc(method, { actor: 'alice.test', limit: '100' });
+
       const page = {
         subject: author('alice.test', { displayName: 'Alice' }),
         [list]: [
@@ -548,6 +564,7 @@ describe('Bluesky adapter follow lists', () => {
       actor: 'alice.test',
       limit: '100',
     });
+
     const page = {
       subject: author('alice.test', { labels: HIDDEN }),
       followers: [author('bob.test')],
