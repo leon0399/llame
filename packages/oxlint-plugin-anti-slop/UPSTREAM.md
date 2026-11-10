@@ -41,7 +41,12 @@ after rebasing instead of merging blank lines by hand.
 [`LICENSE`](vendor/eslint-stylistic/LICENSE) and
 [`UPSTREAM.md`](vendor/eslint-stylistic/UPSTREAM.md). It typechecks under this
 package's strict `tsconfig.json` without `@ts-nocheck`; like the rest of
-`vendor/`, it is excluded from llame's lint rules.
+`vendor/`, it is excluded from llame's lint rules. Its `UPSTREAM.md` is
+upstream's text: the `pnpm check` and `pnpm sync:skill-assets` steps and
+`require-readable-spacing-cli.test.ts` it names exist upstream only. That CLI
+test was not ported. In llame, `pnpm lint` runs the rule through the native
+Oxlint CLI on every workspace, which covers plugin loading and rejection;
+repeated-fix stability has no llame test.
 
 ## Deliberately not adopted from the current revision
 
