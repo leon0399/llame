@@ -11,6 +11,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   instead of merging blank lines by hand. Provenance is in
   `packages/oxlint-plugin-anti-slop/UPSTREAM.md`.
 
+- The pull-request mutation gate ignores hunks that only add or remove blank
+  lines. Such a hunk holds no mutant, and merging nearby blank-line hunks had
+  widened the scope to the untouched code between them, so a spacing-only
+  change could time out every API mutation shard.
+
 # 2026-11-08
 
 - **Steer a Run from the composer.** While a Run is active, Send becomes a
